@@ -1,6 +1,7 @@
-// The Android app: a full-screen WebView over the web build (dist/web,
-// copied into assets/web by scripts/build-android.sh), served from
-// https://appassets.androidplatform.net so that fetch() and WebAssembly work.
+// The Android app, natively: the engine as a native library
+// (crates/rg_android, built into src/main/jniLibs by scripts/build-android.sh)
+// and a Java host that paints its draw stream on a Canvas. The games' pack and
+// the font are in src/main/assets. No WebView, no WebAssembly.
 plugins {
     id "com.android.application"
 }
@@ -11,11 +12,11 @@ android {
 
     defaultConfig {
         applicationId "fi.rangergames"
-        // Android 7.0: phones from 2016 on; the WebView needs WebAssembly (Chrome 57+)
+        // Android 7.0: phones from 2016 on
         minSdk 24
         targetSdk 34
-        versionCode 1
-        versionName "0.1.0"
+        versionCode 2
+        versionName "0.2.0"
     }
 
     buildTypes {
@@ -31,12 +32,7 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
-    // the engine is already compressed best by gzip in the APK; keep wasm as is
     androidResources {
-        noCompress "wasm", "rgpk"
+        noCompress "rgpk", "ttf"
     }
-}
-
-dependencies {
-    implementation "androidx.webkit:webkit:1.11.0"
 }
