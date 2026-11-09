@@ -64,7 +64,7 @@ def voice():
         "m_nalka": "Lintu on nälkäinen. Syö ruokaa matkalla!",
         "m_namia": "Nam!",
         "m_valmis": "Hienoa! Lensit koko vuoden ympäri.",
-        "m_aurinko": "Kesällä aurinko paistaa korkealta, ja talvella matalalta.",
+        "m_aurinko": "Kello on yhdeksän aamulla. Kesällä aurinko on silloin jo korkealla, ja vuorten varjot ovat lyhyitä. Talvella aurinko on matalalla ja varjot ovat pitkiä.",
         "m_kesa_suomi": "Suomessa on nyt kesä. Aurinko paistaa yölläkin.",
         "m_talvi_suomi": "Suomessa on nyt talvi ja pimeää.",
         "m_reitti": "Seuraa pisteitä. Ne näyttävät linnun oikean reitin.",
