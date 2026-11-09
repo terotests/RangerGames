@@ -40,7 +40,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
 | `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
-| `tampere` – **Liikenneretki** | Tampereen keskusta (2,4 × 1,4 km) ylhäältä: kävele kotoa (Tampellan esplanadi, Juhannuskylän koulu, Jussinkylän päiväkoti, Yliopistonkatu 39) puistoon, kouluun, äidin luo tai nähtävyydelle. Kadun yli vain suojatietä: valoissa odotetaan vihreää, muualla varotaan autoja, pyörätiellä pyöräilijöitä. Ratikalla (linjat 1 ja 3) voi matkustaa pysäkiltä toiselle. Kartta Tampere Taxi Driverin aineistosta (OSM + Tampereen kaupunki), `tools/tampere/build_map.py`. Ohjaus: pidä sormea siellä, minne haluat kävellä (tai nuolinäppäimet). |
+| `tampere` – **Liikenneretki** | Tampereen keskusta (2,4 × 1,4 km) ylhäältä: kävele äidin tai isän luota, koulusta tai päiväkodista puistoon, kouluun, kotiin tai nähtävyydelle. Kadun yli vain suojatietä: valoissa odotetaan vihreää, muualla varotaan autoja, pyörätiellä pyöräilijöitä. Ratikalla (linjat 1 ja 3) voi matkustaa pysäkiltä toiselle. Kartta Tampere Taxi Driverin aineistosta (OSM + Tampereen kaupunki), `tools/tampere/build_map.py`. Ohjaus: pidä sormea siellä, minne haluat kävellä (tai nuolinäppäimet). |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
