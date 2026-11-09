@@ -33,6 +33,15 @@ function init() {
   best = rg.load("best", [0, 0, 0]);
 }
 
+// speech (rg.say): the sum is said aloud for children who cannot read numbers yet
+const PRAISE = ["hyva", "hienoa", "mahtavaa", "oikein", "loistavaa", "jee", "taitava", "osaat"];
+let praiseN = 0;
+function praise() { praiseN++; return PRAISE[praiseN % PRAISE.length]; }
+function instruct() {
+  const L = LEVELS[level];
+  rg.say([rg.sayId.number(a), L.minus ? "miinus" : "plus", rg.sayId.number(b), L.minus ? "jaljelle" : "yhteensa"]);
+}
+
 function next() {
   const L = LEVELS[level];
   if (L.minus) {
@@ -53,6 +62,7 @@ function next() {
   fruit = rg.pick(FRUIT);
   firstTry = true;
   solved = -1;
+  instruct();
 }
 
 function startLevel(i: number) {
@@ -71,6 +81,7 @@ function pick(i: number) {
     if (firstTry) right++;
     rg.celebrate(60 + i * 120, height - 150, { sound: false });
     rg.sound(firstTry ? "star" : "coin");
+    rg.say([rg.sayId.number(answer), praise()]);
     for (let k = 0; k < 24; k++) {
       const ang = rg.random() * Math.PI * 2, sp = 80 + rg.random() * 220;
       sparks.push({ x: 60 + i * 120, y: height - 150, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 120, t: 0, c: rg.pick(SPARK) });
@@ -80,6 +91,7 @@ function pick(i: number) {
     shake = { i, t };
     rg.sound("wrong");
     rg.vibrate(60);
+    rg.say("kokeile_toista");
   }
 }
 
@@ -93,6 +105,7 @@ function tick(dt: number) {
       mode = "done";
       if (right > best[level]) { best[level] = right; rg.save("best", best); }
       if (right >= 5) rg.celebrate(width / 2, height * 0.3, { big: true }); else rg.sound("coin");
+      rg.say(right >= 2 ? [right >= 8 ? "mahtavaa" : right >= 5 ? "hienoa" : "hyvin_meni", "sait", rg.sayId.number(right), "tahtea"] : ["hyvin_meni"]);
     } else next();
   }
 }
@@ -120,7 +133,7 @@ function Question() {
       ) : (
         <div className="groups">{Group(a, 0)}<div className="op">+</div>{Group(b, 0)}</div>
       )}
-      <div className="sum">{a} {L.minus ? "−" : "+"} {b} = {done ? answer : "?"}</div>
+      <div className="sum" id="sum" onClick={() => instruct()}>🔊 {a} {L.minus ? "−" : "+"} {b} = {done ? answer : "?"}</div>
     </div>
   );
 }

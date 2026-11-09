@@ -5,6 +5,7 @@ import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.ArrayList;
@@ -14,6 +15,9 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * The games' sounds, synthesized as web/js/audio.js does with WebAudio:
  * the same built-in effects and little looping tunes, mixed here in
  * software into one AudioTrack (no files, works offline and on old phones).
+ * WAV files from the engine's virtual directory play too: the games' sound
+ * files and the Finnish voice clips of {@code rg.say} (8-bit μ-law WAVs from
+ * crates/rg_voice), one after another on their own speech channel.
  */
 final class Sound implements Runnable {
     private static final int RATE = 22050;
@@ -28,6 +32,20 @@ final class Sound implements Runnable {
         long at, len;
         // the noise's band-pass filter state
         double x1, x2, y1, y2;
+        /** a sound file's samples at RATE, or null for a synthesized voice */
+        short[] pcm;
+    }
+
+    /** A voice clip on the speech channel. */
+    private static final class Clip {
+        final short[] pcm;
+        final double vol;
+        int pos;
+
+        Clip(short[] pcm, double vol) {
+            this.pcm = pcm;
+            this.vol = vol;
+        }
     }
 
     /** A tune: [midi note or 0, beats] … */
@@ -51,6 +69,10 @@ final class Sound implements Runnable {
     private final ConcurrentLinkedQueue<Voice> incoming = new ConcurrentLinkedQueue<>();
     private final ArrayList<Voice> voices = new ArrayList<>();
     private final java.util.Random random = new java.util.Random();
+    /** decoded sound files by path (the game thread's) */
+    private final java.util.HashMap<String, short[]> files = new java.util.HashMap<>();
+    /** the speech channel: clips said one after another (guarded by itself) */
+    private final ArrayList<Clip> speech = new ArrayList<>();
     private volatile boolean running;
     private volatile boolean paused;
     private Thread thread;
@@ -153,10 +175,103 @@ final class Sound implements Runnable {
                 tone(wave(o != null ? o.optString("wave", "triangle") : "triangle"), f * p, f * p, o != null ? o.optDouble("len", 0.3) : 0.3, 0.25 * vol, 0);
                 break;
             }
-            default:
-                // sound files of the game's folder are not played natively yet
+            default: {
+                short[] pcm = file(name);
+                if (pcm == null) break;
+                Voice v = new Voice();
+                v.pcm = pcm;
+                v.vol = vol;
+                v.at = now;
+                v.len = pcm.length;
+                incoming.add(v);
                 break;
+            }
         }
+    }
+
+    /** rg.say: { list: [paths], queue, volume }. A new list cuts the old one unless queue. */
+    void say(JSONObject o) {
+        JSONArray list = o != null ? o.optJSONArray("list") : null;
+        double vol = (o != null ? o.optDouble("volume", 1) : 1) * 1.6;
+        ArrayList<Clip> add = new ArrayList<>();
+        if (list != null && !paused) {
+            for (int i = 0; i < list.length(); i++) {
+                short[] pcm = file(list.optString(i));
+                if (pcm != null) add.add(new Clip(pcm, vol));
+            }
+        }
+        synchronized (speech) {
+            if (o == null || !o.optBoolean("queue", false)) speech.clear();
+            speech.addAll(add);
+        }
+    }
+
+    /** A WAV file of the virtual directory as samples at RATE (cached), or null. */
+    private short[] file(String path) {
+        if (files.containsKey(path)) return files.get(path);
+        short[] pcm = null;
+        try {
+            byte[] b = Engine.read(path);
+            if (b != null) pcm = decodeWav(b);
+        } catch (Throwable ignored) {
+        }
+        files.put(path, pcm);
+        return pcm;
+    }
+
+    private static int u16(byte[] b, int i) {
+        return (b[i] & 0xff) | (b[i + 1] & 0xff) << 8;
+    }
+
+    private static int u32(byte[] b, int i) {
+        return u16(b, i) | u16(b, i + 2) << 16;
+    }
+
+    private static int mulaw(int u) {
+        u = ~u & 0xff;
+        int t = (((u & 0x0f) << 3) + 0x84) << ((u & 0x70) >> 4);
+        return (u & 0x80) != 0 ? 0x84 - t : t - 0x84;
+    }
+
+    /** 8/16-bit PCM or 8-bit μ-law WAV → mono 16-bit at RATE (first channel, linear resampling). */
+    static short[] decodeWav(byte[] b) {
+        if (b.length < 44 || b[0] != 'R' || b[1] != 'I' || b[2] != 'F' || b[3] != 'F') return null;
+        int fmt = 0, ch = 1, rate = RATE, bits = 16, at = 12;
+        while (at + 8 <= b.length) {
+            String id = new String(b, at, 4, java.nio.charset.StandardCharsets.US_ASCII);
+            int size = u32(b, at + 4);
+            if (id.equals("fmt ")) {
+                fmt = u16(b, at + 8);
+                ch = Math.max(1, u16(b, at + 10));
+                rate = u32(b, at + 12);
+                bits = u16(b, at + 22);
+            } else if (id.equals("data")) {
+                if (!(fmt == 1 || fmt == 7) || rate <= 0) return null;
+                int step = bits / 8 * ch;
+                if (step <= 0) return null;
+                int n = Math.min(size, b.length - at - 8) / step;
+                short[] src = new short[n];
+                int p = at + 8;
+                for (int i = 0; i < n; i++, p += step) {
+                    if (fmt == 7) src[i] = (short) mulaw(b[p] & 0xff);
+                    else if (bits == 16) src[i] = (short) u16(b, p);
+                    else src[i] = (short) (((b[p] & 0xff) - 128) << 8);
+                }
+                if (rate == RATE) return src;
+                int m = (int) ((long) n * RATE / rate);
+                short[] out = new short[m];
+                for (int i = 0; i < m; i++) {
+                    double x = (double) i * rate / RATE;
+                    int k = (int) x;
+                    double f = x - k;
+                    int a = src[Math.min(k, n - 1)], c = src[Math.min(k + 1, n - 1)];
+                    out[i] = (short) (a + (c - a) * f);
+                }
+                return out;
+            }
+            at += 8 + size + (size & 1);
+        }
+        return null;
     }
 
     void music(String name, JSONObject o) {
@@ -225,6 +340,9 @@ final class Sound implements Runnable {
             long start = now;
             if (paused) {
                 voices.clear();
+                synchronized (speech) {
+                    speech.clear();
+                }
                 java.util.Arrays.fill(buf, (short) 0);
             } else {
                 sequence(start + frames);
@@ -236,6 +354,10 @@ final class Sound implements Runnable {
                         long i = start + s - v.at;
                         if (i < 0) continue;
                         if (i >= v.len) break;
+                        if (v.pcm != null) {
+                            mix[s] += v.pcm[(int) i] / 32768.0 * v.vol;
+                            continue;
+                        }
                         double f = v.f0 == v.f1 ? v.f0 : v.f0 * Math.pow(v.f1 / v.f0, (double) i / v.len);
                         double out;
                         if (v.noise) {
@@ -258,6 +380,20 @@ final class Sound implements Runnable {
                         mix[s] += out;
                     }
                     if (start + frames - v.at >= v.len) voices.remove(vi);
+                }
+                // speech on top, the rest a little quieter while it talks
+                synchronized (speech) {
+                    if (!speech.isEmpty()) {
+                        for (int s = 0; s < frames; s++) mix[s] *= 0.5;
+                        int s = 0;
+                        while (s < frames && !speech.isEmpty()) {
+                            Clip c = speech.get(0);
+                            while (s < frames && c.pos < c.pcm.length) {
+                                mix[s++] += c.pcm[c.pos++] / 32768.0 * c.vol;
+                            }
+                            if (c.pos >= c.pcm.length) speech.remove(0);
+                        }
+                    }
                 }
                 for (int s = 0; s < frames; s++) {
                     double m = mix[s] * MASTER;

@@ -21,6 +21,7 @@ function newRound() {
   clock = 0;
   goAt = 1.4 + rg.random() * 2.6;
   early = false;
+  if (score[0] + score[1] === 0) { rg.say("odota_vihreaa"); goAt += 1.2; }
 }
 
 function tick(dt: number) {
@@ -29,7 +30,7 @@ function tick(dt: number) {
   flash = flash.map((f) => Math.max(0, f - dt * 3));
   if (mode === "wait" && clock >= goAt) { mode = "go"; clock = 0; rg.sound("note", { note: 84, len: 0.25, wave: "square" }); }
   if (mode === "point" && clock > 1.6) {
-    if (score[0] >= WIN || score[1] >= WIN) { mode = "won"; clock = 0; rg.celebrate(width / 2, score[0] >= WIN ? height * 0.75 : height * 0.25, { big: true }); rg.vibrate([100, 60, 100, 60, 300]); }
+    if (score[0] >= WIN || score[1] >= WIN) { mode = "won"; clock = 0; rg.celebrate(width / 2, score[0] >= WIN ? height * 0.75 : height * 0.25, { big: true }); rg.say(score[0] >= WIN ? "sininen_voitti" : "punainen_voitti"); rg.vibrate([100, 60, 100, 60, 300]); }
     else newRound();
   }
 }
@@ -49,6 +50,7 @@ function tap(p: number) {
     mode = "point"; clock = 0;
     rg.sound("wrong");
     rg.vibrate(150);
+    rg.say(["liian_aikaisin", last === 0 ? "sininen_piste" : "punainen_piste"]);
   } else if (mode === "go") {
     reaction = clock;
     early = false;
@@ -57,6 +59,7 @@ function tap(p: number) {
     mode = "point"; clock = 0;
     rg.sound("coin");
     rg.vibrate(40);
+    if (score[p] < WIN) rg.say(p === 0 ? "sininen_piste" : "punainen_piste");
   }
 }
 

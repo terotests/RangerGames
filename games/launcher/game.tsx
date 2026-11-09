@@ -38,6 +38,7 @@ function open(id: string) {
   leaveClock = 0;
   rg.sound("click");
   rg.vibrate(15);
+  rg.say("peli_" + id);  // the game's name aloud (a clip in voice/fi.json, if there is one)
 }
 
 function players(p: string) {

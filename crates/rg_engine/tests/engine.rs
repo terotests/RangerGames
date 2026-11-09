@@ -73,3 +73,39 @@ fn a_syntax_error_names_the_file() {
     let err = e.start("t").unwrap_err();
     assert!(err.contains("/games/t/game.tsx"), "{}", err);
 }
+
+#[test]
+fn say_queues_voice_clips_by_id() {
+    let mut e = engine(
+        r#"
+        let said = false;
+        function tick() {
+          if (!said) {
+            said = true;
+            rg.say("hyva");
+            rg.say(["valitse", rg.sayId.number(7), rg.sayId.letter("Ä"), rg.sayId.word("Pöllö")], { queue: true });
+            rg.stopSay();
+          }
+        }
+        function view() { return <div />; }"#,
+        "",
+    );
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    let cmds = e.take_host_commands();
+    let says: Vec<_> = cmds.iter().filter(|c| c.kind == "say").collect();
+    assert_eq!(says.len(), 3);
+    assert_eq!(says[0].name, "/games/_voice/fi/hyva.wav");
+    let list: Vec<String> = says[1].args.get("list").items().iter().map(|j| j.as_str()).collect();
+    assert_eq!(
+        list,
+        vec![
+            "/games/_voice/fi/valitse.wav",
+            "/games/_voice/fi/n7.wav",
+            "/games/_voice/fi/kirjain_ae.wav",
+            "/games/_voice/fi/sana_pollo.wav"
+        ]
+    );
+    assert!(says[1].args.get("queue").as_bool());
+    assert_eq!(says[2].args.get("list").items().len(), 0);
+}

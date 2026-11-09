@@ -12,3 +12,4 @@ node_modules
 /android/.kotlin
 games/*/places.local.js
 __pycache__/
+games/_voice/

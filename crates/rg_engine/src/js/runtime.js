@@ -47,6 +47,28 @@ var rg = {
   // "lose", "pop", "hit", "tick", "whoosh", "note") or a file in the game's
   // folder ("sounds/hop.wav"); opts: { volume, pitch, freq }
   sound: function (name, opts) { __cmds.push(["sound", String(name), opts === undefined ? null : opts]); },
+  // speech: Finnish voice clips (voice/fi.json, rendered by crates/rg_voice
+  // into /games/_voice/fi). rg.say("hyva"), or a list said one after another:
+  // rg.say(["valitse", "punainen"]). A new say cuts the one playing unless
+  // opts.queue; opts: { volume, queue }. rg.say([]) or rg.stopSay() is quiet.
+  say: function (ids, opts) {
+    var list = [], a = Array.isArray(ids) ? ids : [ids];
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] === undefined || a[i] === null || a[i] === "") continue;
+      var id = String(a[i]);
+      list.push(id.charAt(0) === "/" ? id : "/games/_voice/fi/" + id + ".wav");
+    }
+    var o = { list: list };
+    if (opts) for (var k in opts) o[k] = opts[k];
+    __cmds.push(["say", list.length ? list[0] : "", o]);
+  },
+  stopSay: function () { rg.say([]); },
+  // the clip id of a number (0–20) or a letter ("Ä" → "kirjain_ae")
+  sayId: {
+    number: function (n) { return n >= 0 && n <= 20 ? "n" + Math.round(n) : ""; },
+    letter: function (c) { var l = String(c).toLowerCase(); return "kirjain_" + (l === "ä" || l === "Ä" ? "ae" : l === "ö" || l === "Ö" ? "oe" : l); },
+    word: function (w) { return "sana_" + String(w).toLowerCase().split("ä").join("a").split("Ä").join("a").split("ö").join("o").split("Ö").join("o"); }
+  },
   music: function (name, opts) { __cmds.push(["music", String(name), opts === undefined ? null : opts]); },
   stopMusic: function () { __cmds.push(["stop", "music", null]); },
   // a vibration in milliseconds, or a pattern [on, off, on, …]

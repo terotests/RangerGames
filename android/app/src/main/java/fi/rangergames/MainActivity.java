@@ -285,6 +285,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         JSONObject opts = args instanceof JSONObject ? (JSONObject) args : null;
         switch (kind) {
             case "sound": sound.play(name, opts); break;
+            case "say": sound.say(opts); break;
             case "music": sound.music(name, opts); break;
             case "stop": sound.stopMusic(); break;
             case "vibrate": vibrate(args); break;

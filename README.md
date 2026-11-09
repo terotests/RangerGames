@@ -27,6 +27,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `crates/rg_web` | Moottori WebAssemblynä (`wasm32-wasip1`, C ABI) selaimelle. |
 | `crates/rg_android` | Moottori natiivina kirjastona (NDK, JNI) Android-sovellukselle: ei WebViewiä eikä WebAssemblyä, toimii vanhoillakin puhelimilla. |
 | `crates/rg_cli` | Moottori ilman ruutua: `pack`, `run`, `test` (CI ajaa kaikki pelit). |
+| `crates/chimera`, `crates/rg_voice` | Puhesyntetisaattori (CHIMERA, MIT) ja suomen ääntäminen; renderöi `voice/fi.json`:n klipit `rg.say`:lle. |
 | `web/` | Selain-host: canvas-maalari, WebAudio-äänet (syntetisoidut efektit ja pikku melodiat), värinä, tallennus localStorageen, Three.js-kerros, PWA. |
 | `android/` | Android-sovellus natiivisti: Java-host piirtää moottorin piirtovirran Canvasille (`Painter`), syntetisoi äänet AudioTrackilla (`Sound`), värinä, tallennukset ja Takaisin-nappi. |
 | `games/` | Pelit: kukin oma kansio (`game.json`, `game.tsx`, `style.css`, kuvat, äänet). |
@@ -101,6 +102,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `input.keys`, `input.pointer`, `input.pointers` | syötteen tila (`tick(dt, input)`) |
 | `onClick`, `onPointerDown`, `onPointerUp` JSX-elementeissä | napautukset (EVG:n osumatesti) |
 | `rg.sound(nimi, {volume, pitch})` | efektit `jump coin click tick pop hit lose win whoosh star wrong note`, tai äänitiedosto pelin kansiosta |
+| `rg.say(id \| [id, …], {queue, volume})`, `rg.stopSay()` | suomenkielinen puhe: valmiit klipit `voice/fi.json`:sta, lista sanotaan peräkkäin (`rg.say(["valitse", "punainen"])`). `rg.sayId.number(7)`, `rg.sayId.letter("Ä")`, `rg.sayId.word("Pöllö")` antavat klipin id:n |
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
 | `rg.vibrate(ms \| [kuvio])` | värinä |
 | `rg.save(avain, arvo)`, `rg.load(avain, oletus)` | tallennus (`/save/<peli>.json` → localStorage / Android) |
@@ -108,6 +110,30 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `rg.random()`, `rg.range()`, `rg.pick()`, `rg.shuffle()` | siemenellinen satunnaisuus (sama kaikilla alustoilla kuin rg_core:n `Rng`) |
 | `rg.ease.*`, `rg.lerp`, `rg.clamp`, `rg.hit(a, b)` | apufunktiot |
 | `rg.launch(id)`, `rg.exit()` | pelistä toiseen / valikkoon |
+
+## Puhe (suomeksi)
+
+Pelit puhuvat, jotta lukutaidoton lapsi pystyy pelaamaan: ohjeet, kehut,
+numerot, värit, kirjainten nimet ja Aakkosten kuvasanat. Puhe syntetisoidaan
+**CHIMERA**-puhesyntetisaattorilla (Jameson Hodge, MIT,
+[chimera-vocal-synth](https://github.com/jamesondh/chimera-vocal-synth)):
+se mallintaa fysikaalisesti ilmatiet (keuhkot, äänihuulet, ääntöväylä, huulet,
+nenä). Moottori on mukana sellaisenaan (`crates/chimera`), ja
+`crates/rg_voice` lisää suomen ääntämissäännöt (kirjoitus → IPA:
+kaksoiskirjain = pitkä äänne, `ng` = ŋː, paino ensitavulla, numerot sanoiksi).
+
+Klipit renderöidään etukäteen, joten vanha puhelin vain soittaa ne:
+
+```sh
+cargo run --release -p rg_voice -- build voice/fi.json games/_voice/fi   # build-skriptit tekevät tämän
+cargo run --release -p rg_voice -- say "Hyvä, osaat!" koe.wav female 215 0.9   # kokeile lausetta
+cargo run --release -p rg_voice -- ipa "Käänny vasemmalle."                    # näytä ääntämys
+```
+
+Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
+`{ "text": …, "rate": 0.8, "f0": 240, "body": "child" }`). Klipit ovat 22 kHz
+8-bittisiä μ-law WAVeja (n. 25 kt/s); web-host ja Androidin `Sound.java`
+purkavat ne itse.
 
 ## Mitä on korjattu Rangerin/EVG:n puolelta (paikattu tässä, ei upstreamissa)
 
