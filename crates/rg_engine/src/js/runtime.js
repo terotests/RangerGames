@@ -25,6 +25,7 @@ var __saved = {};
 var __game = "";
 var __dir = "/";
 var __games = [];
+var __voices = {};        // lang -> { clip id: true } (the clips of the other languages than Finnish)
 var __launcher = false;
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
 var __downTarget = {};
@@ -55,20 +56,39 @@ var rg = {
   // "lose", "pop", "hit", "tick", "whoosh", "note") or a file in the game's
   // folder ("sounds/hop.wav"); opts: { volume, pitch, freq }
   sound: function (name, opts) { __cmds.push(["sound", String(name), opts === undefined ? null : opts]); },
-  // speech: Finnish voice clips (voice/fi.json, rendered by crates/rg_voice
-  // into /games/_voice/fi). rg.say("hyva"), or a list said one after another:
-  // rg.say(["valitse", "punainen"]). A new say cuts the one playing unless
-  // opts.queue; opts: { volume, queue }. rg.say([]) or rg.stopSay() is quiet.
+  // speech: voice clips rendered by crates/rg_voice from voice/fi.json (Finnish)
+  // and voice/<lang>/*.json (English "en", Spanish "es") into /games/_voice/<lang>.
+  // rg.say("hyva"), or a list said one after another: rg.say(["valitse", "punainen"]).
+  // The language: "en:apple" in the id, or opts.lang, or else rg.lang when the
+  // game sets one (default Finnish). An id that language has no clip for is
+  // said in Finnish, so a game can move to another language clip by clip.
+  // A new say cuts the one playing unless opts.queue; opts: { volume, queue,
+  // lang }. rg.say([]) or rg.stopSay() is quiet.
   say: function (ids, opts) {
     var list = [], a = Array.isArray(ids) ? ids : [ids];
+    var lang = (opts && opts.lang) || rg.lang || "fi";
     for (var i = 0; i < a.length; i++) {
       if (a[i] === undefined || a[i] === null || a[i] === "") continue;
       var id = String(a[i]);
-      list.push(id.charAt(0) === "/" ? id : "/games/_voice/fi/" + id + ".wav");
+      list.push(id.charAt(0) === "/" ? id : rg.voiceFile(id, lang));
     }
     var o = { list: list };
-    if (opts) for (var k in opts) o[k] = opts[k];
+    if (opts) for (var k in opts) if (k !== "lang") o[k] = opts[k];
     __cmds.push(["say", list.length ? list[0] : "", o]);
+  },
+  // the file of a clip: "apple" (in `lang`) or "en:apple"; Finnish when the
+  // language has no such clip
+  voiceFile: function (id, lang) {
+    var c = id.indexOf(":");
+    if (c > 0 && c < 4) { lang = id.slice(0, c); id = id.slice(c + 1); }
+    if (lang && lang !== "fi" && !rg.hasVoice(id, lang)) lang = "fi";
+    return "/games/_voice/" + (lang || "fi") + "/" + id + ".wav";
+  },
+  // whether `lang` ("en", "es") has a clip `id` (Finnish: always true)
+  hasVoice: function (id, lang) {
+    if (!lang || lang === "fi") return true;
+    var v = __voices[lang];
+    return !!(v && v[id]);
   },
   stopSay: function () { rg.say([]); },
   // the clip id of a number (0–20), a letter ("Ä" → "kirjain_ae", "Ñ" →
@@ -357,6 +377,9 @@ function __start(arg) {
   __saved = a.saved || {};
   __settings(a.settings);
   __games = a.games || [];
+  __voices = {};
+  var vs = a.voices || {};
+  for (var vl in vs) { var m = {}; for (var vi = 0; vi < vs[vl].length; vi++) m[vs[vl][vi]] = true; __voices[vl] = m; }
   __launcher = !!a.launcher;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
