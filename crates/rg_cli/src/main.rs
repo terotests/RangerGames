@@ -6,6 +6,7 @@
 //!                                         runs a game headless and prints what it drew
 //!   rg_cli test <games dir> [frames]      runs every game with taps all over the screen;
 //!                                         fails when a script throws
+//!   RG_LANG=en|es before either: the games in English or Spanish
 
 use rg_core::vfs::Vfs;
 use rg_engine::Engine;
@@ -36,6 +37,10 @@ fn engine_for(games: &str) -> Engine {
     let mut e = Engine::new();
     let root = Path::new(games);
     add_dir(&mut e.vfs, root, root, "/games");
+    // RG_LANG=en|es runs the games in that language (as the launcher's flags do)
+    if let Ok(lang) = std::env::var("RG_LANG") {
+        e.vfs.write_text("/save/_settings.json", &format!("{{\"lang\":\"{}\"}}", lang));
+    }
     e.resize(360.0, 640.0);
     e
 }

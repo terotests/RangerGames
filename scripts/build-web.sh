@@ -10,8 +10,8 @@ FLAGS=(--release)
 if [[ "${1:-}" == "--dev" ]]; then PROFILE=debug; FLAGS=(); fi
 cargo build -p rg_web --target wasm32-wasip1 "${FLAGS[@]}"
 cargo build -p rg_cli --release
-# the Finnish voice clips of rg.say (voice/fi.json → games/_voice/fi; only changed clips are rendered)
-cargo run -q --release -p rg_voice -- build voice/fi.json games/_voice/fi
+# the voice clips of rg.say (voice/fi.json and voice/<lang>/ → games/_voice/<lang>; only changed clips are rendered)
+scripts/build-voice.sh
 OUT=dist/web
 rm -rf "$OUT"; mkdir -p "$OUT"
 cp -r web/* "$OUT"/
