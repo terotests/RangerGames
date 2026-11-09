@@ -11,6 +11,7 @@ node_modules
 /android/app/src/main/jniLibs
 /android/.kotlin
 games/*/places.local.js
+games/tampere/
 __pycache__/
 games/_voice/
 tools/luut/raw/
