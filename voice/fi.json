@@ -929,6 +929,11 @@
   "km_timantti": "Timantti! Saat viisisataa euroa.",
   "km_taklaus": "Taklaus! Malja vaihtoi omistajaa!",
   "km_aloitus": "Mistä aloitat? Keskustorilta vai Rautatieasemalta?",
-  "km_p_asema": "Rautatieasema."
+  "km_p_asema": "Rautatieasema.",
+  "pp_ohje": "Pudota palloja. Neljä samanväristä suoraan, niin saat pisteen.",
+  "pp_valkoinen_aloittaa": "Valkoinen aloittaa.",
+  "pp_keltainen_aloittaa": "Keltainen aloittaa.",
+  "pp_valkoinen_voitti": "Valkoinen voitti!",
+  "pp_keltainen_voitti": "Keltainen voitti!"
  }
 }

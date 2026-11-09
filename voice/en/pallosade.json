@@ -1,0 +1,11 @@
+{
+ "_comment": "Pallosade (games/pallosade): the ball game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "pp_ohje": "Drop the balls. Four of the same colour in a row gives you a point.",
+  "pp_valkoinen_aloittaa": "White starts.",
+  "pp_keltainen_aloittaa": "Yellow starts.",
+  "pp_valkoinen_voitti": "White wins!",
+  "pp_keltainen_voitti": "Yellow wins!"
+ }
+}
