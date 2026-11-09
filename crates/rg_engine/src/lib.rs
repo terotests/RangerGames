@@ -277,6 +277,24 @@ impl Engine {
         Json::Arr(items)
     }
 
+    /// The voice clips of the other languages than Finnish: { "en": [ids], … }
+    /// from /games/_voice/<lang>/index.json (rg_voice writes it), so that
+    /// rg.say can fall back to Finnish for a clip a language does not have.
+    fn voices_json(&self) -> Json {
+        let mut members = Vec::new();
+        for name in self.vfs.list("/games/_voice") {
+            if !name.ends_with('/') || name == "fi/" {
+                continue;
+            }
+            let lang = name.trim_end_matches('/').to_string();
+            let index = json::parse(&self.vfs.read_text(&format!("/games/_voice/{}index.json", name)));
+            if matches!(index, Json::Arr(_)) {
+                members.push(member(&lang, index));
+            }
+        }
+        Json::Obj(members)
+    }
+
     /// Starts the game `id` ("" for the launcher). Err with the reason when
     /// it cannot start; the error is also shown on the screen.
     pub fn start(&mut self, id: &str) -> Result<(), String> {
@@ -356,6 +374,7 @@ impl Engine {
             member("saved", self.saved.clone()),
             member("settings", self.settings.clone()),
             member("games", self.games_json()),
+            member("voices", self.voices_json()),
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
         ]);
