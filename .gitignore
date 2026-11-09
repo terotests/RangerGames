@@ -13,3 +13,4 @@ node_modules
 games/*/places.local.js
 __pycache__/
 games/_voice/
+tools/luut/raw/
