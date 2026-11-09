@@ -39,6 +39,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella tai puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa). |
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
+| `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
