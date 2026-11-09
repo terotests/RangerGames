@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="560" viewBox="0 0 360 560"><defs><radialGradient id="glow" cx="50%" cy="62%" r="60%"><stop offset="0" stop-color="#6c5b7b"/><stop offset="1" stop-color="#2b2140"/></radialGradient></defs>
+  <rect width="360" height="560" fill="url(#glow)"/>
+  <path d="M0 0 H360 V70 Q 330 120 300 80 Q 280 130 250 70 Q 220 110 200 60 Q 170 120 140 70 Q 110 110 90 70 Q 60 130 30 80 Q 14 110 0 90Z" fill="#1f1830"/>
+  <path d="M0 560 V420 Q 60 400 120 430 Q 200 400 260 430 Q 320 410 360 420 V560Z" fill="#40335a"/>
+  <path d="M30 420 l14 -34 l14 34z M300 424 l12 -28 l12 28z" fill="#9d4edd" opacity="0.8"/>
+  <path d="M60 300 l10 -26 l10 26z M290 280 l8 -22 l8 22z" fill="#48cae4" opacity="0.7"/>
+  <circle cx="80" cy="200" r="3" fill="#fff" opacity="0.7"/><circle cx="280" cy="180" r="2" fill="#fff" opacity="0.7"/><circle cx="200" cy="240" r="2.5" fill="#fff" opacity="0.6"/>
+  <path d="M40 160 q 6 -20 12 0 q -6 8 -12 0z M310 220 q 6 -20 12 0 q -6 8 -12 0z" fill="#ffb703"/>
+  <path d="M46 140 v20 M316 200 v20" stroke="#6f4518" stroke-width="4"/></svg>
