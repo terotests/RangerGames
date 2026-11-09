@@ -13,9 +13,9 @@ import { PHOTOS } from "lib/photos";
 
 type Car = { road: number; s: number; v: number; len: number; wid: number; color: string; bus: boolean; honk: number; wait: number };
 type Bike = { path: number; s: number; dir: number; v: number; color: string; ring: number; stop: number };
-type Tram = { line: number; s: number; dir: number; v: number; dwell: number; stopIdx: number; lastStop: number };
+type Tram = { line: number; s: number; dir: number; v: number; dwell: number; stopIdx: number; lastStop: number; key: number };
 type Place = { id: string; name: string; kind: string; x: number; z: number; icon: string };
-type Mode = "start" | "gpswait" | "goal" | "play" | "ride" | "win";
+type Mode = "start" | "gpswait" | "goal" | "how" | "play" | "ride" | "win";
 type Bit = { x: number; y: number; vx: number; vy: number; t: number; c: string; r: number };
 
 const X0: number = MAP.X0, Z0: number = MAP.Z0, MW: number = MAP.W, MH: number = MAP.H;
@@ -54,7 +54,15 @@ let showMap = false;
 let cars: Car[] = [];
 let bikes: Bike[] = [];
 let trams: Tram[] = [];
-let tramSpawn = [32, 32];
+// The trams run to Nysse's real timetable (lib/mapdata.ts from the GTFS feed),
+// on the game clock: Finnish time now, plus what ⏩ has skipped.
+let clockStart = 0;      // seconds after midnight when the game started
+let clockDay = 0;        // 0 Mon-Thu, 1 Fri, 2 Sat, 3 Sun
+let clockShift = 0;
+let nightNote = false;   // no trams at night: the game runs at noon instead
+let ridingKey = -1;
+// walking to the goal by tram: board at one stop, get off at another
+let plan: any = null;    // { board: Place, alight: Place, stage: 0 walk to stop | 1 on the tram | 2 walk to goal, walkM, tramM }
 let nearRoads: number[] = [];
 let nearBikes: number[] = [];
 let nearClock = 0;
@@ -64,7 +72,7 @@ let crossOk = true;
 let waitedRed = false;
 let redWait = 0;
 let rewardClock = 0;
-let riding = -1;         // index of the tram the child is on
+let riding = -1;         // index of the tram the child is on (trams is rebuilt every frame: see ridingKey)
 let rideFrom = "";
 let bits: Bit[] = [];
 let roadHint = 0;
@@ -302,12 +310,8 @@ function init() {
   setupMap();
   startPlace = homes[0];
   placeKid(startPlace);
-  for (let i = 0; i < tramLines.length; i++) {
-    for (let k = 0; k < 3; k++) {
-      trams.push(makeTram(i, 1, tramLines[i].len * (0.1 + k * 0.33)));
-      trams.push(makeTram(i, -1, tramLines[i].len * (0.25 + k * 0.33)));
-    }
-  }
+  initClock();
+  stepTrams(0);
 }
 
 function placeKid(p: Place) {
@@ -351,10 +355,52 @@ function chooseGoal(p: Place) {
   peekUntil = goalPhoto ? t + 5 : 0;
   hearts = 3;
   roundPoints = 0;
+  riding = -1; ridingKey = -1;
+  showMap = false;
+  plan = makePlan(p);
+  if (plan) { mode = "how"; modeClock = 0; return; }
+  startTrip();
+}
+
+// walk or tram: a tram is worth it when the walks to and from the stops are
+// shorter than walking all the way (and the ride is at least 300 m)
+function makePlan(g: Place): any {
+  if (g.kind === "stop") return null;
+  const direct = Math.hypot(g.x - kid.x, g.z - kid.z);
+  if (direct < 450) return null;
+  const stops = places.filter((q) => q.kind === "stop");
+  let best: any = null;
+  for (let i = 0; i < stops.length; i++) {
+    for (let j = 0; j < stops.length; j++) {
+      const b = stops[i], a = stops[j];
+      if (i === j) continue;
+      let tramM = -1;
+      for (let l = 0; l < tramStops.length; l++) {
+        let sb = -1, sa = -1;
+        for (let k = 0; k < tramStops[l].length; k++) {
+          if (tramStops[l][k].name === b.name) sb = tramStops[l][k].s;
+          if (tramStops[l][k].name === a.name) sa = tramStops[l][k].s;
+        }
+        if (sb >= 0 && sa >= 0) tramM = Math.abs(sa - sb);
+      }
+      if (tramM < 0) continue;
+      const walkM = Math.hypot(b.x - kid.x, b.z - kid.z) + Math.hypot(g.x - a.x, g.z - a.z);
+      if (tramM >= 300 && walkM < direct * 0.85 && (!best || walkM < best.walkM)) best = { board: b, alight: a, stage: 0, walkM, tramM, direct };
+    }
+  }
+  return best;
+}
+
+function chooseHow(byTram: boolean) {
+  rg.sound("click");
+  if (!byTram) plan = null;
+  startTrip();
+}
+
+function startTrip() {
+  const p = goal as Place;
   mode = "play";
   modeClock = 0;
-  riding = -1;
-  showMap = false;
   if (gps) {
     kid.tx = kid.x; kid.tz = kid.z;
     updateRoute();
@@ -362,7 +408,7 @@ function chooseGoal(p: Place) {
     route = [];
     say(rg.t("Lasketaan reittiä " + goalPhrase(p) + "…", "Finding the way to " + goalPhrase(p) + "…", "Calculando la ruta a " + goalPhrase(p) + "…"), "info", 3);
   } else {
-    say(rg.t("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "Find " + goalPhrase(p) + "! The arrow shows the way.", "¡Busca " + goalPhrase(p) + "! La flecha te indica el camino."), "info", 4);
+    say(plan ? "Kävele ratikkapysäkille " + plan.board.name + "! Nuoli näyttää suunnan." : "Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "info", 4);
   }
 }
 
@@ -637,7 +683,15 @@ let routeJob: any = null;
 
 function updateRoute() {
   if (!goal) return;
-  routeJob = makeRouteJob(kid.x, kid.z, goal.x, goal.z);
+  const g = target();
+  routeJob = makeRouteJob(kid.x, kid.z, g.x, g.z);
+}
+function updateRouteIfGps() { if (gps) { updateRoute(); routeClock = 0; route = []; } }
+// where the child heads now: the stop to board at, then the goal
+function target(): any {
+  if (plan && plan.stage === 0) return plan.board;
+  if (plan && plan.stage === 1) return plan.alight;
+  return goal;
 }
 function routeReady() {
   route = routeJob.result;
@@ -931,76 +985,172 @@ function stepBikes(dt: number) {
   }
 }
 
-function makeTram(line: number, dir: number, s: number): Tram {
+// ---- the clock and the timetable -------------------------------------------------
+
+// Finnish local time from the UTC clock (EET, EEST from the last Sunday of March
+// to the last Sunday of October, 01:00 UTC); the phone's interpreter may not know
+// the time zone, so it is worked out here.
+function daysFromCivil(y: number, m: number, d: number): number {
+  const yy = m <= 2 ? y - 1 : y;
+  const era = Math.floor(yy / 400);
+  const yoe = yy - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+function lastSundayUtc(y: number, m: number): number {
+  const last = daysFromCivil(y, m + 1, 1) - 1;          // last day of month m
+  const wd = (last + 4) % 7;                            // 0 = Sunday
+  return (last - wd) * 86400 + 3600;
+}
+function finnishNow(): any {
+  const u = Math.floor(Date.now() / 1000);
+  const days = Math.floor(u / 86400);
+  // civil year of the UTC day
+  const z = days + 719468, era = Math.floor(z / 146097), doe = z - era * 146097;
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const mo = mp + (mp < 10 ? 3 : -9);
+  const y = yoe + era * 400 + (mo <= 2 ? 1 : 0);
+  const summer = u >= lastSundayUtc(y, 3) && u < lastSundayUtc(y, 10);
+  const local = u + (summer ? 3 : 2) * 3600;
+  const ld = Math.floor(local / 86400);
+  const wd = (ld + 4) % 7;                              // 0 Sunday .. 6 Saturday
+  return { sec: local - ld * 86400, day: wd === 0 ? 3 : wd === 6 ? 2 : wd === 5 ? 1 : 0 };
+}
+function initClock() {
+  const n = finnishNow();
+  clockStart = n.sec; clockDay = n.day;
+  // at night no tram runs: play at noon
+  if (nextDeparture(-1, "", clockStart) > 40 * 60) { clockShift = 12 * 3600 - clockStart; nightNote = true; }
+}
+function clockNow(): number { return clockStart + t + clockShift; }
+function clockText(sec: number): string {
+  const m = Math.floor(sec / 60) % 1440;
+  const mm = m % 60;
+  return Math.floor(m / 60) + ":" + (mm < 10 ? "0" : "") + mm;
+}
+
+const TRAM_V = 8;        // m/s between the map edge and the first stop
+const DWELL = 14;        // seconds at a stop
+// the stops of a trip in driving order, with arrival and departure times
+function tripTimes(line: number, di: number, t0: number): any[] {
   const st = tramStops[line];
-  let idx = dir > 0 ? 0 : st.length - 1;
-  for (let k = 0; k < st.length; k++) {
-    if (dir > 0 && st[k].s > s) { idx = k; break; }
-    if (dir < 0 && st[st.length - 1 - k].s < s) { idx = st.length - 1 - k; break; }
+  const off = MAP.trams[line].tt[clockDay][di].off;
+  const n = st.length;
+  const out: any[] = [];
+  let prevD = -1e9, prevS = 0;
+  for (let k = 0; k < n; k++) {
+    const idx = di === 0 ? k : n - 1 - k;
+    let a = t0 + off[k] - DWELL / 2;
+    if (k > 0) a = Math.max(a, prevD + Math.abs(st[idx].s - prevS) / 12);
+    const d = a + DWELL;
+    out.push({ idx, a, d, s: st[idx].s });
+    prevD = d; prevS = st[idx].s;
   }
-  return { line, s, dir, v: 7, dwell: 0, stopIdx: idx, lastStop: -1 };
+  return out;
+}
+// where a trip is at time T: null before it enters or after it leaves the map
+function tripAt(line: number, di: number, t0: number, T: number): any {
+  const l = tramLines[line];
+  const dir = di === 0 ? 1 : -1;
+  const tt = tripTimes(line, di, t0);
+  const first = tt[0], last = tt[tt.length - 1];
+  const lead = (dir > 0 ? first.s : l.len - first.s) / TRAM_V;
+  const tail = (dir > 0 ? l.len - last.s : last.s) / TRAM_V;
+  if (T < first.a - lead || T > last.d + tail) return null;
+  if (T < first.a) return { s: first.s - dir * (first.a - T) * TRAM_V, v: TRAM_V, dwell: 0, stopIdx: first.idx, lastStop: -1 };
+  for (let k = 0; k < tt.length; k++) {
+    const q = tt[k];
+    if (T <= q.d) {
+      if (T >= q.a) return { s: q.s, v: 0, dwell: q.d - T, stopIdx: q.idx, lastStop: k > 0 ? tt[k - 1].idx : -1 };
+      const p = tt[k - 1];
+      const f = (T - p.d) / Math.max(1, q.a - p.d);
+      const e = f * f * (3 - 2 * f);
+      return { s: p.s + (q.s - p.s) * e, v: Math.abs(q.s - p.s) / Math.max(1, q.a - p.d) * 1.5 * (1 - Math.abs(2 * f - 1)), dwell: 0, stopIdx: q.idx, lastStop: p.idx };
+    }
+  }
+  return { s: last.s + dir * (T - last.d) * TRAM_V, v: TRAM_V, dwell: 0, stopIdx: dir > 0 ? tramStops[line].length : -1, lastStop: last.idx };
+}
+// seconds until the next tram leaves the stop (any line if line < 0): 1e9 if none
+function nextDeparture(line: number, stopName: string, T: number): number {
+  let best = 1e9;
+  for (let i = 0; i < tramLines.length; i++) {
+    if (line >= 0 && i !== line) continue;
+    for (let di = 0; di < 2; di++) {
+      const deps = MAP.trams[i].tt[clockDay][di].dep;
+      for (let k = 0; k < deps.length; k++) {
+        const t0 = deps[k] * 60;
+        if (t0 + 3600 < T || t0 - 3600 > T + best) continue;
+        const tt = tripTimes(i, di, t0);
+        for (let j = 0; j < tt.length; j++) {
+          if (stopName && tramStops[i][tt[j].idx].name !== stopName) continue;
+          if (j === tt.length - 1 && tt.length > 1 && stopName) continue;   // the end of the line: nobody gets on
+          if (tt[j].d > T && tt[j].d - T < best) best = tt[j].d - T;
+          if (!stopName) break;
+        }
+      }
+    }
+  }
+  return best;
+}
+// the next departures from a stop: [{line, head, dep (s), toward}]
+function departures(stopName: string, T: number, n: number): any[] {
+  const out: any[] = [];
+  for (let i = 0; i < tramLines.length; i++) {
+    for (let di = 0; di < 2; di++) {
+      const deps = MAP.trams[i].tt[clockDay][di].dep;
+      for (let k = 0; k < deps.length; k++) {
+        const t0 = deps[k] * 60;
+        if (t0 + 3600 < T || t0 > T + 3600) continue;
+        const tt = tripTimes(i, di, t0);
+        for (let j = 0; j < tt.length - 1; j++) {
+          if (tramStops[i][tt[j].idx].name !== stopName || tt[j].d < T) continue;
+          const later: string[] = [];
+          for (let m = j + 1; m < tt.length; m++) later.push(tramStops[i][tt[m].idx].name);
+          out.push({ line: i, di, head: MAP.trams[i].head[di], dep: tt[j].d, arr: tt[j].a, later });
+        }
+      }
+    }
+  }
+  out.sort((a, b) => a.dep - b.dep);
+  return out.slice(0, n);
 }
 
 function stepTrams(dt: number) {
+  const T = clockNow();
+  const keep = ridingKey;
+  const next: Tram[] = [];
+  let ridingGone = keep >= 0;
   for (let i = 0; i < tramLines.length; i++) {
-    tramSpawn[i] = (tramSpawn[i] || 0) - dt;
-    if (tramSpawn[i] <= 0) {
-      tramSpawn[i] = 32;
-      trams.push(makeTram(i, 1, 0));
-      trams.push(makeTram(i, -1, tramLines[i].len));
-    }
-  }
-  for (let i = trams.length - 1; i >= 0; i--) {
-    const tr = trams[i];
-    const l = tramLines[tr.line];
-    const st = tramStops[tr.line];
-    if (tr.dwell > 0) {
-      tr.dwell -= dt;
-      if (tr.dwell <= 0) {
-        tr.lastStop = tr.stopIdx;
-        tr.stopIdx += tr.dir;
-        if (i === riding) rg.sound("whoosh", { volume: 0.4 });
-      }
-      continue;
-    }
-    let limit = 9;
-    if (tr.stopIdx >= 0 && tr.stopIdx < st.length) {
-      const ahead = (st[tr.stopIdx].s - tr.s) * tr.dir;
-      if (ahead < 40) limit = Math.min(limit, Math.max(0.6, ahead * 0.45));
-      if (ahead <= 0.3) {
-        tr.v = 0;
-        tr.dwell = i === riding ? 6 : (kidWaitsAt(st[tr.stopIdx]) ? 12 : 6);
-        if (i === riding) arriveAt(tr);
-        continue;
+    for (let di = 0; di < 2; di++) {
+      const deps = MAP.trams[i].tt[clockDay][di].dep;
+      for (let k = 0; k < deps.length; k++) {
+        const t0 = deps[k] * 60;
+        if (t0 > T + 600 || t0 + 1800 < T) continue;
+        const q = tripAt(i, di, t0, T);
+        if (!q) continue;
+        const key = i * 100000 + di * 50000 + deps[k] * 10 + (k % 10);
+        if (key === keep) ridingGone = false;
+        next.push({ line: i, s: q.s, dir: di === 0 ? 1 : -1, v: q.v, dwell: q.dwell, stopIdx: q.stopIdx, lastStop: q.lastStop, key });
       }
     }
-    // crossings: the child on it, or a red light
-    const cr = tramCross[tr.line];
-    for (let k = 0; k < cr.length; k++) {
-      const ahead = (cr[k][0] - tr.s) * tr.dir - 14;
-      if (ahead < 0 || ahead > 25) continue;
-      const ci = cr[k][1];
-      const c = MAP.crossings[ci];
-      let stop = inCross === ci;
-      if (c[4] >= 0 && !carGo(c[4], cr[k][2]) && ahead > 1) stop = true;
-      if (stop) limit = Math.min(limit, Math.max(0, (ahead - 1) * 1.2));
-    }
-    // the tram in front
-    for (let j = 0; j < trams.length; j++) {
-      const o = trams[j];
-      if (j === i || o.line !== tr.line || o.dir !== tr.dir) continue;
-      const gap = (o.s - tr.s) * tr.dir;
-      if (gap > 0 && gap < 70) limit = Math.min(limit, Math.max(0, (gap - 40) * 0.5));
-    }
-    tr.v += (limit > tr.v ? 1.8 : -6) * dt;
-    if (tr.v < 0) tr.v = 0;
-    tr.s += tr.v * tr.dir * dt;
-    if (tr.s < -40 || tr.s > l.len + 40) {
-      if (i === riding) { endOfLine(tr); }
-      trams.splice(i, 1);
-      if (riding > i) riding--;
+  }
+  // the child's tram: arrived at a stop, passed one, or left the map
+  if (keep >= 0) {
+    let prev: Tram | null = riding >= 0 && riding < trams.length ? trams[riding] : null;
+    const now = next.filter((x) => x.key === keep)[0];
+    if (ridingGone || !now) { if (prev) endOfLine(prev); }
+    else if (prev) {
+      if (now.dwell > 0 && prev.dwell <= 0) arriveAt(now);
+      if (now.dwell <= 0 && prev.dwell > 0) leftStop(prev);
     }
   }
+  trams = next;
+  riding = -1;
+  if (ridingKey >= 0) for (let i = 0; i < trams.length; i++) if (trams[i].key === ridingKey) riding = i;
+  if (riding < 0) ridingKey = -1;
 }
 
 // ---- riding the tram ----------------------------------------------------------
@@ -1010,13 +1160,19 @@ function kidWaitsAt(st: any): boolean {
 }
 
 function tramAtStop(stopId: string): number {
+  // a tram toward the plan's stop first
+  let any = -1;
   for (let i = 0; i < trams.length; i++) {
     const tr = trams[i];
-    if (tr.dwell <= 0) continue;
+    if (tr.dwell <= 1) continue;
     const st = tramStops[tr.line][tr.stopIdx];
-    if (st && st.place && st.place.id === stopId) return i;
+    if (!st || !st.place || st.place.id !== stopId) continue;
+    const k = tr.stopIdx + tr.dir;
+    if (k < 0 || k >= tramStops[tr.line].length) continue;      // the end of the line
+    if (plan && plan.stage === 0 && tramGoesTo(tr, plan.alight.name)) return i;
+    if (any < 0) any = i;
   }
-  return -1;
+  return any;
 }
 
 function stopNear(): Place | null {
@@ -1030,13 +1186,33 @@ function stopNear(): Place | null {
 function board(i: number) {
   riding = i;
   const tr = trams[i];
+  ridingKey = tr.key;
   const st = tramStops[tr.line][tr.stopIdx];
   rideFrom = st ? st.name : "";
   mode = "ride";
   walking = false;
   rg.sound("note", { pitch: 1.5 });
   rg.vibrate(40);
-  say(rg.t("Kyydissä! Jää pois, kun ratikka on pysäkillä.", "On board! Get off when the tram is at a stop.", "¡A bordo! Bájate cuando el tranvía esté en una parada."), "info", 3);
+  if (plan && plan.stage === 0) {
+    if (tramGoesTo(tr, plan.alight.name)) { plan.stage = 1; say("Kyydissä! Jää pois pysäkillä " + plan.alight.name + ".", "good", 4); }
+    else say("Hups, tämä ratikka ei mene pysäkille " + plan.alight.name + ". Jää pois seuraavalla.", "bad", 5);
+  } else say("Kyydissä! Jää pois, kun ratikka on pysäkillä.", "info", 3);
+}
+
+// the tram stops at that stop later on its trip
+function tramGoesTo(tr: Tram, name: string): boolean {
+  const st = tramStops[tr.line];
+  const from = tr.dwell > 0 ? tr.stopIdx + tr.dir : tr.stopIdx;
+  for (let k = from; k >= 0 && k < st.length; k += tr.dir) if (st[k].name === name) return true;
+  return false;
+}
+
+function leftStop(tr: Tram) {
+  const st = tramStops[tr.line][tr.stopIdx];
+  rg.sound("whoosh", { volume: 0.4 });
+  if (plan && plan.stage === 1 && st && st.name === plan.alight.name) {
+    say("Ohitit pysäkin " + st.name + "! Jää pois seuraavalla ja kävele takaisin.", "bad", 5);
+  }
 }
 
 function arriveAt(tr: Tram) {
@@ -1056,8 +1232,22 @@ function alight() {
   mode = "play";
   inCross = -1;
   cars = []; bikes = []; nearClock = 0;
+  ridingKey = -1;
   rg.sound("pop");
-  if (pl && rideFrom && st.name !== rideFrom) addPoints(20, rg.t("Ratikkamatka ", "Tram ride ", "Viaje en tranvía ") + rideFrom + " – " + st.name + "!");
+  if (plan && pl) {
+    if (pl.name === plan.alight.name && plan.stage === 1) {
+      plan.stage = 2;
+      addPoints(40, "Oikea pysäkki: " + pl.name + "! Kävele nyt perille.");
+      updateRouteIfGps();
+      return;
+    }
+    // got off elsewhere: catch the next tram from here
+    plan.stage = 0; plan.board = pl;
+    say("Tämä on " + pl.name + ". Odota ratikkaa, joka menee pysäkille " + plan.alight.name + ".", "info", 5);
+    updateRouteIfGps();
+    return;
+  }
+  if (pl && rideFrom && st.name !== rideFrom) addPoints(20, "Ratikkamatka " + rideFrom + " – " + st.name + "!");
 }
 
 function endOfLine(tr: Tram) {
@@ -1065,9 +1255,10 @@ function endOfLine(tr: Tram) {
   const st = tramStops[tr.line];
   const last = tr.dir > 0 ? st[st.length - 1] : st[0];
   if (last.place) { kid.x = last.place.x; kid.z = last.place.z; kid.safeX = kid.x; kid.safeZ = kid.z; }
-  riding = -1;
+  riding = -1; ridingKey = -1;
   mode = "play";
-  say(rg.t("Päätepysäkki! Kaikki ulos.", "Last stop! Everybody off.", "¡Última parada! Todos fuera."), "info", 3);
+  if (plan && last.place) { plan.stage = last.place.name === plan.alight.name ? 2 : 0; plan.board = last.place; }
+  say("Päätepysäkki! Kaikki ulos.", "info", 3);
 }
 
 // ---- tick -----------------------------------------------------------------------
@@ -1220,7 +1411,7 @@ function Places() {
   for (let i = 0; i < places.length; i++) {
     const p = places[i];
     if (!visible(p.x, p.z, 80)) continue;
-    const isGoal = goal && goal.id === p.id && (mode === "play" || mode === "ride");
+    const isGoal = goal && (goal.id === p.id || (plan && plan.stage < 2 && target().id === p.id)) && (mode === "play" || mode === "ride");
     const bob = isGoal ? Math.sin(t * 5) * 4 : 0;
     const X = sx(p.x), Y = sy(p.z);
     if (p.kind === "stop") {
@@ -1316,8 +1507,9 @@ function Kid() {
 
 function Arrow() {
   if (!goal || mode !== "play") return null;
-  const gx = sx(goal.x), gy = sy(goal.z);
-  const dist = Math.round(Math.hypot(goal.x - kid.x, goal.z - kid.z));
+  const g = target();
+  const gx = sx(g.x), gy = sy(g.z);
+  const dist = Math.round(Math.hypot(g.x - kid.x, g.z - kid.z));
   if (gx > 20 && gx < width - 20 && gy > 80 && gy < height - 90) return null;
   const cx = width / 2, cy = height / 2;
   const a = Math.atan2(gy - cy, gx - cx);
@@ -1332,6 +1524,33 @@ function Arrow() {
   );
 }
 
+// ⏩: the game clock jumps to just before the tram comes (the one toward the
+// plan's stop if there is one)
+function waitTarget(deps: any[], T: number): number {
+  let d = deps[0];
+  if (plan && plan.stage === 0) for (let k = 0; k < deps.length; k++) if (deps[k].later.indexOf(plan.alight.name) >= 0) { d = deps[k]; break; }
+  return d.arr - 6;
+}
+function skipTo(T: number) {
+  const now = clockNow();
+  if (T > now) clockShift += T - now;
+  cars = []; bikes = []; nearClock = 0;
+  rg.sound("whoosh", { volume: 0.5 });
+}
+function skipRide() {
+  if (riding < 0) return;
+  const tr = trams[riding];
+  const di = tr.dir > 0 ? 0 : 1;
+  const deps = MAP.trams[tr.line].tt[clockDay][di].dep;
+  const key = tr.key - tr.line * 100000 - di * 50000;
+  const t0 = Math.floor(key / 10) * 60;
+  const tt = tripTimes(tr.line, di, t0);
+  const want = tr.dwell > 0 ? tr.stopIdx + tr.dir : tr.stopIdx;
+  for (let k = 0; k < tt.length; k++) if (tt[k].idx === want) { skipTo(tt[k].a + 1); return; }
+  // no stop left: to the map edge
+  skipTo(tt[tt.length - 1].d + 120);
+}
+
 function Hud() {
   const out: any[] = [];
   const hs = hearts >= 3 ? "❤️❤️❤️" : hearts === 2 ? "❤️❤️🤍" : "❤️🤍🤍";
@@ -1344,22 +1563,39 @@ function Hud() {
   );
   out.push(
     <div className="hud">
-      <div className="row"><div className="pill goalpill" onClick={() => { if (goalPhoto && peekUntil < t) peekUntil = t + 5; else { peekUntil = 0; showMap = true; } rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "")}</div></div>
+      <div className="row"><div className="pill goalpill" onClick={() => { if (goalPhoto && peekUntil < t) peekUntil = t + 5; else { peekUntil = 0; showMap = true; } rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "") + (plan && plan.stage === 0 ? " · 🚏 " + plan.board.name : plan && plan.stage === 1 ? " · 🚪 " + plan.alight.name : "")}</div></div>
       <div className="row"><div className="pill hp">{hs + " " + points}</div></div>
     </div>
   );
   const near = mode === "play" ? stopNear() : null;
   if (near) {
+    const T = clockNow();
+    const deps = departures(near.name, T, 3);
+    const rows: any[] = [];
+    for (let k = 0; k < deps.length; k++) {
+      const d = deps[k];
+      const good = plan && plan.stage === 0 && d.later.indexOf(plan.alight.name) >= 0;
+      const mins = Math.max(0, Math.floor((d.dep - T) / 60));
+      rows.push(<div className={good ? "deprow good" : "deprow"}>{MAP.trams[d.line].line + " " + d.head + "  " + clockText(d.dep) + (d.arr <= T ? "  nyt" : "  " + mins + " min") + (good ? " ✓" : "")}</div>);
+    }
+    out.push(
+      <div className="stopinfo">
+        <div className="stophead">{"🚋 " + near.name + " · klo " + clockText(T)}</div>
+        {rows.length ? rows : <div className="deprow">{"Ei lähtöjä tänään"}</div>}
+      </div>
+    );
     const ti = tramAtStop(near.id);
-    if (ti >= 0) out.push(<div className="bigbtn tram" onClick={() => board(ti)}>{"🚋 " + rg.t("Nouse ratikkaan", "Get on the tram", "Sube al tranvía")}</div>);
-    else out.push(<div className="stopinfo">{"🚋 " + near.name + rg.t(": odota ratikkaa…", ": wait for the tram…", ": espera el tranvía…")}</div>);
+    const coming = deps.length && deps[0].arr - T < 15;
+    if (ti >= 0) out.push(<div className="bigbtn tram" onClick={() => board(ti)}>{"🚋 Nouse (" + MAP.trams[trams[ti].line].line + ")"}</div>);
+    else if (deps.length && !coming) out.push(<div className="skipbtn" onClick={() => skipTo(waitTarget(deps, T))}>{"⏩ Odota"}</div>);
   }
   if (mode === "ride" && riding >= 0 && riding < trams.length) {
     const tr = trams[riding];
     const st = tramStops[tr.line];
     const nxt = st[tr.stopIdx];
-    out.push(<div className="ridebar">{rg.t("Ratikka ", "Tram ", "Tranvía ") + MAP.trams[tr.line].line + (nxt ? (tr.dwell > 0 ? rg.t(" · Pysäkki: ", " · Stop: ", " · Parada: ") : rg.t(" · Seuraava: ", " · Next: ", " · Siguiente: ")) + nxt.name : "")}</div>);
-    if (tr.dwell > 0) out.push(<div className="bigbtn exitbtn" onClick={() => alight()}>{"🚪 " + rg.t("Jää pois", "Get off", "Bájate")}</div>);
+    out.push(<div className="ridebar">{"Ratikka " + MAP.trams[tr.line].line + (nxt ? (tr.dwell > 0 ? " · Pysäkki: " : " · Seuraava: ") + nxt.name : "")}</div>);
+    if (tr.dwell > 0) out.push(<div className="bigbtn exitbtn" onClick={() => alight()}>{"🚪 Jää pois"}</div>);
+    out.push(<div className="skipbtn" onClick={() => skipRide()}>{"⏩ Seuraava pysäkki"}</div>);
   }
   out.push(<div className="round mapbtn" onClick={() => { showMap = !showMap; rg.sound("click"); }}>{"🗺"}</div>);
   out.push(<div className="round zoombtn" onClick={() => cycleZoom()}>{zoomIdx === 0 ? "🔍" : zoomIdx === 1 ? "🔎" : "🔭"}</div>);
@@ -1421,9 +1657,10 @@ function StartView() {
   }
   return (
     <div className="panel">
-      <div className="title">{"🚦 " + rg.t("Tampereen liikenneretki", "Tampere traffic walk", "Paseo por Tampere")}</div>
-      <div className="subtitle">{rg.t("Kävele kaupungilla, odota vihreää ja varo autoja!", "Walk in the city, wait for green and watch out for cars!", "¡Camina por la ciudad, espera la luz verde y cuidado con los coches!")}</div>
-      <div className="ask">{rg.t("Mistä lähdetään?", "Where do we start?", "¿Desde dónde salimos?")}</div>
+      <div className="title">{"🚦 Tampereen liikenneretki"}</div>
+      <div className="subtitle">{"Kävele kaupungilla, odota vihreää ja varo autoja!"}</div>
+      {nightNote ? <div className="subtitle">{"Yöllä ratikat eivät kulje, joten pelissä on nyt päivä ☀️"}</div> : null}
+      <div className="ask">{"Mistä lähdetään?"}</div>
       {cards}
       <div className="card gpscard" onClick={() => startGps()}>
         <div className="cicon">{"📍"}</div>
@@ -1432,8 +1669,8 @@ function StartView() {
           <div className="csub">{rg.t("Puhelimen sijainti ja reitti", "Phone location and route", "Ubicación del teléfono y ruta")}</div>
         </div>
       </div>
-      <div className="score">{"⭐ " + total + rg.t(" pistettä · ", " points · ", " puntos · ") + found + rg.t(" retkeä", " trips", " paseos")}</div>
-      <div className="credit">{rg.t("Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki · Kuvat: Wikimedia Commons", "Map: © OpenStreetMap contributors, City of Tampere · Photos: Wikimedia Commons", "Mapa: © colaboradores de OpenStreetMap, Ciudad de Tampere · Fotos: Wikimedia Commons")}</div>
+      <div className="score">{"⭐ " + total + " pistettä · " + found + " retkeä"}</div>
+      <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki · Aikataulut: Nysse · Kuvat: Wikimedia Commons"}</div>
     </div>
   );
 }
@@ -1461,6 +1698,31 @@ function GoalView() {
       <div className="subtitle">{rg.t("Lähtö: ", "Start: ", "Salida: ") + (startPlace ? startPlace.name : "")}</div>
       {cards}
       <div className="back" onClick={() => { stopGps(); mode = "start"; rg.sound("click"); }}>{"← Vaihda lähtöpaikka"}</div>
+    </div>
+  );
+}
+
+function HowView() {
+  const g = goal as Place;
+  return (
+    <div className="panel">
+      <div className="ask">{"Miten mennään?"}</div>
+      <div className="subtitle">{g.icon + " " + g.name}</div>
+      <div className="card" onClick={() => chooseHow(false)}>
+        <div className="cicon">{"🚶"}</div>
+        <div className="ctext">
+          <div className="cname">{"Kävellen"}</div>
+          <div className="csub">{"Koko matka, noin " + Math.round(plan.direct / 50) * 50 + " m"}</div>
+        </div>
+      </div>
+      <div className="card tramcard" onClick={() => chooseHow(true)}>
+        <div className="cicon">{"🚋"}</div>
+        <div className="ctext">
+          <div className="cname">{"Ratikalla"}</div>
+          <div className="csub">{"Kävele pysäkille " + plan.board.name + ", jää pois pysäkillä " + plan.alight.name}</div>
+        </div>
+      </div>
+      <div className="back" onClick={() => { plan = null; mode = "goal"; rg.sound("click"); }}>{"← Vaihda kohde"}</div>
     </div>
   );
 }
@@ -1513,6 +1775,7 @@ function view() {
       {mode === "start" ? StartView() : null}
       {mode === "gpswait" ? GpsWaitView() : null}
       {mode === "goal" ? GoalView() : null}
+      {mode === "how" ? HowView() : null}
       {mode === "win" ? WinView() : null}
     </div>
   );
