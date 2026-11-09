@@ -39,6 +39,33 @@ def lists(lang):
     return clips
 
 
+ONES = ["nolla", "yksi", "kaksi", "kolme", "neljä", "viisi", "kuusi", "seitsemän", "kahdeksan", "yhdeksän"]
+
+
+def fi_number(n):
+    """0–999 in Finnish words, as crates/rg_voice/src/fi.rs writes them."""
+    if n < 10:
+        return ONES[n]
+    if n == 10:
+        return "kymmenen"
+    if n < 20:
+        return ONES[n - 10] + "toista"
+    if n < 100:
+        return ONES[n // 10] + "kymmentä" + (ONES[n % 10] if n % 10 else "")
+    if n < 1000:
+        h = "sata" if n // 100 == 1 else ONES[n // 100] + "sataa"
+        return h + (fi_number(n % 100) if n % 100 else "")
+    return str(n)
+
+
+def spoken(lang, text):
+    """What the model is given: Finnish digits written out (it reads "7" badly)."""
+    import re
+    if lang == "fi":
+        return re.sub(r"\d+", lambda m: fi_number(int(m.group())), text)
+    return text
+
+
 def trim(x, sr):
     """The clip without the silence (below 2 % of its peak) before and after, 50 ms kept."""
     import numpy as np
@@ -53,7 +80,8 @@ def trim(x, sr):
 def done(lang, cid, text):
     try:
         with open(os.path.join(OUT, lang, cid + ".json"), encoding="utf-8") as fh:
-            return json.load(fh).get("text") == text and os.path.exists(os.path.join(OUT, lang, cid + ".wav"))
+            j = json.load(fh)
+            return j.get("text") == text and j.get("spoken", text) == spoken(lang, text) and os.path.exists(os.path.join(OUT, lang, cid + ".wav"))
     except (OSError, ValueError):
         return False
 
@@ -91,14 +119,15 @@ def main():
     t_all = time.time()
     for n, (lang, cid, text) in enumerate(todo):
         os.makedirs(os.path.join(OUT, lang), exist_ok=True)
-        want = len(text) * PACE.get(lang, 0.07)
+        say = spoken(lang, text)
+        want = len(say) * PACE.get(lang, 0.07)
         limit[0] = int(25 * (2.5 * want + 2.0)) + 25
         best = None
         t0 = time.time()
         for attempt in range(3):
             seed = int(hashlib.sha1(f"{lang}:{cid}:{attempt}".encode()).hexdigest()[:8], 16)
             torch.manual_seed(seed)
-            wav = model.generate(text, language_id=lang)
+            wav = model.generate(say, language_id=lang)
             x = trim(wav.squeeze().detach().cpu().numpy(), model.sr)
             dur = len(x) / model.sr
             # far too long (repeats, trailing noise) or too short (words dropped): try again
@@ -110,7 +139,7 @@ def main():
         x, dur, seed = best
         sf.write(os.path.join(OUT, lang, cid + ".wav"), x, model.sr, subtype="PCM_16")
         with open(os.path.join(OUT, lang, cid + ".json"), "w", encoding="utf-8") as fh:
-            json.dump({"text": text, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1}, fh, ensure_ascii=False)
+            json.dump({"text": text, "spoken": say, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1}, fh, ensure_ascii=False)
         left = (time.time() - t_all) / (n + 1) * (len(todo) - n - 1)
         print(f"[{n + 1}/{len(todo)}] {lang}/{cid} {dur:.1f} s in {time.time() - t0:.0f} s, tries {attempt + 1}; ~{left / 3600:.1f} h left", flush=True)
 
