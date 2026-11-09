@@ -38,8 +38,8 @@ jobs:
         run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
-      - name: Web build
-        run: bash scripts/build-web.sh
+      - name: Web build (public games only, for GitHub Pages)
+        run: RG_PUBLIC=1 bash scripts/build-web.sh
       - uses: actions/upload-artifact@v4
         with:
           name: web
