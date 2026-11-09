@@ -884,6 +884,27 @@ places = []
 EXACT = json.loads(os.environ.get("EXACT", "{}"))   # {"id": [x, z]}: print snapped points, never written
 for pid, (x, z) in EXACT.items():
     print("exact", pid, snap(x, z))
+# familiar shops, cafés and the like (OSM, public businesses), lat/lon
+SPOTS = [
+    ("kmarket_vapriikki", "K-Market Vapriikki", 61.5039843, 23.7618019, "🛒"),
+    ("kmarket_lapintie", "K-Market Lapintie", 61.503296, 23.7659529, "🛒"),
+    ("kmarket_satakunnankatu", "K-Market Satakunnankatu", 61.5016134, 23.7683893, "🛒"),
+    ("sale_tampella", "Sale Tampella", 61.5055092, 23.7654216, "🛒"),
+    ("runo", "Kahvila Runo", 61.5010818, 23.7673319, "☕"),
+    ("puisto_kahvila", "Kahvila Puisto", 61.4983187, 23.7645536, "☕"),
+    ("sokos", "Sokos", 61.4973174, 23.7580555, "🛍"),
+    ("vapriikki", "Vapriikki", 61.5029722, 23.7602873, "🏛"),
+    ("werstas", "Työväenmuseo Werstas", 61.5014912, 23.7593102, "🏛"),
+    ("kotipizza_akk", "Kotipizza", 61.5003597, 23.7588163, "🍕"),
+    ("kotipizza_kullervo", "Kotipizza Kullervonkatu", 61.5031999, 23.7782968, "🍕"),
+    ("ruth", "Ruthin leipomo", 61.5032029, 23.7786741, "🥐"),
+    ("burgerking", "Burger King (Stockmann)", 61.4986261, 23.7698068, "🍔"),
+    ("stahlberg_tampella", "Ståhlberg Tampella", 61.5039028, 23.7634417, "🍰"),
+    ("ravintola_tampella", "Ravintola Tampella", 61.5017633, 23.7627572, "🍽"),
+]
+for pid, name, lat, lon, icon in SPOTS:
+    x, z = proj(lon, lat)
+    PLACES.append((pid, name, "spot", round(x, 1), round(z, 1), icon))
 for pid, name, kind, x, z, icon in PLACES:
     sx, sz = snap(x, z)
     places.append({"id": pid, "name": name, "kind": kind, "x": round(sx, 1), "z": round(sz, 1), "icon": icon})
