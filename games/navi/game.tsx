@@ -521,17 +521,24 @@ function routeLine() {
   ];
 }
 
+// each home: the house, and beside it the person who lives there (mum, dad, ...)
+// in a round badge of the slot's colour, so a child sees whose home it is
 function homeMarkers() {
   const out: any[] = [];
   for (const s of SLOTS) {
     const p = places[s.id];
     if (!p) continue;
-    if (mode === "nav" && s.id !== target) continue;
-    const big = s.id === target ? 1.3 : 1;
+    const isTarget = s.id === target && (mode === "nav" || mode === "arrived");
+    if (mode === "nav" && !isTarget && s.id !== "isa" && s.id !== "aiti") continue;
+    const k = isTarget ? 1.25 : mode === "nav" ? 0.8 : 1;
     const X = sx(p.x), Y = sy(p.z);
-    out.push(<div style={{ position: "absolute", left: X - 30 * big, top: Y - 62 * big, width: 60 * big, height: 62 * big, alignItems: "center", justifyContent: "flex-end" }}>
-      <div style={{ fontSize: 38 * big }}>{s.house}</div>
-      <div style={{ position: "absolute", left: 34 * big, top: 0, fontSize: 22 * big }}>{s.who}</div>
+    const B = 46 * k;
+    out.push(<div style={{ position: "absolute", left: X - 22 * k, top: Y - 50 * k, width: 44 * k, height: 50 * k, alignItems: "center", justifyContent: "flex-end" }}>
+      <div style={{ fontSize: 38 * k }}>{s.house}</div>
+    </div>);
+    out.push(<div style={{ position: "absolute", left: X + 14 * k, top: Y - 50 * k - B * 0.55, width: B, height: B, borderRadius: B / 2, backgroundColor: s.color,
+      borderWidth: 3, borderColor: "#ffffff", alignItems: "center", justifyContent: "center", shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 2, shadowRadius: 3 }}>
+      <div style={{ fontSize: 30 * k }}>{s.who}</div>
     </div>);
   }
   return out;
@@ -714,9 +721,9 @@ function viewNav() {
     <div style={{ fontSize: 34 }}>{s.house}</div>
   </div>);
   // buttons: zoom, back to me
-  extra.push(roundBtn("➕", W - 66, height / 2 - 70, () => { zoom = Math.min(2, zoom * 1.6); rg.sound("click"); }));
-  extra.push(roundBtn("➖", W - 66, height / 2 - 6, () => { zoom = Math.max(0.12, zoom / 1.6); rg.sound("click"); }));
-  if (!follow) extra.push(roundBtn("📍", W - 66, height / 2 + 58, () => { follow = true; zoom = 0.5; rg.sound("click"); }));
+  extra.push(roundBtn("➕", W - 62, height - 220, () => { zoom = Math.min(2, zoom * 1.6); rg.sound("click"); }, 50));
+  extra.push(roundBtn("➖", W - 62, height - 160, () => { zoom = Math.max(0.12, zoom / 1.6); rg.sound("click"); }, 50));
+  if (!follow) extra.push(roundBtn("📍", W - 62, height - 280, () => { follow = true; zoom = 0.5; rg.sound("click"); }, 50));
   return mapLayer(extra);
 }
 
