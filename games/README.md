@@ -16,6 +16,7 @@ Kuvat on otettu web-versiosta (360 × 720) komennolla `node tools/shot.js`, ja n
 | <img src="../docs/screenshots/pallopolku.png" width="160"> | **Pallopolku** | `pallopolku` | 3D-juoksupeli moottorin omalla 3D-kerroksella (`rg.three`): vaihda kaistaa, hyppää laatikoiden yli ja kerää tähtiä. |
 | <img src="../docs/screenshots/tampere.png" width="160"> | **Liikenneretki** | `tampere` | Kävely Tampereen keskustassa: suojatiet, liikennevalot, pyörätiet ja ratikka. Kartta on Tampere Taxi Driverin aineistosta (OSM ja Tampereen kaupunki). |
 | <img src="../docs/screenshots/navi.png" width="160"> | **Kotiin** | `navi` | Lapsen kävelynavigaattori: GPS, iso nuoli ja reittiviiva kotiin, kouluun tai päiväkotiin. Toimii ilman nettiä. |
+| <img src="../docs/screenshots/korkeasaari.png" width="160"> | **Korkeasaari** | `korkeasaari` | Suunnistus Korkeasaaren eläintarhassa: etsi eläin kartalta, kävele sen luo sormella tai oikeasti GPS:n kanssa (toimii ilman nettiä), ja vastaa ääneen luettuihin kuvakysymyksiin. Jokaisesta eläimestä saa tarran. 🐣 Eskari / 🎒 Koulu. Kartta ja eläinten paikat © OpenStreetMap-tekijät (ODbL), ks. `tools/korkeasaari`. |
 
 Seuraavat pelit tehtiin puhelinta varten Macilla, ja ne tulevat tähän listaan, kun ne on viety GitHubiin: Kirjainpallot, Onkipeli, Avaruusretki, Sanaseikkailu ja Kolmården.
 
