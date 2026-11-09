@@ -3,6 +3,7 @@ package fi.rangergames;
 
 import android.app.Activity;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
@@ -39,6 +40,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private Painter painter;
     private final Sound sound = new Sound();
     private Sensors sensors;
+    private Camera camera;
     private SharedPreferences saves;
     private Thread thread;
     private volatile boolean running;
@@ -57,6 +59,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         painter = new Painter(getAssets());
         sensors = new Sensors(this, input);
+        camera = new Camera(this, input);
         view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         view.setOnTouchListener(new View.OnTouchListener() {
@@ -122,9 +125,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
 
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
-        if (code == Sensors.PERMISSION_REQUEST) {
-            sensors.permissionResult(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
-        }
+        boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (code == Sensors.PERMISSION_REQUEST) sensors.permissionResult(granted);
+        else if (code == Camera.REQ_PERM) camera.permissionResult(granted);
+    }
+
+    @Override
+    protected void onActivityResult(int code, int result, Intent data) {
+        super.onActivityResult(code, result, data);
+        if (code == Camera.REQ_SHOT) camera.result(result);
     }
 
     @Override
@@ -184,6 +193,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                 Engine.put(e.getKey(), ((String) e.getValue()).getBytes(StandardCharsets.UTF_8));
             }
         }
+        for (Object[] f : camera.stored()) Engine.put((String) f[0], (byte[]) f[1]);
         Engine.seed(System.currentTimeMillis() % 2147483647L);
         Engine.start("");
         afterCall();
@@ -214,7 +224,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             }
             Object in;
             while ((in = input.poll()) != null) {
-                if (in instanceof String[]) {
+                if (in instanceof Object[] && !(in instanceof String[])) {
+                    // a file for the virtual directory (a photo), then its event
+                    Object[] f = (Object[]) in;
+                    Engine.put((String) f[0], (byte[]) f[1]);
+                } else if (in instanceof String[]) {
                     String[] sv = (String[]) in;
                     Engine.sensor(sv[0], sv[1]);
                 } else if (in instanceof String) {
@@ -290,6 +304,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "stop": sound.stopMusic(); break;
             case "vibrate": vibrate(args); break;
             case "sensor": sensors.set(name, !Boolean.FALSE.equals(args)); break;
+            case "camera": camera.take(name); break;
+            case "photo-delete": camera.delete(name); break;
             case "persist":
                 saves.edit().putString(name, args instanceof String ? (String) args : String.valueOf(args)).apply();
                 break;

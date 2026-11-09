@@ -86,6 +86,12 @@ var rg = {
   // with { lat, lon, accuracy, speed, bearing, altitude, time }) or
   // "heading" (the compass; onHeading(deg), 0 = the phone's top points north).
   // Failures come as onSensor("error", { sensor, reason }).
+  // a photo with the phone's camera: it goes to the phone's photo folder and
+  // a small copy to "/save/photos/<id>.jpg" (thumbnail "<id>_t.jpg", for
+  // <img src>); then onPhoto({ id, ok, path, thumb, w, h, reason }). id: letters,
+  // digits, - and _. rg.deletePhoto(id) forgets the copies (the gallery keeps it).
+  camera: function (id) { __cmds.push(["camera", String(id), null]); },
+  deletePhoto: function (id) { __cmds.push(["photo-delete", String(id), null]); },
   sensor: function (name, on) { __cmds.push(["sensor", String(name), on !== false]); },
   title: function (t) { __cmds.push(["title", String(t), null]); },
   // the 3D layer (three.js on the web): rg.three("add", { id, shape, … })
@@ -223,6 +229,7 @@ function __frame(arg) {
       try { data = JSON.parse(e.id || "null"); } catch (err) { data = null; }
       if (e.key === "location" && typeof onLocation === "function") onLocation(data);
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
+      else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (typeof onSensor === "function") onSensor(e.key, data);
     }
     else if (e.type === "back") { if (typeof onBack === "function") { onBack(); } else { rg.exit(); } }

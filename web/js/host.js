@@ -87,6 +87,11 @@
           var a = this.put(k.slice(3)), b = this.put(localStorage.getItem(k) || "");
           this.x.rg_put(a[0], a[1], b[0], b[1]);
           this.free(a); this.free(b);
+        } else if (k && k.indexOf("rgimg:/save/") === 0) {
+          // a photo (rg.camera), kept as a data URL
+          var bin = atob((localStorage.getItem(k) || "").split(",")[1] || ""), bytes = new Uint8Array(bin.length);
+          for (var j = 0; j < bin.length; j++) bytes[j] = bin.charCodeAt(j);
+          this.putFile(k.slice(6), bytes);
         }
       }
     } catch (e) { /* no storage: games start fresh */ }
@@ -220,6 +225,49 @@
     }
   };
 
+  // rg.camera on the web: the file picker (a phone's browser offers the camera),
+  // the picture scaled down like the Android host does, kept in localStorage
+  Host.prototype.camera = function (id) {
+    var self = this;
+    var fail = function (reason) { self.sendSensor("photo", { id: id, ok: false, reason: reason }); };
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return fail("bad-id");
+    var input = document.createElement("input");
+    input.type = "file"; input.accept = "image/*"; input.setAttribute("capture", "environment");
+    input.onchange = function () {
+      var f = input.files && input.files[0];
+      if (!f) return fail("cancelled");
+      var img = new Image();
+      img.onload = function () {
+        var jpeg = function (max, q, done) {
+          var k = Math.min(1, max / Math.max(img.width, img.height));
+          var c = document.createElement("canvas");
+          c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          var url = c.toDataURL("image/jpeg", q);
+          var bin = atob(url.split(",")[1]), b = new Uint8Array(bin.length);
+          for (var i = 0; i < bin.length; i++) b[i] = bin.charCodeAt(i);
+          done(b, url, c.width, c.height);
+        };
+        jpeg(960, 0.82, function (big, bigUrl, bw, bh) {
+          jpeg(200, 0.8, function (thumb, thumbUrl) {
+            var path = "/save/photos/" + id + ".jpg", tpath = "/save/photos/" + id + "_t.jpg";
+            self.putFile(path, big); self.putFile(tpath, thumb);
+            try { localStorage.setItem("rgimg:" + path, bigUrl); localStorage.setItem("rgimg:" + tpath, thumbUrl); } catch (e) { console.warn("photo not kept (storage full)"); }
+            self.sendSensor("photo", { id: id, ok: true, path: path, thumb: tpath, w: bw, h: bh });
+          });
+        });
+      };
+      img.onerror = function () { fail("decode"); };
+      img.src = URL.createObjectURL(f);
+    };
+    input.click();
+  };
+  Host.prototype.putFile = function (path, bytes) {
+    var a = this.put(path), b = this.put(bytes);
+    this.x.rg_put(a[0], a[1], b[0], b[1]);
+    this.free(a); this.free(b);
+  };
+
   Host.prototype.command = function (kind, name, args) {
     switch (kind) {
       case "sound": this.audio.play(name, args); break;
@@ -231,6 +279,8 @@
       case "title": document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView(); break;
       case "three": this.three.command(name, args); break;
       case "sensor": this.sensor(name, args !== false); break;
+      case "camera": this.camera(name); break;
+      case "photo-delete": try { localStorage.removeItem("rgimg:/save/photos/" + name + ".jpg"); localStorage.removeItem("rgimg:/save/photos/" + name + "_t.jpg"); } catch (e) { } break;
       case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;
       default: break;
     }

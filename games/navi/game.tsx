@@ -324,6 +324,20 @@ let arrivedClock = 0;
 let gearHold = -1;
 let demoAlong = 0;
 
+// photos along the way: taken with the phone's camera where the child is,
+// shown on the map and popping up as landmarks when the child walks near one.
+// They stay on the phone (its photo folder and this game's save).
+type Photo = { id: string; x: number; z: number; t: number; w?: number; h?: number };
+let photos: Photo[] = [];
+let pendingPhoto: Photo | null = null;
+let viewing: Photo | null = null;   // a photo on the whole screen
+let popup: Photo | null = null;     // a landmark photo near the child
+let popupClock = 0;
+const shownAt: { [id: string]: number } = {};
+let toast = "";
+let toastClock = 0;
+let delHold = -1;
+
 const save = () => rg.save("places", places);
 
 // Optional default places from places.local.js beside this file (git-ignored,
@@ -341,6 +355,7 @@ function localDefaults(): { [id: string]: Place } {
 
 function init() {
   places = rg.load("places", null) || localDefaults();
+  photos = rg.load("photos", []) || [];
   demo = !!rg.load("demo", false);
   rg.closeButton = "right";
 }
@@ -361,6 +376,41 @@ function onLocation(f: any) {
 function onHeading(deg: number) {
   if (typeof deg === "number") heading = deg;
 }
+
+function say(msg: string) { toast = msg; toastClock = 0; }
+
+function takePhoto() {
+  if (!fix || (!demo && t - lastFixAt > 20)) { say("Odota, etsitään paikkaa 🛰️"); rg.sound("hit"); return; }
+  pendingPhoto = { id: "k" + Math.floor(Date.now()), x: fix.x, z: fix.z, t: Date.now() };
+  rg.sound("click");
+  rg.camera(pendingPhoto.id);
+}
+
+function onPhoto(d: any) {
+  const p = pendingPhoto;
+  pendingPhoto = null;
+  if (!d || !p || d.id !== p.id) return;
+  if (d.ok) {
+    if (d.w > 0 && d.h > 0) { p.w = d.w; p.h = d.h; }
+    photos.push(p);
+    rg.save("photos", photos);
+    shownAt[p.id] = t;
+    rg.celebrate(width / 2, height / 2, { count: 14 });
+    say("📷 Kuva on kartalla!");
+  } else if (d.reason !== "cancelled") {
+    say(d.reason === "permission" ? "Kuville tarvitaan lupa" : "Kuva ei onnistunut");
+  }
+}
+
+function deletePhoto(p: Photo) {
+  photos = photos.filter((q) => q.id !== p.id);
+  rg.save("photos", photos);
+  rg.deletePhoto(p.id);
+  viewing = null; popup = null;
+  rg.sound("pop");
+}
+
+const photoSrc = (p: Photo, thumb: boolean) => "/save/photos/" + p.id + (thumb ? "_t" : "") + ".jpg";
 
 function onSensor(name: string, data: any) {
   if (name === "error" && data && data.sensor === "location") gpsError = data.reason || "error";
@@ -409,6 +459,16 @@ function update() {
       rg.sound("tick");
     }
   }
+  // a photo near: show it (once in five minutes each)
+  if (!popup) {
+    for (const ph of photos) {
+      if (Math.hypot(ph.x - fix.x, ph.z - fix.z) < 35 && (shownAt[ph.id] === undefined || t - shownAt[ph.id] > 300)) {
+        popup = ph; popupClock = 0; shownAt[ph.id] = t;
+        rg.vibrate(40); rg.sound("pop");
+        break;
+      }
+    }
+  }
   const home = tree.place;
   if (Math.hypot(fix.x - home.x, fix.z - home.z) < 18 || routeLen < 12) {
     mode = "arrived"; arrivedClock = 0;
@@ -442,6 +502,12 @@ function tick(dt: number, input: any) {
     return;
   }
   if (mode === "arrived") arrivedClock += dt;
+  if (popup) { popupClock += dt; if (popupClock > 9) popup = null; }
+  if (toast) { toastClock += dt; if (toastClock > 3) toast = ""; }
+  if (delHold >= 0) {
+    if (!input.pointer.down) delHold = -1;
+    else { delHold += dt; if (delHold > 1.2 && viewing) { delHold = -1; deletePhoto(viewing); } }
+  }
   if (mode === "nav" && demo && route && fix) {
     // the pretend child walks 3 m/s along the route
     const k = input.keys;
@@ -567,6 +633,7 @@ function mapLayer(extra: any[]) {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: BG }}>
     {tiles()}
     {routeLine()}
+    {photoMarkers()}
     {homeMarkers()}
     {childMarker()}
     {extra}
@@ -578,9 +645,9 @@ function onPointerDown(x: number, y: number) {
   if (mode === "nav" || mode === "pick") drag = { x: x, y: y, cx: cx, cz: cz, moved: false };
 }
 
-function onPointerUp(x: number, y: number) {
+function onPointerUp(x: number, y: number, info: any) {
   // test mode: a tap on the map moves the pretend child there
-  if (drag && !drag.moved && demo && mode === "nav" && y > 130 && y < height - 90 && x < width - 76) {
+  if (drag && !drag.moved && demo && !(info && info.id) && mode === "nav" && y > 130 && y < height - 90 && x < width - 76) {
     fix = { x: cx + (x - width / 2) / zoom, z: cz + (y - mapH() / 2) / zoom, acc: 5, at: t };
     update();
   }
@@ -724,7 +791,17 @@ function viewNav() {
   extra.push(roundBtn("➕", W - 62, height - 220, () => { zoom = Math.min(2, zoom * 1.6); rg.sound("click"); }, 50));
   extra.push(roundBtn("➖", W - 62, height - 160, () => { zoom = Math.max(0.12, zoom / 1.6); rg.sound("click"); }, 50));
   if (!follow) extra.push(roundBtn("📍", W - 62, height - 280, () => { follow = true; zoom = 0.5; rg.sound("click"); }, 50));
-  return mapLayer(extra);
+  extra.push(roundBtn("📷", 12, height - 150, takePhoto, 60));
+  if (popup) {
+    const ph = popup;
+    extra.push(<div style={{ position: "absolute", left: 84, top: height - 300, width: W - 160, padding: 8, borderRadius: 20, backgroundColor: "#ffffff",
+      alignItems: "center", shadowColor: "rgba(0,0,0,0.35)", shadowOffsetY: 3, shadowRadius: 6 }} onClick={() => { viewing = ph; popup = null; }}>
+      <img src={photoSrc(ph, false)} style={{ width: W - 176, height: 150, borderRadius: 12, objectFit: "cover" }} />
+      <div style={{ fontSize: 16, fontWeight: "700", color: "#1d3557", marginTop: 6 }}>📷 Muistatko tämän?</div>
+    </div>);
+  }
+  extra.push(toastView());
+  return withPhoto(mapLayer(extra));
 }
 
 function viewArrived() {
@@ -768,6 +845,11 @@ function viewSettings() {
     <div style={{ fontSize: 24, fontWeight: "700", color: "#1d3557", marginTop: 18 }}>⚙️ Aikuisille</div>
     <div style={{ marginTop: 6 }}>{gpsBadge()}</div>
     {rows}
+    <div style={{ width: 330, marginTop: 10, padding: 10, borderRadius: 18, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center" }}>
+      <div style={{ fontSize: 17, fontWeight: "700", color: "#1d3557", width: 170 }}>{"📷 Kuvia reitillä: " + photos.length}</div>
+      {btn("📷 Ota kuva", "#3a86ff", takePhoto, { height: 44, fontSize: 16, paddingLeft: 12, paddingRight: 12 })}
+    </div>
+    {toastView()}
     <div style={{ flexDirection: "row", marginTop: 14 }}>
       {btn(demo ? "🧪 Testitila: päällä" : "🧪 Testitila: pois", demo ? "#8338ec" : "#90a4ae", () => {
         demo = !demo; rg.save("demo", demo); fix = null; rg.sound("click");
@@ -800,7 +882,60 @@ function viewPick() {
       places[pickSlot] = { x: cx, z: cz }; delete trees[pickSlot]; save(); mode = "settings"; rg.sound("coin");
     }, { width: 170 })}
   </div>);
-  return mapLayer(extra);
+  return withPhoto(mapLayer(extra));
+}
+
+function photoMarkers() {
+  const out: any[] = [];
+  const S = zoom < 0.3 ? 30 : 46;
+  for (const ph of photos) {
+    const X = sx(ph.x), Y = sy(ph.z);
+    if (X < -60 || Y < -60 || X > width + 60 || Y > height + 60) continue;
+    out.push(<div id={"ph_" + ph.id} style={{ position: "absolute", left: X - S / 2 - 3, top: Y - S - 12, width: S + 6, height: S + 6, borderRadius: 9,
+      backgroundColor: "#ffffff", padding: 3, shadowColor: "rgba(0,0,0,0.35)", shadowOffsetY: 2, shadowRadius: 3 }}
+      onClick={() => { viewing = ph; rg.sound("click"); }}>
+      <img src={photoSrc(ph, true)} style={{ width: S, height: S, borderRadius: 6, objectFit: "cover" }} />
+    </div>);
+    out.push(<div style={{ position: "absolute", left: X - 4, top: Y - 7, width: 8, height: 8, borderRadius: 4, backgroundColor: "#ffffff", borderWidth: 2, borderColor: "#1d3557" }} />);
+  }
+  return out;
+}
+
+function toastView() {
+  if (!toast) return null;
+  return <div style={{ position: "absolute", left: 30, top: height / 2 - 30, width: width - 60, padding: 14, borderRadius: 20, backgroundColor: "rgba(29,53,87,0.92)",
+    alignItems: "center" }}><div style={{ fontSize: 18, fontWeight: "700", color: "#ffffff" }}>{toast}</div></div>;
+}
+
+// the photo as large as fits above the buttons, in its own shape
+function photoBig(ph: Photo) {
+  const bw = width - 20, bh = height - 190;
+  let w = bw, h = bh;
+  if (ph.w && ph.h) { const k = Math.min(bw / ph.w, bh / ph.h); w = Math.floor(ph.w * k); h = Math.floor(ph.h * k); }
+  return <div style={{ width: bw, height: bh, marginTop: 64, alignItems: "center", justifyContent: "center" }}>
+    <img src={photoSrc(ph, false)} style={{ width: w, height: h, borderRadius: 10 }} />
+  </div>;
+}
+
+// a photo on the whole screen, over whatever is below
+function withPhoto(under: any) {
+  if (!viewing) return under;
+  const ph = viewing;
+  const hold = delHold >= 0 ? Math.min(1, delHold / 1.2) : 0;
+  return <div style={{ width: width, height: height }}>
+    {under}
+    <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: "rgba(10,20,35,0.94)", alignItems: "center" }}
+      onClick={() => { viewing = null; }}>
+      {photoBig(ph)}
+      <div style={{ flexDirection: "row", marginTop: 18 }}>
+        {btn("✕ Sulje", "#3a86ff", () => { viewing = null; rg.sound("click"); }, { width: 140 })}
+        <div style={{ width: 150, height: 58, borderRadius: 29, marginLeft: 12, backgroundColor: "rgba(231,111,81," + (0.45 + hold * 0.55) + ")",
+          alignItems: "center", justifyContent: "center" }} onPointerDown={() => { delHold = 0; }}>
+          <div style={{ fontSize: 15, fontWeight: "700", color: "#ffffff" }}>{hold > 0 ? "Poistetaan…" : "🗑 Pidä poistaaksesi"}</div>
+        </div>
+      </div>
+    </div>
+  </div>;
 }
 
 function view() {
@@ -814,6 +949,7 @@ function view() {
 }
 
 function onBack() {
+  if (viewing) { viewing = null; return; }
   if (mode === "nav" || mode === "arrived") { mode = "menu"; return; }
   if (mode === "pick") { mode = "settings"; return; }
   if (mode === "settings") { mode = "menu"; return; }
