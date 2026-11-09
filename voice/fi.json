@@ -839,6 +839,25 @@
   "peilit_tip9": "Valo menee veden yli, mutta veteen ei voi laittaa peiliä.",
   "peilit_tip10": "Kaksi puolipeiliä ja kolme kukkaa.",
   "peilit_tip11": "Monta pöllöä. Etsi turvallinen reitti.",
-  "peilit_tip12": "Kaikki haluavat valoa, paitsi pöllö."
+  "peilit_tip12": "Kaikki haluavat valoa, paitsi pöllö.",
+  "mag_l1": "Vedä naulat laatikkoon magneetilla. Pidä sormi ruudulla, niin magneetti vetää.",
+  "mag_l1_opit": "Magneetti vetää rautaa ja terästä.",
+  "mag_l2": "Mitkä tavarat tarttuvat magneettiin? Vie ne laatikkoon.",
+  "mag_l2_opit": "Rauta ja teräs tarttuvat. Puu, muovi, lasi ja kulta eivät tartu magneettiin.",
+  "mag_l3": "Kuljeta kuula reikään. Magneetti vetää laudan alta. Älä kiirehdi, muuten kuula jää.",
+  "mag_l3_opit": "Magneetin voima kulkee puun läpi.",
+  "mag_l4": "Työnnä punainen magneetti reikään koskematta siihen. Magneetilla voi olla vain alaosassa.",
+  "mag_l4_opit": "Samanväriset navat hylkivät toisiaan. Eriväriset navat vetävät toisiaan.",
+  "mag_l5": "Käännä sauvamagneetti paikalleen. Punainen pää punaiseen, sininen pää siniseen.",
+  "mag_l5_opit": "Jokaisessa magneetissa on kaksi napaa, punainen ja sininen.",
+  "mag_l6": "Kuljeta kuula maaliin. Laudalle kiinnitetyt magneetit vetävät kuulaa. Pidä se kaukana niistä.",
+  "mag_l6_opit": "Rauta tarttuu kumpaankin napaan, punaiseen ja siniseen.",
+  "mag_tarttuu": "Tarttuu!",
+  "mag_ei_tartu": "Tämä ei tartu magneettiin.",
+  "mag_hylkii": "Hylkii!",
+  "mag_vetaa": "Vetää!",
+  "mag_punainen": "Punainen napa.",
+  "mag_sininen": "Sininen napa.",
+  "mag_kaikki": "Kaikki tehtävät tehty! Olet magneettimestari!"
  }
 }

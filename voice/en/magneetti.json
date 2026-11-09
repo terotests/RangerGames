@@ -1,0 +1,25 @@
+{
+ "_comment": "Magneettipaja (games/magneetti): the magnet game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "mag_l1": "Pull the nails into the box with the magnet. Keep your finger on the screen and the magnet pulls.",
+  "mag_l1_opit": "A magnet pulls iron and steel.",
+  "mag_l2": "Which things stick to the magnet? Take them to the box.",
+  "mag_l2_opit": "Iron and steel stick. Wood, plastic, glass and gold do not stick to a magnet.",
+  "mag_l3": "Take the ball to the hole. The magnet pulls from under the board. Go slowly, or the ball stays behind.",
+  "mag_l3_opit": "A magnet's force goes through wood.",
+  "mag_l4": "Push the red magnet into the hole without touching it. Your magnet stays in the lower part.",
+  "mag_l4_opit": "Poles of the same colour push each other away. Different colours pull each other.",
+  "mag_l5": "Turn the bar magnet into place. Red end on red, blue end on blue.",
+  "mag_l5_opit": "Every magnet has two poles, a red one and a blue one.",
+  "mag_l6": "Take the ball to the goal. Magnets fixed on the board pull the ball. Keep it away from them.",
+  "mag_l6_opit": "Iron sticks to both poles, red and blue.",
+  "mag_tarttuu": "It sticks!",
+  "mag_ei_tartu": "This does not stick to a magnet.",
+  "mag_hylkii": "It pushes away!",
+  "mag_vetaa": "It pulls!",
+  "mag_punainen": "Red pole.",
+  "mag_sininen": "Blue pole.",
+  "mag_kaikki": "All tasks done! You are a magnet master!"
+ }
+}

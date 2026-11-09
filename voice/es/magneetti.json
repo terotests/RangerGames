@@ -1,0 +1,25 @@
+{
+ "_comment": "Magneettipaja (games/magneetti): the magnet game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "mag_l1": "Lleva los clavos a la caja con el imán. Mantén el dedo en la pantalla y el imán atrae.",
+  "mag_l1_opit": "Un imán atrae el hierro y el acero.",
+  "mag_l2": "¿Qué cosas se pegan al imán? Llévalas a la caja.",
+  "mag_l2_opit": "El hierro y el acero se pegan. La madera, el plástico, el vidrio y el oro no se pegan al imán.",
+  "mag_l3": "Lleva la bola al agujero. El imán atrae desde debajo del tablero. Ve despacio o la bola se queda.",
+  "mag_l3_opit": "La fuerza del imán atraviesa la madera.",
+  "mag_l4": "Empuja el imán rojo al agujero sin tocarlo. Tu imán se queda en la parte de abajo.",
+  "mag_l4_opit": "Los polos del mismo color se repelen. Los de distinto color se atraen.",
+  "mag_l5": "Gira el imán de barra a su sitio. El extremo rojo en el rojo y el azul en el azul.",
+  "mag_l5_opit": "Todo imán tiene dos polos, uno rojo y uno azul.",
+  "mag_l6": "Lleva la bola a la meta. Los imanes fijos del tablero atraen la bola. Aléjala de ellos.",
+  "mag_l6_opit": "El hierro se pega a los dos polos, rojo y azul.",
+  "mag_tarttuu": "¡Se pega!",
+  "mag_ei_tartu": "Esto no se pega al imán.",
+  "mag_hylkii": "¡Se repelen!",
+  "mag_vetaa": "¡Se atraen!",
+  "mag_punainen": "Polo rojo.",
+  "mag_sininen": "Polo azul.",
+  "mag_kaikki": "¡Todas las tareas hechas! ¡Eres un maestro de los imanes!"
+ }
+}

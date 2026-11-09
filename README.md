@@ -59,6 +59,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `vipu` – **Vipuvaaka** | Tiedepeli: vaaka tasapainotetaan punnuksilla (lisää tai siirrä) ja kaatamalla vettä ämpäriin. Opitaan vipuvarsi, vääntö = paino × etäisyys: nuolet näyttävät kummankin puolen väännön ja laskut kirjoitetaan auki. |
 | `lamppu` – **Lamppulabra** | Sähköoppia: virtapiiri paristoista (1,5 V, 4,5 V, 9 V) ja vastuksista sarjassa lampun (6 Ω, täysi kirkkaus 6 W) kanssa. Ohmin laki I = U / R ja teho P = I² · R lasketaan ja näytetään mittarissa; virtaa kuvaavat liikkuvat pisteet johdoissa, ja yli 12 W:lla lamppu palaa poikki. Viisi tehtävää (sytytä, kirkkaammin, yövalo, älä polta, täsmälleen) ja vapaa kokeilu. |
 | `peilit` – **Valopeilit** | Valo-oppia peileillä: valo ohjataan kukalle, aurinkopaneelille, kissalle, liskolle tai pyykille (mutta ei pöllölle) heijastuslain avulla. Peilit kääntyvät 22,5° askelin, puolipeili jakaa säteen, ja valitun peilin tulo- ja heijastuskulma näytetään. Tasojen ratkeavuus ja vähin peilimäärä tarkistetaan `node tools/peilit/solve.ts`:llä (CI ajaa sen). |
+| `magneetti` – **Magneettipaja** | Fysiikkapeli: magneetin punainen tai sininen napa vetää rautaa ja terästä, hylkii tai vetää toisia magneetteja ja kuljettaa kuulan esteiden läpi. Opitaan vetovoima, hylkiminen ja mitkä aineet ovat magneettisia. Oma 2D-fysiikkamoottori pelin kansiossa (`lib/fysiikka.ts`). |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
