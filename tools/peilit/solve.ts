@@ -1,7 +1,7 @@
 // Checks every Valopeilit level: it is solvable with the pieces in its tray,
 // the fewest pieces it needs (`par`), and that the hint in the level is a
 // solution.   node tools/peilit/solve.ts [level number] [--all]
-import { parseMap, trace, solved } from "../../games/peilit/lib/optics.ts";
+import { parseMap, trace, traceFree, solved } from "../../games/peilit/lib/optics.ts";
 import { LEVELS } from "../../games/peilit/lib/levels.ts";
 
 import type { Cell } from "../../games/peilit/lib/optics.ts";
@@ -82,7 +82,8 @@ function checkHint(lv: any): boolean {
     const c = g[y][x];
     if (c && c.fixed) c.m = m; else g[y][x] = { k: kind, m: m };
   }
-  return solved(g, trace(g, lv.map[0].length, lv.map.length));
+  // the game traces the light at any angle: the hint must solve it there too
+  return solved(g, trace(g, lv.map[0].length, lv.map.length)) && solved(g, traceFree(g, lv.map[0].length, lv.map.length) as any);
 }
 
 const args = process.argv.slice(2);
