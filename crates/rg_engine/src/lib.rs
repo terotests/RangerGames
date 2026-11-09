@@ -21,6 +21,7 @@
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
 pub mod draw;
+pub mod fluid;
 pub mod globe;
 pub mod scene3d;
 pub mod script;
@@ -130,6 +131,8 @@ pub struct Engine {
     seed: i64,
     /// the game's 3D scene (rg.three), drawn under its 2D view
     pub scene: scene3d::Scene,
+    /// the game's water and sand (rg.sim), drawn over the 3D and under the 2D view
+    pub fluid: fluid::Sim,
 }
 
 impl Engine {
@@ -142,6 +145,7 @@ impl Engine {
             game: None,
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
+            fluid: fluid::Sim::new(),
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -300,6 +304,7 @@ impl Engine {
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();
+        self.fluid = fluid::Sim::new();
         // the last game's sensors off (GPS uses the battery)
         self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
@@ -405,6 +410,10 @@ impl Engine {
                 self.pending = Some(cmd.name.clone());
                 continue;
             }
+            if cmd.kind == "sim" {
+                self.fluid.command(&cmd.name, &cmd.args);
+                continue;
+            }
             if cmd.kind == "three" {
                 self.scene.command(&cmd.name, &cmd.args);
                 continue;
@@ -492,6 +501,7 @@ impl Engine {
             member("time", Json::Num(self.time)),
             member("input", json::parse(&self.input.state_json())),
             member("events", Json::Arr(evs)),
+            member("sim", self.fluid.state()),
         ]);
         let r = self.script.as_mut().unwrap().call("__frame", arg.write());
         let out = self.script.as_mut().unwrap().take_output();
@@ -501,7 +511,9 @@ impl Engine {
                 let reply = json::parse(&text);
                 self.take_commands(&reply.get("cmds"));
                 let tree = reply.get("tree");
+                self.fluid.step(dt);
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
+                self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.ui.render(&tree, &mut self.draw);
                 self.launch_pending();
                 Ok(())

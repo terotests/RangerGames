@@ -145,6 +145,8 @@ var rg = {
   sensor: function (name, on) { __cmds.push(["sensor", String(name), on !== false]); },
   title: function (t) { __cmds.push(["title", String(t), null]); },
   // the 3D layer (three.js on the web): rg.three("add", { id, shape, … })
+  sim: function (op, args) { __cmds.push(["sim", String(op), args === undefined ? null : args]); },
+  simState: null,
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
   // a path in the game's folder, for <img src>
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
@@ -268,6 +270,7 @@ function __frame(arg) {
   __input.pointer = a.input.pointer;
   __input.pointers = a.input.pointers;
   __input.time = a.time;
+  rg.simState = a.sim === undefined ? null : a.sim;
   var ev = a.events;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i];
