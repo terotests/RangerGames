@@ -9,6 +9,22 @@
 import { MAP } from "lib/mapdata";
 import { RIGS } from "lib/rigs";
 import { ANIMALS, FOODS, HOMES, Animal } from "lib/animals";
+import { KS_LANG } from "lib/lang";
+
+// English or Spanish (the launcher's flags): the clip texts of that language
+// replace the Finnish names, facts and questions
+const KS: any = KS_LANG[rg.lang] || null;
+const unbang = (s: string) => s.replace(/^¡/, "").replace(/[!.]$/, "");
+if (KS) {
+  for (const a of ANIMALS) {
+    if (KS["ks_" + a.id]) a.name = unbang(KS["ks_" + a.id]);
+    if (KS["ks_" + a.id + "_fakta"]) a.fact = KS["ks_" + a.id + "_fakta"];
+  }
+  for (const k in FOODS) if (KS["ks_ruoka_" + k]) FOODS[k].name = unbang(KS["ks_ruoka_" + k]);
+  for (const k in HOMES) if (KS["ks_koti_" + k]) HOMES[k].name = unbang(KS["ks_koti_" + k]);
+}
+// a question's text: the clip's text in English or Spanish, built in Finnish
+function qtext(clip: string, fi: string) { return KS && KS[clip] ? KS[clip] : fi; }
 
 // ---- geography ----
 const toX = (lon: number) => (lon - MAP.lon0) * MAP.kx;
@@ -205,13 +221,13 @@ function makeQuestions(a: Animal): Q[] {
   const out: Q[] = [];
   const foodsWrong = rg.shuffle(Object.keys(FOODS).filter((k) => a.eats.indexOf(k) < 0)).slice(0, 2);
   const homesWrong = rg.shuffle(Object.keys(HOMES).filter((k) => a.home.indexOf(k) < 0)).slice(0, 2);
-  const kuka = choiceQ("animal", "Mikä näistä on " + a.name.toLowerCase() + "?", ["ks_" + a.id + "_kuka"], a.id, others([a.id], 2));
-  const syo = choiceQ("food", "Mitä " + a.name.toLowerCase() + " syö?", ["ks_" + a.id + "_syo"], a.eats[0], foodsWrong);
-  const asuu = choiceQ("home", "Missä " + a.name.toLowerCase() + " asuu luonnossa?", ["ks_" + a.id + "_asuu"], a.home[0], homesWrong);
+  const kuka = choiceQ("animal", qtext("ks_" + a.id + "_kuka", "Mikä näistä on " + a.name.toLowerCase() + "?"), ["ks_" + a.id + "_kuka"], a.id, others([a.id], 2));
+  const syo = choiceQ("food", qtext("ks_" + a.id + "_syo", "Mitä " + a.name.toLowerCase() + " syö?"), ["ks_" + a.id + "_syo"], a.eats[0], foodsWrong);
+  const asuu = choiceQ("home", qtext("ks_" + a.id + "_asuu", "Missä " + a.name.toLowerCase() + " asuu luonnossa?"), ["ks_" + a.id + "_asuu"], a.home[0], homesWrong);
   // bigger: an animal at least twice as heavy, or half as heavy
   const pair = rg.shuffle(ANIMALS.filter((b) => b.id !== a.id && (b.kg >= a.kg * 2 || b.kg * 2 <= a.kg)))[0];
   const big = pair.kg > a.kg ? pair.id : a.id;
-  const isompi = choiceQ("animal", "Kumpi on isompi?", ["ks_kumpi_isompi"], big, [big === a.id ? pair.id : a.id]);
+  const isompi = choiceQ("animal", rg.t("Kumpi on isompi?", "Which one is bigger?", "¿Cuál es más grande?"), ["ks_kumpi_isompi"], big, [big === a.id ? pair.id : a.id]);
   if (level === "eskari") {
     out.push(kuka, syo, asuu);
   } else {
@@ -554,7 +570,7 @@ function banner() {
       <img src={rigPng(a.id)} style={{ width: 66, height: 66 }} />
     </div>
     <div style={{ marginLeft: 10, flexGrow: 1 }}>
-      <div style={{ fontSize: 15, color: "#6c757d", fontWeight: "700" }}>🔍 Etsi</div>
+      <div style={{ fontSize: 15, color: "#6c757d", fontWeight: "700" }}>🔍 {rg.t("Etsi", "Find", "Busca")}</div>
       <div style={{ fontSize: a.name.length > 14 ? 15 : 20, color: "#1d3557", fontWeight: "700" }}>{a.name}</div>
       <div style={{ fontSize: 15, color: ROUTE, fontWeight: "700" }}>{"👣 " + fmtDist(dist)}</div>
     </div>
@@ -565,10 +581,10 @@ function banner() {
 function gpsNote(): any {
   if (!gps) return null;
   let txt = "", col = "#fb8500";
-  if (gpsError === "permission") { txt = "📍 Sijainnille tarvitaan lupa"; col = "#d62828"; }
-  else if (gpsError === "gps-off") { txt = "📍 Laita sijainti päälle"; col = "#d62828"; }
-  else if (!fix || t - lastFixAt > 30) txt = "🛰️ Etsitään paikkaa…";
-  else if (!onIsland()) { txt = "🏝️ Et ole Korkeasaaressa"; col = "#6d597a"; }
+  if (gpsError === "permission") { txt = rg.t("📍 Sijainnille tarvitaan lupa", "📍 Location permission needed", "📍 Se necesita permiso de ubicación"); col = "#d62828"; }
+  else if (gpsError === "gps-off") { txt = rg.t("📍 Laita sijainti päälle", "📍 Turn on location", "📍 Activa la ubicación"); col = "#d62828"; }
+  else if (!fix || t - lastFixAt > 30) txt = rg.t("🛰️ Etsitään paikkaa…", "🛰️ Finding your place…", "🛰️ Buscando dónde estás…");
+  else if (!onIsland()) { txt = rg.t("🏝️ Et ole Korkeasaaressa", "🏝️ You are not in Korkeasaari", "🏝️ No estás en Korkeasaari"); col = "#6d597a"; }
   else if (fix.acc > 30) { txt = "🛰️ ±" + Math.round(fix.acc) + " m"; col = "#e9c46a"; }
   if (!txt) return null;
   const off = fix && !onIsland();
@@ -576,7 +592,7 @@ function gpsNote(): any {
     <div style={{ height: 34, borderRadius: 17, paddingLeft: 14, paddingRight: 14, backgroundColor: col, alignItems: "center", justifyContent: "center",
       color: "#ffffff", fontSize: 15, fontWeight: "700" }}>{txt}</div>
     {off ? <div style={{ marginTop: 8, height: 40, borderRadius: 20, paddingLeft: 14, paddingRight: 14, backgroundColor: "#06d6a0", alignItems: "center",
-      justifyContent: "center", color: "#ffffff", fontSize: 16, fontWeight: "700" }} onClick={() => { startMap(false); }}>👆 Kävele kartalla</div> : null}
+      justifyContent: "center", color: "#ffffff", fontSize: 16, fontWeight: "700" }} onClick={() => { startMap(false); }}>👆 {rg.t("Kävele kartalla", "Walk on the map", "Camina por el mapa")}</div> : null}
   </div>;
 }
 
@@ -592,7 +608,7 @@ function picker() {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: "rgba(0,0,0,0.45)" }}
     onClick={() => { pick = false; }}>
     <div style={{ position: "absolute", left: 8, top: 60, width: width - 16, height: height - 120, borderRadius: 26, backgroundColor: "#ffffff", padding: 8 }}>
-      <div style={{ fontSize: 20, fontWeight: "700", color: "#1d3557", marginLeft: 8, marginBottom: 4 }}>Kenen luo mennään?</div>
+      <div style={{ fontSize: 20, fontWeight: "700", color: "#1d3557", marginLeft: 8, marginBottom: 4 }}>{rg.t("Kenen luo mennään?", "Who shall we visit?", "¿A quién visitamos?")}</div>
       <div style={{ flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>{cells}</div>
     </div>
   </div>;
@@ -619,7 +635,7 @@ function viewMap() {
       <div style={{ fontSize: 24 }}>📒</div>
       <div style={{ fontSize: 18, fontWeight: "700", color: "#1d3557", marginLeft: 6 }}>{done + "/" + ANIMALS.length}</div>
     </div>
-    <div style={{ position: "absolute", left: width - 160, top: height - 18, width: 156, fontSize: 10, color: "rgba(30,40,60,0.75)", alignItems: "flex-end" }}>© OpenStreetMap-tekijät</div>
+    <div style={{ position: "absolute", left: width - 160, top: height - 18, width: 156, fontSize: 10, color: "rgba(30,40,60,0.75)", alignItems: "flex-end" }}>{rg.t("© OpenStreetMap-tekijät", "© OpenStreetMap contributors", "© colaboradores de OpenStreetMap")}</div>
     {picker()}
   </div>;
 }
@@ -740,7 +756,7 @@ function questionView(q: Q, top: number) {
     if (q.kind === "animal") inner = <img src={rigPng(o)} style={{ width: H - 14, height: H - 14 }} />;
     else if (q.kind === "food") inner = [<div style={{ fontSize: 50 }}>{FOODS[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{FOODS[o].name}</div> : null];
     else if (q.kind === "home") inner = [<div style={{ fontSize: 50 }}>{HOMES[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{HOMES[o].name}</div> : null];
-    else inner = [<div style={{ fontSize: 50 }}>{o ? "👍" : "👎"}</div>, <div style={{ fontSize: 15, color: "#444", fontWeight: "700" }}>{o ? "Totta" : "Ei totta"}</div>];
+    else inner = [<div style={{ fontSize: 50 }}>{o ? "👍" : "👎"}</div>, <div style={{ fontSize: 15, color: "#444", fontWeight: "700" }}>{o ? rg.t("Totta", "True", "Verdad") : rg.t("Ei totta", "Not true", "Falso")}</div>];
     opts.push(<div style={{ width: W, height: H, marginLeft: 5, marginRight: 5, borderRadius: 24, alignItems: "center", justifyContent: "center",
       backgroundColor: isRight ? "#b7efc5" : isWrong ? "#e9ecef" : "#ffffff", opacity: isWrong ? 0.45 : 1,
       borderWidth: 3, borderColor: isRight ? "#2a9d8f" : "#dee2e6", shadowColor: "rgba(0,0,0,0.25)", shadowOffsetY: 4, shadowRadius: 0,
@@ -773,7 +789,7 @@ function stickerView(a: Animal, top: number) {
       transform: "scale(" + s.toFixed(2) + ") rotate(" + Math.round((1 - k) * -40) + "deg)", shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 5, shadowRadius: 0 }}>
       <img src={rigPng(a.id)} style={{ width: 130, height: 130 }} />
     </div>
-    <div style={{ fontSize: 20, fontWeight: "700", color: "#1d3557", marginTop: 8 }}>{all ? "🏆 Kaikki tarrat!" : "Sait tarran! 🎉"}</div>
+    <div style={{ fontSize: 20, fontWeight: "700", color: "#1d3557", marginTop: 8 }}>{all ? "🏆 " + rg.t("Kaikki tarrat!", "All the stickers!", "¡Todas las pegatinas!") : rg.t("Sait tarran!", "You got a sticker!", "¡Tienes una pegatina!") + " 🎉"}</div>
     <div style={{ flexDirection: "row", marginTop: 12 }}>
       {nxt ? <div style={{ height: 64, borderRadius: 32, paddingLeft: 16, paddingRight: 18, backgroundColor: "#06d6a0", flexDirection: "row", alignItems: "center",
         shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 4, shadowRadius: 0 }}
@@ -818,7 +834,7 @@ function viewAlbum() {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: "#fff3d6" }}>
     <div style={{ position: "absolute", left: 14, top: 14, flexDirection: "row", alignItems: "center" }}>
       <div style={{ fontSize: 34 }}>📒</div>
-      <div style={{ fontSize: 24, fontWeight: "700", color: "#1d3557", marginLeft: 8 }}>{"Tarrat " + done + "/" + ANIMALS.length}</div>
+      <div style={{ fontSize: 24, fontWeight: "700", color: "#1d3557", marginLeft: 8 }}>{rg.t("Tarrat ", "Stickers ", "Pegatinas ") + done + "/" + ANIMALS.length}</div>
     </div>
     <div style={{ position: "absolute", left: 4, top: 66, width: width - 8, flexDirection: "row", flexWrap: "wrap", justifyContent: "center" }}>{cells}</div>
     {card}
@@ -849,18 +865,18 @@ function viewMenu() {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: "#8ecae6", alignItems: "center" }}>
     <div style={{ position: "absolute", left: 0, top: height * 0.55, width: width, height: height, backgroundColor: "#95d5b2" }} />
     <div style={{ marginTop: 34, fontSize: 36, fontWeight: "700", color: "#ffffff" }}>Korkeasaari</div>
-    <div style={{ fontSize: 16, color: "#1d3557" }}>Löydä eläimet saarelta!</div>
+    <div style={{ fontSize: 16, color: "#1d3557" }}>{rg.t("Löydä eläimet saarelta!", "Find the animals on the island!", "¡Encuentra los animales de la isla!")}</div>
     <div style={{ flexDirection: "row", marginTop: 8, height: 92 }}>
       {show.map((id, i) => <img src={rigPng(id)} style={{ width: 66, height: 66, marginTop: Math.abs(Math.sin(t * 2 + i)) * -10 + 14 }} />)}
     </div>
-    {big("👆", "Leiki kartalla", "#ff9f1c", () => startMap(false))}
-    {big("📍", "Olen Korkeasaaressa", "#3a86ff", () => startMap(true))}
+    {big("👆", rg.t("Leiki kartalla", "Play on the map", "Jugar en el mapa"), "#ff9f1c", () => startMap(false))}
+    {big("📍", rg.t("Olen Korkeasaaressa", "I am in Korkeasaari", "Estoy en Korkeasaari"), "#3a86ff", () => startMap(true))}
     {big("📒", "Tarrat " + done + "/" + ANIMALS.length, "#06d6a0", () => { mode = "album"; rg.sound("pop"); })}
     <div style={{ flexDirection: "row", marginTop: 20 }}>
-      {lv("eskari", "🐣", "Eskari")}
-      {lv("koulu", "🎒", "Koulu")}
+      {lv("eskari", "🐣", rg.t("Eskari", "Pre-school", "Infantil"))}
+      {lv("koulu", "🎒", rg.t("Koulu", "School", "Escuela"))}
     </div>
-    <div style={{ position: "absolute", left: 10, top: height - 22, fontSize: 10, color: "rgba(20,40,40,0.7)" }}>Kartta ja eläinten paikat © OpenStreetMap-tekijät (ODbL)</div>
+    <div style={{ position: "absolute", left: 10, top: height - 22, fontSize: 10, color: "rgba(20,40,40,0.7)" }}>{rg.t("Kartta ja eläinten paikat © OpenStreetMap-tekijät (ODbL)", "Map and animal places © OpenStreetMap contributors (ODbL)", "Mapa y lugares de los animales © colaboradores de OpenStreetMap (ODbL)")}</div>
   </div>;
 }
 

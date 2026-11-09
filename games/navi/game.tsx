@@ -25,11 +25,11 @@ const WALK_SPEED = 1.2; // a child's metres a second, for the minutes
 
 type Slot = { id: string; name: string; who: string; house: string; color: string };
 const SLOTS: Slot[] = [
-  { id: "isa", name: "Isän luo", who: "👨", house: "🏠", color: "#3a86ff" },
-  { id: "aiti", name: "Äidin luo", who: "👩", house: "🏡", color: "#ff5d8f" },
-  { id: "mummola", name: "Mummolaan", who: "👵", house: "🏘️", color: "#8338ec" },
-  { id: "koulu", name: "Kouluun", who: "🎒", house: "🏫", color: "#fb8500" },
-  { id: "paivakoti", name: "Päiväkotiin", who: "🧸", house: "🏫", color: "#06a77d" },
+  { id: "isa", name: rg.t("Isän luo", "To dad", "A casa de papá"), who: "👨", house: "🏠", color: "#3a86ff" },
+  { id: "aiti", name: rg.t("Äidin luo", "To mum", "A casa de mamá"), who: "👩", house: "🏡", color: "#ff5d8f" },
+  { id: "mummola", name: rg.t("Mummolaan", "To grandma", "A casa de la abuela"), who: "👵", house: "🏘️", color: "#8338ec" },
+  { id: "koulu", name: rg.t("Kouluun", "To school", "Al colegio"), who: "🎒", house: "🏫", color: "#fb8500" },
+  { id: "paivakoti", name: rg.t("Päiväkotiin", "To daycare", "A la guardería"), who: "🧸", house: "🏫", color: "#06a77d" },
 ];
 type Place = { x: number; z: number };
 
@@ -380,7 +380,7 @@ function onHeading(deg: number) {
 function say(msg: string) { toast = msg; toastClock = 0; }
 
 function takePhoto() {
-  if (!fix || (!demo && t - lastFixAt > 20)) { say("Odota, etsitään paikkaa 🛰️"); rg.sound("hit"); return; }
+  if (!fix || (!demo && t - lastFixAt > 20)) { say(rg.t("Odota, etsitään paikkaa", "Wait, finding your place", "Espera, buscando dónde estás") + " 🛰️"); rg.sound("hit"); return; }
   pendingPhoto = { id: "k" + Math.floor(Date.now()), x: fix.x, z: fix.z, t: Date.now() };
   rg.sound("click");
   rg.camera(pendingPhoto.id);
@@ -396,9 +396,9 @@ function onPhoto(d: any) {
     rg.save("photos", photos);
     shownAt[p.id] = t;
     rg.celebrate(width / 2, height / 2, { count: 14 });
-    say("📷 Kuva on kartalla!");
+    say("📷 " + rg.t("Kuva on kartalla!", "The photo is on the map!", "¡La foto está en el mapa!"));
   } else if (d.reason !== "cancelled") {
-    say(d.reason === "permission" ? "Kuville tarvitaan lupa" : "Kuva ei onnistunut");
+    say(d.reason === "permission" ? rg.t("Kuville tarvitaan lupa", "Photos need permission", "Las fotos necesitan permiso") : rg.t("Kuva ei onnistunut", "The photo didn't work", "La foto no salió"));
   }
 }
 
@@ -637,7 +637,7 @@ function mapLayer(extra: any[]) {
     {homeMarkers()}
     {childMarker()}
     {extra}
-    <div style={{ position: "absolute", left: 14, top: height - 96, fontSize: 10, color: "rgba(60,60,60,0.8)" }}>© OpenStreetMap, Tampereen kaupunki</div>
+    <div style={{ position: "absolute", left: 14, top: height - 96, fontSize: 10, color: "rgba(60,60,60,0.8)" }}>{rg.t("© OpenStreetMap, Tampereen kaupunki", "© OpenStreetMap, City of Tampere", "© OpenStreetMap, Ciudad de Tampere")}</div>
   </div>;
 }
 
@@ -684,10 +684,10 @@ function roundBtn(label: string, left: number, top: number, onClick: () => void,
 }
 
 function gpsBadge() {
-  let txt = "🛰️ Etsitään…", col = "#fb8500";
-  if (demo) { txt = "🧪 Testi"; col = "#8338ec"; }
-  else if (gpsError === "permission") { txt = "📍 Ei lupaa"; col = "#d62828"; }
-  else if (gpsError === "gps-off") { txt = "📍 GPS pois"; col = "#d62828"; }
+  let txt = "🛰️ " + rg.t("Etsitään…", "Searching…", "Buscando…"), col = "#fb8500";
+  if (demo) { txt = "🧪 " + rg.t("Testi", "Test", "Prueba"); col = "#8338ec"; }
+  else if (gpsError === "permission") { txt = "📍 " + rg.t("Ei lupaa", "No permission", "Sin permiso"); col = "#d62828"; }
+  else if (gpsError === "gps-off") { txt = "📍 " + rg.t("GPS pois", "GPS off", "GPS apagado"); col = "#d62828"; }
   else if (fix && t - lastFixAt < 15) { txt = fix.acc < 25 ? "🛰️ OK" : "🛰️ ±" + Math.round(fix.acc) + " m"; col = fix.acc < 25 ? "#2a9d8f" : "#e9c46a"; }
   return <div style={{ height: 30, borderRadius: 15, paddingLeft: 12, paddingRight: 12, backgroundColor: col, alignItems: "center", justifyContent: "center", color: "#ffffff", fontSize: 15, fontWeight: "700" }}>{txt}</div>;
 }
@@ -695,8 +695,8 @@ function gpsBadge() {
 function viewLoading() {
   return <div style={{ width: width, height: height, backgroundColor: "#3a86ff", alignItems: "center", justifyContent: "center" }}>
     <div style={{ fontSize: 80 }}>🗺️</div>
-    <div style={{ fontSize: 26, color: "#ffffff", fontWeight: "700", marginTop: 12 }}>Kotiin</div>
-    <div style={{ fontSize: 16, color: "#dbe7ff", marginTop: 8 }}>Ladataan karttaa…</div>
+    <div style={{ fontSize: 26, color: "#ffffff", fontWeight: "700", marginTop: 12 }}>{rg.t("Kotiin", "Home", "A casa")}</div>
+    <div style={{ fontSize: 16, color: "#dbe7ff", marginTop: 8 }}>{rg.t("Ladataan karttaa…", "Loading the map…", "Cargando el mapa…")}</div>
   </div>;
 }
 
@@ -713,7 +713,7 @@ function viewMenu() {
   const holding = gearHold >= 0 ? Math.min(1, gearHold / 1.2) : 0;
   return <div style={{ width: width, height: height, backgroundColor: "#bde0fe", alignItems: "center" }}>
     <div style={{ marginTop: 40, fontSize: 52 }}>🧒🗺️</div>
-    <div style={{ fontSize: 30, fontWeight: "700", color: "#1d3557", marginTop: 6 }}>Minne mennään?</div>
+    <div style={{ fontSize: 30, fontWeight: "700", color: "#1d3557", marginTop: 6 }}>{rg.t("Minne mennään?", "Where are we going?", "¿Adónde vamos?")}</div>
     <div style={{ marginTop: 8 }}>{gpsBadge()}</div>
     {cards}
     {set.length === 0 ? <div style={{ width: 290, marginTop: 30, padding: 16, borderRadius: 18, backgroundColor: "#ffffff", fontSize: 16, color: "#1d3557" }}>
@@ -729,7 +729,7 @@ function viewComputing() {
   const s = placeName(target);
   return <div style={{ width: width, height: height, backgroundColor: s.color, alignItems: "center", justifyContent: "center" }}>
     <div style={{ fontSize: 80 }}>{s.house}</div>
-    <div style={{ fontSize: 22, color: "#ffffff", fontWeight: "700", marginTop: 14 }}>Etsitään reittiä…</div>
+    <div style={{ fontSize: 22, color: "#ffffff", fontWeight: "700", marginTop: 14 }}>{rg.t("Etsitään reittiä…", "Finding the way…", "Buscando el camino…")}</div>
   </div>;
 }
 
@@ -762,9 +762,9 @@ function viewNav() {
   const W = width;
   // the top: arrow, distance, turn
   let msg = "";
-  if (!fix) msg = gpsError === "permission" ? "Salli sijainti asetuksista" : gpsError === "gps-off" ? "Laita GPS päälle" : "Mene ulos, etsitään satelliitteja 🛰️";
-  else if (offNet > 9000) msg = "Olet kartan ulkopuolella";
-  else if (offNet > 45) msg = "Kävele lähimmälle tielle";
+  if (!fix) msg = gpsError === "permission" ? rg.t("Salli sijainti asetuksista", "Allow location in settings", "Permite la ubicación en los ajustes") : gpsError === "gps-off" ? rg.t("Laita GPS päälle", "Turn on GPS", "Activa el GPS") : rg.t("Mene ulos, etsitään satelliitteja", "Go outside, finding satellites", "Sal fuera, buscando satélites") + " 🛰️";
+  else if (offNet > 9000) msg = rg.t("Olet kartan ulkopuolella", "You are outside the map", "Estás fuera del mapa");
+  else if (offNet > 45) msg = rg.t("Kävele lähimmälle tielle", "Walk to the nearest road", "Camina hasta la calle más cercana");
   const progress = startLen > 0 && route ? rg.clamp(1 - routeLen / startLen, 0, 1) : 0;
   const mins = route ? Math.max(1, Math.round(routeLen / WALK_SPEED / 60)) : 0;
   extra.push(<div style={{ position: "absolute", left: 10, top: 10, width: W - 76, flexDirection: "row", alignItems: "center", padding: 8, borderRadius: 26,
@@ -772,8 +772,8 @@ function viewNav() {
     {bigArrow()}
     <div style={{ marginLeft: 10, width: W - 76 - 16 - 96 - 14 }}>
       {route && fix ? <div style={{ fontSize: 34, fontWeight: "700", color: "#1d3557" }}>{fmtDist(routeLen)}</div> : null}
-      {route && fix ? <div style={{ fontSize: 16, color: "#457b9d" }}>{"🚶 noin " + mins + " min"}</div> : null}
-      {turn && turn.at < 40 && !msg ? <div style={{ fontSize: 18, fontWeight: "700", color: ROUTE, marginTop: 2 }}>{(turn.dir < 0 ? "⬅️ Käänny vasemmalle" : "➡️ Käänny oikealle")}</div> : null}
+      {route && fix ? <div style={{ fontSize: 16, color: "#457b9d" }}>{"🚶 " + rg.t("noin ", "about ", "unos ") + mins + " min"}</div> : null}
+      {turn && turn.at < 40 && !msg ? <div style={{ fontSize: 18, fontWeight: "700", color: ROUTE, marginTop: 2 }}>{(turn.dir < 0 ? "⬅️ " + rg.t("Käänny vasemmalle", "Turn left", "Gira a la izquierda") : "➡️ " + rg.t("Käänny oikealle", "Turn right", "Gira a la derecha"))}</div> : null}
       {msg ? <div style={{ fontSize: 17, fontWeight: "700", color: "#e76f51", marginTop: 2 }}>{msg}</div> : null}
     </div>
   </div>);
@@ -797,7 +797,7 @@ function viewNav() {
     extra.push(<div style={{ position: "absolute", left: 84, top: height - 300, width: W - 160, padding: 8, borderRadius: 20, backgroundColor: "#ffffff",
       alignItems: "center", shadowColor: "rgba(0,0,0,0.35)", shadowOffsetY: 3, shadowRadius: 6 }} onClick={() => { viewing = ph; popup = null; }}>
       <img src={photoSrc(ph, false)} style={{ width: W - 176, height: 150, borderRadius: 12, objectFit: "cover" }} />
-      <div style={{ fontSize: 16, fontWeight: "700", color: "#1d3557", marginTop: 6 }}>📷 Muistatko tämän?</div>
+      <div style={{ fontSize: 16, fontWeight: "700", color: "#1d3557", marginTop: 6 }}>📷 {rg.t("Muistatko tämän?", "Do you remember this?", "¿Te acuerdas de esto?")}</div>
     </div>);
   }
   extra.push(toastView());
@@ -810,9 +810,9 @@ function viewArrived() {
   return <div style={{ width: width, height: height, backgroundColor: s.color, alignItems: "center", justifyContent: "center" }}>
     <div style={{ fontSize: 110, marginTop: bob }}>{s.house}</div>
     <div style={{ fontSize: 70 }}>{s.who}</div>
-    <div style={{ fontSize: 40, color: "#ffffff", fontWeight: "700", marginTop: 10 }}>Perillä!</div>
-    <div style={{ fontSize: 22, color: "#ffffff", marginTop: 6 }}>Hienosti kävelty ⭐</div>
-    {btn("Valmis", "#06d6a0", () => { mode = "menu"; rg.sound("click"); }, { marginTop: 40, width: 200 })}
+    <div style={{ fontSize: 40, color: "#ffffff", fontWeight: "700", marginTop: 10 }}>{rg.t("Perillä!", "You made it!", "¡Llegaste!")}</div>
+    <div style={{ fontSize: 22, color: "#ffffff", marginTop: 6 }}>{rg.t("Hienosti kävelty", "Well walked", "Muy bien caminado")} ⭐</div>
+    {btn(rg.t("Valmis", "Done", "Listo"), "#06d6a0", () => { mode = "menu"; rg.sound("click"); }, { marginTop: 40, width: 200 })}
   </div>;
 }
 
@@ -827,11 +827,11 @@ function viewSettings() {
         <div style={{ fontSize: 14, color: p ? "#2a9d8f" : "#999999", marginLeft: 8 }}>{p ? "asetettu" : "ei asetettu"}</div>
       </div>
       <div style={{ flexDirection: "row", marginTop: 8 }}>
-        {btn("📍 Tähän", gpsOk ? "#2a9d8f" : "#b0bec5", () => {
+        {btn("📍 " + rg.t("Tähän", "Here", "Aquí"), gpsOk ? "#2a9d8f" : "#b0bec5", () => {
           if (!gpsOk || !fix) { rg.sound("hit"); return; }
           places[s.id] = { x: fix.x, z: fix.z }; delete trees[s.id]; save(); rg.sound("coin");
         }, { height: 44, fontSize: 16, paddingLeft: 12, paddingRight: 12 })}
-        {btn("🗺️ Kartalta", "#3a86ff", () => {
+        {btn("🗺️ " + rg.t("Kartalta", "From the map", "Del mapa"), "#3a86ff", () => {
           pickSlot = s.id; mode = "pick";
           if (p) { cx = p.x; cz = p.z; } else if (fix) { cx = fix.x; cz = fix.z; }
           zoom = 0.5; rg.sound("click");
@@ -842,19 +842,19 @@ function viewSettings() {
     </div>;
   });
   return <div style={{ width: width, height: height, backgroundColor: "#e9eef5", alignItems: "center" }}>
-    <div style={{ fontSize: 24, fontWeight: "700", color: "#1d3557", marginTop: 18 }}>⚙️ Aikuisille</div>
+    <div style={{ fontSize: 24, fontWeight: "700", color: "#1d3557", marginTop: 18 }}>⚙️ {rg.t("Aikuisille", "For adults", "Para adultos")}</div>
     <div style={{ marginTop: 6 }}>{gpsBadge()}</div>
     {rows}
     <div style={{ width: 330, marginTop: 10, padding: 10, borderRadius: 18, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center" }}>
-      <div style={{ fontSize: 17, fontWeight: "700", color: "#1d3557", width: 170 }}>{"📷 Kuvia reitillä: " + photos.length}</div>
-      {btn("📷 Ota kuva", "#3a86ff", takePhoto, { height: 44, fontSize: 16, paddingLeft: 12, paddingRight: 12 })}
+      <div style={{ fontSize: 17, fontWeight: "700", color: "#1d3557", width: 170 }}>{"📷 " + rg.t("Kuvia reitillä: ", "Photos on the route: ", "Fotos en la ruta: ") + photos.length}</div>
+      {btn("📷 " + rg.t("Ota kuva", "Take a photo", "Hacer foto"), "#3a86ff", takePhoto, { height: 44, fontSize: 16, paddingLeft: 12, paddingRight: 12 })}
     </div>
     {toastView()}
     <div style={{ flexDirection: "row", marginTop: 14 }}>
-      {btn(demo ? "🧪 Testitila: päällä" : "🧪 Testitila: pois", demo ? "#8338ec" : "#90a4ae", () => {
+      {btn(demo ? "🧪 " + rg.t("Testitila: päällä", "Test mode: on", "Modo prueba: sí") : "🧪 " + rg.t("Testitila: pois", "Test mode: off", "Modo prueba: no"), demo ? "#8338ec" : "#90a4ae", () => {
         demo = !demo; rg.save("demo", demo); fix = null; rg.sound("click");
       }, { height: 46, fontSize: 16 })}
-      {btn("Valmis", "#06d6a0", () => { mode = "menu"; rg.sound("click"); }, { height: 46, fontSize: 16, marginLeft: 10 })}
+      {btn(rg.t("Valmis", "Done", "Listo"), "#06d6a0", () => { mode = "menu"; rg.sound("click"); }, { height: 46, fontSize: 16, marginLeft: 10 })}
     </div>
     <div style={{ width: 330, marginTop: 10, fontSize: 13, color: "#607d8b" }}>
       Paikat tallentuvat vain tähän puhelimeen. Testitilassa pieni kävelijä lähtee kartan keskeltä ja kävelee reitin itse.
@@ -871,7 +871,7 @@ function viewPick() {
   </div>);
   extra.push(<div style={{ position: "absolute", left: width / 2 - 6, top: height / 2 - 6, width: 12, height: 12, borderRadius: 6, backgroundColor: ROUTE, borderWidth: 2, borderColor: "#ffffff" }} />);
   extra.push(<div style={{ position: "absolute", left: 10, top: 10, width: width - 76, padding: 12, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.94)" }}>
-    <div style={{ fontSize: 17, fontWeight: "700", color: "#1d3557" }}>{"Siirrä kartta niin, että " + s.house + " on kotiovella"}</div>
+    <div style={{ fontSize: 17, fontWeight: "700", color: "#1d3557" }}>{rg.t("Siirrä kartta niin, että " + s.house + " on kotiovella", "Move the map so that " + s.house + " is at the front door", "Mueve el mapa para que " + s.house + " quede en la puerta")}</div>
   </div>);
   extra.push(roundBtn("➕", width - 66, height / 2 - 70, () => { zoom = Math.min(3, zoom * 1.6); }));
   extra.push(roundBtn("➖", width - 66, height / 2 - 6, () => { zoom = Math.max(0.12, zoom / 1.6); }));
@@ -931,7 +931,7 @@ function withPhoto(under: any) {
         {btn("✕ Sulje", "#3a86ff", () => { viewing = null; rg.sound("click"); }, { width: 140 })}
         <div style={{ width: 150, height: 58, borderRadius: 29, marginLeft: 12, backgroundColor: "rgba(231,111,81," + (0.45 + hold * 0.55) + ")",
           alignItems: "center", justifyContent: "center" }} onPointerDown={() => { delHold = 0; }}>
-          <div style={{ fontSize: 15, fontWeight: "700", color: "#ffffff" }}>{hold > 0 ? "Poistetaan…" : "🗑 Pidä poistaaksesi"}</div>
+          <div style={{ fontSize: 15, fontWeight: "700", color: "#ffffff" }}>{hold > 0 ? rg.t("Poistetaan…", "Deleting…", "Borrando…") : "🗑 " + rg.t("Pidä poistaaksesi", "Hold to delete", "Mantén para borrar")}</div>
         </div>
       </div>
     </div>

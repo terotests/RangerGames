@@ -20,6 +20,8 @@
 // The pictures are our own drawings (tools/vuodenajat/art.js → img/*.png); the
 // fish are Onkipeli's drawings.
 
+import { T_LANG } from "lib/lang";
+
 const T: { [id: string]: string } = {
   vj_nimi: "Vuodenajat. Mitä eläimet tekevät kesällä ja talvella?",
   vj_katsele: "Valitse vuodenaika ja napauta eläimiä.",
@@ -90,13 +92,15 @@ const T: { [id: string]: string } = {
   vj_e_made_kesa: "Made viihtyy kesällä syvällä, kylmässä vedessä.",
   vj_e_sarki: "Särki on yksi Suomen yleisimmistä kaloista.",
 };
+// in English or Spanish when the launcher's flag says so (lib/lang.ts)
+if (T_LANG[rg.lang]) for (const k in T_LANG[rg.lang]) T[k] = T_LANG[rg.lang][k];
 
 type Season = { id: string; name: string; icon: string; color: string };
 const SEASONS: Season[] = [
-  { id: "kevat", name: "Kevät", icon: "🌸", color: "#5fb85a" },
-  { id: "kesa", name: "Kesä", icon: "☀️", color: "#f3a712" },
-  { id: "syksy", name: "Syksy", icon: "🍂", color: "#e0662a" },
-  { id: "talvi", name: "Talvi", icon: "❄️", color: "#4a90d9" },
+  { id: "kevat", name: rg.t("Kevät", "Spring", "Primavera"), icon: "🌸", color: "#5fb85a" },
+  { id: "kesa", name: rg.t("Kesä", "Summer", "Verano"), icon: "☀️", color: "#f3a712" },
+  { id: "syksy", name: rg.t("Syksy", "Autumn", "Otoño"), icon: "🍂", color: "#e0662a" },
+  { id: "talvi", name: rg.t("Talvi", "Winter", "Invierno"), icon: "❄️", color: "#4a90d9" },
 ];
 
 // picture sizes (img/<name>.png)
@@ -111,10 +115,10 @@ const IMG: { [n: string]: number[] } = {
 // the fish (Onkipeli's pictures: 400x160, the body over the middle 80 %)
 type Species = { id: string; name: string; L: number; H: number };
 const FISH: Species[] = [
-  { id: "ahven", name: "Ahven", L: 70, H: 32 },
-  { id: "hauki", name: "Hauki", L: 124, H: 26 },
-  { id: "made", name: "Made", L: 104, H: 24 },
-  { id: "sarki", name: "Särki", L: 62, H: 28 },
+  { id: "ahven", name: rg.t("Ahven", "Perch", "Perca"), L: 70, H: 32 },
+  { id: "hauki", name: rg.t("Hauki", "Pike", "Lucio"), L: 124, H: 26 },
+  { id: "made", name: rg.t("Made", "Burbot", "Lota"), L: 104, H: 24 },
+  { id: "sarki", name: rg.t("Särki", "Roach", "Rutilo"), L: 62, H: 28 },
 ];
 
 const LAND = 330;           // the land picture's height (the screen is 360 wide)
@@ -988,17 +992,17 @@ function Menu() {
   const bob = Math.sin(t * 2) * 5;
   return (
     <div className="overlay">
-      <div className="title" style={{ marginTop: bob }}>Vuodenajat</div>
+      <div className="title" style={{ marginTop: bob }}>{rg.t("Vuodenajat", "Seasons", "Las estaciones")}</div>
       <div className="lead">{SEASONS[0].icon + " " + SEASONS[1].icon + " " + SEASONS[2].icon + " " + SEASONS[3].icon}</div>
       <div className="lvl" id="year" onClick={() => startYear()} style={{ backgroundColor: "#06a77d" }}>
-        <div className="lvname">🔄 Vuoden kierros</div>
-        <div className="lvbest">{best > 0 ? "Ennätys ⭐ " + best + "/11" : "Kevät, kesä, syksy, talvi"}</div>
+        <div className="lvname">🔄 {rg.t("Vuoden kierros", "Round the year", "La vuelta al año")}</div>
+        <div className="lvbest">{best > 0 ? rg.t("Ennätys", "Record", "Récord") + " ⭐ " + best + "/11" : rg.t("Kevät, kesä, syksy, talvi", "Spring, summer, autumn, winter", "Primavera, verano, otoño, invierno")}</div>
       </div>
       <div className="lvl" id="explore" onClick={() => startExplore()} style={{ backgroundColor: "#f3a712" }}>
-        <div className="lvname">👀 Katsele</div>
-        <div className="lvbest">Napauta eläimiä</div>
+        <div className="lvname">👀 {rg.t("Katsele", "Look around", "Mirar")}</div>
+        <div className="lvbest">{rg.t("Napauta eläimiä", "Tap the animals", "Toca los animales")}</div>
       </div>
-      <div className="lvl lvlback" id="exit" onClick={() => rg.exit()}><div className="lvname">← Valikkoon</div></div>
+      <div className="lvl lvlback" id="exit" onClick={() => rg.exit()}><div className="lvname">{rg.t("← Valikkoon", "← Menu", "← Menú")}</div></div>
     </div>
   );
 }
@@ -1008,12 +1012,12 @@ function Done() {
   for (let i = 0; i < tasks.length; i++) st.push(i < stars ? "⭐" : "☆");
   return (
     <div className="overlay">
-      <div className="title">Vuosi kierretty!</div>
+      <div className="title">{rg.t("Vuosi kierretty!", "Year complete!", "¡Año completo!")}</div>
       <div className="lead">{"🌸 ☀️ 🍂 ❄️"}</div>
       <div className="stars">{st.join("")}</div>
-      <div className="lvl" id="again" onClick={() => startYear()} style={{ backgroundColor: "#06a77d" }}><div className="lvname">Uudestaan!</div></div>
-      <div className="lvl" id="look" onClick={() => startExplore()} style={{ backgroundColor: "#f3a712" }}><div className="lvname">👀 Katsele</div></div>
-      <div className="lvl lvlback" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">← Takaisin</div></div>
+      <div className="lvl" id="again" onClick={() => startYear()} style={{ backgroundColor: "#06a77d" }}><div className="lvname">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div></div>
+      <div className="lvl" id="look" onClick={() => startExplore()} style={{ backgroundColor: "#f3a712" }}><div className="lvname">👀 {rg.t("Katsele", "Look around", "Mirar")}</div></div>
+      <div className="lvl lvlback" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
 }
@@ -1046,7 +1050,7 @@ function view() {
       {play || mode === "explore" ? Bar() : null}
       {play && phase !== "season" ? Choices() : null}
       {(play && phase !== "season") || mode === "explore" ? Caption() : null}
-      {play && ok ? <div className="next" id="next" onClick={() => next()} style={{ top: height - 84 }}>{ti + 1 >= tasks.length ? "Valmis! ⭐" : "Jatka ▶"}</div> : null}
+      {play && ok ? <div className="next" id="next" onClick={() => next()} style={{ top: height - 84 }}>{ti + 1 >= tasks.length ? rg.t("Valmis!", "Done!", "¡Listo!") + " ⭐" : rg.t("Jatka", "Next", "Seguir") + " ▶"}</div> : null}
       {mode === "explore" ? Wheel() : null}
       {play && phase === "season" ? SeasonCard() : null}
       {mode === "menu" ? Menu() : null}
