@@ -61,6 +61,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `peilit` – **Valopeilit** | Valo-oppia peileillä: valo ohjataan kukalle, aurinkopaneelille, kissalle, liskolle tai pyykille (mutta ei pöllölle) heijastuslain avulla. Peilit kääntyvät 22,5° askelin, puolipeili jakaa säteen, ja valitun peilin tulo- ja heijastuskulma näytetään. Tasojen ratkeavuus ja vähin peilimäärä tarkistetaan `node tools/peilit/solve.ts`:llä (CI ajaa sen). |
 | `magneetti` – **Magneettipaja** | Fysiikkapeli: magneetin punainen tai sininen napa vetää rautaa ja terästä, hylkii tai vetää toisia magneetteja ja kuljettaa kuulan esteiden läpi. Opitaan vetovoima, hylkiminen ja mitkä aineet ovat magneettisia. Oma 2D-fysiikkamoottori pelin kansiossa (`lib/fysiikka.ts`). |
 | `lampolabra` – **Lämpölabra** | Sulata jää: jääpalikat (jää, lumi, ikijää, kuivajää) ja niihin jäätyneet aarteet. Lämmittimiä on yhdeksän, ja jokaisella on oma tehonsa (tulitikku 50 W … retkikeitin 2500 W); kämmen jäätyy, jos sillä lämmittää liian kauan. Sulava jää halkeaa ja romahtaa pelin omalla 2D-fysiikalla (`games/lampolabra/lib/physics.ts`, laatikot, kitka, pinot). Opitaan lämpötila, olomuodot ja lämmön siirtyminen (johtuminen, kuljettuminen, säteily). |
+| `painovoima` – **Painovoimalento** | Avaruuslento 3D:nä Auringon, Merkuriuksen, Venuksen, Maan, Kuun, Marsin ja Jupiterin välillä. Lähellä taivaankappale vetää rakettia puoleensa omalla painovoimallaan (oikea pintapainovoima, putoaminen vähän nopeutettuna; Kuussa leijutaan, Jupiterissa tarvitaan ⚡-tehoja), ja pinnalta raketti pomppaa kuin kumipallo. Käy jokaisella. Planeetat ovat moottorin globe (`rg.three("planet", …)`): sama kuin Muuttolinnun maapallo, mutta paikallaan 3D-näkymässä perspektiivissä ja Auringon valaisemana; ne ovat paljon todellista isompia ja lähempänä toisiaan. Ohjaus: vasen puoli ohjaa (tai nuolet), 🔥 työntää, ⚡ tehot, 🛑 jarru. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
@@ -174,7 +175,7 @@ Nämä kannattaa korjata myös Rangeriin ja EVG:hen.
 
 ## Aineistot
 
-- Maiden rajat (Kopterilento, Muuttolintu): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
+- Maiden rajat (Kopterilento, Muuttolintu, Painovoimalento): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
 - Tampereen kartta (Kotiin, Kopterilento): © OpenStreetMap-tekijät (ODbL), Tampereen kaupunki / Maanmittauslaitos (CC BY 4.0), Tampere Taxi Driverin aineiston kautta.
 
 ## Lisenssi
