@@ -480,9 +480,10 @@ function tapLetter(i: number) {
     for (const q of letters) q.glow = false;
     if (built.length === word.length) {
       learned(task.word || "", 3, tries === 0);
-      // the word aloud, then the child's turn to say it
-      speakIds(["w_" + task.word, "sayit", "w_" + task.word]);
-      sayItClock = 3.4;
+      // the word aloud, then the child's turn to say it: a quiet moment
+      // (about 2.5 s of speech, then 4 s for the child), or a tap on 🗣️ goes on
+      speakIds(["w_" + task.word, "sayit"]);
+      sayItClock = 6.5;
     }
     return;
   }
@@ -780,7 +781,7 @@ function BuildView() {
       <div className="slots" style={{ top: 312 }}>
         {word.split("").map((c, i) => <div className={i < built.length ? "slot slotfull" : "slot"} style={{ width: slotW, height: slotW + 8 }}>{i < built.length ? c : ""}</div>)}
       </div>
-      {sayItClock > 0 ? <div className="sayit">🗣️</div> : letters.map((l, i) => {
+      {sayItClock > 0 ? <div className="sayit" id="sayit" onClick={() => { if (sayItClock > 0.05) sayItClock = 0.05; }}>🗣️</div> : letters.map((l, i) => {
         const row = Math.floor(i / perRow), col = i % perRow;
         const rowN = Math.min(perRow, n - row * perRow);
         const x = (360 - rowN * (tileW + 8)) / 2 + col * (tileW + 8) + (l.shake > 0 ? Math.sin(l.shake * 60) * 5 : 0);
