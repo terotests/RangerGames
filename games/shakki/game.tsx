@@ -34,7 +34,7 @@ let thinker: Thinker | null = null;
 let thinkWait = 0;
 let over = false;
 let overClock = 0;
-let saidPiece = 0;
+let saidPiece = 0;              // the piece kinds named this game (bits): each is named once
 let t = 0;
 
 rg.seed(Math.floor(Date.now() % 100000) + 1);
@@ -128,7 +128,7 @@ function tap(sq: number) {
     if (!targets.length && inCheck(g, g.side)) { rg.sound("wrong"); rg.say("sk_kuningas_vaarassa"); return; }
     rg.sound("click");
     const kind = Math.abs(p);
-    if (kind !== saidPiece) { saidPiece = kind; rg.say(NAMES[kind]); }
+    if (!(saidPiece & (1 << kind))) { saidPiece |= 1 << kind; rg.say(NAMES[kind]); }
     return;
   }
   if (sel >= 0) rg.sound("tick");
