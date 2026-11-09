@@ -128,9 +128,10 @@ fn build(list: &str, out: &str) -> Result<(), String> {
             }
         }
         // the English word lists change what is said: the stamp follows the words' entries
-        // (Finnish keeps the key it had before the other languages, so nothing renders again)
+        // (fi3: Finnish vowels, unaspirated stops and melody of prosody.rs)
         let key = match (code.as_str(), &ipa) {
-            ("fi", None) => format!("{say_text}|{voice:?}|pcm16-48k-fi2"),
+            ("fi", None) => format!("{say_text}|{voice:?}|pcm16-48k-fi3"),
+            ("fi", _) => format!("{say_text}|{ipa:?}|{voice:?}|pcm16-48k-fi3"),
             ("en", None) => format!("{say_text}|{voice:?}|pcm16-48k-en1|{}", lang.ipa(&say_text)),
             _ => format!("{say_text}|{ipa:?}|{voice:?}|pcm16-48k-{code}1"),
         };
