@@ -1,0 +1,1 @@
+{ "name": "Pallosade", "description": "Pudota palloja, neljä samaa suoraan!", "icon": "🟡", "color": "#2b59c3", "players": "1-2", "width": 360, "order": 100, "i18n": { "en": { "name": "Ball Rain", "description": "Drop balls, four in a row!" }, "es": { "name": "Lluvia de bolas", "description": "¡Suelta bolas, cuatro en línea!" } } }

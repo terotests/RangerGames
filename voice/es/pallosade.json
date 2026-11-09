@@ -1,0 +1,11 @@
+{
+ "_comment": "Pallosade (games/pallosade): the ball game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "pp_ohje": "Suelta las bolas. Cuatro del mismo color en línea te dan un punto.",
+  "pp_valkoinen_aloittaa": "Empieza el blanco.",
+  "pp_keltainen_aloittaa": "Empieza el amarillo.",
+  "pp_valkoinen_voitti": "¡Gana el blanco!",
+  "pp_keltainen_voitti": "¡Gana el amarillo!"
+ }
+}
