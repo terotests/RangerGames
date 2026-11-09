@@ -46,6 +46,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `luut` – **Kenen luut?** | Oikea valokuva eläimen pääkallosta tai luurangosta ja neljä eläintä vaihtoehdoiksi (eläinten kuvat ja nimet, nimi sanotaan ääneen). 44 eläintä, 109 luukuvaa. Kierroksen alussa väärät vaihtoehdot ovat eri eläinryhmistä, lopussa samasta (kissa vai koira), mutta toistensa näköisiä (kissa/leijona/tiikeri, koira/susi/kettu …) ei koskaan näytetä yhdessä. Kaikki kuvat Wikimedia Commonsista (CC0 / public domain / CC BY / CC BY-SA): tekijä ja lisenssi näkyvät kuvan alla ja pelin Kuvat-sivulla, lista `games/luut/CREDITS.md`. Kuvat haetaan `tools/luut/fetch_commons.py`:llä ja rakennetaan `tools/luut/build.py`:llä (valinnat `tools/luut/pick.json`). |
 | `kopteri` – **Kopterilento** | Maantietoa helikopterilla. Tampere ylhäältä (Liikenneretken kartta): etsi Näsinneula, tuomiokirkko, rautatieasema, Tammerkoski … (kotien paikat eivät ole mukana). Maapallo: ensin mantereet (jokaisella oma väri ja muoto tehtäväkortissa, joten lukutaitoa ei tarvita), sitten tutut maat, lisää maita ja vaikeat maat. Pallo pyörii kopterin alla, löydöstä pisteitä (nopeasta enemmän), ja hetken päästä nuoli näyttää suunnan (❓ heti). Ohjaus: pidä sormea sinne, minne haluat lentää (tai nuolinäppäimet), ➕/➖ zoomaa. Maiden rajat: Natural Earth (public domain), `tools/kopteri/build.py`. |
 | `vuodenajat` – **Vuodenajat** | Suomen eläinten vuosi yhdessä maisemassa (metsänreuna ja järvi pohjaan asti): talvi- ja kesäturkit (jänis, kärppä, riekko), talvipesät (karhu, siili, mäyrä, sammakko, orava), ruokavarastot (orava, närhi), muuttolinnut, onkiminen veneestä kesällä ja pilkkiminen talvella (made kutee jään alla). Ohjeet puhutaan, joten lukutaitoa ei tarvita. Kuvat ovat omia piirroksia (`tools/vuodenajat/art.js` → `render.js`), kalat Onkipelistä; puheet `tools/vuodenajat/voice.js` → `voice/fi.json`. |
+| `muutto` – **Muuttolintu** | Vuodenajat ja aurinko muuttolinnun silmin. Valitse laji (laulujoutsen ⇄ Tanska, kurki ⇄ Etiopia, haarapääsky ⇄ Etelä-Afrikka, lapintiira ⇄ Etelämanner) ja lennä keväällä Suomeen pesimään, ruoki poikaset ja lennä syksyllä takaisin. Vuosi kulkee nopeasti lentäessä: maapallolla lumi sulaa ja tulee, kevään vihreä ja syksyn ruska kulkevat leveyspiirejä pitkin, ja valaistus on keskipäivä linnun kohdalla, joten talven puoleinen napa on pimeässä. Pieni ikkuna näyttää maapallon kiertämässä aurinkoa akseli aina samaan suuntaan kallellaan (napauta: aurinko selitetään ääneen). Pisteet näyttävät lajin oikean reitin, ruoka matkalla antaa voimia, lumessa tulee kylmä. Ohjaus kuin Kopterilennossa. `tools/muutto/build.py`. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
@@ -156,7 +157,7 @@ Nämä kannattaa korjata myös Rangeriin ja EVG:hen.
 
 ## Aineistot
 
-- Maiden rajat (Kopterilento): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
+- Maiden rajat (Kopterilento, Muuttolintu): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
 - Tampereen kartta (Liikenneretki, Kotiin, Kopterilento): © OpenStreetMap-tekijät (ODbL), Tampereen kaupunki / Maanmittauslaitos (CC BY 4.0), Tampere Taxi Driverin aineiston kautta.
 
 ## Lisenssi
