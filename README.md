@@ -151,8 +151,15 @@ Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
 `rate`, `accent` (painollisen tavun sävelnousu), `breathiness`, `drift`,
 `roughness`, `tension`, `vibrato` (senttiä), samat kuin CHIMERA-sovelluksen
 säätimet. Suomen äänteiden kestot tulevat `rg_voice`:sta (CHIMERAn englannin
-Klatt-säännöt lyhentävät painottomat vokaalit liikaa), ja kysymykset laskevat
-kuten suomessa. CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
+Klatt-säännöt lyhentävät painottomat vokaalit liikaa). `rg_voice/src/prosody.rs`
+muokkaa CHIMERAn suunnitelmaa suomeksi ennen renderöintiä: klusiilit p/t/k ilman
+englannin aspiraatiota, a/ä/o/u/ö suomen vokaalilaaduiksi (CHIMERAn kalibroitujen
+vokaalien sekoituksina, formantit mitattu), k:n ja h:n viereiset lyhyet vokaalit
+eivät huku, ja sävelkulku on suomalainen: jokaisen sanan ensitavu nousee ja
+laskee, aksentit porrastuvat alaspäin, lause loppuu laskuun (myös kysymykset),
+huutolause on isompi ja pilkku jättää äänen ylös. Mittaukset:
+`cargo run --release -p rg_voice --example fi_lab -- vowels | pitch "Hyvä!" | seg "Kuka."`.
+CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
 hila ja kalibrointi riippuvat näytetaajuudesta); klipit ovat 24 kHz 16-bittisiä
 WAVeja, jotka web-host ja Androidin `Sound.java` purkavat itse.
 

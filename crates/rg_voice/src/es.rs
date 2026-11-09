@@ -261,7 +261,7 @@ pub fn to_phrases(text: &str) -> Vec<Phrase> {
             if !words.is_empty() {
                 // a question with a question word falls like a statement; a yes/no question rises
                 let wh = WH.split(' ').any(|q| q == first.as_str());
-                phrases.push(Phrase { ipa: join(&words), question: lc == '?' && !wh });
+                phrases.push(Phrase { ipa: join(&words), question: lc == '?' && !wh, kind: crate::fi::Kind::Statement });
                 words.clear();
             }
             pause = true;
@@ -271,7 +271,7 @@ pub fn to_phrases(text: &str) -> Vec<Phrase> {
     }
     push_word(&mut cur, &mut words, &mut pause, &mut first);
     if !words.is_empty() {
-        phrases.push(Phrase { ipa: join(&words), question: false });
+        phrases.push(Phrase { ipa: join(&words), question: false, kind: crate::fi::Kind::Statement });
     }
     phrases
 }

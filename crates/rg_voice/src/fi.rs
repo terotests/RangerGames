@@ -5,12 +5,35 @@
 //! sound per letter, a doubled letter is a long sound (`tuuli` → tuːli,
 //! `kissa` → kisːɑ), `ng` is a long velar nasal (`kengät` → keŋːæt), `n`
 //! before `k` is velar (`kenkä` → keŋkæ), and the stress is always on the
-//! first syllable of the word. Numbers 0–999 are spelled out.
+//! first syllable of the word. Numbers 0–999 are spelled out. `h` between
+//! vowels is voiced (`huhu` → huɦu), and small function words (`ja`, `on` …)
+//! get no stress, so they carry no pitch accent of their own.
 
-/// One phrase of a sentence: its IPA and whether it is a question.
+/// What a phrase ends in, which decides its melody (`prosody.rs`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Kind {
+    /// `.` or the end of the text: a fall to the low end of the voice
+    Statement,
+    /// `!`: a larger accent, then the same fall
+    Exclaim,
+    /// `?`: Finnish questions fall too (the question word or -ko/-kö asks), from a higher start
+    Question,
+    /// `,` `;` `:`: the voice stays up, a short pause, the sentence goes on
+    Continue,
+}
+
+/// One phrase of a sentence: its IPA and how it ends.
 pub struct Phrase {
     pub ipa: String,
     pub question: bool,
+    pub kind: Kind,
+}
+
+/// Words said without stress: they lean on the word before or after.
+const UNSTRESSED: [&str; 14] = ["ja", "on", "ovat", "tai", "vai", "että", "kun", "kuin", "mutta", "se", "sen", "ne", "niin", "jos"];
+
+fn is_vowel(c: char) -> bool {
+    "aeiouyäöå".contains(c)
 }
 
 fn sound(c: char) -> Option<&'static str> {
@@ -76,7 +99,7 @@ pub fn number(n: u32) -> String {
 /// One word (lowercase letters) in IPA, stressed on its first syllable.
 pub fn word(w: &str) -> String {
     let ch: Vec<char> = w.chars().collect();
-    let mut out = String::from("ˈ");
+    let mut out = String::from(if UNSTRESSED.contains(&w) { "" } else { "ˈ" });
     let mut i = 0;
     while i < ch.len() {
         let c = ch[i];
@@ -88,6 +111,11 @@ pub fn word(w: &str) -> String {
         }
         if c == 'n' && next == Some('k') {
             out.push('ŋ');
+            i += 1;
+            continue;
+        }
+        if c == 'h' && i > 0 && is_vowel(ch[i - 1]) && next.is_some_and(is_vowel) {
+            out.push('ɦ');
             i += 1;
             continue;
         }
@@ -106,8 +134,8 @@ pub fn word(w: &str) -> String {
     out
 }
 
-/// Finnish text in IPA, one phrase per sentence (`.`, `!`, `?`); a comma is
-/// a short pause inside the phrase.
+/// Finnish text in IPA, one phrase per sentence (`.`, `!`, `?`) and per
+/// comma (a phrase that goes on, [`Kind::Continue`]).
 pub fn to_phrases(text: &str) -> Vec<Phrase> {
     let mut phrases: Vec<Phrase> = Vec::new();
     let mut words: Vec<String> = Vec::new();
@@ -136,16 +164,23 @@ pub fn to_phrases(text: &str) -> Vec<Phrase> {
                 flush_word(&mut cur, &mut digits, &mut words);
             }
             cur.push(lc);
-        } else if lc == ',' || lc == ';' || lc == ':' {
+        } else if matches!(lc, ',' | ';' | ':' | '.' | '!' | '?') {
             flush_word(&mut cur, &mut digits, &mut words);
+            let kind = match lc {
+                '?' => Kind::Question,
+                '!' => Kind::Exclaim,
+                '.' => Kind::Statement,
+                _ => Kind::Continue,
+            };
             if !words.is_empty() {
-                words.push(",".into());
-            }
-        } else if lc == '.' || lc == '!' || lc == '?' {
-            flush_word(&mut cur, &mut digits, &mut words);
-            if !words.is_empty() {
-                phrases.push(Phrase { ipa: join(&words), question: lc == '?' });
+                phrases.push(Phrase { ipa: join(&words), question: kind == Kind::Question, kind });
                 words.clear();
+            } else if kind != Kind::Continue {
+                // "Hyvä, hyvä!": the end mark gives the sentence's last phrase its melody
+                if let Some(p) = phrases.last_mut().filter(|p| p.kind == Kind::Continue) {
+                    p.kind = kind;
+                    p.question = kind == Kind::Question;
+                }
             }
         } else {
             // space, hyphen, quotes, emoji: a word boundary
@@ -154,24 +189,13 @@ pub fn to_phrases(text: &str) -> Vec<Phrase> {
     }
     flush_word(&mut cur, &mut digits, &mut words);
     if !words.is_empty() {
-        phrases.push(Phrase { ipa: join(&words), question: false });
+        phrases.push(Phrase { ipa: join(&words), question: false, kind: Kind::Statement });
     }
     phrases
 }
 
 fn join(words: &[String]) -> String {
-    let mut s = String::new();
-    for w in words {
-        if w == "," {
-            s.push(',');
-        } else {
-            if !s.is_empty() && !s.ends_with(',') {
-                s.push(' ');
-            }
-            s.push_str(w);
-        }
-    }
-    s.trim_end_matches(',').to_string()
+    words.join(" ")
 }
 
 #[cfg(test)]
@@ -186,6 +210,9 @@ mod tests {
         assert_eq!(word("kengät"), "ˈkeŋːæt");
         assert_eq!(word("kenkä"), "ˈkeŋkæ");
         assert_eq!(word("pöllö"), "ˈpølːø");
+        assert_eq!(word("huhu"), "ˈhuɦu");
+        assert_eq!(word("mahtava"), "ˈmɑhtɑʋɑ");
+        assert_eq!(word("ja"), "jɑ");
     }
 
     #[test]
@@ -200,9 +227,15 @@ mod tests {
     #[test]
     fn sentences() {
         let p = to_phrases("Hienoa! Valitse punainen, sitten 3?");
-        assert_eq!(p.len(), 2);
+        assert_eq!(p.len(), 3);
         assert_eq!(p[0].ipa, "ˈhienoɑ");
-        assert_eq!(p[1].ipa, "ˈʋɑlitse ˈpunɑinen,ˈsitːen ˈkolme");
-        assert!(p[1].question);
+        assert_eq!(p[0].kind, Kind::Exclaim);
+        assert_eq!(p[1].ipa, "ˈʋɑlitse ˈpunɑinen");
+        assert_eq!(p[1].kind, Kind::Continue);
+        assert_eq!(p[2].ipa, "ˈsitːen ˈkolme");
+        assert!(p[2].question);
+        let p = to_phrases("Hyvä, hyvä,!");
+        assert_eq!(p.len(), 2);
+        assert_eq!(p[1].kind, Kind::Exclaim);
     }
 }
