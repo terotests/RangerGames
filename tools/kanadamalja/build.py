@@ -385,26 +385,40 @@ png("puck", 64, 64, '''
 
 # pawns: Ilves (green and yellow, a lynx) and Tappara (orange and blue, an axe)
 png("ilves", 96, 96, '''
-<circle cx="48" cy="51" r="42" fill="#000" opacity="0.28"/>
-<circle cx="48" cy="47" r="42" fill="#0b7a3e" stroke="#ffd200" stroke-width="6"/>
-<path d="M 24 40 L 22 14 L 38 30 Z" fill="#f2b632" stroke="#5c3b00" stroke-width="2"/>
-<path d="M 72 40 L 74 14 L 58 30 Z" fill="#f2b632" stroke="#5c3b00" stroke-width="2"/>
-<path d="M 22 14 l -2 -8 M 74 14 l 2 -8" stroke="#1b1b1b" stroke-width="3" stroke-linecap="round"/>
-<path d="M 20 44 Q 20 26 48 26 Q 76 26 76 44 Q 80 58 70 68 L 48 76 L 26 68 Q 16 58 20 44 Z" fill="#f2b632" stroke="#5c3b00" stroke-width="2"/>
-<path d="M 22 58 l -10 2 M 22 63 l -9 6 M 74 58 l 10 2 M 74 63 l 9 6" stroke="#5c3b00" stroke-width="1.6"/>
-<path d="M 32 34 l 4 6 M 44 30 l 0 6 M 52 30 l 0 6 M 64 34 l -4 6" stroke="#8a5a00" stroke-width="2" stroke-linecap="round"/>
-<ellipse cx="37" cy="48" rx="6" ry="7" fill="#fff"/><ellipse cx="59" cy="48" rx="6" ry="7" fill="#fff"/>
-<ellipse cx="38" cy="49" rx="3" ry="5" fill="#1b4332"/><ellipse cx="58" cy="49" rx="3" ry="5" fill="#1b4332"/>
-<path d="M 44 58 L 52 58 L 48 63 Z" fill="#6d2e1f"/>
-<path d="M 48 63 q -5 6 -10 3 M 48 63 q 5 6 10 3" fill="none" stroke="#5c3b00" stroke-width="1.8" stroke-linecap="round"/>''')
+<circle cx="48" cy="51" r="44" fill="#000" opacity="0.28"/>
+<circle cx="48" cy="47" r="44" fill="#ffd200"/>
+<circle cx="48" cy="47" r="39" fill="#00703c"/>
+<g transform="translate(48 52) scale(0.86) translate(-48 -44)">
+<g stroke="#111" stroke-width="2" stroke-linejoin="round">
+<path d="M 26 38 L 22 6 L 42 26 Z" fill="#ffd200"/>
+<path d="M 70 38 L 74 6 L 54 26 Z" fill="#ffd200"/>
+<path d="M 22 6 L 20 -2 M 74 6 L 76 -2" stroke-width="3" stroke-linecap="round"/>
+<path d="M 27 32 L 25 15 L 36 27 Z M 69 32 L 71 15 L 60 27 Z" fill="#111" stroke="none"/>
+<path d="M 48 22 Q 66 22 72 36 Q 80 48 86 58 Q 76 60 72 64 Q 78 70 80 78 Q 66 76 58 82 L 48 86 L 38 82 Q 30 76 16 78 Q 18 70 24 64 Q 20 60 10 58 Q 16 48 24 36 Q 30 22 48 22 Z" fill="#ffd200"/>
+</g>
+<path d="M 24 64 L 12 70 M 26 70 L 18 78 M 72 64 L 84 70 M 70 70 L 78 78" stroke="#111" stroke-width="1.6"/>
+<path d="M 40 30 L 42 38 M 48 28 L 48 37 M 56 30 L 54 38" stroke="#111" stroke-width="2.2" stroke-linecap="round"/>
+<path d="M 30 46 Q 37 40 44 47 Q 37 51 30 46 Z" fill="#fff" stroke="#111" stroke-width="2"/>
+<path d="M 66 46 Q 59 40 52 47 Q 59 51 66 46 Z" fill="#fff" stroke="#111" stroke-width="2"/>
+<path d="M 37 43 L 37 49 M 59 43 L 59 49" stroke="#111" stroke-width="3" stroke-linecap="round"/>
+<path d="M 28 42 L 44 44 M 68 42 L 52 44" stroke="#111" stroke-width="2.4" stroke-linecap="round"/>
+<path d="M 43 58 L 53 58 L 48 64 Z" fill="#111"/>
+<path d="M 48 64 L 48 68 M 48 68 Q 42 73 36 69 M 48 68 Q 54 73 60 69" fill="none" stroke="#111" stroke-width="2" stroke-linecap="round"/>
+<path d="M 46 22 L 48 30 L 50 22" fill="none" stroke="#111" stroke-width="1.6"/>
+</g>
+''')
 png("tappara", 96, 96, '''
-<circle cx="48" cy="51" r="42" fill="#000" opacity="0.28"/>
-<circle cx="48" cy="47" r="42" fill="#f47920" stroke="#13306b" stroke-width="6"/>
-<path d="M 28 82 L 58 18" stroke="#5a3215" stroke-width="8" stroke-linecap="round"/>
-<path d="M 28 82 L 58 18" stroke="#a0632f" stroke-width="3.5" stroke-linecap="round"/>
-<path d="M 50 22 L 60 28 Q 80 36 78 62 Q 70 48 56 44 L 46 38 Z" fill="#13306b" stroke="#0a1838" stroke-width="2.5" stroke-linejoin="round"/>
-<path d="M 50 22 Q 54 6 76 6 Q 70 20 60 28 Z" fill="#13306b" stroke="#0a1838" stroke-width="2.5" stroke-linejoin="round"/>
-<path d="M 74 10 Q 66 22 62 28 M 77 58 Q 70 46 60 42" fill="none" stroke="#c9d8f5" stroke-width="2.5" stroke-linecap="round"/>
+<circle cx="48" cy="51" r="44" fill="#000" opacity="0.28"/>
+<circle cx="48" cy="47" r="44" fill="#ffffff"/>
+<circle cx="48" cy="47" r="41" fill="#1c2f6e"/>
+<circle cx="48" cy="47" r="36" fill="#f47920"/>
+<path d="M 30 84 L 54 14" stroke="#1c2f6e" stroke-width="9" stroke-linecap="round"/>
+<path d="M 30 84 L 54 14" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round"/>
+<g transform="translate(51 20) scale(0.8) translate(-51 -20)">
+<path d="M 49 26 L 52 16 Q 62 10 74 12 Q 86 26 84 46 Q 82 62 70 72 Q 70 56 62 46 Q 56 38 46 36 Z" fill="#1c2f6e" stroke="#ffffff" stroke-width="2.4" stroke-linejoin="round"/>
+<path d="M 76 18 Q 84 32 80 50 Q 78 60 72 66" fill="none" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+<path d="M 52 16 Q 44 12 40 18 L 47 28 Z" fill="#1c2f6e" stroke="#ffffff" stroke-width="2.4" stroke-linejoin="round"/>
+</g>
 ''')
 
 # a diamond
