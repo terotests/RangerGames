@@ -858,6 +858,11 @@
   "mag_vetaa": "Vetää!",
   "mag_punainen": "Punainen napa.",
   "mag_sininen": "Sininen napa.",
-  "mag_kaikki": "Kaikki tehtävät tehty! Olet magneettimestari!"
+  "mag_kaikki": "Kaikki tehtävät tehty! Olet magneettimestari!",
+  "ll_alku": "Sulata jää ja vapauta jäätyneet aarteet!",
+  "ll_leikki": "Vapaa leikki! Lisää jäätä ja kokeile kaikkia lämmittimiä.",
+  "ll_vapaa": "Aarre on vapaa!",
+  "ll_valmis": "Kaikki aarteet ovat vapaina. Hienoa!",
+  "ll_kasi": "Kämmen jäätyi! Odota, että käsi lämpenee."
  }
 }
