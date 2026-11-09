@@ -174,4 +174,39 @@ impl DrawStream {
         self.nums.extend_from_slice(&extra);
         self.count += 1;
     }
+
+    /// A command of the engine's own (the 3D layer): a rect (kind 0, with a
+    /// top-to-bottom gradient when `far` is given) or a filled path (kind 6)
+    /// of one ring. Colours are 0..1 channels.
+    pub fn raw(&mut self, kind: u32, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], far: Option<[f64; 3]>, pts: &[f32]) {
+        let ends = [pts.len() as f32];
+        self.emit(kind, x, y, w, h, rgb, far, pts, if pts.is_empty() { &[] } else { &ends });
+    }
+
+    /// A filled path of several rings (`ends`: where each ring's numbers end).
+    pub fn raw_rings(&mut self, rgb: [f64; 3], pts: &[f32], ends: &[f32]) {
+        self.emit(6, 0.0, 0.0, 0.0, 0.0, rgb, None, pts, ends);
+    }
+
+    fn emit(&mut self, kind: u32, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], far: Option<[f64; 3]>, pts: &[f32], ends: &[f32]) {
+        let mut flags = 0u32;
+        let mut extra: Vec<f32> = Vec::new();
+        if let Some(c) = far {
+            flags |= 1;
+            extra.extend_from_slice(&[(c[0] * 255.0) as f32, (c[1] * 255.0) as f32, (c[2] * 255.0) as f32, 1.0]);
+        }
+        if kind == 6 && !pts.is_empty() {
+            extra.push(pts.len() as f32);
+            extra.extend_from_slice(pts);
+            extra.push(ends.len() as f32);
+            extra.extend_from_slice(ends);
+        }
+        self.nums.extend_from_slice(&[
+            kind as f32, x as f32, y as f32, w as f32, h as f32,
+            (rgb[0] * 255.0) as f32, (rgb[1] * 255.0) as f32, (rgb[2] * 255.0) as f32, 1.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, flags as f32, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+        ]);
+        self.nums.extend_from_slice(&extra);
+        self.count += 1;
+    }
 }

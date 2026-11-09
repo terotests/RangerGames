@@ -21,6 +21,7 @@
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
 pub mod draw;
+pub mod scene3d;
 pub mod script;
 pub mod ui;
 
@@ -117,6 +118,8 @@ pub struct Engine {
     pub off_y: f64,
     time: f64,
     seed: i64,
+    /// the game's 3D scene (rg.three), drawn under its 2D view
+    pub scene: scene3d::Scene,
 }
 
 impl Engine {
@@ -128,6 +131,7 @@ impl Engine {
             script: None,
             game: None,
             draw: DrawStream::new(),
+            scene: scene3d::Scene::new(),
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -254,7 +258,7 @@ impl Engine {
     /// it cannot start; the error is also shown on the screen.
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
-        self.commands.push(HostCommand { kind: "three".into(), name: "clear".into(), args: Json::Null });
+        self.scene = scene3d::Scene::new();
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
         self.error = String::new();
         self.script = None;
@@ -349,6 +353,10 @@ impl Engine {
                 self.pending = Some(cmd.name.clone());
                 continue;
             }
+            if cmd.kind == "three" {
+                self.scene.command(&cmd.name, &cmd.args);
+                continue;
+            }
             if cmd.kind == "save" {
                 self.save(&cmd.name, cmd.args.clone());
                 continue;
@@ -425,6 +433,7 @@ impl Engine {
                 let reply = json::parse(&text);
                 self.take_commands(&reply.get("cmds"));
                 let tree = reply.get("tree");
+                self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.ui.render(&tree, &mut self.draw);
                 self.launch_pending();
                 Ok(())
