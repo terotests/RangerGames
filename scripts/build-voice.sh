@@ -7,7 +7,8 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 cargo build -q --release -p rg_voice
 # a list with "engine": "piper" needs Piper (rg_voice falls back to CHIMERA without it)
-if grep -qs '"engine": *"piper"' voice/fi.json voice/*/*.json && [[ -z "${RG_PIPER:-}" ]]; then
+# (voice/fi.json says "engine": "piper"; English and Spanish use it by default)
+if [[ -z "${RG_PIPER:-}" ]]; then
   scripts/setup-piper.sh || echo "build-voice: Piper not installed, CHIMERA says its clips"
 fi
 ./target/release/rg_voice build voice/fi.json games/_voice/fi

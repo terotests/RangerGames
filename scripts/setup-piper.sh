@@ -2,15 +2,15 @@
 # Installs Piper (github.com/OHF-Voice/piper1-gpl, GPL-3.0, a build tool only:
 # nothing of it goes into the games) and its Finnish voice in .deps/piper:
 #   .deps/piper/venv     a Python venv with piper-tts
-#   .deps/piper/models   fi_FI-harri-medium.onnx (+ .onnx.json, MODEL_CARD;
-#                        the voice's data and base model are CC0)
+#   .deps/piper/models   fi_FI-harri-medium, en_US-ljspeech-medium, es_ES-davefx-medium
+#                        (.onnx + .onnx.json + MODEL_CARD with each voice's licence)
 # rg_voice build uses it for a clip list whose voice says "engine": "piper".
 # build-voice.sh runs this when it is needed; a failure (no network) leaves
 # CHIMERA saying those clips.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 D=.deps/piper
-VOICES="${PIPER_VOICES:-fi_FI-harri-medium}"
+VOICES="${PIPER_VOICES:-fi_FI-harri-medium en_US-ljspeech-medium es_ES-davefx-medium}"
 HF=https://huggingface.co/rhasspy/piper-voices/resolve/main
 mkdir -p "$D/models"
 if [[ ! -x "$D/venv/bin/piper" ]]; then

@@ -273,8 +273,9 @@ fn clip_text(c: &Value) -> String {
 fn default_voice(code: &str) -> Value {
     let v = match code {
         // CHIMERA's own English: its defaults, a little slower for children
-        "en" => r#"{ "body": "female", "f0": 220, "rate": 0.85, "breathiness": 0.22, "drift": 8 }"#,
-        "es" => r#"{ "body": "female", "f0": 225, "rate": 0.9, "accent": 0.22, "breathiness": 0.25, "drift": 10, "tension": 0.45 }"#,
+        // Piper says the clips Chatterbox hasn't rendered yet (CHIMERA's settings when Piper is missing)
+        "en" => r#"{ "engine": "piper", "model": "en_US-ljspeech-medium", "body": "female", "f0": 220, "rate": 0.85, "breathiness": 0.22, "drift": 8 }"#,
+        "es" => r#"{ "engine": "piper", "model": "es_ES-davefx-medium", "body": "female", "f0": 225, "rate": 0.9, "accent": 0.22, "breathiness": 0.25, "drift": 10, "tension": 0.45 }"#,
         _ => "{}",
     };
     serde_json::from_str(v).unwrap()
