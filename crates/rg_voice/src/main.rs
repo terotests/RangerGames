@@ -6,7 +6,7 @@
 //!   rg_voice say "Hyvä!" out.wav [body] [f0] [rate]  one sentence (body female|male|child)
 //!   rg_voice ipa "Valitse punainen."                 what the voice says, in IPA
 
-use rg_voice::{FS_CLIP, Voice, ipa, say, wav, wav_mulaw};
+use rg_voice::{FS_CLIP, Voice, ipa, say, wav};
 use serde_json::{Map, Value};
 use std::path::Path;
 
@@ -53,7 +53,7 @@ fn build(list: &str, out: &str) -> Result<(), String> {
             }
             _ => continue,
         };
-        let key = format!("{say_text}|{voice:?}|mulaw");
+        let key = format!("{say_text}|{voice:?}|pcm16-48k-fi2");
         let file = Path::new(out).join(format!("{id}.wav"));
         index.insert(id.clone(), Value::String(say_text.clone()));
         stamp.insert(id.clone(), Value::String(key.clone()));
@@ -73,7 +73,7 @@ fn build(list: &str, out: &str) -> Result<(), String> {
                     let job = jobs.lock().unwrap().pop();
                     let Some((id, t, v, file)) = job else { break };
                     let pcm = say(&t, &v);
-                    if let Err(e) = std::fs::write(&file, wav_mulaw(&pcm, FS_CLIP)) {
+                    if let Err(e) = std::fs::write(&file, wav(&pcm, FS_CLIP)) {
                         failed.lock().unwrap().push(format!("{file}: {e}"));
                     } else {
                         println!("  {id:<16} {:.2} s  {}", pcm.len() as f64 / FS_CLIP as f64, ipa(&t));

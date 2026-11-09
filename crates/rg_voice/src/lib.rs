@@ -6,15 +6,17 @@
 pub mod fi;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, HumanBody};
-use chimera::phonetics::Intonation;
+use chimera::phonetics::{Intonation, Segment};
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{PhraseInput, PlanOptions, plan_phrases};
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
 
-/// The rate CHIMERA renders at (its airway runs at twice this).
-const FS_RENDER: f64 = 44100.0;
-/// The clips' rate: half the render rate, the phone mixer's rate.
-pub const FS_CLIP: u32 = 22050;
+/// The rate CHIMERA renders at (its airway runs at twice this). 48 kHz as in
+/// CHIMERA's own CLI and tests: the airway's grid follows the rate, and the
+/// vowel and consonant tables were calibrated at it.
+const FS_RENDER: f64 = 48000.0;
+/// The clips' rate: half the render rate.
+pub const FS_CLIP: u32 = 24000;
 
 #[derive(Clone, Debug)]
 pub struct Voice {
@@ -68,7 +70,7 @@ pub fn say(text: &str, voice: &Voice) -> Vec<f32> {
     let inputs: Vec<PhraseInput> = phrases
         .iter()
         .map(|p| PhraseInput {
-            segments: tokenize_ipa(&p.ipa),
+            segments: finnish_timing(tokenize_ipa(&p.ipa)),
             // Finnish questions fall like statements (the question word or -ko/-kö
             // carries the question); CHIMERA's English final rise sounds foreign
             intonation: Some(Intonation::Statement),
@@ -105,10 +107,90 @@ pub fn say(text: &str, voice: &Voice) -> Vec<f32> {
     finish(&halve(&out))
 }
 
-/// 44.1 kHz → 22.05 kHz: a windowed-sinc low-pass at 10 kHz, every second sample.
+fn is_v(ipa: &str) -> bool {
+    ipa.chars().count() == 1 && "iyueoøæɑ".contains(ipa)
+}
+
+/// Finnish segment durations (s, before the rate), replacing CHIMERA's
+/// English (Klatt) rules, which shorten unstressed and non-final vowels hard
+/// and so blur the Finnish short/long contrast. Finnish is close to
+/// syllable-timed: short vowels stay full in every syllable, a long sound is
+/// about twice a short one, the vowel after a short stressed syllable
+/// (CV.CV, `ka-la`) is half-long, and the phrase's last syllable is a little
+/// longer. `ː` from the tokenizer (a `dur` already set) marks a long sound.
+fn finnish_timing(mut segs: Vec<Segment>) -> Vec<Segment> {
+    let n = segs.len();
+    let long: Vec<bool> = segs.iter().map(|s| s.dur.is_some()).collect();
+    let vowel: Vec<bool> = segs.iter().map(|s| is_v(&s.ipa)).collect();
+    let last_vowel = (0..n).rev().find(|&i| vowel[i]);
+    let mut word_start = true;
+    // the word's syllable count so far (by vowel nuclei), and whether its first syllable was light (CV)
+    let mut nucleus = 0;
+    let mut first_light = false;
+    for i in 0..n {
+        if segs[i].ipa == "_" {
+            word_start = true;
+            continue;
+        }
+        if word_start {
+            nucleus = 0;
+            first_light = false;
+        }
+        let next_v = i + 1 < n && vowel[i + 1];
+        let prev_v = i > 0 && vowel[i - 1] && !word_start;
+        let d = if vowel[i] {
+            if !prev_v {
+                nucleus += 1;
+            }
+            let mut d = if long[i] {
+                if nucleus == 1 { 0.165 } else { 0.145 }
+            } else if prev_v {
+                0.07 // second half of a diphthong (ai, ie, uo …)
+            } else if next_v {
+                0.08
+            } else if nucleus == 1 {
+                0.085
+            } else if nucleus == 2 && first_light {
+                0.105 // half-long after a short stressed syllable
+            } else {
+                0.08
+            };
+            if nucleus == 1 && !long[i] && !next_v {
+                // a light first syllable: the vowel is short and the next consonant is single
+                let k = i + 1;
+                first_light = k < n && !vowel[k] && !long[k] && !(k + 1 < n && !vowel[k + 1] && segs[k + 1].ipa != "_" && segs[k].word_end != Some(true));
+            }
+            if Some(i) == last_vowel {
+                d *= 1.35;
+            }
+            d
+        } else {
+            let c = segs[i].ipa.as_str();
+            let (short, gem) = match c {
+                "p" | "t" | "k" | "b" | "d" | "g" => (0.07, 0.165),
+                "s" | "f" | "ʃ" => (0.095, 0.175),
+                "ts" => (0.13, 0.18),
+                "h" => (0.06, 0.12),
+                "r" => (0.065, 0.13),
+                "m" | "n" | "ŋ" | "l" => (0.06, 0.125),
+                _ => (0.055, 0.11),
+            };
+            let mut d = if long[i] { gem } else { short };
+            if word_start {
+                d *= 1.1;
+            }
+            d
+        };
+        segs[i].dur = Some(d);
+        word_start = segs[i].word_end == Some(true);
+    }
+    segs
+}
+
+/// 48 kHz → 24 kHz: a windowed-sinc low-pass at 10.5 kHz, every second sample.
 fn halve(x: &[f32]) -> Vec<f32> {
     const N: usize = 63;
-    let fc = 10000.0 / FS_RENDER;
+    let fc = 10500.0 / FS_RENDER;
     let mut h = [0f64; N];
     let mut sum = 0.0;
     for (k, hk) in h.iter_mut().enumerate() {
