@@ -915,6 +915,8 @@
   "km_p_kaukajarvi": "Kaukajärvi.",
   "km_p_hervanta": "Hervanta.",
   "km_timantti": "Timantti! Saat viisisataa euroa.",
-  "km_taklaus": "Taklaus! Malja vaihtoi omistajaa!"
+  "km_taklaus": "Taklaus! Malja vaihtoi omistajaa!",
+  "km_aloitus": "Mistä aloitat? Keskustorilta vai Rautatieasemalta?",
+  "km_p_asema": "Rautatieasema."
  }
 }

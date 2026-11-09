@@ -21,7 +21,7 @@ import cairosvg
 ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..")
 GAME = os.path.join(ROOT, "games", "kanadamalja")
 W, H = 360, 540          # board units (the game scales them to the screen)
-SCALE = 2                # board.png pixels per unit
+SCALE = 3                # board.png pixels per unit (the game zooms in)
 STEP = 17                # the distance of two dots on a path
 
 # id, name, x, y, kind, label side (b below, t above, l left, r right)
@@ -35,21 +35,22 @@ PLACES = [
     ("pyynikintori", "Pyynikintori", 128, 234, "", "t"),
     ("pyynikki", "Pyynikki", 92, 302, "", "b"),
     ("finlayson", "Finlayson", 168, 172, "", "t"),
-    ("keskustori", "Keskustori", 176, 246, "", "b"),
+    ("keskustori", "Keskustori", 176, 246, "start2", "b"),
     ("laukontori", "Laukontori", 182, 318, "", "l"),
     ("viikinsaari", "Viikinsaari", 74, 428, "", "b"),
     ("tuomiokirkko", "Tuomiokirkko", 232, 182, "", "t"),
-    ("ratina", "Ratina", 226, 344, "", "r"),
+    ("ratina", "Ratina", 226, 344, "", "l"),
     ("hatanpaa", "Hatanpää", 190, 420, "", "r"),
     ("harmala", "Härmälä", 152, 494, "", "l"),
-    ("tammela", "Tammela", 286, 214, "", "t"),
+    ("tammela", "Tammela", 298, 198, "", "t"),
+    ("asema", "Rautatieasema", 270, 238, "start2", "t"),
     ("sori", "Sori", 288, 288, "jail", "t"),
     ("rauhaniemi", "Rauhaniemi", 262, 128, "", "b"),
     ("kauppi", "Kauppi", 330, 150, "", "t"),
     ("kaleva", "Kaleva", 328, 220, "", "b"),
     ("tays", "TAYS", 334, 288, "", "b"),
     ("viinikka", "Viinikka", 258, 396, "", "l"),
-    ("hakametsa", "Hakametsä", 306, 346, "", "l"),
+    ("hakametsa", "Hakametsä", 306, 346, "", "r"),
     ("kaukajarvi", "Kaukajärvi", 314, 446, "", "l"),
     ("hervanta", "Hervanta", 280, 508, "", "r"),
 ]
@@ -65,7 +66,7 @@ PATHS = [
     ("keskustori", "laukontori", 0), ("keskustori", "arena", 0), ("tuomiokirkko", "arena", 0),
     ("tuomiokirkko", "tammela", 0), ("tuomiokirkko", "rauhaniemi", 0), ("laukontori", "ratina", 0),
     ("laukontori", "pyynikki", 6), ("ratina", "arena", 0), ("ratina", "hatanpaa", 0),
-    ("ratina", "viinikka", 0), ("arena", "sori", 0), ("arena", "tammela", 0), ("tammela", "kaleva", 0),
+    ("ratina", "viinikka", 0), ("arena", "sori", 0), ("arena", "asema", 0), ("asema", "tammela", 0), ("asema", "tuomiokirkko", 0), ("tammela", "kaleva", 0),
     ("tammela", "rauhaniemi", 0), ("rauhaniemi", "kauppi", 6), ("kauppi", "kaleva", 0),
     ("kaleva", "tays", 0), ("sori", "tays", 0), ("sori", "hakametsa", 0), ("sori", "viinikka", 0),
     ("tays", "hakametsa", 0), ("hakametsa", "kaukajarvi", 0), ("viinikka", "hervanta", -8),
@@ -233,6 +234,8 @@ A('<rect x="146" y="176" width="16" height="10" fill="#c1121f" stroke="#7a0b14" 
 A('<path d="M 150.5 158 q 3 -4 0 -7 q -3 -3 1 -6" fill="none" stroke="#adb5bd" stroke-width="1.2"/>')
 # Pyynikki observation tower
 A('<rect x="104" y="282" width="5" height="12" fill="#b08968" stroke="#6f4518" stroke-width="0.5"/><path d="M 103 282 l 3.5 -5 l 3.5 5 Z" fill="#9c6644"/>')
+# Rautatieasema: the station with its clock tower
+A('<rect x="276" y="246" width="20" height="8" fill="#e9c46a" stroke="#6c584c" stroke-width="0.6"/><rect x="283" y="236" width="5" height="12" fill="#e9c46a" stroke="#6c584c" stroke-width="0.6"/><circle cx="285.5" cy="239.5" r="1.6" fill="#ffffff" stroke="#6c584c" stroke-width="0.4"/>')
 # Ratina stadium
 A('<ellipse cx="240" cy="360" rx="12" ry="7" fill="#57cc99" stroke="#495057" stroke-width="0.8"/><ellipse cx="240" cy="360" rx="7" ry="3.6" fill="none" stroke="#ffffff" stroke-width="0.6"/>')
 # Hakametsä: an ice rink
@@ -327,9 +330,11 @@ for i, (pid, name, x, y, kind, side) in enumerate(PLACES):
         A('<path d="M %s Z" fill="#ffd166" stroke="#9c6500" stroke-width="1.4"/>' % " L ".join(pts))
         A('<circle cx="%d" cy="%d" r="9.5" fill="#fff3c4" stroke="#9c6500" stroke-width="1"/>' % (x, y))
         continue
-    ring = {"jail": "#343a40", "double": "#ef476f"}.get(kind, "#f4a300")
+    ring = {"jail": "#343a40", "double": "#ef476f", "start2": "#2a9d8f"}.get(kind, "#f4a300")
     A('<circle cx="%d" cy="%d" r="11.5" fill="%s" stroke="#5a3e1b" stroke-width="0.8"/>' % (x, y, ring))
     A('<circle cx="%d" cy="%d" r="8.6" fill="#fff8e1"/>' % (x, y))
+    if kind == "start2":   # a start place: a little flag
+        A('<path d="M %.1f %.1f l 0 -12 l 8 3 l -8 3" fill="#2a9d8f" stroke="#1b4332" stroke-width="0.8"/>' % (x + 8, y - 6))
     if kind == "jail":
         for gx in (-4, 0, 4):
             A('<rect x="%.1f" y="%d" width="1.6" height="12" fill="#343a40"/>' % (x + gx - 0.8, y - 6))
@@ -345,7 +350,7 @@ for i, (pid, name, x, y, kind, side) in enumerate(PLACES):
 
 # labels last, on top of everything
 def label(x, y, text, anchor):
-    w = len(text) * 5.0     # about the text's width, to keep it on the board
+    w = len(text) * 6.0     # about the text's width, to keep it on the board
     if anchor == "middle": x = min(max(x, w / 2 + 3), W - w / 2 - 3)
     elif anchor == "end": x = max(x, w + 3)
     else: x = min(x, W - w - 3)
