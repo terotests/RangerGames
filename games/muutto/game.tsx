@@ -364,15 +364,25 @@ function makeSilhouette(tg: any) {
 
 // ---- input ------------------------------------------------------------------
 
-function onPointerDown(x: number, y: number) {
+// A press steers unless it lands on the task card or a button (EVG's hit test
+// gives their id). Fixed screen rectangles were used before, and on a short
+// screen (a landscape browser window) the sun window's one covered the whole
+// right side, so the bird could not be turned to the right. The sun window
+// steers too (on a short screen it is right beside the bird); a quick tap on
+// it still explains the sun.
+let orbitDown = -1;
+function onPointerDown(x: number, y: number, info?: any) {
   if (screen !== "play") return;
-  if (y < 76) return;                                       // the task card
-  if (x > width - 140 && y < 176) return;                   // the sun window
-  if (x > width - 70 && y > height - 150) return;           // zoom buttons
-  if (x < 70 && y > height - 80) return;                    // hint button
+  const id = info ? info.id : "";
+  if (id === "orbit") orbitDown = t;
+  else if (id) return;
   flying = true;
 }
-function onPointerUp() { flying = false; }
+function onPointerUp(x: number, y: number, info?: any) {
+  if (orbitDown >= 0 && info && info.id === "orbit" && t - orbitDown < 0.3) sayOrbit();
+  orbitDown = -1;
+  flying = false;
+}
 
 function onKeyDown(key: string) {
   if (screen === "nest" && key === "n") { for (let i = 0; i < 3; i++) nest.chicks[i] = 3; }
@@ -849,7 +859,7 @@ function Orbit() {
   ];
   const s = seasonAt(bird.lat, d);
   return (
-    <div className="orbit" id="orbit" onClick={sayOrbit} style={{ left: ox, top: oy, width: W, height: H }}>
+    <div className="orbit" id="orbit" style={{ left: ox, top: oy, width: W, height: H }}>
       {box(orbit, "none", "rgba(255,255,255,0.35)", 1)}
       {behind ? earth : sun}
       {behind ? sun : earth}
