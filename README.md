@@ -40,6 +40,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
 | `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
+| `navi` – **Kotiin** | Lapsen kävelynavigaattori: puhelimen GPS näyttää paikan Tampereen kartalla, iso nuoli ja reittiviiva ohjaavat isän, äidin, koulun tai päiväkodin luo, värinä ennen käännöstä ja juhlat perillä. Toimii ilman nettiä: kartta (kuvatiilet) ja kävelyverkko tulevat pelin mukana (`tools/navi/build.py` Tampere Taxi Driverin kartasta), reitti lasketaan puhelimessa. Kotien paikat asetetaan puhelimessa (pidä ⚙️ painettuna) tai git-ignoroidussa `games/navi/places.local.js`:ssä, ei koskaan repoon. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
