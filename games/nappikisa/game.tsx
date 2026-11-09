@@ -29,7 +29,7 @@ function tick(dt: number) {
   flash = flash.map((f) => Math.max(0, f - dt * 3));
   if (mode === "wait" && clock >= goAt) { mode = "go"; clock = 0; rg.sound("note", { note: 84, len: 0.25, wave: "square" }); }
   if (mode === "point" && clock > 1.6) {
-    if (score[0] >= WIN || score[1] >= WIN) { mode = "won"; clock = 0; rg.sound("win"); rg.vibrate([100, 60, 100, 60, 300]); }
+    if (score[0] >= WIN || score[1] >= WIN) { mode = "won"; clock = 0; rg.celebrate(width / 2, score[0] >= WIN ? height * 0.75 : height * 0.25, { big: true }); rg.vibrate([100, 60, 100, 60, 300]); }
     else newRound();
   }
 }

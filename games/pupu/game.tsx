@@ -137,6 +137,7 @@ function tick(dt: number) {
     if (p.carrot && !p.got && Math.abs(P.x + 16 - (p.x + p.w / 2)) < 26 && Math.abs(P.y - 20 - (p.y - 30)) < 30) {
       p.got = t;
       carrots++;
+      rg.celebrate(p.x + p.w / 2, p.y - 30 - cam, { count: 8, sound: false });
       rg.sound("coin");
       rg.vibrate(15);
     }
@@ -152,7 +153,7 @@ function tick(dt: number) {
     mode = "over";
     modeClock = 0;
     const s = score();
-    if (s > best) { best = s; newBest = true; rg.save("best", best); }
+    if (s > best) { best = s; newBest = true; rg.save("best", best); rg.celebrate(width / 2, height * 0.35, { big: true, sound: false }); }
     rg.sound("lose");
     rg.vibrate([80, 60, 200]);
   }

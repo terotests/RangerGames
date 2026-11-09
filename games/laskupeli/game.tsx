@@ -69,8 +69,8 @@ function pick(i: number) {
   if (choices[i] === answer) {
     solved = t;
     if (firstTry) right++;
+    rg.celebrate(60 + i * 120, height - 150, { sound: false });
     rg.sound(firstTry ? "star" : "coin");
-    rg.vibrate(20);
     for (let k = 0; k < 24; k++) {
       const ang = rg.random() * Math.PI * 2, sp = 80 + rg.random() * 220;
       sparks.push({ x: 60 + i * 120, y: height - 150, vx: Math.cos(ang) * sp, vy: Math.sin(ang) * sp - 120, t: 0, c: rg.pick(SPARK) });
@@ -92,7 +92,7 @@ function tick(dt: number) {
     if (question >= ROUND) {
       mode = "done";
       if (right > best[level]) { best[level] = right; rg.save("best", best); }
-      rg.sound(right >= 8 ? "win" : "coin");
+      if (right >= 5) rg.celebrate(width / 2, height * 0.3, { big: true }); else rg.sound("coin");
     } else next();
   }
 }

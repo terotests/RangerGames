@@ -148,9 +148,8 @@ function burst(x: number, y: number, n: number) {
 function win(x: number, y: number) {
   solved = t;
   if (mistakes === 0) right++;
+  rg.celebrate(x, y, { sound: false });
   rg.sound(mistakes === 0 ? "star" : "coin");
-  rg.vibrate(20);
-  burst(x, y, 26);
 }
 
 function miss(i: number) {
@@ -202,7 +201,7 @@ function tick(dt: number) {
       mode = "done";
       rg.stopMusic();
       if (right > best[level]) { best[level] = right; rg.save("best", best); }
-      rg.sound(right >= 8 ? "win" : "coin");
+      if (right >= 5) rg.celebrate(width / 2, height * 0.3, { big: true }); else rg.sound("coin");
     } else next();
   }
 }

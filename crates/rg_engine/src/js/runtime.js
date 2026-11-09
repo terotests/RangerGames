@@ -28,6 +28,13 @@ var __games = [];
 var __launcher = false;
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
 var __downTarget = {};
+var __fx = [];            // celebration particles, drawn above the game
+var __flash = 0;          // a full-screen glow after rg.celebrate, fading out
+// The close button (an X in a corner) every game but the launcher gets. A
+// game sets `rg.closeButton = "left"` to move it, or "none" to draw its own.
+var __CLOSE = "__close";
+var __FX_COLORS = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#ffffff", "#c77dff", "#f78c6b"];
+var __FX_ICONS = ["⭐", "🌟", "✨", "⭐", "🎈", "🎉"];
 
 var __LENGTH = { width: 1, height: 1, left: 1, top: 1, right: 1, bottom: 1, minWidth: 1, minHeight: 1,
   maxWidth: 1, maxHeight: 1, margin: 1, marginTop: 1, marginLeft: 1, marginRight: 1, marginBottom: 1,
@@ -85,6 +92,35 @@ var rg = {
     }
   },
   // rectangles overlap: {x, y, w, h}
+  // where the close button sits: "right" (the default), "left" or "none"
+  closeButton: "right",
+  // Celebration: stars and confetti burst from (x, y), the screen glows and
+  // a cheerful sound plays. opts: { count, sound (false = silent), big }.
+  // Made for success moments that a child who cannot read yet still sees.
+  celebrate: function (x, y, opts) {
+    opts = opts || {};
+    if (x === undefined) { x = width / 2; y = height / 2; }
+    var big = !!opts.big;
+    var n = opts.count || (big ? 46 : 22);
+    for (var i = 0; i < n; i++) {
+      var a = Math.random() * Math.PI * 2, sp = (big ? 160 : 110) + Math.random() * (big ? 320 : 220);
+      var icon = i % 3 === 0;
+      __fx.push({ x: x, y: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (big ? 260 : 160), t: 0,
+        life: 1.1 + Math.random() * (big ? 0.9 : 0.5), rot: Math.random() * 360, vr: (Math.random() - 0.5) * 720,
+        s: icon ? 18 + Math.random() * (big ? 26 : 14) : 6 + Math.random() * 7,
+        icon: icon ? __FX_ICONS[i % __FX_ICONS.length] : "", c: __FX_COLORS[i % __FX_COLORS.length] });
+    }
+    if (big) {
+      // confetti from the top edge as well
+      for (var k = 0; k < 30; k++) __fx.push({ x: Math.random() * width, y: -20 - Math.random() * 120, vx: (Math.random() - 0.5) * 60,
+        vy: 60 + Math.random() * 120, t: 0, life: 2.6, rot: Math.random() * 360, vr: (Math.random() - 0.5) * 400,
+        s: 7 + Math.random() * 6, icon: "", c: __FX_COLORS[k % __FX_COLORS.length], slow: true });
+    }
+    if (__fx.length > 220) __fx.splice(0, __fx.length - 220);
+    __flash = big ? 0.5 : 0.25;
+    if (opts.sound !== false) rg.sound(big ? "win" : "star");
+    rg.vibrate(big ? [30, 40, 60] : 25);
+  },
   hit: function (a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
 };
 
@@ -158,10 +194,12 @@ function __frame(arg) {
     else if (e.type === "back") { if (typeof onBack === "function") { onBack(); } else { rg.exit(); } }
     else if (e.type === "pointerdown") {
       __downTarget[e.pointer] = e.id;
+      if (e.id === __CLOSE) continue;
       var hd = __handler(e.id, "pointerdown");
       if (hd) hd(info);
       else if (typeof onPointerDown === "function") onPointerDown(e.x, e.y, info);
     } else if (e.type === "pointerup") {
+      if (e.id === __CLOSE) { if (__downTarget[e.pointer] === __CLOSE) __close(); __downTarget[e.pointer] = undefined; continue; }
       var hu = __handler(e.id, "pointerup");
       if (hu) hu(info);
       else if (typeof onPointerUp === "function") onPointerUp(e.x, e.y, info);
@@ -176,11 +214,60 @@ function __frame(arg) {
   if (typeof tick === "function") tick(a.dt, __input);
   __handlers = {};
   __ids = 0;
+  __fxStep(a.dt);
   var out = [];
   __ser(typeof view === "function" ? view() : null, out);
+  var over = __overlay();
+  var tree = out.length === 1 && over.length === 0 ? out[0] : { t: "div", s: { width: "100%", height: "100%" }, c: out.concat(over) };
   var cmds = __cmds;
   __cmds = [];
-  return JSON.stringify({ tree: out.length === 1 ? out[0] : { t: "div", c: out }, cmds: cmds });
+  return JSON.stringify({ tree: tree, cmds: cmds });
+}
+
+function __close() {
+  rg.sound("click");
+  if (typeof onClose === "function") { if (onClose() === false) return; }
+  rg.exit();
+}
+
+function __fxStep(dt) {
+  if (__flash > 0) __flash = Math.max(0, __flash - dt);
+  if (!__fx.length) return;
+  var keep = [];
+  for (var i = 0; i < __fx.length; i++) {
+    var p = __fx[i];
+    p.t += dt;
+    if (p.t >= p.life) continue;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.rot += p.vr * dt;
+    if (p.slow) p.vx += Math.sin(p.t * 4 + p.rot) * 30 * dt; else { p.vy += 520 * dt; p.vx *= 1 - dt * 0.8; }
+    keep.push(p);
+  }
+  __fx = keep;
+}
+
+// what the engine draws above the game: the celebration and the close button
+function __overlay() {
+  var o = [];
+  if (__flash > 0) o.push({ t: "div", s: { position: "absolute", left: "0px", top: "0px", width: "100%", height: "100%",
+    backgroundColor: "#fff6c2", opacity: String(__flash * 0.6) } });
+  for (var i = 0; i < __fx.length; i++) {
+    var p = __fx[i];
+    var fade = p.t > p.life - 0.35 ? (p.life - p.t) / 0.35 : 1;
+    if (p.icon) o.push({ t: "div", s: { position: "absolute", left: (p.x - p.s / 2) + "px", top: (p.y - p.s / 2) + "px",
+      fontSize: p.s + "px", opacity: String(fade), transform: "rotate(" + Math.round(p.rot) + "deg)" }, c: [p.icon] });
+    else o.push({ t: "div", s: { position: "absolute", left: (p.x - p.s / 2) + "px", top: (p.y - p.s / 4) + "px",
+      width: p.s + "px", height: (p.s / 2) + "px", borderRadius: "2px", backgroundColor: p.c, opacity: String(fade),
+      transform: "rotate(" + Math.round(p.rot) + "deg)" } });
+  }
+  if (!__launcher && rg.closeButton !== "none") {
+    var left = rg.closeButton === "left";
+    var pos = { position: "absolute", top: "8px", width: "40px", height: "40px", borderRadius: "20px",
+      backgroundColor: "rgba(0,0,0,0.35)", borderWidth: "2px", borderColor: "rgba(255,255,255,0.85)",
+      alignItems: "center", justifyContent: "center" };
+    if (left) pos.left = "8px"; else pos.left = (width - 48) + "px";
+    o.push({ t: "div", id: __CLOSE, s: pos, c: [{ t: "div", s: { fontSize: "22px", fontWeight: "700", color: "#ffffff" }, c: ["✕"] }] });
+  }
+  return o;
 }
 
 function __start(arg) {

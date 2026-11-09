@@ -44,7 +44,7 @@ function place(i: number) {
   if (l.length) {
     winner = turn; winLine = l; score[turn]++;
     mode = "over"; overClock = 0;
-    rg.sound(vsPhone && winner === "O" ? "lose" : "win");
+    if (vsPhone && winner === "O") rg.sound("lose"); else rg.celebrate(width / 2, height * 0.45, { big: true });
     rg.vibrate([60, 40, 120]);
     return;
   }
