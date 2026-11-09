@@ -33,8 +33,8 @@ const OPEN_PRICE = 100;
 const FINE = 200;
 const TOKENS: string[] = ["malja", "makkara", "makkara", "makkara", "rosvo", "rosvo", "rosvo", "poliisi", "poliisi",
   "barkov", "raipe", "raipe", "kummola", "kummola", "kummola", "kummola",
-  "tyhja", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja"];
-const VALUE: any = { kummola: 300, raipe: 600, barkov: 1000 };
+  "timantti", "timantti", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja"];
+const VALUE: any = { kummola: 300, raipe: 600, barkov: 1000, timantti: 500 };
 const TOPH = 62, BOTH = 150;
 
 let phase: Phase = "menu";
@@ -232,6 +232,17 @@ function go(d: Dest) {
 
 function arrive() {
   const p = P();
+  const o = players[1 - cur];
+  if (moving.kind === "walk" && o.node === p.node && o.malja && !o.jail) {
+    o.malja = false; p.malja = true;
+    rg.sound("hit"); rg.vibrate([80, 40, 80]);
+    rg.celebrate(width / 2, height * 0.42, {});
+    clip("taklaus");
+    msg = rg.t("Taklaus! " + teamName(p.team) + " vei maljan!", "Tackle! " + teamName(p.team) + " took the cup!", "¡Placaje! ¡" + teamName(p.team) + " se llevó la copa!");
+    reveal = { token: "taklaus", clock: 0, text: msg, place: placeOf(p.node), luck: false };
+    phase = "reveal"; aiClock = 0;
+    return;
+  }
   const pl = placeOf(p.node);
   if (pl === ARENA && (p.malja || p.winMakkara)) { win(); return; }
   if (pl >= 0) {
@@ -270,7 +281,7 @@ function openToken(pl: number, luck: boolean) {
   } else if (VALUE[token]) {
     const v = VALUE[token] * (double ? 2 : 1);
     p.money += v;
-    text = (token === "kummola" ? "Kummola" : token === "raipe" ? "Raipe" : "Barkov") + "! +" + v + " €" + (double ? rg.t(" (Särkänniemessä tuplana!)", " (double in Särkänniemi!)", " (¡doble en Särkänniemi!)") : "");
+    text = (token === "kummola" ? "Kummola" : token === "raipe" ? "Raipe" : token === "barkov" ? "Barkov" : rg.t("Timantti", "A diamond", "Un diamante")) + "! +" + v + " €" + (double ? rg.t(" (Särkänniemessä tuplana!)", " (double in Särkänniemi!)", " (¡doble en Särkänniemi!)") : "");
     say = ["km_" + token];
     if (double) say.push("km_tupla");
   } else if (token === "rosvo") {
@@ -297,6 +308,13 @@ function openToken(pl: number, luck: boolean) {
 
 function revealDone() {
   const p = P();
+  if (reveal.token === "taklaus") {
+    const pl = placeOf(p.node);
+    if (pl === ARENA) { win(); return; }
+    if (pl >= 0 && tokens[pl]) { moving.kind = ""; arrive(); return; }
+    endTurn();
+    return;
+  }
   if (reveal.token === "poliisi") {
     p.jail = true;
     moving = { path: [p.node, SORI], i: 0, u: 0, kind: "police" };
@@ -356,7 +374,9 @@ function distFrom(target: number): number[] {
 function aiTarget(): number {
   const p = P();
   if (p.malja || p.winMakkara) return ARENA;
+  const o = players[1 - cur];
   const d = distFrom(p.node);
+  if (o.malja && !o.jail && d[o.node] <= 8) return o.node;
   let best = -1, bd = 9999;
   for (let i = 0; i < PLACES.length; i++) {
     if (!tokens[i]) continue;
@@ -570,7 +590,7 @@ function Bottom() {
 }
 
 function tokenImg(token: string) {
-  return rg.asset("img/" + token + ".png");
+  return rg.asset("img/" + (token === "taklaus" ? "malja" : token) + ".png");
 }
 
 function Dialog() {
@@ -607,12 +627,12 @@ function Dialog() {
     const c = reveal.clock;
     // the puck flips: it narrows, then the find widens in its place
     const flip = c < 0.25 ? 1 - c / 0.25 : Math.min(1, (c - 0.25) / 0.25);
-    const card = VALUE[reveal.token];
+    const card = VALUE[reveal.token] && reveal.token !== "timantti";
     const iw = (card ? 120 : 128) * flip, ih = card ? 168 : 128;
     const src = c < 0.25 ? rg.asset("img/puck.png") : tokenImg(reveal.token);
     return (
       <div className="dialog" style={{ left: (width - 300) / 2, top: TOPH + 30 }}>
-        <div className="dtitle">{PLACES[reveal.place].name}</div>
+        <div className="dtitle">{reveal.token === "taklaus" ? rg.t("Taklaus!", "Tackle!", "¡Placaje!") : PLACES[reveal.place].name}</div>
         <div className="revbox" style={{ height: ih + 8 }}>
           <img src={src} style={{ width: Math.max(2, iw), height: c < 0.25 ? 128 : ih }} />
         </div>
@@ -705,8 +725,8 @@ function Rules() {
     <div className="screen menu">
       <div className="title small">{rg.t("Säännöt", "Rules", "Reglas")}</div>
       {Rule("puck", rg.t("Heitä noppaa ja valitse, minne siirryt. Isolla ruudulla voit avata napin: maksa 100 € tai heitä 4, 5 tai 6.", "Roll the die and choose where to go. On a big spot you can open the token: pay 100 € or roll 4, 5 or 6.", "Tira el dado y elige adónde ir. En una casilla grande puedes abrir la ficha: paga 100 € o saca 4, 5 o 6."))}
-      {Rule("malja", rg.t("Etsi Kanada-malja ja vie se Nokia Areenalle. Kumpi ehtii ensin?", "Find the Kanada Cup and take it to Nokia Areena. Who gets there first?", "Encuentra la Copa Kanada y llévala al Nokia Areena. ¿Quién llega primero?"))}
-      {Rule("barkov", rg.t("Kummola 300 €, Raipe 600 €, Barkov 1000 €. Särkänniemessä kaikki tuplana!", "Kummola 300 €, Raipe 600 €, Barkov 1000 €. Everything is double in Särkänniemi!", "Kummola 300 €, Raipe 600 €, Barkov 1000 €. ¡En Särkänniemi todo vale el doble!"))}
+      {Rule("malja", rg.t("Etsi Kanada-malja ja vie se Nokia Areenalle. Jos osut tasan maljan kantajan kohdalle, taklaat maljan itsellesi!", "Find the Kanada Cup and take it to Nokia Areena. Land exactly on the cup carrier to tackle the cup off them!", "Encuentra la Copa Kanada y llévala al Nokia Areena. ¡Si caes justo sobre quien la lleva, le quitas la copa!"))}
+      {Rule("barkov", rg.t("Kummola 300 €, timantti 500 €, Raipe 600 €, Barkov 1000 €. Särkänniemessä kaikki tuplana!", "Kummola 300 €, diamond 500 €, Raipe 600 €, Barkov 1000 €. Everything is double in Särkänniemi!", "Kummola 300 €, diamante 500 €, Raipe 600 €, Barkov 1000 €. ¡En Särkänniemi todo vale el doble!"))}
       {Rule("makkara", rg.t("Mustamakkaralla pääsee pois Sorin putkasta. Kun malja on löytynyt, uusi makkara kelpaa maljan sijaan.", "A black sausage gets you out of the Sori jail. After the cup is found, a new sausage counts as the cup.", "Una morcilla te saca de la cárcel de Sori. Cuando se encuentra la copa, una morcilla nueva vale como la copa."))}
       {Rule("rosvo", rg.t("Rosvo vie rahat, poliisi vie Sorin putkaan.", "A robber takes your money, the police take you to the Sori jail.", "Un ladrón se lleva tu dinero y la policía te lleva a la cárcel de Sori."))}
       <div className="rule"><div className="ruleicon">🚋</div><div className="ruletext">{rg.t("Ratikalla ja laivalla pääsee nopeasti, mutta kyyti maksaa 50–150 €.", "The tram and the boat are fast, but a ride costs 50–150 €.", "El tranvía y el barco son rápidos, pero el viaje cuesta 50–150 €.")}</div></div>

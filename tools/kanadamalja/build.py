@@ -394,11 +394,21 @@ png("ilves", 96, 96, '''
 png("tappara", 96, 96, '''
 <circle cx="48" cy="51" r="42" fill="#000" opacity="0.28"/>
 <circle cx="48" cy="47" r="42" fill="#f47920" stroke="#13306b" stroke-width="6"/>
-<path d="M 30 80 L 60 20" stroke="#6b3e1f" stroke-width="7" stroke-linecap="round"/>
-<path d="M 30 80 L 60 20" stroke="#a0632f" stroke-width="3" stroke-linecap="round"/>
-<path d="M 52 16 Q 70 4 82 22 Q 78 36 70 44 Q 66 30 52 30 Z" fill="#13306b" stroke="#0a1838" stroke-width="2"/>
-<path d="M 58 20 Q 70 12 78 24" fill="none" stroke="#9fb7e8" stroke-width="2.5" stroke-linecap="round"/>
-<path d="M 52 16 Q 42 18 40 28 Q 48 26 52 30 Z" fill="#13306b" stroke="#0a1838" stroke-width="2"/>''')
+<path d="M 28 82 L 58 18" stroke="#5a3215" stroke-width="8" stroke-linecap="round"/>
+<path d="M 28 82 L 58 18" stroke="#a0632f" stroke-width="3.5" stroke-linecap="round"/>
+<path d="M 50 22 L 60 28 Q 80 36 78 62 Q 70 48 56 44 L 46 38 Z" fill="#13306b" stroke="#0a1838" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M 50 22 Q 54 6 76 6 Q 70 20 60 28 Z" fill="#13306b" stroke="#0a1838" stroke-width="2.5" stroke-linejoin="round"/>
+<path d="M 74 10 Q 66 22 62 28 M 77 58 Q 70 46 60 42" fill="none" stroke="#c9d8f5" stroke-width="2.5" stroke-linecap="round"/>
+''')
+
+# a diamond
+png("timantti", 128, 128, '''
+<ellipse cx="64" cy="116" rx="36" ry="6" fill="#000" opacity="0.2"/>
+<path d="M 30 44 L 46 22 L 82 22 L 98 44 L 64 108 Z" fill="#7fdbff" stroke="#0b5394" stroke-width="3" stroke-linejoin="round"/>
+<path d="M 30 44 L 98 44 M 46 22 L 54 44 L 64 22 L 74 44 L 82 22 M 54 44 L 64 108 L 74 44" fill="none" stroke="#0b5394" stroke-width="2"/>
+<path d="M 48 26 L 54 40 L 40 40 Z" fill="#ffffff" opacity="0.8"/>
+<path d="M 100 16 l 3 7 l 7 3 l -7 3 l -3 7 l -3 -7 l -7 -3 l 7 -3 Z" fill="#ffffff" stroke="#7fdbff" stroke-width="1"/>
+''')
 
 # the trophy (the game's own cup, drawn here)
 png("malja", 128, 128, '''
