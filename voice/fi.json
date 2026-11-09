@@ -2,8 +2,13 @@
  "_comment": "Pelien suomenkieliset puheklipit: id -> teksti. rg_voice build renderöi ne CHIMERA-puhesyntetisaattorilla hakemistoon games/_voice/fi (build-web.sh ja build-android.sh tekevät sen). Pelissä: rg.say(\"hyva\") tai rg.say([\"valitse\", \"punainen\"]). Klippi voi olla myös { \"text\": ..., \"rate\": 0.8, \"f0\": 230, \"body\": \"child\" }.",
  "voice": {
   "body": "female",
-  "f0": 215,
-  "rate": 0.9
+  "f0": 225,
+  "rate": 0.9,
+  "accent": 0.25,
+  "breathiness": 0.28,
+  "drift": 10,
+  "roughness": 0.05,
+  "tension": 0.42
  },
  "clips": {
   "hyva": "Hyvä!",

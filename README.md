@@ -131,9 +131,14 @@ cargo run --release -p rg_voice -- ipa "Käänny vasemmalle."                   
 ```
 
 Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
-`{ "text": …, "rate": 0.8, "f0": 240, "body": "child" }`). Klipit ovat 22 kHz
-8-bittisiä μ-law WAVeja (n. 25 kt/s); web-host ja Androidin `Sound.java`
-purkavat ne itse.
+`{ "text": …, "rate": 0.8, "f0": 240, "body": "child" }`). Äänen asetukset (`voice` tai klippikohtaisesti): `body`, `f0`,
+`rate`, `accent` (painollisen tavun sävelnousu), `breathiness`, `drift`,
+`roughness`, `tension`, `vibrato` (senttiä), samat kuin CHIMERA-sovelluksen
+säätimet. Suomen äänteiden kestot tulevat `rg_voice`:sta (CHIMERAn englannin
+Klatt-säännöt lyhentävät painottomat vokaalit liikaa), ja kysymykset laskevat
+kuten suomessa. CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
+hila ja kalibrointi riippuvat näytetaajuudesta); klipit ovat 24 kHz 16-bittisiä
+WAVeja, jotka web-host ja Androidin `Sound.java` purkavat itse.
 
 ## Mitä on korjattu Rangerin/EVG:n puolelta (paikattu tässä, ei upstreamissa)
 
