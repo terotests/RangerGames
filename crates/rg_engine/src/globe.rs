@@ -14,11 +14,16 @@
 //!   ocean, land, border, borderWidth, grid, glow, rim,   // colours ("" or false: none)
 //!   colors: { idOrGroup: colour | null },               // fills, merged into the earlier ones
 //!   shade,                       // 0..1, how much darker the land is towards the rim (default 0.3)
+//!   bands: [[lat0, lat1, colour], …] | false,          // land colours by latitude (seasons, snow)
+//!   sun: [lon, lat] | false,     // the point where the sun is overhead: night falls on the far side
+//!   night,                       // 0..1, how dark the night side is (default 0.6)
 //!   visible })
 //! ```
 //!
-//! An id's colour wins over its group's, which wins over `land`. Several
-//! regions may share an id (a country in two continents).
+//! An id's colour wins over the latitude bands, which win over the group's
+//! colour, which wins over `land`. Several regions may share an id (a country
+//! in two continents). With bands, a region is cut along the band edges once
+//! when the bands change, so a game should send new bands only when they do.
 
 use crate::draw::DrawStream;
 use crate::scene3d::color;
@@ -34,13 +39,107 @@ fn unit(lon: f64, lat: f64) -> V3 {
 }
 fn dot(a: V3, b: V3) -> f64 { a[0] * b[0] + a[1] * b[1] + a[2] * b[2] }
 
+/// Rings on the unit sphere and the cap that holds them.
+struct Part {
+    rings: Vec<Vec<V3>>,
+    /// the cap that holds the part: its middle and the cosine of its radius
+    mid: V3,
+    reach: f64,
+    /// the latitude band it was cut to (None: the whole region)
+    band: Option<usize>,
+}
+
+impl Part {
+    fn new(rings: Vec<Vec<V3>>, band: Option<usize>) -> Part {
+        let mut sum = [0.0, 0.0, 0.0];
+        for ring in rings.iter() {
+            for p in ring.iter() {
+                sum = [sum[0] + p[0], sum[1] + p[1], sum[2] + p[2]];
+            }
+        }
+        let l = dot(sum, sum).sqrt();
+        let mid = if l > 1e-9 { [sum[0] / l, sum[1] / l, sum[2] / l] } else { [1.0, 0.0, 0.0] };
+        let mut reach: f64 = 1.0;
+        for ring in rings.iter() {
+            for p in ring.iter() {
+                reach = reach.min(dot(*p, mid));
+            }
+        }
+        Part { rings, mid, reach, band }
+    }
+}
+
 struct Region {
     id: String,
     group: String,
-    rings: Vec<Vec<V3>>,
-    /// the cap that holds the region: its middle and the cosine of its radius
-    mid: V3,
-    reach: f64,
+    /// the rings in degrees [lon, lat], for cutting into bands
+    ll: Vec<Vec<[f64; 2]>>,
+    whole: Part,
+    banded: Vec<Part>,
+}
+
+/// Points closer than this many degrees, so that long straight edges (a
+/// border along a parallel, a band edge) bend with the globe.
+const STEP: f64 = 2.0;
+
+fn densify(ring: &[[f64; 2]]) -> Vec<[f64; 2]> {
+    let n = ring.len();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let a = ring[i];
+        let b = ring[(i + 1) % n];
+        out.push(a);
+        let d = (b[0] - a[0]).abs().max((b[1] - a[1]).abs());
+        if d > STEP && d < 300.0 {
+            let k = (d / STEP).ceil() as usize;
+            for s in 1..k {
+                let t = s as f64 / k as f64;
+                out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+            }
+        }
+    }
+    out
+}
+
+/// The part of a ring at latitudes `lat >= v` (above) or `lat <= v`.
+fn cut(ring: &[[f64; 2]], v: f64, above: bool) -> Vec<[f64; 2]> {
+    let inside = |p: &[f64; 2]| if above { p[1] >= v } else { p[1] <= v };
+    let n = ring.len();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let a = ring[i];
+        let b = ring[(i + 1) % n];
+        let (ia, ib) = (inside(&a), inside(&b));
+        if ia {
+            out.push(a);
+        }
+        if ia != ib {
+            let t = (v - a[1]) / (b[1] - a[1]);
+            out.push([a[0] + (b[0] - a[0]) * t, v]);
+        }
+    }
+    out
+}
+
+fn to_sphere(ring: &[[f64; 2]]) -> Vec<V3> {
+    densify(ring).iter().map(|p| unit(p[0], p[1])).collect()
+}
+
+/// A small circle round `c` (at most a quarter turn), as a ring.
+fn cap_ring(c: V3, radius_deg: f64, n: usize) -> Vec<V3> {
+    let helper = if c[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+    let cross = |a: V3, b: V3| -> V3 { [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] };
+    let u = cross(c, helper);
+    let l = dot(u, u).sqrt();
+    let u = [u[0] / l, u[1] / l, u[2] / l];
+    let w = cross(c, u);
+    let (sr, cr) = radius_deg.to_radians().sin_cos();
+    (0..n)
+        .map(|i| {
+            let (st, ct) = (i as f64 / n as f64 * std::f64::consts::TAU).sin_cos();
+            [cr * c[0] + sr * (ct * u[0] + st * w[0]), cr * c[1] + sr * (ct * u[1] + st * w[1]), cr * c[2] + sr * (ct * u[2] + st * w[2])]
+        })
+        .collect()
 }
 
 pub struct Globe {
@@ -60,6 +159,9 @@ pub struct Globe {
     rim: Option<V3>,
     shade: f64,
     visible: bool,
+    bands: Vec<(f64, f64, V3)>,
+    sun: Option<V3>,
+    night: f64,
     lines: Vec<Vec<V3>>,
     /// regions drawn in the last frame
     pub drawn: usize,
@@ -102,6 +204,9 @@ impl Globe {
             rim: None,
             shade: 0.3,
             visible: true,
+            bands: Vec::new(),
+            sun: None,
+            night: 0.6,
             lines,
             drawn: 0,
         }
@@ -118,33 +223,41 @@ impl Globe {
                 if parts.len() < 3 {
                     continue;
                 }
-                let mut rings: Vec<Vec<V3>> = Vec::new();
-                let mut sum = [0.0, 0.0, 0.0];
+                let mut ll: Vec<Vec<[f64; 2]>> = Vec::new();
                 for ring in parts[2..].iter() {
                     let n = ring.items();
-                    let mut pts: Vec<V3> = Vec::with_capacity(n.len() / 2);
+                    let mut pts: Vec<[f64; 2]> = Vec::with_capacity(n.len() / 2);
                     let mut k = 0;
                     while k + 1 < n.len() {
-                        let p = unit(n[k].as_num(0.0) / scale, n[k + 1].as_num(0.0) / scale);
-                        sum = [sum[0] + p[0], sum[1] + p[1], sum[2] + p[2]];
-                        pts.push(p);
+                        pts.push([n[k].as_num(0.0) / scale, n[k + 1].as_num(0.0) / scale]);
                         k += 2;
                     }
                     if pts.len() >= 3 {
-                        rings.push(pts);
+                        ll.push(pts);
                     }
                 }
-                let l = dot(sum, sum).sqrt();
-                let mid = if l > 1e-9 { [sum[0] / l, sum[1] / l, sum[2] / l] } else { [1.0, 0.0, 0.0] };
-                let mut reach: f64 = 1.0;
-                for ring in rings.iter() {
-                    for p in ring.iter() {
-                        reach = reach.min(dot(*p, mid));
-                    }
-                }
-                self.regions.push(Region { id: parts[0].as_str(), group: parts[1].as_str(), rings, mid, reach });
+                let whole = Part::new(ll.iter().map(|r| to_sphere(r)).collect(), None);
+                self.regions.push(Region { id: parts[0].as_str(), group: parts[1].as_str(), ll, whole, banded: Vec::new() });
             }
+            self.cut_bands();
         }
+        let bands = a.get("bands");
+        if !bands.is_null() {
+            self.bands.clear();
+            for b in bands.items() {
+                let v = b.items();
+                if v.len() >= 3 {
+                    self.bands.push((v[0].as_num(0.0), v[1].as_num(0.0), color(&v[2], self.land)));
+                }
+            }
+            self.cut_bands();
+        }
+        let sun = a.get("sun");
+        if !sun.is_null() {
+            let v = sun.items();
+            self.sun = if v.len() >= 2 { Some(unit(v[0].as_num(0.0), v[1].as_num(0.0))) } else { None };
+        }
+        self.night = a.get("night").as_num(self.night);
         self.lon = a.get("lon").as_num(self.lon);
         self.lat = a.get("lat").as_num(self.lat);
         self.r = a.get("r").as_num(self.r);
@@ -172,6 +285,46 @@ impl Globe {
                 self.colors.remove(&m.key);
             } else {
                 self.colors.insert(m.key.clone(), Some(color(&m.value, self.land)));
+            }
+        }
+    }
+
+    /// Cuts every region along the band edges (only where a band edge crosses it).
+    fn cut_bands(&mut self) {
+        let bands = self.bands.clone();
+        for reg in self.regions.iter_mut() {
+            reg.banded.clear();
+            if bands.is_empty() {
+                continue;
+            }
+            let (mut lo, mut hi) = (f64::MAX, f64::MIN);
+            for ring in reg.ll.iter() {
+                for p in ring.iter() {
+                    lo = lo.min(p[1]);
+                    hi = hi.max(p[1]);
+                }
+            }
+            for (bi, b) in bands.iter().enumerate() {
+                let (b0, b1) = (b.0.min(b.1), b.0.max(b.1));
+                if b1 <= lo || b0 >= hi {
+                    continue;
+                }
+                let mut rings: Vec<Vec<V3>> = Vec::new();
+                for ring in reg.ll.iter() {
+                    let mut r = ring.clone();
+                    if b0 > lo {
+                        r = cut(&r, b0, true);
+                    }
+                    if b1 < hi && r.len() >= 3 {
+                        r = cut(&r, b1, false);
+                    }
+                    if r.len() >= 3 {
+                        rings.push(to_sphere(&r));
+                    }
+                }
+                if !rings.is_empty() {
+                    reg.banded.push(Part::new(rings, Some(bi)));
+                }
             }
         }
     }
@@ -256,61 +409,37 @@ impl Globe {
         let mut fills: Vec<(V3, Vec<f32>, Vec<f32>)> = Vec::new();
         let mut bpts: Vec<f32> = Vec::new();
         let mut bends: Vec<f32> = Vec::new();
+        let seen = cos_view.clamp(-1.0, 1.0).acos().min(std::f64::consts::FRAC_PI_2);
         for reg in self.regions.iter() {
-            // the region's cap against the visible part of the globe
-            let d = dot(reg.mid, toward).clamp(-1.0, 1.0);
-            let ang = d.acos();
-            let reach = reg.reach.clamp(-1.0, 1.0).acos();
-            let seen = cos_view.clamp(-1.0, 1.0).acos().min(std::f64::consts::FRAC_PI_2);
-            if ang - reach > seen + 0.01 {
-                continue;
-            }
-            let mut pts: Vec<f32> = Vec::new();
-            let mut ends: Vec<f32> = Vec::new();
-            let mut zsum = 0.0;
-            let mut zn = 0.0;
-            for ring in reg.rings.iter() {
-                let start = pts.len();
-                let vs: Vec<V3> = ring.iter().map(|p| view(p)).collect();
-                clip_ring(&vs, &mut pts, &px);
-                if pts.len() - start >= 6 {
-                    ends.push(pts.len() as f32);
-                    for v in vs.iter() {
-                        if v[2] > 0.0 {
-                            zsum += v[2];
-                            zn += 1.0;
-                        }
-                    }
-                } else {
-                    pts.truncate(start);
-                }
-            }
-            if ends.is_empty() {
-                continue;
-            }
-            let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-            for k in (0..pts.len()).step_by(2) {
-                x0 = x0.min(pts[k]); x1 = x1.max(pts[k]);
-                y0 = y0.min(pts[k + 1]); y1 = y1.max(pts[k + 1]);
-            }
-            if x1 < 0.0 || y1 < 0.0 || x0 > w as f32 || y0 > h as f32 {
-                continue;
-            }
-            let z = if zn > 0.0 { zsum / zn } else { 0.0 };
+            let own = matches!(self.colors.get(&reg.id), Some(Some(_)));
+            let use_bands = !own && !reg.banded.is_empty();
             let base = self.fill_of(reg);
-            // in a few steps, so that neighbours share a colour and go out as one path
-            let zq = (z.clamp(0.0, 1.0) * 5.0).round() / 5.0;
-            let k = 1.0 - self.shade * (1.0 - zq);
-            let c = [base[0] * k, base[1] * k, base[2] * k];
-            if self.border.is_some() {
-                let off = bpts.len() as f32;
-                bpts.extend_from_slice(&pts);
-                for e in ends.iter() {
-                    bends.push(off + e);
+            let mut drew = false;
+            let parts: Vec<&Part> = if use_bands { reg.banded.iter().collect() } else { vec![&reg.whole] };
+            for part in parts {
+                let c0 = match part.band {
+                    Some(b) => self.bands[b].2,
+                    None => base,
+                };
+                if let Some((c, pts, ends)) = project_part(part, c0, self.shade, toward, seen, w, h, &view, &px) {
+                    fills.push((c, pts, ends));
+                    drew = true;
                 }
             }
-            fills.push((c, pts, ends));
+            if !drew {
+                continue;
+            }
             self.drawn += 1;
+            if self.border.is_some() {
+                // the borders follow the whole region, not the band cuts
+                if let Some((_, pts, ends)) = project_part(&reg.whole, base, 0.0, toward, seen, w, h, &view, &px) {
+                    let off = bpts.len() as f32;
+                    bpts.extend_from_slice(&pts);
+                    for e in ends.iter() {
+                        bends.push(off + e);
+                    }
+                }
+            }
         }
         // regions of one colour go out as one path (they never overlap, so the order is free)
         fills.sort_by(|a, b| {
@@ -338,6 +467,27 @@ impl Globe {
         if let Some(b) = self.border {
             out.rings(7, b, 0.85, self.border_width, &bpts, &bends);
         }
+        if let Some(sun) = self.sun {
+            // a soft terminator: a few caps round the point opposite the sun, and a glow under it
+            let anti = [-sun[0], -sun[1], -sun[2]];
+            let mut layer = |c: V3, deg: f64, rgb: V3, alpha: f64| {
+                let ring: Vec<V3> = cap_ring(c, deg, 96).iter().map(|p| view(p)).collect();
+                let mut pts: Vec<f32> = Vec::new();
+                clip_ring(&ring, &mut pts, &px);
+                if pts.len() >= 6 {
+                    out.rings(6, rgb, alpha, 0.0, &pts, &[pts.len() as f32]);
+                }
+            };
+            let dark = [0.0, 0.02, 0.1];
+            let n = self.night.clamp(0.0, 1.0);
+            // alphas that stack up to `night` in the middle
+            let step = 1.0 - (1.0 - n).powf(1.0 / 5.0);
+            for deg in [89.5, 87.0, 84.0, 80.0, 75.0] {
+                layer(anti, deg, dark, step);
+            }
+            layer(sun, 40.0, [1.0, 0.97, 0.8], 0.07);
+            layer(sun, 20.0, [1.0, 0.97, 0.8], 0.07);
+        }
         if let Some(rc) = self.rim {
             let mut c = circle(rad, 96);
             c.push(c[0]);
@@ -345,6 +495,59 @@ impl Globe {
             out.rings(7, rc, 0.6, 2.0, &c, &[c.len() as f32]);
         }
     }
+}
+
+/// One part on the screen: its shaded colour and its clipped rings, or None
+/// when it is round the back or off the screen.
+#[allow(clippy::too_many_arguments)]
+fn project_part(
+    part: &Part, base: V3, shade: f64, toward: V3, seen: f64, w: f64, h: f64,
+    view: &dyn Fn(&V3) -> V3, px: &dyn Fn(f64, f64) -> [f32; 2],
+) -> Option<(V3, Vec<f32>, Vec<f32>)> {
+    let d = dot(part.mid, toward).clamp(-1.0, 1.0);
+    let ang = d.acos();
+    let reach = part.reach.clamp(-1.0, 1.0).acos();
+    if ang - reach > seen + 0.01 {
+        return None;
+    }
+    let mut pts: Vec<f32> = Vec::new();
+    let mut ends: Vec<f32> = Vec::new();
+    let mut zsum = 0.0;
+    let mut zn = 0.0;
+    for ring in part.rings.iter() {
+        let start = pts.len();
+        let vs: Vec<V3> = ring.iter().map(|p| view(p)).collect();
+        clip_ring(&vs, &mut pts, px);
+        if pts.len() - start >= 6 {
+            ends.push(pts.len() as f32);
+            for v in vs.iter() {
+                if v[2] > 0.0 {
+                    zsum += v[2];
+                    zn += 1.0;
+                }
+            }
+        } else {
+            pts.truncate(start);
+        }
+    }
+    if ends.is_empty() {
+        return None;
+    }
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for k in (0..pts.len()).step_by(2) {
+        x0 = x0.min(pts[k]);
+        x1 = x1.max(pts[k]);
+        y0 = y0.min(pts[k + 1]);
+        y1 = y1.max(pts[k + 1]);
+    }
+    if x1 < 0.0 || y1 < 0.0 || x0 > w as f32 || y0 > h as f32 {
+        return None;
+    }
+    let z = if zn > 0.0 { zsum / zn } else { 0.0 };
+    // in a few steps, so that neighbours share a colour and go out as one path
+    let zq = (z.clamp(0.0, 1.0) * 5.0).round() / 5.0;
+    let k = 1.0 - shade * (1.0 - zq);
+    Some(([base[0] * k, base[1] * k, base[2] * k], pts, ends))
 }
 
 fn close(a: V3, b: V3) -> bool {
@@ -436,5 +639,29 @@ mod tests {
         g.command(&rg_core::json::parse(r#"{"lon":90,"visible":false}"#));
         g.render(&mut out, 400.0, 400.0);
         assert_eq!(g.drawn, 0);
+    }
+
+    #[test]
+    fn bands_cut_a_region_and_the_night_falls() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r##"{{"regions":[["A","x",{}]],"lon":0,"lat":0,"r":100,"grid":false,"glow":false,"border":false,"ocean":false,
+            "bands":[[-90,0,"#ffffff"],[0,90,"#00ff00"]]}}"##, square(0.0, 0.0)));
+        g.command(&a);
+        assert_eq!(g.regions[0].banded.len(), 2);
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, 2);
+        // an id colour wins over the bands: one fill
+        g.command(&rg_core::json::parse(r##"{"colors":{"A":"#ff0000"}}"##));
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, 1);
+        // the sun behind the globe: five night layers, no glow in sight
+        g.command(&rg_core::json::parse(r#"{"sun":[180,0]}"#));
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, 6);
+        g.command(&rg_core::json::parse(r#"{"sun":false,"bands":false}"#));
+        assert!(g.sun.is_none() && g.bands.is_empty());
     }
 }

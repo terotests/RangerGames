@@ -1,0 +1,80 @@
+.screen { width: 100%; height: 100%; overflow: hidden; }
+.screen.sky { background-color: #8ecae6; }
+.star { position: absolute; background-color: #ffffff; border-radius: 2px; opacity: 0.7; }
+
+/* menu */
+.menu { width: 100%; height: 100%; align-items: center; flex-direction: column; }
+.title { width: 84px; height: 84px; }
+.mbird { position: relative; width: 64px; height: 64px; }
+.mbird.big { width: 84px; height: 84px; }
+.mbird.done { width: 90px; height: 90px; }
+.logo { font-size: 34px; font-weight: 700; color: #ffffff; margin-bottom: 8px; }
+.mlist { width: 100%; flex-direction: column; align-items: center; }
+.mtile { width: 320px; height: 88px; margin-top: 10px; border-radius: 22px; flex-direction: row; align-items: center;
+  padding-left: 10px; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 4px; }
+.micon { width: 70px; height: 70px; border-radius: 35px; background-color: rgba(255,255,255,0.35); align-items: center; justify-content: center; }
+.mtext { flex-direction: column; margin-left: 10px; width: 220px; }
+.mname { font-size: 22px; font-weight: 700; color: #ffffff; }
+.msub { font-size: 14px; color: #ffffff; opacity: 0.95; }
+.mstars { font-size: 14px; color: #ffffff; margin-top: 2px; }
+
+/* the bird */
+.bird { position: absolute; }
+.bshadow { position: absolute; width: 60px; height: 44px; border-radius: 22px; background-color: rgba(0,0,0,0.22); }
+.rdot { position: absolute; width: 6px; height: 6px; border-radius: 3px; background-color: rgba(255,255,255,0.8); }
+.food { position: absolute; width: 30px; height: 30px; font-size: 22px; align-items: center; justify-content: center;
+  border-radius: 15px; background-color: rgba(255,255,255,0.55); }
+.goal { position: absolute; width: 40px; height: 40px; font-size: 32px; align-items: center; justify-content: center; }
+.nestpin { position: absolute; width: 36px; height: 30px; border-radius: 15px; background-color: #8d5524; border-width: 3px; border-color: #5c3317; }
+.egg { position: absolute; width: 9px; height: 9px; border-radius: 5px; background-color: #fffbe6; }
+.flake { position: absolute; background-color: #ffffff; opacity: 0.9; }
+.arrow { position: absolute; width: 44px; height: 44px; }
+
+/* the sun window */
+.orbit { position: absolute; border-radius: 16px; background-color: rgba(4,12,32,0.82); border-width: 2px; border-color: rgba(255,255,255,0.5); }
+.sun { position: absolute; width: 16px; height: 16px; border-radius: 8px; background-color: #ffd60a; }
+.sunglow { position: absolute; width: 26px; height: 26px; border-radius: 13px; background-color: rgba(255,214,10,0.3); }
+.fin { position: absolute; width: 5px; height: 5px; border-radius: 3px; background-color: #ff006e; }
+.month { position: absolute; left: 0px; top: 72px; align-items: center; font-size: 13px; font-weight: 700; color: #ffffff; }
+
+/* the task card (the top-right 48 px stay free for the close button) */
+.card { position: absolute; left: 8px; top: 8px; height: 62px; border-radius: 18px; background-color: rgba(255,255,255,0.94);
+  flex-direction: row; align-items: center; padding-left: 6px; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.pic { width: 64px; height: 56px; border-radius: 12px; background-color: #e9f5ff; align-items: center; justify-content: center; }
+.picicon { font-size: 38px; }
+.cardtext { flex-direction: column; margin-left: 8px; }
+.find { font-size: 12px; color: #6c757d; font-weight: 700; }
+.tname { font-size: 20px; font-weight: 700; color: #2b2d42; }
+
+/* hud */
+.energy { position: absolute; left: 10px; top: 78px; height: 34px; flex-direction: row; align-items: center; padding-left: 6px; padding-right: 8px;
+  border-radius: 17px; background-color: rgba(255,255,255,0.85); }
+.efood { font-size: 20px; width: 26px; }
+.ebar { width: 72px; height: 12px; border-radius: 6px; background-color: #dee2e6; padding: 1px; }
+.efill { height: 10px; border-radius: 5px; }
+.under { position: absolute; align-items: center; }
+.underin { font-size: 15px; font-weight: 700; color: #ffffff; background-color: rgba(20,30,60,0.6); padding: 4px; padding-left: 12px; padding-right: 12px; border-radius: 12px; }
+.btn { position: absolute; width: 52px; height: 52px; border-radius: 26px; background-color: rgba(255,255,255,0.9); font-size: 26px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: #3d405b; }
+
+/* the nest, from above */
+.tuft { position: absolute; width: 16px; height: 10px; border-radius: 5px; background-color: rgba(0,60,0,0.18); }
+.nestring { position: absolute; background-color: #8d5524; border-width: 6px; border-color: #6b3e1b; }
+.nestin { position: absolute; background-color: #5c3317; }
+.negg { position: absolute; width: 30px; height: 40px; border-radius: 15px; background-color: #fff8e1; border-width: 2px; border-color: #e0d3b0; }
+.chick { position: absolute; border-width: 2px; border-color: rgba(0,0,0,0.25); }
+.eye { position: absolute; width: 6px; height: 6px; border-radius: 3px; background-color: #111111; }
+.beak { position: absolute; width: 14px; height: 10px; border-radius: 4px; background-color: #ffb703; border-width: 2px; border-color: #e85d04; }
+
+/* buttons */
+.go { width: 84px; height: 64px; border-radius: 22px; background-color: #ffd166; font-size: 34px; align-items: center; justify-content: center; margin-left: 8px; margin-right: 8px; }
+.go.alt { background-color: #a8dadc; }
+.go.big { position: absolute; width: 180px; height: 70px; font-size: 30px; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 4px; }
+
+/* the year done */
+.overlay { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(10,20,50,0.45); }
+.donebox { width: 280px; border-radius: 26px; background-color: #ffffff; align-items: center; flex-direction: column; padding: 18px; }
+.donetitle { font-size: 26px; font-weight: 700; color: #2b2d42; }
+.donestars { font-size: 36px; margin-top: 6px; }
+.donerow { font-size: 20px; color: #2b2d42; margin-top: 4px; }
+.row { flex-direction: row; margin-top: 14px; }
