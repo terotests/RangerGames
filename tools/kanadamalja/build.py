@@ -292,10 +292,11 @@ for bt in BOATS:
     mx, my = 0.25 * a[2] + 0.5 * vx + 0.25 * b[2], 0.25 * a[3] + 0.5 * vy + 0.25 * b[3]
     A('<path d="M %.1f %.1f l 12 0 l -3 4 l -6 0 Z" fill="#ffffff" stroke="#264653" stroke-width="0.7"/><rect x="%.1f" y="%.1f" width="4" height="3" fill="#e63946"/>' % (mx - 6, my, mx - 2, my - 3))
 
-# ---- walking paths: a sandy road, bridges over the river, the dots --------
+# ---- walking paths: a black line, bridges over the river, white dots -----
 for samples, ice in road_curves:
     d = "M " + " L ".join("%.1f %.1f" % p for p in samples[::4] + [samples[-1]])
-    A('<path d="%s" fill="none" stroke="%s" stroke-width="5" stroke-linecap="round" opacity="%s"/>' % (d, "#e3f4ff" if ice else "#e9d8a6", "0.85" if ice else "0.7"))
+    # a black line under the white step dots; the ice road over the lake dashed
+    A('<path d="%s" fill="none" stroke="#1d1d1f" stroke-width="2.6" stroke-linecap="round"%s/>' % (d, ' stroke-dasharray="5 3"' if ice else ""))
 # bridges: where a road crosses the river
 riv = [bez(RIVER[0], RIVER[0], 0, 0)]
 def seg_cross(p1, p2, p3, p4):
@@ -316,7 +317,7 @@ for samples, ice in road_curves:
                 A('<g transform="translate(%.1f %.1f) rotate(%.1f)"><rect x="-8" y="-4" width="16" height="8" rx="1" fill="#d4a373" stroke="#7f5539" stroke-width="0.8"/></g>' % (x, y, math.degrees(ang)))
 for x, y, pi in nodes:
     if pi < 0:
-        A('<circle cx="%.1f" cy="%.1f" r="3.1" fill="#fffaf0" stroke="#6b4f2a" stroke-width="0.9"/>' % (x, y))
+        A('<circle cx="%.1f" cy="%.1f" r="3.6" fill="#ffffff" stroke="#1d1d1f" stroke-width="1.1"/>' % (x, y))
 
 # ---- the places ----------------------------------------------------------
 for i, (pid, name, x, y, kind, side) in enumerate(PLACES):
