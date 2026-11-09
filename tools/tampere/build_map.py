@@ -722,10 +722,13 @@ for ln in sorted(cands):
 # ---------------------------------------------------------------- places
 PLACES = [
     # id, name, kind, x, z, icon   (approximate where noted)
-    ("koti", "Äidin koti", "home", 2, -598, "🏠"),   # Tampellan esplanadi, likimain (tarkka paikka vain lib/homes.ts:n paikallisessa versiossa)
-    ("koulu", "Juhannuskylän koulu", "school", 377, -300, "🏫"),   # Erkkilänkadun eteläpuoli, Rautatienkadun ja radan välissä (Teron kartta)
-    ("paivakoti", "Jussinkylän päiväkoti", "daycare", 125, -373, "🎈"),  # Lapintie / Juhannuskylänkatu, Juhlatalo Hovin vieressä (Teron kartta)
-    ("isa", "Isän koti", "home", 900, 60, "🏡"),     # Kyttälä/Tammela, likimain (tarkka paikka vain paikallisesti)
+    # Homes, school and day care are only rough (100-200 m off) and generically
+    # named here: the real places and names come from the git-ignored
+    # games/tampere/places.local.js on the phone build machine.
+    ("koti", "Äidin koti", "home", 2, -598, "🏠"),
+    ("koulu", "Koulu", "school", 290, -235, "🏫"),
+    ("paivakoti", "Päiväkoti", "daycare", 215, -290, "🎈"),
+    ("isa", "Isän koti", "home", 900, 60, "🏡"),
     ("pikkukakkonen", "Pikku Kakkosen puisto", "park", 99, -37, "🌳"),
     ("koskipuisto", "Koskipuisto", "park", 50, 30, "🌳"),
     ("nasinpuisto", "Näsinpuisto", "park", -640, -500, "🌳"),
