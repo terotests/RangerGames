@@ -384,14 +384,18 @@ for lit, cx, cz, ux, uz, cls in arm_spots:
     crossings.append(f); gen += 1
 print(f"crossings added at other junctions: {gen}", dict(REJ))
 if os.environ.get("DEBUGREJ"): json.dump({"rej": REJP, "arms": [(a[1], a[2]) for a in arm_spots]}, open(os.environ["DEBUGREJ"], "w"))
+DRIVE_FIX = []   # pavement over driveways: {a, b}
 def compute_G(crossings):
     cross_mask = Image.new("L", (W, H), 0)
     cmd = ImageDraw.Draw(cross_mask)
     for c in crossings:
         cmd.polygon([to_px(x, z, X0, Z0, 1) for x, z in cross_poly(c, CW, 1.0)], fill=1)
+    for c in DRIVE_FIX:
+        cmd.polygon([to_px(x, z, X0, Z0, 1) for x, z in cross_poly(c, 3.0, 1.0)], fill=2)
     A = RA.copy()
     CM = np.array(cross_mask, dtype=np.uint8)
     A[(CM == 1) & ((A == 2) | (A == 5))] = 3
+    A[(CM == 2) & (A == 2)] = 1
     A[(B0 == 0) & (A != 3)] = 0
     blocks = A[:GH * CELL, :GW * CELL].reshape(GH, CELL, GW, CELL).transpose(0, 2, 1, 3).reshape(GH, GW, CELL * CELL)
     G = np.zeros((GH, GW), dtype=np.uint8)
@@ -516,6 +520,41 @@ for st in streets:
             f["sig"] = False; f["gen"] = True
             crossings.append(f); added_mid.append((cx, cz)); gen += 1
 print(f"crossings added mid-block where the way round is over 120 m: {gen}")
+G = compute_G(crossings)
+
+# Driveways and car park entrances: a short strip of carriageway across the
+# pavement (often without a street line of its own). Where the two pavement
+# ends are far apart on foot, the pavement simply goes over it (no zebra:
+# there is none in reality either, and no car drives there in the game).
+def near_street_line(p, r):
+    for p0, p1 in street_segs:
+        if min(p0[0], p1[0]) - r > p[0] or max(p0[0], p1[0]) + r < p[0] or min(p0[1], p1[1]) - r > p[1] or max(p0[1], p1[1]) + r < p[1]: continue
+        L = seg_len(p0, p1)
+        if L < 0.01: continue
+        k_ = max(0, min(1, ((p[0] - p0[0]) * (p1[0] - p0[0]) + (p[1] - p0[1]) * (p1[1] - p0[1])) / (L * L)))
+        if math.hypot(p[0] - p0[0] - (p1[0] - p0[0]) * k_, p[1] - p0[1] - (p1[1] - p0[1]) * k_) < r: return True
+    return False
+gen = 0; added_dw = []
+cxy = lambda gx, gz: (X0 + (gx + 0.5) * CELL, Z0 + (gz + 0.5) * CELL)
+road_cells = np.argwhere(G == 2)
+for gz, gx in road_cells:
+    for dx, dz in ((1, 0), (0, 1), (1, 1), (1, -1)):
+        # only start at the first road cell of a run
+        if 0 <= gx - dx < GW and 0 <= gz - dz < GH and G[gz - dz, gx - dx] == 2: continue
+        n = 0
+        while n < 6 and 0 <= gx + dx * n < GW and 0 <= gz + dz * n < GH and G[gz + dz * n, gx + dx * n] == 2: n += 1
+        if n >= 6 or n < 1: continue
+        ax, az = gx - dx, gz - dz; bx, bz = gx + dx * n, gz + dz * n
+        if not (0 <= ax < GW and 0 <= az < GH and 0 <= bx < GW and 0 <= bz < GH): continue
+        if G[az, ax] not in (1, 4) or G[bz, bx] not in (1, 4): continue
+        a, b = cxy(ax, az), cxy(bx, bz)
+        m = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+        if any(math.hypot(mid(c)[0] - m[0], mid(c)[1] - m[1]) < 15 for c in crossings): continue
+        if any(math.hypot(q[0] - m[0], q[1] - m[1]) < 25 for q in added_dw): continue
+        if near_street_line(m, 6): continue                    # a real street: cars drive there
+        if walk_dist(G, a, b, 40) is not None: continue        # under 80 m round: fine
+        DRIVE_FIX.append({"a": a, "b": b}); added_dw.append(m); gen += 1
+print(f"driveways made walkable: {gen}")
 G = compute_G(crossings)
 
 # signals: a crossing within 22 m of a signal node is controlled by it

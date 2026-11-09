@@ -413,6 +413,7 @@ function makePlan(g: Place): any {
 }
 
 function chooseHow(byTram: boolean) {
+  if (modeClock < 0.5) return;     // the tap that picked the goal must not pick this too
   rg.sound("click");
   if (!byTram) plan = null;
   startTrip();
