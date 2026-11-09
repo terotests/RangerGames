@@ -117,6 +117,12 @@ const FOUND_R = 55;             // m
 const HINT_AFTER = 12;          // s
 const DONE = "#ffffff";          // a found place on the globe
 const BLINK = "#ff006e";         // the hint
+const GOLD = "#ffd166";          // a found country flashes in this
+const NEAR_PX = 24;              // a country counts as found this close to its edge (pixels) …
+const NEAR_MIN = 1.5;            // … but at least this many degrees
+const NEAR_MAX = 4;              // … and at most this many
+const FOUND_TIME = 3.2;          // s: how long the found place is shown
+const FOUND_PX = 45;             // a found country is zoomed to at least this half size (pixels)
 
 let screen: Screen = "menu";
 let stage = 0;                  // index in STAGE_INFO
@@ -141,6 +147,8 @@ let regionBoxes: Box[] = [];
 let names: any = {};            // country code -> Finnish name
 let stars: any[] = [];
 let baseColors: any = {};       // the globe's fills when nothing blinks
+let tgRings: number[][] = [];   // the target's rings near its centre, in degrees
+let tgMid = { lon: 0, lat: 0, reach: 1 };   // their middle and half size in degrees
 
 // ---- setup -------------------------------------------------------------------
 
@@ -226,6 +234,7 @@ function beginTarget() {
   hinted = false;
   foundClock = -1;
   silhouette = isGlobe() ? makeSilhouette(cur()) : null;
+  if (isGlobe()) nearRings(cur());
   rg.say("k_" + cur().id.toLowerCase());
 }
 
@@ -279,6 +288,52 @@ function makeSilhouette(tg: Target) {
   return { d, color, w: W, h: H };
 }
 
+// The target's rings near its centre (no overseas parts) in degrees, with the
+// longitudes unwrapped around the centre, and the middle of their box.
+function nearRings(tg: Target) {
+  tgRings = [];
+  const cosl = Math.max(0.3, Math.cos(tg.lat * Math.PI / 180));
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  for (const ring of targetRings(tg)) {
+    const lon = wrapLon(ring[0] / 10, tg.lon), lat = ring[1] / 10;
+    if (Math.abs(lon - tg.lon) * cosl > 45 || Math.abs(lat - tg.lat) > 45) continue;
+    const p: number[] = [];
+    for (let i = 0; i < ring.length; i += 2) {
+      const x = wrapLon(ring[i] / 10, tg.lon), y = ring[i + 1] / 10;
+      p.push(x, y);
+      if (x < x0) x0 = x; if (x > x1) x1 = x;
+      if (y < y0) y0 = y; if (y > y1) y1 = y;
+    }
+    tgRings.push(p);
+  }
+  if (tgRings.length === 0) { tgMid = { lon: tg.lon, lat: tg.lat, reach: 1 }; return; }
+  const lat = (y0 + y1) / 2;
+  const c = Math.max(0.3, Math.cos(lat * Math.PI / 180));
+  tgMid = { lon: (x0 + x1) / 2, lat, reach: Math.max((x1 - x0) * c, y1 - y0) / 2 };
+}
+
+// The distance in degrees (along the ground, roughly) from a point to the
+// target's nearest edge.
+function distToTarget(lon: number, lat: number) {
+  const c = Math.max(0.3, Math.cos(lat * Math.PI / 180));
+  let best = 1e9;
+  for (const p of tgRings) {
+    const n = p.length;
+    for (let i = 0, j = n - 2; i < n; j = i, i += 2) {
+      const ax = (wrapLon(p[j], lon) - lon) * c, ay = p[j + 1] - lat;
+      const bx = (wrapLon(p[i], lon) - lon) * c, by = p[i + 1] - lat;
+      const dx = bx - ax, dy = by - ay;
+      const L = dx * dx + dy * dy;
+      const u = L > 0 ? rg.clamp(-(ax * dx + ay * dy) / L, 0, 1) : 0;
+      const d = Math.hypot(ax + u * dx, ay + u * dy);
+      if (d < best) best = d;
+    }
+  }
+  return best;
+}
+
+function pxPerDeg() { return globeR() * Math.PI / 180; }
+
 // ---- input ------------------------------------------------------------------
 
 // A press steers unless it lands on the task card or a button (EVG's hit test
@@ -331,7 +386,13 @@ function tick(dt: number, input: any) {
   if (foundClock >= 0) {
     foundClock += dt;
     heli.vx *= 0.9; heli.vy *= 0.9;
-    if (foundClock > 2.4) next();
+    // the globe glides so that the found country is in the middle, under the ring
+    if (isGlobe() && stage > 1) {
+      const e = Math.min(1, dt * 3);
+      heli.lon += (wrapLon(tgMid.lon, heli.lon) - heli.lon) * e;
+      heli.lat += (tgMid.lat - heli.lat) * e;
+    }
+    if (foundClock > (isGlobe() ? FOUND_TIME : 2.4)) next();
     drawGlobe();
     return;
   }
@@ -387,7 +448,12 @@ function drawGlobe() {
   if (!isGlobe()) return;
   const args: any = { lon: heli.lon, lat: heli.lat, r: globeR(), x: width / 2, y: heliY() };
   // the target blinks once the hint is on
-  if (hinted && foundClock < 0) {
+  if (foundClock >= 0 && stage > 1) {
+    // the found country flashes gold and white, then stays white
+    const c: any = {};
+    c[cur().id] = foundClock < 2.2 && Math.floor(foundClock * 4) % 2 === 0 ? GOLD : DONE;
+    args.colors = c;
+  } else if (hinted && foundClock < 0) {
     const on = Math.floor(t * 3) % 2 === 0;
     const c: any = {};
     const key = stage === 1 ? cur().group : cur().id;
@@ -404,6 +470,8 @@ function checkUnder() {
     if (hit) under = stage === 1 ? continentName(hit[1]) : (names[hit[0]] || continentName(hit[1]));
     else under = "";
     if (hit && (stage === 1 ? hit[1] === tg.group : hit[0] === tg.id)) found();
+    // a small country: close enough to its edge is found too
+    else if (stage > 1 && distToTarget(heli.lon, heli.lat) < rg.clamp(NEAR_PX / pxPerDeg(), NEAR_MIN, NEAR_MAX)) found();
   } else {
     under = "";
     let bestD = 140;
@@ -477,13 +545,17 @@ function next() {
 // ---- view -------------------------------------------------------------------
 
 function Helicopter() {
-  const y = heliY();
+  // in Tampere it lands on the found place; on the globe it rises and moves
+  // aside, so that the found country shows in the middle
   const land = foundClock >= 0 ? Math.min(1, foundClock / 1.2) : 0;
-  const sc = 1 - land * 0.25;
-  const sh = 16 - land * 10;          // the shadow comes closer when landing
+  const aside = isGlobe() && foundClock >= 0 ? Math.min(1, foundClock / 0.8) : 0;
+  const y = heliY() - aside * 105;
+  const hx = width / 2 + aside * 95;
+  const sc = isGlobe() ? 1 - aside * 0.45 : 1 - land * 0.25;
+  const sh = isGlobe() ? 16 + aside * 10 : 16 - land * 10;   // the shadow comes closer when landing
   const S = 120;
   const body = (
-    <div className="heli" style={{ left: width / 2 - S / 2, top: y - S / 2, width: S, height: S, transform: "rotate(" + Math.round(heli.head) + "deg) scale(" + sc.toFixed(2) + ")" }}>
+    <div className="heli" style={{ left: hx - S / 2, top: y - S / 2, width: S, height: S, transform: "rotate(" + Math.round(heli.head) + "deg) scale(" + sc.toFixed(2) + ")" }}>
       <div className="boom" />
       <div className="fin" />
       <div className="trotor" />
@@ -496,15 +568,15 @@ function Helicopter() {
   // the rotor turns on its own, as a path (its blades as boxes did not turn about the middle)
   const R = 108 * sc;
   const rotor = [
-    <div className="disc" style={{ left: width / 2 - R / 2, top: y - R / 2, width: R, height: R, borderRadius: R / 2 }} />,
-    <div className="rotor" style={{ left: width / 2 - R / 2, top: y - R / 2, width: R, height: R, transform: "rotate(" + Math.round(heli.spin % 360) + "deg)" }}>
+    <div className="disc" style={{ left: hx - R / 2, top: y - R / 2, width: R, height: R, borderRadius: R / 2 }} />,
+    <div className="rotor" style={{ left: hx - R / 2, top: y - R / 2, width: R, height: R, transform: "rotate(" + Math.round(heli.spin % 360) + "deg)" }}>
       <path d="M 4 54 L 104 54 M 54 4 L 54 104" stroke="rgba(43,45,66,0.85)" strokeWidth="7" fill="none" viewBox="0 0 108 108"
         style={{ position: "absolute", left: 0, top: 0, width: R, height: R }} />
     </div>,
-    <div className="hub" style={{ left: width / 2 - 8, top: y - 8 }} />,
+    <div className="hub" style={{ left: hx - 8, top: y - 8 }} />,
   ];
   return [
-    <div className="hshadow" style={{ left: width / 2 - 26 + sh, top: y - 34 + sh, transform: "rotate(" + Math.round(heli.head) + "deg)" }} />,
+    <div className="hshadow" style={{ left: hx - 26 + sh, top: y - 34 + sh, transform: "rotate(" + Math.round(heli.head) + "deg) scale(" + sc.toFixed(2) + ")" }} />,
     body,
     rotor,
   ];
@@ -588,6 +660,7 @@ function Hud() {
   const out: any[] = [];
   out.push(<div className="score">⭐ {score}</div>);
   if (gainClock < 1.6) out.push(<div className="gain" style={{ top: heliY() - 90 - gainClock * 40, left: width / 2 - 60, opacity: String(Math.min(1, 2 - gainClock * 1.2)) }}>+{gain}</div>);
+  if (foundClock >= 0 && isGlobe() && stage > 1) { const fm = FoundMark(); for (const m of fm) out.push(m); }
   if (under && foundClock < 0) out.push(<div className="under" style={{ left: 0, width: width, top: heliY() + 62 }}><div className="underin">{under}</div></div>);
   if (!hinted && foundClock < 0) out.push(<div className="btn hintbtn" id="hint" onClick={hint} style={{ left: 12, top: height - 68 }}>❓</div>);
   if (isGlobe()) {
@@ -597,7 +670,31 @@ function Hud() {
   return out;
 }
 
-function globeR() { return Math.min(width, height) * 0.44 * ZOOMS[zoomIdx]; }
+// Rings that spread out around the found country, and its name below them.
+function FoundMark() {
+  const out: any[] = [];
+  const cx = width / 2, cy = heliY();
+  const R0 = Math.max(40, tgMid.reach * pxPerDeg() + 12);
+  for (let i = 0; i < 2; i++) {
+    const f = (foundClock * 0.9 + i * 0.5) % 1;
+    const r = R0 * (1 + f * 0.8);
+    out.push(<div className="ring" style={{ left: cx - r, top: cy - r, width: r * 2, height: r * 2, borderRadius: r, opacity: String((1 - f).toFixed(2)) }} />);
+  }
+  out.push(<div className="ring" style={{ left: cx - R0, top: cy - R0, width: R0 * 2, height: R0 * 2, borderRadius: R0, borderColor: "#ffffff" }} />);
+  out.push(<div className="under" style={{ left: 0, width: width, top: cy + Math.max(R0, 50) + 12 }}><div className="underin foundname">{cur().name}</div></div>);
+  return out;
+}
+
+function globeR() { return Math.min(width, height) * 0.44 * ZOOMS[zoomIdx] * foundZoom(); }
+
+// A small found country is zoomed in on for a moment, then the view goes back.
+function foundZoom() {
+  if (foundClock < 0 || stage < 2) return 1;
+  const R = Math.min(width, height) * 0.44 * ZOOMS[zoomIdx];
+  const want = rg.clamp(FOUND_PX / Math.max(0.2, tgMid.reach * R * Math.PI / 180), 1, 3);
+  const k = Math.min(1, foundClock / 0.8) * rg.clamp((FOUND_TIME - foundClock) / 0.6, 0, 1);
+  return 1 + (want - 1) * k;
+}
 
 // stars in space, not on the globe
 function Stars() {
