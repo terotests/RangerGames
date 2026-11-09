@@ -45,14 +45,27 @@ jobs:
           path: dist/web
 
   android:
+    # natively: the engine with the NDK (no WebView), the Java host with gradle
     needs: engine
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-node@v4
         with:
-          name: web
-          path: dist/web
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            .deps
+          key: ${{ runner.os }}-rg-android-${{ hashFiles('scripts/setup.sh', 'Cargo.lock') }}
+      - name: Dependencies (Ranger with EVG, ComponentEngine)
+        run: bash scripts/setup.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -61,7 +74,7 @@ jobs:
         with:
           gradle-version: "8.9"
       - name: APK
-        run: bash scripts/build-android.sh
+        run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" bash scripts/build-android.sh
       - uses: actions/upload-artifact@v4
         with:
           name: RangerGames-apk

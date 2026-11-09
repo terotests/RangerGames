@@ -24,10 +24,11 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `crates/rg_core` | Ydin Rangerin Rust-osajoukolla (`use ranger::prelude::*`): virtuaalinen resurssihakemisto (VFS, `.rgpk`-paketit, kirjoitettava `/save`), JSON, syöte (kosketus/hiiri/näppäimet), host-komennot, siemenellinen satunnaislukugeneraattori. Kääntyy cargolla **ja** `rgrc`:llä. |
 | `crates/rg_evg` | EVG (Rangerin `lib/evg`) Rust-craten muodossa: `build.rs` kääntää sen `rgrc`:llä. |
 | `crates/rg_engine` | Moottori: CErXes + EVG + rg_core. Pelin ajonaikainen API (`js/runtime.js`), UI-puu → EVG, piirtovirta (`draw.rs`). |
-| `crates/rg_web` | Moottori WebAssemblynä (`wasm32-wasip1`, C ABI) selaimelle ja Androidin WebViewlle. |
+| `crates/rg_web` | Moottori WebAssemblynä (`wasm32-wasip1`, C ABI) selaimelle. |
+| `crates/rg_android` | Moottori natiivina kirjastona (NDK, JNI) Android-sovellukselle: ei WebViewiä eikä WebAssemblyä, toimii vanhoillakin puhelimilla. |
 | `crates/rg_cli` | Moottori ilman ruutua: `pack`, `run`, `test` (CI ajaa kaikki pelit). |
 | `web/` | Selain-host: canvas-maalari, WebAudio-äänet (syntetisoidut efektit ja pikku melodiat), värinä, tallennus localStorageen, Three.js-kerros, PWA. |
-| `android/` | Android-sovellus: koko ruudun WebView web-buildin päällä + natiivi värinä ja Takaisin-nappi. |
+| `android/` | Android-sovellus natiivisti: Java-host piirtää moottorin piirtovirran Canvasille (`Painter`), syntetisoi äänet AudioTrackilla (`Sound`), värinä, tallennukset ja Takaisin-nappi. |
 | `games/` | Pelit: kukin oma kansio (`game.json`, `game.tsx`, `style.css`, kuvat, äänet). |
 
 ## Pelit

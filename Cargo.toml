@@ -10,12 +10,14 @@
 #   crates/rg_web     the engine as a WebAssembly module (wasm32-wasip1) for
 #                     the browser and the Android WebView shell
 #   crates/rg_cli     a headless native runner: tests, CI, packs
+#   crates/rg_android the engine as a native library (Android NDK, JNI) for
+#                     the Android app: no WebView, no WebAssembly
 #
 # .deps/ is filled by scripts/setup.sh (Ranger with lib/evg, ComponentEngine).
 
 [workspace]
 resolver = "2"
-members = ["crates/rg_core", "crates/rg_evg", "crates/rg_engine", "crates/rg_web", "crates/rg_cli"]
+members = ["crates/rg_core", "crates/rg_evg", "crates/rg_engine", "crates/rg_web", "crates/rg_cli", "crates/rg_android"]
 exclude = [".deps"]
 
 [workspace.package]

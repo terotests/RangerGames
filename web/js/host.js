@@ -4,8 +4,7 @@
 // its virtual directory, feeds it the screen size, touches, mouse and keys,
 // paints each frame's draw stream (painter.js) and does what the game asked
 // for: sounds (audio.js), vibration, saves (localStorage), the 3D layer
-// (three-bridge.js). The same page runs inside the Android shell's WebView,
-// which adds window.RgAndroid for vibration and the back button.
+// (three-bridge.js). The Android app has its own native host (android/).
 (function (global) {
   "use strict";
   var enc = new TextEncoder(), dec = new TextDecoder();
