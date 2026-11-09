@@ -1,0 +1,76 @@
+.screen { width: 100%; height: 100%; background-color: #20331f; }
+.menu { align-items: center; background: linear-gradient(180deg, #13306b, #0d2240); }
+.mtitle { font-size: 42px; font-weight: 700; color: #ffd23f; }
+.msub { font-size: 20px; color: #ffffff; margin-top: 4px; }
+.mcup { font-size: 72px; margin-top: 14px; }
+.mtext { width: 300px; font-size: 16px; color: #dfe7f5; text-align: center; margin-top: 10px; margin-bottom: 8px; }
+.btn {
+  height: 50px; padding-left: 14px; padding-right: 14px; border-radius: 25px; margin: 5px;
+  color: #ffffff; font-size: 17px; font-weight: 700; align-items: center; justify-content: center;
+  background-color: #4a5568; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 4px; shadow-radius: 0px;
+}
+.wide { width: 270px; height: 58px; border-radius: 29px; font-size: 19px; margin-top: 12px; }
+.green { background-color: #1d7a3e; }
+.orange { background-color: #f37021; }
+.blue { background-color: #2b59c3; }
+.red { background-color: #c8102e; }
+.purple { background-color: #7b2cbf; }
+.brown { background-color: #5c3317; }
+.grey { background-color: #4a5568; }
+
+.teambtn { width: 240px; height: 110px; border-radius: 24px; border-width: 5px; margin-top: 20px; align-items: center; justify-content: center; }
+.teamicon { font-size: 46px; }
+.teamname { font-size: 26px; font-weight: 700; color: #ffffff; }
+
+.game { background-color: #20331f; }
+.land { position: absolute; background-color: #b9d98c; border-radius: 10px; }
+.label { position: absolute; color: #1f2a1a; font-weight: 700; }
+.lakename { position: absolute; color: #e8f4fb; font-weight: 700; }
+.dot { position: absolute; background-color: #8a6d3b; }
+.ring { position: absolute; background-color: rgba(255,210,63,0.55); border-width: 2px; border-color: #ffffff; }
+.place { position: absolute; background-color: #f4ecd8; border-width: 2px; border-color: #5b4a2e; }
+.gold { background-color: #ffd23f; border-color: #b5651d; }
+.puck { position: absolute; background-color: #111111; border-width: 1px; border-color: #555555; align-items: center; justify-content: center; }
+.puckq { color: #aaaaaa; font-weight: 700; }
+.found { position: absolute; align-items: center; justify-content: center; opacity: 0.8; }
+.arena { position: absolute; background-color: #13306b; border-width: 2px; border-color: #ffd23f; align-items: center; justify-content: center; }
+.jail { position: absolute; background-color: #c8102e; border-width: 2px; border-color: #ffffff; align-items: center; justify-content: center; }
+.tramdot { position: absolute; background-color: #ffffff; border-width: 1px; border-color: #c8102e; align-items: center; justify-content: center; }
+.piece { position: absolute; align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.45); shadow-offset-y: 3px; shadow-radius: 2px; }
+.cupflag { position: absolute; }
+.bars { position: absolute; border-width: 3px; border-color: #c8102e; background-color: rgba(0,0,0,0.35); }
+
+.topbar { position: absolute; left: 0px; top: 0px; width: 100%; height: 62px; flex-direction: row; padding: 5px; padding-right: 52px; background-color: #0d2240; }
+.card { flex: 1; height: 52px; margin-right: 5px; border-radius: 12px; border-width: 3px; padding-left: 6px; padding-right: 6px; justify-content: center; }
+.cardtop { flex-direction: row; align-items: center; }
+.cardicon { font-size: 16px; margin-right: 4px; }
+.cardname { font-size: 15px; font-weight: 700; color: #ffffff; }
+.cardrow { flex-direction: row; align-items: center; justify-content: space-between; }
+.money { font-size: 16px; font-weight: 700; color: #ffffff; }
+.items { font-size: 14px; color: #ffffff; }
+
+.panel { position: absolute; left: 0px; width: 100%; height: 160px; background-color: #0d2240; padding: 6px; }
+.msgrow { flex-direction: row; align-items: center; height: 54px; }
+.turnicon { width: 40px; height: 40px; border-radius: 20px; align-items: center; justify-content: center; font-size: 22px; }
+.msg { flex: 1; margin-left: 8px; font-size: 14px; color: #ffffff; }
+.actions { flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: center; align-items: center; height: 96px; }
+.actions .btn { height: 42px; border-radius: 21px; margin: 3px; font-size: 16px; }
+.thinking { font-size: 16px; color: #ffd23f; }
+.die { background-color: #ffffff; border-width: 2px; border-color: #333333; }
+.pip { position: absolute; background-color: #111111; }
+
+.veil { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0,0,0,0.55); align-items: center; justify-content: center; }
+.revcard { width: 290px; padding: 18px; border-radius: 22px; background-color: #fdf6e3; align-items: center; border-width: 4px; border-color: #ffd23f; }
+.revplace { font-size: 15px; color: #6b5b3e; font-weight: 700; }
+.revicon { font-size: 76px; margin-top: 6px; margin-bottom: 4px; height: 96px; align-items: center; justify-content: center; }
+.revtitle { font-size: 28px; font-weight: 700; color: #13306b; text-align: center; }
+.revsub { font-size: 17px; color: #333333; margin-top: 6px; text-align: center; }
+.revtap { font-size: 13px; color: #888888; margin-top: 14px; }
+.sausage { width: 120px; height: 36px; border-radius: 18px; background-color: #2a1410; border-width: 3px; border-color: #5c3317; transform: rotate(-12deg); }
+.puck.big { position: relative; width: 80px; height: 80px; border-radius: 40px; }
+.jersey { width: 78px; height: 84px; border-radius: 14px; border-width: 4px; border-color: #ffffff; align-items: center; justify-content: center; }
+.jnum { font-size: 40px; font-weight: 700; color: #ffffff; }
+
+.rules { width: 320px; padding: 16px; border-radius: 18px; background-color: #fdf6e3; }
+.rtitle { font-size: 24px; font-weight: 700; color: #13306b; margin-bottom: 6px; }
+.rline { font-size: 14px; color: #222222; margin-top: 6px; text-align: left; }
