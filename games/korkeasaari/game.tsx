@@ -50,7 +50,12 @@ let loadClock = 0;
 let level = "eskari";          // "eskari" | "koulu"
 let gps = false;               // at the zoo: the child is where the GPS says
 let found: { [id: string]: number } = {}; // id -> stars
-let target = "";
+let target = "";              // the animal the clue asks for
+let goal = "";                 // the animal the child chose to walk to (right or wrong)
+let atAnimal = "";             // the animal the child is standing at (said once per arrival)
+let nextId = "";               // the next clue, picked when a sticker is won
+let wrongPick = "";            // the animal last reached by mistake, shown in a bubble
+let wrongAt = -100;
 let pick = false;              // the list of animals to choose from
 
 // ---- the paths ----
@@ -130,26 +135,43 @@ const place = (id: string) => MAP.animals[id];
 const standNode = (id: string): number => place(id).node;
 
 function nextAnimal(): string {
-  // the nearest animal not yet found, by walking
-  const here = childNode();
-  let best = "", bd = 1e18;
-  for (const a of ANIMALS) {
-    if (found[a.id] || a.id === target) continue;
-    const p = place(a.id);
-    const d = here >= 0 ? Math.hypot(NX[here] - p.x, NZ[here] - p.z) : 0;
-    if (d < bd) { bd = d; best = a.id; }
-  }
-  return best;
+  // a random animal not yet found: the nearest one would give the answer away
+  const left = ANIMALS.filter((a) => !found[a.id] && a.id !== target);
+  return left.length ? rg.pick(left).id : "";
 }
 
+// the clue changes; the child stays where it is and finds the way itself
 function setTarget(id: string, speak: boolean) {
   target = id;
   pick = false;
+  wrongPick = "";
   if (!id) return;
-  buildTree(standNode(id));
-  arrivedSaid = false;
   if (speak) { rg.say("ks_" + id + "_etsi"); bannerPulse = 1; }
-  if (!gps) walkTo(standNode(id));
+}
+
+// the child reached an animal: the right one starts the visit, a wrong one
+// tells kindly whose home this is and repeats the clue
+function arrive(id: string) {
+  atAnimal = id;
+  if (goal === id) goal = "";
+  if (id === target) { wrongPick = ""; startVisit(); return; }
+  wrongPick = id;
+  wrongAt = t;
+  bannerPulse = 1;
+  rg.sound("pop");
+  rg.vibrate(40);
+  rg.say(target ? ["hups", "ks_" + id, "ks_vaara", "ks_" + target + "_etsi"] : ["ks_" + id]);
+}
+
+// the animal whose place the child is at, the clue's animal first
+function animalHere(reach: number): string {
+  let best = "", bd = reach;
+  for (const a of ANIMALS) {
+    const p = place(a.id), sn = standNode(a.id);
+    const d = Math.min(Math.hypot(NX[sn] - kx, NZ[sn] - kz), gps ? Math.hypot(p.x - kx, p.z - kz) : 1e9);
+    if (d < bd || (d < reach && a.id === target)) { bd = a.id === target ? -1 : d; best = a.id; }
+  }
+  return best;
 }
 
 // ---- the child: on the map (pretend) or from the GPS ----
@@ -161,7 +183,6 @@ let fix: any = null;
 let lastFixAt = -100;
 let gpsError = "";
 let heading = -1;
-let arrivedSaid = false;
 let nearSaid = false;
 
 function childNode() { return nearestNode(kx, kz, 1e9); }
@@ -174,7 +195,7 @@ function walkTo(goal: number) {
   const r = routeFrom(from);
   walkPath = [kx, kz].concat(r);
   walkAt = 0;
-  if (saveFor !== goal && target) buildTree(standNode(target));
+  if (saveFor >= 0 && saveFor !== goal) buildTree(saveFor);
 }
 
 function pointAlong(r: number[], s: number): number[] {
@@ -318,6 +339,7 @@ function finishVisit() {
   rg.sound("win");
   rg.celebrate(width / 2, height * 0.45, { big: true });
   const all = ANIMALS.every((b) => !!found[b.id]);
+  nextId = nextAnimal();
   rg.say(all ? ["ks_tarra", "ks_kaikki"] : ["ks_tarra", "ks_seuraava"]);
 }
 
@@ -372,17 +394,20 @@ function tickMap(dt: number, input: any) {
     cx += (kx - cx) * Math.min(1, dt * 3);
     cz += (kz - cz) * Math.min(1, dt * 3);
   }
-  if (!target) return;
-  const p = place(target);
-  const sn = standNode(target);
-  const d = Math.hypot(NX[sn] - kx, NZ[sn] - kz);
   if (gps) {
     if (!fix || t - lastFixAt > 30 || !onIsland()) return;
     const reach = 18 + Math.min(20, fix.acc * 0.5);
-    if (d < reach || Math.hypot(p.x - kx, p.z - kz) < reach) { startVisit(); return; }
-    if (d < 60 && !nearSaid) { nearSaid = true; rg.say("ks_lahella"); rg.vibrate(40); }
-  } else if (walkPath.length === 0 && d < 3) {
-    startVisit();
+    const here = animalHere(reach);
+    if (here && here !== atAnimal) { arrive(here); return; }
+    if (!here && atAnimal && !animalHere(reach + 15)) atAnimal = "";
+    if (goal && !nearSaid) {
+      const sn = standNode(goal);
+      if (Math.hypot(NX[sn] - kx, NZ[sn] - kz) < 60) { nearSaid = true; rg.say("ks_lahella"); rg.vibrate(40); }
+    }
+  } else if (walkPath.length === 0) {
+    const here = animalHere(3);
+    if (here && here !== atAnimal) arrive(here);
+    else if (!here) atAnimal = "";
   }
 }
 
@@ -407,20 +432,20 @@ function onPointerUp(x: number, y: number, info: any) {
   if (gps) return;
   const wx = cx + (x - width / 2) / zoom, wz = cz + (y - height / 2) / zoom;
   const n = nearestNode(wx, wz, 40 / zoom + 10);
-  if (n >= 0) { walkTo(n); follow = true; rg.sound("click"); }
+  if (n >= 0) { goal = ""; walkTo(n); follow = true; rg.sound("click"); }
 }
 
+// a tap on an animal: the child's own pick, the game doesn't tell if it is right
 function tapAnimal(id: string) {
   rg.sound("pop");
-  if (id === target) {
-    // at the zoo the GPS can be a little off: a tap on the animal when near enough
-    if (gps && fix && Math.hypot(place(id).x - kx, place(id).z - kz) < 45) { startVisit(); return; }
-    rg.say("ks_" + id + "_etsi");
-    if (!gps) walkTo(standNode(id));
-    return;
-  }
-  setTarget(id, true);
+  const sn = standNode(id);
+  // already there (at the zoo the GPS can be a little off)
+  const near = gps ? fix && Math.hypot(place(id).x - kx, place(id).z - kz) < 45 : walkPath.length === 0 && Math.hypot(NX[sn] - kx, NZ[sn] - kz) < 3;
+  if (near) { arrive(id); return; }
+  if (goal !== id) nearSaid = false;
+  goal = id;
   follow = true;
+  if (!gps) walkTo(sn);
 }
 
 function startMap(atZoo: boolean) {
@@ -431,9 +456,11 @@ function startMap(atZoo: boolean) {
   nearSaid = false;
   if (atZoo) { rg.sensor("location", true); rg.sensor("heading", true); walkPath = []; }
   else { rg.sensor("location", false); rg.sensor("heading", false); }
+  goal = "";
+  wrongPick = "";
   if (!target || found[target]) setTarget(nextAnimal(), false);
-  if (target) rg.say(atZoo ? ["ks_" + target + "_etsi"] : ["ks_" + target + "_etsi", "ks_napauta"]);
-  if (!atZoo && target) walkPath = [];
+  if (target) rg.say(["ks_" + target + "_etsi", "ks_napauta_elain"]);
+  walkPath = [];
   if (atZoo && !fix) rg.say(["ks_etsitaan"], { queue: true });
 }
 
@@ -478,18 +505,17 @@ function pathD(p: number[], close: boolean) {
 const FULL = () => ({ position: "absolute", left: 0, top: 0, width: width, height: height });
 const VB = () => "0 0 " + width + " " + height;
 
-function targetPen() {
-  if (!target) return null;
-  const pen = place(target).pen;
-  const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+// the pen of the animal the child is walking to (its own pick, not the answer)
+function goalPen() {
+  if (!goal) return null;
+  const pen = place(goal).pen;
   return [
-    <path d={pathD(pen, true)} fill="rgba(255,209,102,0.45)" stroke="#ff9f1c" strokeWidth={String(3 + pulse * 3)} viewBox={VB()} style={FULL()} />,
+    <path d={pathD(pen, true)} fill="rgba(58,134,255,0.18)" stroke="#3a86ff" strokeWidth="3" viewBox={VB()} style={FULL()} />,
   ];
 }
 
 function routeLine() {
   let r: number[] = [];
-  if (!target) return null;
   if (!gps && walkPath.length >= 4) {
     // what is still ahead of the pretend child
     let s = walkAt;
@@ -500,9 +526,10 @@ function routeLine() {
       s -= L;
     }
   } else {
-    const n = nearestNode(kx, kz, gps ? 120 : 1e9);
+    if (!gps || !goal) return null;
+    const n = nearestNode(kx, kz, 120);
     if (n < 0) return null;
-    buildTree(standNode(target));
+    buildTree(standNode(goal));
     r = [kx, kz].concat(routeFrom(n));
   }
   if (r.length < 4) return null;
@@ -517,16 +544,18 @@ function routeLine() {
 function markers() {
   const out: any[] = [];
   const small = zoom < 0.7;
-  const order = ANIMALS.filter((a) => a.id !== target).concat(target ? [byId[target]] : []);
+  // every animal looks the same: the clue's animal is not marked
+  const order = ANIMALS.filter((a) => a.id !== goal).concat(goal ? [byId[goal]] : []);
+  const wob = wrongPick && t - wrongAt < 0.6 ? Math.sin((t - wrongAt) * 40) * 5 * (1 - (t - wrongAt) / 0.6) : 0;
   for (const a of order) {
     const p = place(a.id);
-    const isT = a.id === target;
-    const B = isT ? (small ? 58 : 72) : small ? 32 : 50;
-    const X = sx(p.x), Y = sy(p.z) - (isT ? Math.abs(Math.sin(t * 3)) * 8 : 0);
+    const isG = a.id === goal;
+    const B = small ? 32 : 50;
+    const X = sx(p.x) + (a.id === wrongPick ? wob : 0), Y = sy(p.z);
     if (X < -B || X > width + B || Y < -B || Y > height + B) continue;
     out.push(<div style={{ position: "absolute", left: X - B / 2, top: Y - B / 2, width: B, height: B, borderRadius: B / 2,
-      backgroundColor: isT ? "#ffffff" : found[a.id] ? a.color : "rgba(255,255,255,0.85)", borderWidth: isT ? 4 : 2,
-      borderColor: isT ? "#ff9f1c" : "#ffffff", alignItems: "center", justifyContent: "center",
+      backgroundColor: found[a.id] ? a.color : "rgba(255,255,255,0.85)", borderWidth: isG ? 4 : 2,
+      borderColor: isG ? "#3a86ff" : "#ffffff", alignItems: "center", justifyContent: "center",
       shadowColor: "rgba(0,0,0,0.35)", shadowOffsetY: 2, shadowRadius: 3 }} onClick={() => tapAnimal(a.id)}>
       <img src={rigPng(a.id)} style={{ width: B * 0.86, height: B * 0.86 }} />
     </div>);
@@ -572,9 +601,10 @@ function fmtDist(m: number) {
 
 // which way to go, as an arrow turned by the compass (at the zoo)
 function arrow(): any {
-  if (!target || !gps || !fix) return null;
+  if (!goal || !gps || !fix) return null;
   const n = nearestNode(kx, kz, 120);
   if (n < 0) return null;
+  buildTree(standNode(goal));
   const r = [kx, kz].concat(routeFrom(n));
   const ahead = pointAlong(r, Math.min(routeLength(r), 20));
   const want = Math.atan2(ahead[0] - kx, -(ahead[1] - kz)) * 180 / Math.PI;
@@ -589,29 +619,48 @@ function arrow(): any {
 function banner() {
   if (!target) return null;
   const a = byId[target];
-  const sn = standNode(target);
-  let dist = 0;
-  if (gps) {
-    const n = nearestNode(kx, kz, 120);
-    if (n >= 0) { buildTree(sn); dist = DIST[n] + Math.hypot(NX[n] - kx, NZ[n] - kz); }
-    else dist = Math.hypot(place(target).x - kx, place(target).z - kz);
-  } else {
-    dist = walkPath.length ? routeLength(walkPath) - walkAt : Math.hypot(NX[sn] - kx, NZ[sn] - kz);
+  // the distance only to the child's own pick: to the clue's animal it would tell the answer
+  let dist = -1;
+  if (goal) {
+    const sn = standNode(goal);
+    if (gps) {
+      const n = nearestNode(kx, kz, 120);
+      if (n >= 0) { buildTree(sn); dist = DIST[n] + Math.hypot(NX[n] - kx, NZ[n] - kz); }
+      else dist = Math.hypot(place(goal).x - kx, place(goal).z - kz);
+    } else {
+      dist = walkPath.length ? routeLength(walkPath) - walkAt : Math.hypot(NX[sn] - kx, NZ[sn] - kz);
+    }
   }
+  // 🎒 Koulu: only the name, the child reads it; 🐣 Eskari also shows the picture
+  const showPic = level !== "koulu";
   const k = 1 + bannerPulse * 0.08 * Math.sin(t * 20);
   // room for the close button on the right (48 px)
   return <div style={{ position: "absolute", left: 10, top: 10, width: width - 76, height: 84, borderRadius: 24, backgroundColor: "#ffffff",
     flexDirection: "row", alignItems: "center", shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 4, shadowRadius: 0, transform: "scale(" + k.toFixed(3) + ")" }}
     onClick={() => { rg.say("ks_" + target + "_etsi"); bannerPulse = 0.6; }}>
-    <div style={{ width: 72, height: 72, marginLeft: 6, borderRadius: 36, backgroundColor: a.color, alignItems: "center", justifyContent: "center" }}>
-      <img src={rigPng(a.id)} style={{ width: 66, height: 66 }} />
+    <div style={{ width: 72, height: 72, marginLeft: 6, borderRadius: 36, backgroundColor: showPic ? a.color : "#e9ecef", alignItems: "center", justifyContent: "center" }}>
+      {showPic ? <img src={rigPng(a.id)} style={{ width: 66, height: 66 }} /> : <div style={{ fontSize: 40 }}>❓</div>}
     </div>
-    <div style={{ marginLeft: 10, flexGrow: 1 }}>
+    <div style={{ marginLeft: 10, flexGrow: 1, flexShrink: 1 }}>
       <div style={{ fontSize: 15, color: "#6c757d", fontWeight: "700" }}>🔍 {rg.t("Etsi", "Find", "Busca")}</div>
       <div style={{ fontSize: a.name.length > 14 ? 15 : 20, color: "#1d3557", fontWeight: "700" }}>{a.name}</div>
-      <div style={{ fontSize: 15, color: ROUTE, fontWeight: "700" }}>{"👣 " + fmtDist(dist)}</div>
+      <div style={{ fontSize: 15, color: dist >= 0 ? "#3a86ff" : ROUTE, fontWeight: "700" }}>{dist >= 0 ? "👣 " + fmtDist(dist) : "👆 " + rg.t("Napauta eläintä", "Tap an animal", "Toca un animal")}</div>
     </div>
     <div style={{ width: 40, fontSize: 26, alignItems: "center" }}>🔊</div>
+  </div>;
+}
+
+// after a wrong pick: whose home this is, and the clue again
+function wrongBubble(): any {
+  if (!wrongPick || !target || wrongPick !== atAnimal) return null;
+  const w = byId[wrongPick], a = byId[target];
+  const p = place(wrongPick);
+  const W = Math.min(260, width - 20);
+  const X = Math.max(10, Math.min(width - W - 10, sx(p.x) - W / 2)), Y = sy(p.z) + 32;
+  return <div style={{ position: "absolute", left: X, top: Y, width: W, borderRadius: 18, backgroundColor: "#ffffff", padding: 10,
+    shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 3, shadowRadius: 3 }} onClick={() => rg.say(["ks_" + w.id, "ks_vaara", "ks_" + a.id + "_etsi"])}>
+    <div style={{ fontSize: 16, fontWeight: "700", color: "#1d3557" }}>{rg.t("Täällä asuu ", "Here lives the ", "Aquí vive: ") + w.name.toLowerCase() + " 🙂"}</div>
+    <div style={{ fontSize: 15, color: "#6c757d", marginTop: 2 }}>{rg.t("Etsitään vielä: ", "Let's keep looking for: ", "Sigamos buscando: ") + a.name.toLowerCase()}</div>
   </div>;
 }
 
@@ -655,7 +704,8 @@ function viewMap() {
   const done = ANIMALS.filter((a) => !!found[a.id]).length;
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: SEA }}>
     {tiles()}
-    {targetPen()}
+    {goalPen()}
+    {wrongBubble()}
     {routeLine()}
     {markers()}
     {childMarker()}
@@ -896,7 +946,7 @@ function stickerView(a: Animal, top: number) {
   const k = rg.ease ? sticker : sticker;
   const s = 0.4 + 0.6 * k;
   const all = ANIMALS.every((b) => !!found[b.id]);
-  const nxt = nextAnimal();
+  const nxt = nextId;
   return <div style={{ position: "absolute", left: 0, top: top - 10, width: width, alignItems: "center" }}>
     <div style={{ width: 150, height: 150, borderRadius: 75, backgroundColor: a.color, borderWidth: 6, borderColor: "#ffffff", alignItems: "center", justifyContent: "center",
       transform: "scale(" + s.toFixed(2) + ") rotate(" + Math.round((1 - k) * -40) + "deg)", shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 5, shadowRadius: 0 }}>
@@ -1010,7 +1060,8 @@ function view() {
 
 function onBack() {
   if (mode === "map" && pick) { pick = false; return; }
-  if (mode === "visit") { mode = "map"; if (sticker > 0) setTarget(nextAnimal(), true); return; }
+  // leaving a visit: the child stays at the animal (atAnimal), so the visit doesn't start again by itself
+  if (mode === "visit") { mode = "map"; if (sticker > 0) setTarget(nextId, true); return; }
   if (mode === "map" || mode === "album") { mode = "menu"; rg.sensor("location", false); rg.sensor("heading", false); return; }
   rg.exit();
 }

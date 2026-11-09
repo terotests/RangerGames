@@ -349,6 +349,8 @@
   "ks_tervetuloa": "¡Bienvenidos a Korkeasaari!",
   "ks_valitse": "Elige un animal para visitarlo.",
   "ks_napauta": "Toca el mapa y caminarás hasta allí.",
+  "ks_vaara": "Este no es el animal correcto.",
+  "ks_napauta_elain": "Toca en el mapa el animal que quieres visitar.",
   "ks_lahella": "¡Ya estás cerca!",
   "ks_tarra": "¡Tienes una pegatina!",
   "ks_kaikki": "¡Encontraste todos los animales! ¡Eres un cuidador de verdad!",

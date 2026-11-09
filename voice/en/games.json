@@ -349,6 +349,8 @@
   "ks_tervetuloa": "Welcome to Korkeasaari!",
   "ks_valitse": "Choose an animal to visit.",
   "ks_napauta": "Tap the map and you walk there.",
+  "ks_vaara": "This is not the right animal.",
+  "ks_napauta_elain": "Tap the animal you want to visit on the map.",
   "ks_lahella": "You are close!",
   "ks_tarra": "You got a sticker!",
   "ks_kaikki": "You found all the animals! You are a real zookeeper!",
