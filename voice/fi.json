@@ -821,6 +821,10 @@
   "vv_siirra": "Siirrä punnusta, kunnes vaaka on tasapainossa.",
   "vv_kaada": "Kaada vettä ämpäriin, kunnes vaaka on tasapainossa.",
   "vv_kauemmas": "Mitä kauempana punnus on, sitä enemmän se vääntää.",
-  "vv_vapaa": "Kokeile vapaasti!"
+  "vv_vapaa": "Kokeile vapaasti!",
+  "lamppu_syttyi": "Lamppu syttyi!",
+  "lamppu_himmea": "Lamppu palaa himmeästi.",
+  "liian_kirkas": "Varo! Liian kirkas, lamppu kuumenee.",
+  "lamppu_paloi": "Voi ei, lamppu paloi! Virta oli liian suuri."
  }
 }
