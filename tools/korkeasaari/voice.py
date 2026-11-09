@@ -16,6 +16,7 @@ GENERAL = {
     "ks_ei_saarella": "Et ole nyt Korkeasaaressa. Kävele kartalla sormella.",
     "ks_etsitaan": "Etsitään paikkaa.",
     "ks_kumpi_isompi": "Kumpi on isompi?",
+    "ks_mika_elain": "Mikä eläin tämä on?",
     "ks_montako_jalkaa": "Montako jalkaa sillä on?",
     "ks_totta_vai": "Onko tämä totta?",
     "ks_totta": "Totta!",

@@ -205,7 +205,8 @@ function makeQuestions(a: Animal): Q[] {
   const out: Q[] = [];
   const foodsWrong = rg.shuffle(Object.keys(FOODS).filter((k) => a.eats.indexOf(k) < 0)).slice(0, 2);
   const homesWrong = rg.shuffle(Object.keys(HOMES).filter((k) => a.home.indexOf(k) < 0)).slice(0, 2);
-  const kuka = choiceQ("animal", "Mikä näistä on " + a.name.toLowerCase() + "?", ["ks_" + a.id + "_kuka"], a.id, others([a.id], 2));
+  // which animal is this: the names as text, one under another
+  const kuka = choiceQ("name", "Mikä eläin tämä on?", ["ks_mika_elain"], a.id, others([a.id], 2));
   const syo = choiceQ("food", "Mitä " + a.name.toLowerCase() + " syö?", ["ks_" + a.id + "_syo"], a.eats[0], foodsWrong);
   const asuu = choiceQ("home", "Missä " + a.name.toLowerCase() + " asuu luonnossa?", ["ks_" + a.id + "_asuu"], a.home[0], homesWrong);
   // bigger: an animal at least twice as heavy, or half as heavy
@@ -245,14 +246,15 @@ function answer(i: number) {
     rg.sound("coin");
     rg.celebrate(width / 2, height * 0.62, {});
     const next = qi + 1 < qs.length ? qs[qi + 1].clip : [];
-    rg.say([q.kind === "fact" ? (q.answer === 0 ? "ks_totta" : "ks_ei_totta") : rg.pick(PRAISE)].concat(next));
+    const said = q.kind === "name" ? ["ks_" + q.opts[i]] : [];
+    rg.say(said.concat([q.kind === "fact" ? (q.answer === 0 ? "ks_totta" : "ks_ei_totta") : rg.pick(PRAISE)]).concat(next));
     advanceAt = t + 1.4;
   } else {
     wrong[i] = true;
     shake = 0.4;
     rg.sound("hit");
     rg.vibrate(80);
-    rg.say(q.kind === "fact" ? ["hups", "kokeile_toista"] : ["yrita_uudelleen"]);
+    rg.say(q.kind === "fact" ? ["hups", "kokeile_toista"] : q.kind === "name" ? ["ks_" + q.opts[i], "yrita_uudelleen"] : ["yrita_uudelleen"]);
   }
 }
 let advanceAt = -1;
@@ -715,7 +717,7 @@ function viewVisit() {
   // the name, clear of the close button
   parts.push(<div style={{ position: "absolute", left: 10, top: 12, width: width - 76, height: 52, borderRadius: 22, backgroundColor: "#ffffff",
     alignItems: "center", justifyContent: "center", flexDirection: "row" }} onClick={() => rg.say("ks_" + a.id)}>
-    <div style={{ fontSize: a.name.length > 14 ? 18 : 24, fontWeight: "700", color: "#1d3557" }}>{a.name}</div>
+    <div style={{ fontSize: a.name.length > 14 ? 18 : 24, fontWeight: "700", color: "#1d3557" }}>{q && q.kind === "name" && !q.done && sticker === 0 ? "❓" : a.name}</div>
     <div style={{ fontSize: 20, marginLeft: 8 }}>🔊</div>
   </div>);
   // stars: one for each question right at the first go
@@ -737,6 +739,16 @@ function questionView(q: Q, top: number) {
     const isWrong = !!wrong[i];
     const isRight = q.done && i === q.answer;
     let inner: any;
+    if (q.kind === "name") {
+      opts.push(<div style={{ width: width - 48, height: 54, marginTop: 8, borderRadius: 27, alignItems: "center", justifyContent: "center",
+        backgroundColor: isRight ? "#b7efc5" : isWrong ? "#e9ecef" : "#ffffff", opacity: isWrong ? 0.45 : 1,
+        borderWidth: 3, borderColor: isRight ? "#2a9d8f" : "#dee2e6", shadowColor: "rgba(0,0,0,0.25)", shadowOffsetY: 4, shadowRadius: 0,
+        transform: isWrong && shake > 0 ? "translateX(" + dx.toFixed(1) + "px)" : "none" }}
+        onClick={() => answer(i)}>
+        <div style={{ fontSize: byId[o].name.length > 16 ? 17 : 22, fontWeight: "700", color: "#1d3557", letterSpacing: 1 }}>{byId[o].name.toUpperCase()}</div>
+      </div>);
+      return;
+    }
     if (q.kind === "animal") inner = <img src={rigPng(o)} style={{ width: H - 14, height: H - 14 }} />;
     else if (q.kind === "food") inner = [<div style={{ fontSize: 50 }}>{FOODS[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{FOODS[o].name}</div> : null];
     else if (q.kind === "home") inner = [<div style={{ fontSize: 50 }}>{HOMES[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{HOMES[o].name}</div> : null];
@@ -750,7 +762,7 @@ function questionView(q: Q, top: number) {
         answer(i);
       }}>{inner}</div>);
   });
-  const showText = level === "koulu" || q.kind === "fact";
+  const showText = level === "koulu" || q.kind === "fact" || q.kind === "name";
   return <div style={{ position: "absolute", left: 0, top: top, width: width, alignItems: "center" }}>
     <div style={{ width: width - 24, height: showText ? 76 : 56, borderRadius: 20, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center",
       shadowColor: "rgba(0,0,0,0.2)", shadowOffsetY: 3, shadowRadius: 0 }}
@@ -759,7 +771,7 @@ function questionView(q: Q, top: number) {
       <div style={{ width: width - 24 - 56 - 48, fontSize: 17, color: "#1d3557", fontWeight: "700" }}>{showText ? q.text : ""}</div>
       <div style={{ width: 44, height: 40, fontSize: 26, alignItems: "center" }}>🔊</div>
     </div>
-    <div style={{ flexDirection: "row", marginTop: 14 }}>{opts}</div>
+    <div style={{ flexDirection: q.kind === "name" ? "column" : "row", marginTop: q.kind === "name" ? 6 : 14, alignItems: "center" }}>{opts}</div>
   </div>;
 }
 

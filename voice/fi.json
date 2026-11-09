@@ -196,6 +196,7 @@
   "peli_navi": "Kotiin",
   "peli_aakkoset": "Aakkoset",
   "peli_pallopolku": "Pallopolku",
+  "peli_korkeasaari": "Korkeasaari",
   "ks_tervetuloa": "Tervetuloa Korkeasaareen!",
   "ks_valitse": "Valitse eläin, jonka luo mennään.",
   "ks_napauta": "Napauta karttaa, niin kävelet sinne.",
@@ -205,6 +206,7 @@
   "ks_ei_saarella": "Et ole nyt Korkeasaaressa. Kävele kartalla sormella.",
   "ks_etsitaan": "Etsitään paikkaa.",
   "ks_kumpi_isompi": "Kumpi on isompi?",
+  "ks_mika_elain": "Mikä eläin tämä on?",
   "ks_montako_jalkaa": "Montako jalkaa sillä on?",
   "ks_totta_vai": "Onko tämä totta?",
   "ks_totta": "Totta!",
@@ -384,7 +386,6 @@
   "ks_berberiapina_syo": "Mitä berberiapina syö?",
   "ks_berberiapina_asuu": "Missä berberiapina asuu luonnossa?",
   "ks_berberiapina_kuka": "Mikä näistä on berberiapina?",
-  "ks_berberiapina_fakta": "Berberiapinalla on pitkä häntä.",
-  "peli_korkeasaari": "Korkeasaari"
+  "ks_berberiapina_fakta": "Berberiapinalla on pitkä häntä."
  }
 }
