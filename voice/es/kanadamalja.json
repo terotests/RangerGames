@@ -1,0 +1,32 @@
+{
+ "_comment": "Kanada-malja (games/kanadamalja): the board game's clips; the Finnish ones and the place names (said in Finnish in every language) are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "km_vuoro_ilves": "Turno de Ilves.",
+  "km_vuoro_tappara": "Turno de Tappara.",
+  "km_valitse": "Elige adónde ir.",
+  "km_avaa": "¿Abrir la ficha? Paga cien euros, o prueba suerte con el dado.",
+  "km_tyhja": "Una ficha vacía.",
+  "km_malja": "¡Encontraste la Copa Kanada! ¡Llévala al Nokia Areena!",
+  "km_makkara": "¡Una morcilla! Te saca de la cárcel.",
+  "km_makkara_voitto": "¡Una morcilla! Ahora también vale. ¡Llévala al Nokia Areena antes que la copa!",
+  "km_kummola": "¡Kummola! Ganas trescientos euros.",
+  "km_raipe": "¡Raipe! Ganas seiscientos euros.",
+  "km_barkov": "¡Barkov! ¡Ganas mil euros!",
+  "km_tupla": "¡En Sarkanniemi todo vale el doble!",
+  "km_rosvo": "¡Oh, no! Un ladrón se llevó todo tu dinero.",
+  "km_poliisi": "La policía te lleva a la cárcel.",
+  "km_putka": "Sal pagando una multa, con una morcilla, o sacando cinco o seis.",
+  "km_vapaa": "¡Estás libre!",
+  "km_makkara_vapaa": "El guardia recibió la morcilla. ¡Estás libre!",
+  "km_ratikka": "¡Tilín tilín! Sale el tranvía.",
+  "km_laiva": "Sale el barco.",
+  "km_ratikka_valitse": "Elige una parada.",
+  "km_voitti_ilves": "¡Gana Ilves! ¡La Copa Kanada está en el Nokia Areena!",
+  "km_voitti_tappara": "¡Gana Tappara! ¡La Copa Kanada está en el Nokia Areena!",
+  "km_valitse_joukkue": "¿Qué equipo eres, Ilves o Tappara?",
+  "km_ohje": "Tira el dado y elige adónde ir. En una casilla grande puedes abrir la ficha. Encuentra la Copa Kanada y llévala el primero al Nokia Areena.",
+  "km_timantti": "¡Un diamante! Ganas quinientos euros.",
+  "km_taklaus": "¡Placaje! ¡La copa cambió de manos!"
+ }
+}
