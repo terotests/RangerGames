@@ -31,9 +31,45 @@
   Host.prototype.boot = function (wasmUrl, packUrl) {
     var self = this;
     var wasi = RgWasi.makeWasi(function (fd, line) { (fd === 2 ? console.warn : console.log)("[engine] " + line); });
-    var fetchWasm = fetch(wasmUrl).then(function (r) { if (!r.ok) throw new Error(wasmUrl + ": " + r.status); return r.arrayBuffer(); });
-    var fetchPack = fetch(packUrl).then(function (r) { if (!r.ok) throw new Error(packUrl + ": " + r.status); return r.arrayBuffer(); });
-    return Promise.all([fetchWasm, fetchPack]).then(function (both) {
+    // download progress on the loading screen: bytes so far of the files'
+    // real sizes (sizes.json from build-web.sh; Content-Length as a fallback,
+    // which is the compressed size when the server gzips)
+    var loaded = {}, total = {}, small = this.status.querySelector("small");
+    var show = function () {
+      var l = 0, t = 0, k;
+      for (k in loaded) l += loaded[k];
+      for (k in total) t += total[k];
+      if (!small) return;
+      var mb = function (n) { return (n / 1048576).toFixed(1).replace(".", ","); };
+      small.textContent = t > 0 && l <= t
+        ? "Ladataan… " + Math.floor(100 * l / t) + " %  (" + mb(l) + " / " + mb(t) + " Mt)"
+        : "Ladataan… " + mb(l) + " Mt";
+    };
+    var get = function (url, size) {
+      return fetch(url).then(function (r) {
+        if (!r.ok) throw new Error(url + ": " + r.status);
+        var len = size || +r.headers.get("Content-Length") || 0;
+        if (len) total[url] = len;
+        if (!r.body || !r.body.getReader) return r.arrayBuffer();
+        var reader = r.body.getReader(), parts = [], got = 0;
+        var pump = function () {
+          return reader.read().then(function (c) {
+            if (c.done) {
+              var out = new Uint8Array(got), at = 0;
+              for (var i = 0; i < parts.length; i++) { out.set(parts[i], at); at += parts[i].length; }
+              return out.buffer;
+            }
+            parts.push(c.value); got += c.value.length; loaded[url] = got; show();
+            return pump();
+          });
+        };
+        return pump();
+      });
+    };
+    var sizes = fetch("sizes.json").then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; });
+    return sizes.then(function (sz) {
+      return Promise.all([get(wasmUrl, sz[wasmUrl]), get(packUrl, sz[packUrl])]);
+    }).then(function (both) {
       return WebAssembly.instantiate(both[0], { wasi_snapshot_preview1: wasi.imports }).then(function (res) {
         self.x = res.instance.exports;
         wasi.setMemory(self.x.memory);
