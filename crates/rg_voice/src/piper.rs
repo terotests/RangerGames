@@ -19,10 +19,13 @@ pub fn command() -> Option<PathBuf> {
 }
 
 /// The model file of voice `name` (e.g. "fi_FI-harri-medium"), if it is there.
+/// Looked for in `RG_PIPER_MODELS`, else `.deps/piper/models`, then `.deps/piper`.
 pub fn model(name: &str) -> Option<PathBuf> {
-    let dir = std::env::var("RG_PIPER_MODELS").map(PathBuf::from).unwrap_or_else(|_| PathBuf::from(".deps/piper/models"));
-    let p = dir.join(format!("{name}.onnx"));
-    (p.exists() && dir.join(format!("{name}.onnx.json")).exists()).then_some(p)
+    let dirs: Vec<PathBuf> = match std::env::var("RG_PIPER_MODELS") {
+        Ok(d) => vec![PathBuf::from(d)],
+        Err(_) => vec![PathBuf::from(".deps/piper/models"), PathBuf::from(".deps/piper")],
+    };
+    dirs.into_iter().map(|d| (d.join(format!("{name}.onnx")), d.join(format!("{name}.onnx.json")))).find(|(m, j)| m.exists() && j.exists()).map(|(m, _)| m)
 }
 
 /// `text` said by Piper voice `model`, `rate` times its normal speed:
