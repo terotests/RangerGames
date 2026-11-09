@@ -11,7 +11,7 @@
 .lvname { font-size: 19px; font-weight: 700; color: #ffffff; }
 .helpline { width: 320px; font-size: 15px; color: #e9eef6; margin-top: 10px; padding: 10px; border-radius: 12px; background-color: rgba(255,255,255,0.08); }
 
-.head { position: absolute; left: 14px; top: 10px; width: 290px; }
+.head { position: absolute; left: 14px; top: 8px; width: 300px; }
 .tname { font-size: 21px; font-weight: 700; color: #ffd166; }
 .ttext { font-size: 14px; color: #dbe4f0; margin-top: 4px; text-align: left; }
 
@@ -84,3 +84,21 @@
 .btn.grey { background-color: #495057; }
 .tile.clear { background-color: rgba(230,57,70,0.25); }
 .cleartext { font-size: 12px; font-weight: 700; color: #ffd6d9; }
+
+/* the simple lab: goals, pickers */
+.goals { flex-direction: row; margin-top: 6px; }
+.goal { flex-direction: row; align-items: center; height: 26px; padding-left: 6px; padding-right: 6px; margin-right: 4px; border-radius: 13px;
+  background-color: rgba(255,255,255,0.1); opacity: 0.55; }
+.goal.on { background-color: #2a9d8f; opacity: 1; }
+.goal.helpb { opacity: 1; background-color: #3a86ff; }
+.gicon { font-size: 14px; }
+.gname { font-size: 10px; color: #ffffff; margin-left: 3px; }
+.placed.big { width: 88px; }
+.res.big { width: 76px; height: 22px; border-radius: 11px; }
+.gap { width: 8px; }
+.pickers { position: absolute; width: 344px; }
+.prow { flex-direction: row; flex-wrap: wrap; justify-content: center; margin-bottom: 4px; }
+.pick { height: 46px; padding-left: 6px; padding-right: 6px; margin: 2px; border-radius: 12px; background-color: rgba(255,255,255,0.12);
+  align-items: center; justify-content: center; border-width: 2px; border-color: rgba(255,255,255,0); }
+.pick.r { width: 78px; }
+.pick.on { border-color: #ffd166; background-color: rgba(255,209,102,0.22); }
