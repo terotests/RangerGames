@@ -248,8 +248,7 @@ function sNext() {
 function sAsk() {
   if (sKind === "pick") {
     setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.", label(sTarget));
-    // the sentence, then the word alone: the word is the one to learn
-    say(["kp_where_" + sTarget.id, sTarget.id]);
+    say("kp_where_" + sTarget.id);
   } else if (sKind === "recall") {
     setCard(txt("kp_what"), "Mikä tämä on? Napauta oikeaa sanaa. 🔊 sanoo sanan ääneen.");
     say("kp_what");
