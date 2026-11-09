@@ -117,27 +117,27 @@ function Board() {
 }
 
 function who(m: Mark) {
-  if (vsPhone) return m === "X" ? "Sinä" : "Puhelin";
-  return m === "X" ? "Risti" : "Nolla";
+  if (vsPhone) return m === "X" ? rg.t("Sinä", "You", "Tú") : rg.t("Puhelin", "Phone", "Teléfono");
+  return m === "X" ? rg.t("Risti", "Cross", "Equis") : rg.t("Nolla", "Circle", "Círculo");
 }
 
 function Status() {
   if (mode === "over") {
-    const text = draw ? "Tasapeli!" : vsPhone ? (winner === "X" ? "Voitit! 🎉" : "Puhelin voitti!") : who(winner) + " voitti! 🎉";
+    const text = draw ? rg.t("Tasapeli!", "Draw!", "¡Empate!") : vsPhone ? (winner === "X" ? rg.t("Voitit! 🎉", "You won! 🎉", "¡Ganaste! 🎉") : rg.t("Puhelin voitti!", "The phone won!", "¡Ganó el teléfono!")) : rg.t(who(winner) + " voitti! 🎉", who(winner) + " won! 🎉", "¡Ganó " + who(winner) + "! 🎉");
     return <div className="status big">{text}</div>;
   }
-  return <div className={"status " + (turn === "X" ? "tx" : "to")}>{vsPhone && turn === "O" ? "Puhelin miettii…" : "Vuoro: " + who(turn)}</div>;
+  return <div className={"status " + (turn === "X" ? "tx" : "to")}>{vsPhone && turn === "O" ? rg.t("Puhelin miettii…", "The phone is thinking…", "El teléfono está pensando…") : rg.t("Vuoro: ", "Turn: ", "Turno: ") + who(turn)}</div>;
 }
 
 function Menu() {
   const bob = Math.sin(t * 3) * 6;
   return (
     <div className="screen menu">
-      <div className="title" style={{ marginTop: 60 + bob }}>Ristinolla</div>
+      <div className="title" style={{ marginTop: 60 + bob }}>{rg.t("Ristinolla", "Tic-Tac-Toe", "Tres en raya")}</div>
       <div className="demo">❌ ⭕</div>
-      <div className="btn" id="vsphone" onClick={() => start(true)}>📱 Puhelinta vastaan</div>
-      <div className="btn alt" id="vsfriend" onClick={() => start(false)}>👫 Kaverin kanssa</div>
-      <div className="btn back" id="exit" onClick={() => rg.exit()}>← Valikkoon</div>
+      <div className="btn" id="vsphone" onClick={() => start(true)}>📱 {rg.t("Puhelinta vastaan", "Against the phone", "Contra el teléfono")}</div>
+      <div className="btn alt" id="vsfriend" onClick={() => start(false)}>👫 {rg.t("Kaverin kanssa", "With a friend", "Con un amigo")}</div>
+      <div className="btn back" id="exit" onClick={() => rg.exit()}>{rg.t("← Valikkoon", "← Menu", "← Menú")}</div>
     </div>
   );
 }
@@ -152,8 +152,8 @@ function view() {
       </div>
       {Status()}
       {Board()}
-      {mode === "over" && overClock > 0.6 ? <div className="btn again" id="again" onClick={() => { rg.sound("click"); newRound(); }}>Uudestaan!</div> : <div className="spacer" />}
-      <div className="btn back small" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}>← Takaisin</div>
+      {mode === "over" && overClock > 0.6 ? <div className="btn again" id="again" onClick={() => { rg.sound("click"); newRound(); }}>{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div> : <div className="spacer" />}
+      <div className="btn back small" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
     </div>
   );
 }

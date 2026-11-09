@@ -1,1 +1,1 @@
-{ "name": "Pupu hyppii", "description": "Hypi pilvien päälle ja kerää porkkanoita!", "icon": "🐰", "color": "#06d6a0", "players": "1", "width": 360, "order": 0 }
+{ "name": "Pupu hyppii", "description": "Hypi pilvien päälle ja kerää porkkanoita!", "icon": "🐰", "color": "#06d6a0", "players": "1", "width": 360, "order": 0, "i18n": { "en": { "name": "Bunny Jump", "description": "Jump on the clouds and collect carrots!" }, "es": { "name": "Salta conejito", "description": "¡Salta sobre las nubes y recoge zanahorias!" } } }

@@ -73,12 +73,12 @@ function onKeyDown(key: string) {
 }
 
 function message(p: number): string {
-  if (mode === "title") return "Napauta, kun olette valmiit!";
-  if (mode === "wait") return "Odota…";
-  if (mode === "go") return "NYT!";
-  if (mode === "won") return score[p] >= WIN ? "VOITIT! 🏆" : "Hävisit tällä kertaa";
-  if (last === p) return early ? "Kaveri oli liian nopea!" : "Piste! " + Math.round(reaction * 1000) + " ms";
-  return early ? "Liian aikaisin!" : "Kaveri ehti ensin";
+  if (mode === "title") return rg.t("Napauta, kun olette valmiit!", "Tap when you are both ready!", "¡Tocad cuando estéis listos!");
+  if (mode === "wait") return rg.t("Odota…", "Wait…", "Espera…");
+  if (mode === "go") return rg.t("NYT!", "NOW!", "¡YA!");
+  if (mode === "won") return score[p] >= WIN ? rg.t("VOITIT! 🏆", "YOU WON! 🏆", "¡GANASTE! 🏆") : rg.t("Hävisit tällä kertaa", "You lost this time", "Esta vez perdiste");
+  if (last === p) return early ? rg.t("Kaveri oli liian nopea!", "Your friend was too early!", "¡Tu amigo se adelantó!") : rg.t("Piste! ", "Point! ", "¡Punto! ") + Math.round(reaction * 1000) + " ms";
+  return early ? rg.t("Liian aikaisin!", "Too early!", "¡Demasiado pronto!") : rg.t("Kaveri ehti ensin", "Your friend was first", "Tu amigo fue más rápido");
 }
 
 function Half(p: number) {

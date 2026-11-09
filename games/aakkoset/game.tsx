@@ -10,7 +10,7 @@ type Word = { e: string; s: string[] };
 type Tile = { ch: string; ok: boolean; got: boolean; shake: number };
 type Spark = { x: number; y: number; vx: number; vy: number; t: number; c: string };
 
-const WORDS: Word[] = [
+const WORDS_FI: Word[] = [
   { e: "🐱", s: ["KIS", "SA"] }, { e: "🐶", s: ["KOI", "RA"] }, { e: "🐟", s: ["KA", "LA"] },
   { e: "🍎", s: ["O", "ME", "NA"] }, { e: "☀️", s: ["AU", "RIN", "KO"] }, { e: "🏠", s: ["TA", "LO"] },
   { e: "🚗", s: ["AU", "TO"] }, { e: "⚽", s: ["PAL", "LO"] }, { e: "🌙", s: ["KUU"] },
@@ -26,12 +26,58 @@ const WORDS: Word[] = [
   { e: "🐍", s: ["KÄÄR", "ME"] }, { e: "🍄", s: ["SIE", "NI"] }, { e: "🧀", s: ["JUUS", "TO"] },
   { e: "🐝", s: ["MEH", "I", "LÄI", "NEN"] }, { e: "👑", s: ["KRUU", "NU"] }, { e: "🦊", s: ["KET", "TU"] },
 ];
-const ABC = "ABDEFGHIJKLMNOPRSTUVYÄÖ";
-const FIND = "AEIOUSKLMNPRTVJHYÄÖ";
+// English and Spanish have their own words, letters and look-alike spellings
+// (the language comes from the launcher's flags)
+const WORDS_EN: Word[] = [
+  { e: "🐱", s: ["CAT"] }, { e: "🐶", s: ["DOG"] }, { e: "🐟", s: ["FISH"] },
+  { e: "🍎", s: ["AP", "PLE"] }, { e: "☀️", s: ["SUN"] }, { e: "🏠", s: ["HOUSE"] },
+  { e: "🚗", s: ["CAR"] }, { e: "⚽", s: ["BALL"] }, { e: "🌙", s: ["MOON"] },
+  { e: "🐄", s: ["COW"] }, { e: "🐭", s: ["MOUSE"] }, { e: "🐷", s: ["PIG"] },
+  { e: "🐔", s: ["HEN"] }, { e: "🦆", s: ["DUCK"] }, { e: "🐰", s: ["RAB", "BIT"] },
+  { e: "🐻", s: ["BEAR"] }, { e: "🌸", s: ["FLOW", "ER"] }, { e: "🌳", s: ["TREE"] },
+  { e: "⛵", s: ["SHIP"] }, { e: "🚂", s: ["TRAIN"] }, { e: "⭐", s: ["STAR"] },
+  { e: "❤️", s: ["HEART"] }, { e: "🍓", s: ["STRAW", "BER", "RY"] }, { e: "🍌", s: ["BA", "NA", "NA"] },
+  { e: "🥕", s: ["CAR", "ROT"] }, { e: "⏰", s: ["CLOCK"] }, { e: "📖", s: ["BOOK"] },
+  { e: "🐸", s: ["FROG"] }, { e: "⛄", s: ["SNOW", "MAN"] }, { e: "🐴", s: ["HORSE"] },
+  { e: "🍞", s: ["BREAD"] }, { e: "🚀", s: ["ROCK", "ET"] }, { e: "🦋", s: ["BUT", "TER", "FLY"] },
+  { e: "🐌", s: ["SNAIL"] }, { e: "🦉", s: ["OWL"] }, { e: "🐍", s: ["SNAKE"] },
+  { e: "🍄", s: ["MUSH", "ROOM"] }, { e: "🧀", s: ["CHEESE"] }, { e: "🐝", s: ["BEE"] },
+  { e: "👑", s: ["CROWN"] }, { e: "🦊", s: ["FOX"] }, { e: "🦓", s: ["ZE", "BRA"] },
+  { e: "🐢", s: ["TUR", "TLE"] }, { e: "🍉", s: ["WA", "TER", "MEL", "ON"] }, { e: "🐵", s: ["MON", "KEY"] },
+];
+const WORDS_ES: Word[] = [
+  { e: "🐱", s: ["GA", "TO"] }, { e: "🐶", s: ["PE", "RRO"] }, { e: "🐟", s: ["PEZ"] },
+  { e: "🍎", s: ["MAN", "ZA", "NA"] }, { e: "☀️", s: ["SOL"] }, { e: "🏠", s: ["CA", "SA"] },
+  { e: "🚗", s: ["CO", "CHE"] }, { e: "⚽", s: ["PE", "LO", "TA"] }, { e: "🌙", s: ["LU", "NA"] },
+  { e: "🐄", s: ["VA", "CA"] }, { e: "🐭", s: ["RA", "TÓN"] }, { e: "🐷", s: ["CER", "DO"] },
+  { e: "🐔", s: ["GA", "LLI", "NA"] }, { e: "🦆", s: ["PA", "TO"] }, { e: "🐰", s: ["CO", "NE", "JO"] },
+  { e: "🐻", s: ["O", "SO"] }, { e: "🦔", s: ["E", "RI", "ZO"] }, { e: "🌸", s: ["FLOR"] },
+  { e: "🌳", s: ["ÁR", "BOL"] }, { e: "⛵", s: ["BAR", "CO"] }, { e: "🚂", s: ["TREN"] },
+  { e: "⭐", s: ["ES", "TRE", "LLA"] }, { e: "❤️", s: ["CO", "RA", "ZÓN"] }, { e: "🍓", s: ["FRE", "SA"] },
+  { e: "🍌", s: ["PLÁ", "TA", "NO"] }, { e: "🥕", s: ["ZA", "NA", "HO", "RIA"] }, { e: "⏰", s: ["RE", "LOJ"] },
+  { e: "📖", s: ["LI", "BRO"] }, { e: "🐸", s: ["RA", "NA"] }, { e: "🐴", s: ["CA", "BA", "LLO"] },
+  { e: "🍞", s: ["PAN"] }, { e: "🚀", s: ["CO", "HE", "TE"] }, { e: "🦋", s: ["MA", "RI", "PO", "SA"] },
+  { e: "🐌", s: ["CA", "RA", "COL"] }, { e: "🦉", s: ["BÚ", "HO"] }, { e: "🐍", s: ["SER", "PIEN", "TE"] },
+  { e: "🍄", s: ["SE", "TA"] }, { e: "🧀", s: ["QUE", "SO"] }, { e: "🐝", s: ["A", "BE", "JA"] },
+  { e: "👑", s: ["CO", "RO", "NA"] }, { e: "🦊", s: ["ZO", "RRO"] }, { e: "🐢", s: ["TOR", "TU", "GA"] },
+  { e: "🐵", s: ["MO", "NO"] }, { e: "🍉", s: ["SAN", "DÍ", "A"] }, { e: "🦁", s: ["LE", "ÓN"] },
+];
+const LANG = {
+  fi: { words: WORDS_FI, abc: "ABDEFGHIJKLMNOPRSTUVYÄÖ", find: "AEIOUSKLMNPRTVJHYÄÖ",
+    pairs: [["A", "Ä"], ["O", "Ö"], ["U", "Y"], ["E", "I"], ["O", "U"], ["K", "G"], ["T", "D"]] },
+  en: { words: WORDS_EN, abc: "ABCDFGHKLMNOPRSTWZ", find: "AEIOUSKLMNPRTBDCFGH",
+    pairs: [["C", "K"], ["S", "Z"], ["E", "A"], ["I", "Y"], ["O", "U"], ["B", "P"], ["W", "V"]] },
+  es: { words: WORDS_ES, abc: "ABCEFGLMOPQRSTVZ", find: "AEIOUSLMNPRTBDCGÑ",
+    pairs: [["B", "V"], ["LL", "Y"], ["C", "S"], ["Z", "S"], ["G", "J"], ["RR", "R"], ["O", "U"]] },
+};
+const L10N = LANG[rg.lang] || LANG.fi;
+const WORDS: Word[] = L10N.words;
+const ABC = L10N.abc;
+const FIND = L10N.find;
 const SPARK = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#ffffff"];
 const LEVELS = [
-  { name: "Eskari", sub: "Alkukirjaimet ja kirjainten etsintä", color: "#06d6a0", kinds: ["first", "find"] },
-  { name: "2. luokka", sub: "Tavut ja sanojen kirjoitus", color: "#118ab2", kinds: ["syll", "word"] },
+  { name: rg.t("Eskari", "Pre-school", "Infantil"), sub: rg.t("Alkukirjaimet ja kirjainten etsintä", "First letters and finding letters", "Primeras letras y buscar letras"), color: "#06d6a0", kinds: ["first", "find"] },
+  { name: rg.t("2. luokka", "Year 2", "2.º de primaria"), sub: rg.t("Tavut ja sanojen kirjoitus", "Word parts and spelling", "Sílabas y ortografía"), color: "#118ab2", kinds: ["syll", "word"] },
 ];
 const ROUND = 10;
 
@@ -84,8 +130,14 @@ function freshWord(test: (w: Word) => boolean): Word {
 // a plausible wrong spelling: a doubled letter made single, a single made
 // double, or a vowel swapped for its neighbour
 function misspell(w: string): string {
-  const pairs: string[][] = [["A", "Ä"], ["O", "Ö"], ["U", "Y"], ["E", "I"], ["O", "U"], ["K", "G"], ["T", "D"]];
+  const pairs: string[][] = L10N.pairs;
   for (let k = 0; k < 30; k++) {
+    // a two-letter swap (LL/Y, RR/R) first, sometimes
+    if (rg.random() < 0.3) {
+      for (const p of rg.shuffle(pairs)) {
+        if (p[0].length > 1 && w.indexOf(p[0]) >= 0) return w.replace(p[0], p[1]);
+      }
+    }
     const i = Math.floor(rg.random() * w.length);
     const r = rg.random();
     let v = w;
@@ -261,7 +313,7 @@ function First() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Millä kirjaimella alkaa?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 {rg.t("Millä kirjaimella alkaa?", "Which letter does it start with?", "¿Con qué letra empieza?")}</div>
       <div className="card">
         {Picture()}
         <div className="word">
@@ -278,7 +330,7 @@ function Find() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Etsi kaikki kirjaimet</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 {rg.t("Etsi kaikki kirjaimet", "Find all the letters", "Busca todas las letras")}</div>
       <div className="target">{target} {target.toLowerCase()}</div>
       <div className="board">
         {tiles.map((tl, i) => {
@@ -290,7 +342,7 @@ function Find() {
           );
         })}
       </div>
-      <div className="left">{tiles.filter((x) => x.ok && !x.got).length > 0 ? "Vielä " + tiles.filter((x) => x.ok && !x.got).length : "Kaikki löytyi!"}</div>
+      <div className="left">{tiles.filter((x) => x.ok && !x.got).length > 0 ? rg.t("Vielä ", "Still ", "Faltan ") + tiles.filter((x) => x.ok && !x.got).length : rg.t("Kaikki löytyi!", "All found!", "¡Todas encontradas!")}</div>
     </div>
   );
 }
@@ -300,7 +352,7 @@ function Syll() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Mikä tavu puuttuu?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 {rg.t("Mikä tavu puuttuu?", "Which part is missing?", "¿Qué sílaba falta?")}</div>
       <div className="card">
         {Picture()}
         <div className="word">
@@ -321,7 +373,7 @@ function Spell() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Mikä sana on oikein?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 {rg.t("Mikä sana on oikein?", "Which word is right?", "¿Qué palabra está bien escrita?")}</div>
       <div className="card">{Picture()}</div>
       {Choices(false)}
     </div>
@@ -338,7 +390,7 @@ function Menu() {
   const bob = Math.sin(t * 2.5) * 6;
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 50 + bob }}>Aakkoset</div>
+      <div className="title" style={{ marginTop: 50 + bob }}>{rg.t("Aakkoset", "Letters", "Letras")}</div>
       <div className="lead">A a  B b  C c</div>
       {LEVELS.map((L, i) => (
         <div className="level" id={"lv" + i} onClick={() => startLevel(i)} style={{ backgroundColor: L.color }}>
@@ -347,7 +399,7 @@ function Menu() {
           <div className="lvbest">{best[i] > 0 ? "⭐ " + best[i] + "/" + ROUND : ""}</div>
         </div>
       ))}
-      <div className="level back" id="exit" onClick={() => rg.exit()}><div className="lvname">← Valikkoon</div></div>
+      <div className="level back" id="exit" onClick={() => rg.exit()}><div className="lvname">{rg.t("← Valikkoon", "← Menu", "← Menú")}</div></div>
     </div>
   );
 }
@@ -357,11 +409,11 @@ function Done() {
   for (let i = 0; i < ROUND; i++) stars.push(<div className={i < right ? "bigstar" : "bigstar off"}>⭐</div>);
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? "Mahtavaa!" : right >= 5 ? "Hienoa!" : "Hyvä yritys!"}</div>
+      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? rg.t("Mahtavaa!", "Awesome!", "¡Fantástico!") : right >= 5 ? rg.t("Hienoa!", "Great!", "¡Genial!") : rg.t("Hyvä yritys!", "Good try!", "¡Buen intento!")}</div>
       <div className="stars">{stars}</div>
-      <div className="lead">{right} / {ROUND} ilman virheitä</div>
-      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">Uudestaan!</div></div>
-      <div className="level back" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">← Takaisin</div></div>
+      <div className="lead">{right} / {ROUND} {rg.t("ilman virheitä", "without mistakes", "sin errores")}</div>
+      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div></div>
+      <div className="level back" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
 }

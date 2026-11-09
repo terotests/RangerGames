@@ -41,6 +41,14 @@ var __LENGTH = { width: 1, height: 1, left: 1, top: 1, right: 1, bottom: 1, minW
   padding: 1, paddingTop: 1, paddingLeft: 1, paddingRight: 1, paddingBottom: 1, fontSize: 1,
   borderRadius: 1, borderWidth: 1, gap: 1, letterSpacing: 1, lineHeight: 0 };
 
+// a word without its accents, for clip ids: "ä" → "a", "ó" → "o", "ñ" → "n"
+var __ACCENTS = { "ä": "a", "ö": "o", "å": "a", "á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u", "ñ": "n" };
+function __plain(s) {
+  var o = "";
+  for (var i = 0; i < s.length; i++) { var c = s.charAt(i); o += __ACCENTS[c] || c; }
+  return o;
+}
+
 var __seed = 12345;
 var rg = {
   // sounds: a built-in effect's name ("jump", "coin", "click", "win",
@@ -63,11 +71,33 @@ var rg = {
     __cmds.push(["say", list.length ? list[0] : "", o]);
   },
   stopSay: function () { rg.say([]); },
-  // the clip id of a number (0–20) or a letter ("Ä" → "kirjain_ae")
+  // the clip id of a number (0–20), a letter ("Ä" → "kirjain_ae", "Ñ" →
+  // "kirjain_enye") or a word ("Ratón" → "sana_raton"), in any language
   sayId: {
     number: function (n) { return n >= 0 && n <= 20 ? "n" + Math.round(n) : ""; },
-    letter: function (c) { var l = String(c).toLowerCase(); return "kirjain_" + (l === "ä" || l === "Ä" ? "ae" : l === "ö" || l === "Ö" ? "oe" : l); },
-    word: function (w) { return "sana_" + String(w).toLowerCase().split("ä").join("a").split("Ä").join("a").split("ö").join("o").split("Ö").join("o"); }
+    letter: function (c) {
+      var l = String(c).toLowerCase();
+      return "kirjain_" + (l === "ä" ? "ae" : l === "ö" ? "oe" : l === "ñ" ? "enye" : __plain(l));
+    },
+    word: function (w) { return "sana_" + __plain(String(w).toLowerCase()).split(" ").join("_"); }
+  },
+  // The language every game uses: "fi", "en" or "es", chosen with the flags
+  // in the launcher and kept for all games. rg.setLang("en") changes it.
+  // rg.t("Valitse!", "Choose!", "¡Elige!") gives the text in the current
+  // language (Finnish when the others are missing); rg.t({ fi, en, es }) too.
+  lang: "fi",
+  langs: ["fi", "en", "es"],
+  flags: { fi: "🇫🇮", en: "🇬🇧", es: "🇪🇸" },
+  setLang: function (l) {
+    l = String(l);
+    if (rg.langs.indexOf(l) < 0 || l === rg.lang) return;
+    rg.lang = l;
+    __cmds.push(["setting", "lang", l]);
+  },
+  t: function (fi, en, es) {
+    if (fi !== null && typeof fi === "object") { var o = fi; fi = o.fi; en = o.en; es = o.es; }
+    var v = rg.lang === "en" ? en : rg.lang === "es" ? es : fi;
+    return v === undefined || v === null ? fi : v;
   },
   music: function (name, opts) { __cmds.push(["music", String(name), opts === undefined ? null : opts]); },
   stopMusic: function () { __cmds.push(["stop", "music", null]); },
@@ -311,6 +341,13 @@ function __overlay() {
   return o;
 }
 
+// the settings (the language) before the game's own script runs, so its
+// top-level constants can use rg.t and rg.lang
+function __settings(st) {
+  st = st || {};
+  rg.lang = rg.langs.indexOf(st.lang) >= 0 ? st.lang : "fi";
+}
+
 function __start(arg) {
   var a = JSON.parse(arg);
   width = a.w;
@@ -318,6 +355,7 @@ function __start(arg) {
   __game = a.game;
   __dir = a.dir;
   __saved = a.saved || {};
+  __settings(a.settings);
   __games = a.games || [];
   __launcher = !!a.launcher;
   rg.seed(a.seed || 1);

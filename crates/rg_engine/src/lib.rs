@@ -34,6 +34,9 @@ use rg_core::vfs::{self, Vfs};
 use script::Script;
 use ui::Ui;
 
+/// Where the settings every game shares are kept (the language).
+const SETTINGS: &str = "/save/_settings.json";
+
 /// A game's `game.json`, with defaults filled in.
 #[derive(Clone)]
 pub struct GameInfo {
@@ -51,6 +54,8 @@ pub struct GameInfo {
     pub players: String,
     pub order: f64,
     pub hidden: bool,
+    /// names in other languages: { "en": { "name", "description" }, "es": … }
+    pub i18n: Json,
 }
 
 impl GameInfo {
@@ -77,6 +82,7 @@ impl GameInfo {
             players: s("players", "1"),
             order: j.get("order").as_num(100.0),
             hidden: j.get("hidden").as_bool(),
+            i18n: j.get("i18n"),
         }
     }
 
@@ -88,6 +94,7 @@ impl GameInfo {
             member("icon", Json::Str(self.icon.clone())),
             member("color", Json::Str(self.color.clone())),
             member("players", Json::Str(self.players.clone())),
+            member("i18n", self.i18n.clone()),
         ])
     }
 }
@@ -111,6 +118,8 @@ pub struct Engine {
     /// the game that lists the others (`launcher`)
     pub launcher: String,
     saved: Json,
+    /// settings shared by every game (/save/_settings.json): the language
+    settings: Json,
     pub screen_w: f64,
     pub screen_h: f64,
     /// screen = game * scale + offset
@@ -139,6 +148,7 @@ impl Engine {
             pending: None,
             launcher: "launcher".to_string(),
             saved: Json::Obj(Vec::new()),
+            settings: Json::Obj(Vec::new()),
             screen_w: 360.0,
             screen_h: 640.0,
             scale: 1.0,
@@ -295,8 +305,15 @@ impl Engine {
         if !matches!(self.saved, Json::Obj(_)) {
             self.saved = Json::Obj(Vec::new());
         }
+        self.settings = json::parse(&self.vfs.read_text(SETTINGS));
+        if !matches!(self.settings, Json::Obj(_)) {
+            self.settings = Json::Obj(Vec::new());
+        }
         let mut s = Script::new();
         if let Err(e) = s.eval(script::RUNTIME, "runtime.js") {
+            return self.fail(e);
+        }
+        if let Err(e) = s.eval(&format!("__settings({});", self.settings.write()), "settings.js") {
             return self.fail(e);
         }
         // the game's other script files, as modules it can import by their
@@ -337,6 +354,7 @@ impl Engine {
             member("game", Json::Str(info.id.clone())),
             member("dir", Json::Str(info.dir.clone())),
             member("saved", self.saved.clone()),
+            member("settings", self.settings.clone()),
             member("games", self.games_json()),
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
@@ -376,8 +394,24 @@ impl Engine {
                 self.save(&cmd.name, cmd.args.clone());
                 continue;
             }
+            if cmd.kind == "setting" {
+                self.set_setting(&cmd.name, cmd.args.clone());
+                continue;
+            }
             self.commands.push(cmd);
         }
+    }
+
+    /// Keeps `key` in the settings every game shares (rg.setLang) and asks
+    /// the platform to persist them.
+    fn set_setting(&mut self, key: &str, value: Json) {
+        let mut members = self.settings.members();
+        members.retain(|m| m.key != key);
+        members.push(member(key, value));
+        self.settings = Json::Obj(members);
+        let text = self.settings.write();
+        self.vfs.write_text(SETTINGS, &text);
+        self.commands.push(HostCommand { kind: "persist".into(), name: SETTINGS.into(), args: Json::Str(text) });
     }
 
     /// Keeps `key` in the game's save file and asks the platform to persist it.

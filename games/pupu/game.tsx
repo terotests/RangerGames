@@ -267,9 +267,9 @@ function Title() {
   const bob = Math.sin(t * 3) * 8;
   return (
     <div className="overlay">
-      <div className="big" style={{ marginTop: bob }}>Pupu hyppii</div>
-      <div className="hint">Pidä sormea vasemmalla tai oikealla puolella</div>
-      <div className="go">Napauta ja aloita!</div>
+      <div className="big" style={{ marginTop: bob }}>{rg.t("Pupu hyppii", "Bunny Jump", "Salta conejito")}</div>
+      <div className="hint">{rg.t("Pidä sormea vasemmalla tai oikealla puolella", "Hold your finger on the left or right side", "Mantén el dedo a la izquierda o a la derecha")}</div>
+      <div className="go">{rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")}</div>
       {best > 0 ? <div className="hint">Ennätys: {best}</div> : null}
     </div>
   );
@@ -278,10 +278,10 @@ function Title() {
 function Over() {
   return (
     <div className="overlay">
-      <div className="big">Hups!</div>
+      <div className="big">{rg.t("Hups!", "Oops!", "¡Uy!")}</div>
       <div className="result">⭐ {score()}   🥕 {carrots}</div>
-      {newBest ? <div className="record">Uusi ennätys! 🎉</div> : <div className="hint">Ennätys: {best}</div>}
-      {modeClock > 0.8 ? <div className="go">Napauta ja yritä uudestaan</div> : null}
+      {newBest ? <div className="record">{rg.t("Uusi ennätys!", "New record!", "¡Nuevo récord!")} 🎉</div> : <div className="hint">{rg.t("Ennätys: ", "Record: ", "Récord: ")}{best}</div>}
+      {modeClock > 0.8 ? <div className="go">{rg.t("Napauta ja yritä uudestaan", "Tap to try again", "Toca para intentarlo otra vez")}</div> : null}
     </div>
   );
 }
