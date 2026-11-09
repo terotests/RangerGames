@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# The games' Finnish voice: Finnish text → IPA → CHIMERA (crates/chimera),
+# rendered ahead of time into WAV clips that rg.say(id) plays.
+[package]
+name = "rg_voice"
+version.workspace = true
+edition = "2024"
+license.workspace = true
+
+[dependencies]
+chimera = { path = "../chimera" }
+serde_json = "1"

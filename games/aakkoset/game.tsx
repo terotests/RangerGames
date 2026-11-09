@@ -56,6 +56,18 @@ let recent: number[] = [];
 
 function init() { best = rg.load("best", [0, 0]); }
 
+// speech (rg.say): the task is said aloud, so a child who cannot read yet can play
+const PRAISE = ["hyva", "hienoa", "mahtavaa", "oikein", "loistavaa", "jee", "taitava", "osaat"];
+let praiseN = 0;
+function praise() { praiseN++; return PRAISE[praiseN % PRAISE.length]; }
+function instruct() {
+  const w = rg.sayId.word(text(word));
+  if (kind === "first") rg.say([w, "mista_alkaa"]);
+  else if (kind === "find") rg.say(["etsi_kirjaimet", rg.sayId.letter(target)]);
+  else if (kind === "syll") rg.say([w, "mika_tavu_puuttuu"]);
+  else rg.say([w, "mika_on_oikein"]);
+}
+
 function text(w: Word) { return w.s.join(""); }
 
 function freshWord(test: (w: Word) => boolean): Word {
@@ -136,6 +148,7 @@ function next() {
     while (set.length < 3 && guard++ < 50) { const v = misspell(answer); if (set.indexOf(v) < 0) set.push(v); }
     choices = rg.shuffle(set);
   }
+  instruct();
 }
 
 function burst(x: number, y: number, n: number) {
@@ -150,6 +163,7 @@ function win(x: number, y: number) {
   if (mistakes === 0) right++;
   rg.celebrate(x, y, { sound: false });
   rg.sound(mistakes === 0 ? "star" : "coin");
+  rg.say(kind === "first" ? [rg.sayId.letter(answer), praise()] : [praise()]);
 }
 
 function miss(i: number) {
@@ -157,6 +171,7 @@ function miss(i: number) {
   shake = { i, t };
   rg.sound("wrong");
   rg.vibrate(60);
+  rg.say("kokeile_toista");
 }
 
 function choose(i: number) {
@@ -172,6 +187,7 @@ function tap(i: number) {
   if (tl.ok) {
     tl.got = true;
     rg.sound("pop", { pitch: 1 + tiles.filter((x) => x.got).length * 0.12 });
+    rg.say(rg.sayId.letter(target));
     const col = i % 4, row = Math.floor(i / 4);
     burst(width / 2 - 120 + col * 80 + 30, height * 0.42 + row * 80, 8);
     if (tiles.every((x) => !x.ok || x.got)) win(width / 2, height * 0.5);
@@ -202,6 +218,7 @@ function tick(dt: number) {
       rg.stopMusic();
       if (right > best[level]) { best[level] = right; rg.save("best", best); }
       if (right >= 5) rg.celebrate(width / 2, height * 0.3, { big: true }); else rg.sound("coin");
+      rg.say(right >= 2 ? [right >= 8 ? "mahtavaa" : right >= 5 ? "hienoa" : "hyvin_meni", "sait", rg.sayId.number(right), "tahtea"] : ["hyvin_meni"]);
     } else next();
   }
 }
@@ -235,7 +252,7 @@ function Choices(big: boolean) {
 
 function Picture() {
   const bob = Math.sin(t * 2.2) * 5;
-  return <div className="pic" style={{ marginTop: bob }}>{word.e}</div>;
+  return <div className="pic" id="pic" onClick={() => rg.say(rg.sayId.word(text(word)))} style={{ marginTop: bob }}>{word.e}</div>;
 }
 
 function First() {
@@ -244,7 +261,7 @@ function First() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask">Millä kirjaimella alkaa?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Millä kirjaimella alkaa?</div>
       <div className="card">
         {Picture()}
         <div className="word">
@@ -261,7 +278,7 @@ function Find() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask">Etsi kaikki kirjaimet</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Etsi kaikki kirjaimet</div>
       <div className="target">{target} {target.toLowerCase()}</div>
       <div className="board">
         {tiles.map((tl, i) => {
@@ -283,7 +300,7 @@ function Syll() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask">Mikä tavu puuttuu?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Mikä tavu puuttuu?</div>
       <div className="card">
         {Picture()}
         <div className="word">
@@ -304,7 +321,7 @@ function Spell() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask">Mikä sana on oikein?</div>
+      <div className="ask" id="ask" onClick={() => instruct()}>🔊 Mikä sana on oikein?</div>
       <div className="card">{Picture()}</div>
       {Choices(false)}
     </div>

@@ -156,6 +156,7 @@ function tick(dt: number) {
     if (s > best) { best = s; newBest = true; rg.save("best", best); rg.celebrate(width / 2, height * 0.35, { big: true, sound: false }); }
     rg.sound("lose");
     rg.vibrate([80, 60, 200]);
+    rg.say(newBest ? "uusi_ennatys" : "voi_ei");
   }
 }
 
@@ -165,6 +166,7 @@ function startGame() {
   modeClock = 0;
   rg.sound("click");
   rg.music("happy", { volume: 0.7 });
+  rg.say("keraa_porkkanat");
 }
 
 function onPointerDown() {

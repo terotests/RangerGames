@@ -1,0 +1,16 @@
+# CHIMERA, the physical-modelling voice engine by Jameson Hodge (MIT, see
+# LICENSE in this folder), vendored unchanged from
+# https://github.com/jamesondh/chimera-vocal-synth crates/chimera @ 092b16c.
+# RangerGames uses it in crates/rg_voice to pre-render the games' Finnish
+# voice clips; it is not linked into the engine or the phone app.
+[package]
+name = "chimera"
+description = "CHIMERA physical-modelling voice engine: airway acoustics, anatomy, phonetics, creatures"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+libm = "=0.2.16"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }

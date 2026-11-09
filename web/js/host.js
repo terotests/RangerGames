@@ -223,6 +223,7 @@
   Host.prototype.command = function (kind, name, args) {
     switch (kind) {
       case "sound": this.audio.play(name, args); break;
+      case "say": this.audio.say(args); break;
       case "music": this.audio.startMusic(name, args); break;
       case "stop": this.audio.stopMusic(); break;
       case "vibrate": this.vibrate(args); break;

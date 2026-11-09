@@ -32,7 +32,7 @@ jobs:
       - name: Dependencies (Ranger with EVG, ComponentEngine)
         run: bash scripts/setup.sh
       - name: Unit tests
-        run: cargo test -p rg_core -p rg_engine
+        run: cargo test -p rg_core -p rg_engine -p rg_voice
       - name: rg_core stays in Ranger's Rust subset (JavaScript, C++, Go, Python)
         run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
       - name: Every game runs headless

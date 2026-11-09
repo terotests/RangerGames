@@ -115,6 +115,10 @@
       return s;
     };
     var have = this.buffers[path];
+    if (have === undefined && /\.wav$/i.test(path)) {
+      have = this.buffer(path);
+      if (!have) { delete this.buffers[path]; have = undefined; }
+    }
     if (have) return go(have);
     if (have === null) return null;
     var bytes = this.readFile(path);
@@ -124,6 +128,72 @@
     this.ctx.decodeAudioData(copy, function (buf) { self.buffers[path] = buf; if (loop) self.startMusic(path, { volume: vol }); else go(buf); },
       function () { self.buffers[path] = null; });
     return null;
+  };
+
+  // A WAV file (16-bit or 8-bit PCM, or 8-bit μ-law as the voice clips are)
+  // straight into an AudioBuffer: synchronous, and no codec questions.
+  function mulaw(u) {
+    u = ~u & 0xff;
+    var t = (((u & 0x0f) << 3) + 0x84) << ((u & 0x70) >> 4);
+    return ((u & 0x80) ? 0x84 - t : t - 0x84) / 32768;
+  }
+  Audio.prototype.decodeWav = function (b) {
+    if (!b || b.length < 44 || String.fromCharCode(b[0], b[1], b[2], b[3]) !== "RIFF") return null;
+    var dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    var fmt = 0, ch = 1, rate = 22050, bits = 16, at = 12;
+    while (at + 8 <= b.length) {
+      var id = String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3]), size = dv.getUint32(at + 4, true);
+      if (id === "fmt ") { fmt = dv.getUint16(at + 8, true); ch = dv.getUint16(at + 10, true); rate = dv.getUint32(at + 12, true); bits = dv.getUint16(at + 22, true); }
+      if (id === "data") {
+        var bytes = Math.min(size, b.length - at - 8), step = bits / 8, n = Math.floor(bytes / step / ch);
+        if (!n || !(fmt === 1 || fmt === 7)) return null;
+        var buf = this.ctx.createBuffer(1, n, rate), d = buf.getChannelData(0), p = at + 8;
+        for (var i = 0; i < n; i++, p += step * ch) {
+          d[i] = fmt === 7 ? mulaw(b[p]) : bits === 16 ? dv.getInt16(p, true) / 32768 : (b[p] - 128) / 128;
+        }
+        return buf;
+      }
+      at += 8 + size + (size & 1);
+    }
+    return null;
+  };
+
+  Audio.prototype.buffer = function (path) {
+    if (this.buffers[path] !== undefined) return this.buffers[path];
+    var buf = this.decodeWav(this.readFile(path));
+    this.buffers[path] = buf;
+    return buf;
+  };
+
+  // speech: a list of clips one after another; a new list cuts the old one
+  // unless opts.queue
+  Audio.prototype.say = function (opts) {
+    var list = (opts && opts.list) || [];
+    if (!(opts && opts.queue)) {
+      this.speech = [];
+      if (this.speaking) { try { this.speaking.onended = null; this.speaking.stop(); } catch (e) { } this.speaking = null; }
+    }
+    if (!this.ready()) return;
+    this.speechVol = opts && opts.volume !== undefined ? opts.volume : 1;
+    this.speech = (this.speech || []).concat(list);
+    if (!this.speaking) this.sayNext();
+  };
+
+  Audio.prototype.sayNext = function () {
+    var self = this;
+    this.speaking = null;
+    while (this.speech && this.speech.length) {
+      var buf = this.buffer(this.speech.shift());
+      if (!buf) continue;
+      var s = this.ctx.createBufferSource(), g = this.ctx.createGain();
+      s.buffer = buf;
+      g.gain.value = 1.6 * this.speechVol;
+      s.connect(g); g.connect(this.master);
+      s.onended = function () { if (self.speaking === s) self.sayNext(); };
+      s.start(this.ctx.currentTime + 0.02);
+      this.speaking = s;
+      return;
+    }
   };
 
   Audio.prototype.startMusic = function (name, opts) {

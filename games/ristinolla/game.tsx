@@ -28,6 +28,8 @@ function newRound() {
   starts = starts === "X" ? "O" : "X";
   mode = "play";
   phoneClock = 0;
+  // who starts, aloud
+  rg.say(vsPhone ? (turn === "X" ? "sinun_vuorosi" : "minun_vuoroni") : (turn === "X" ? "ristin_vuoro" : "nollan_vuoro"));
 }
 
 function lineOf(b: Mark[]): number[] {
@@ -45,10 +47,11 @@ function place(i: number) {
     winner = turn; winLine = l; score[turn]++;
     mode = "over"; overClock = 0;
     if (vsPhone && winner === "O") rg.sound("lose"); else rg.celebrate(width / 2, height * 0.45, { big: true });
+    rg.say(vsPhone ? (winner === "O" ? "puhelin_voitti" : "voitit") : (winner === "X" ? "risti_voitti" : "nolla_voitti"));
     rg.vibrate([60, 40, 120]);
     return;
   }
-  if (board.every((m) => m !== "")) { draw = true; mode = "over"; overClock = 0; rg.sound("wrong"); return; }
+  if (board.every((m) => m !== "")) { draw = true; mode = "over"; overClock = 0; rg.sound("wrong"); rg.say("tasapeli"); return; }
   turn = turn === "X" ? "O" : "X";
   phoneClock = 0;
 }

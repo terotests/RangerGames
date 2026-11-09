@@ -34,6 +34,8 @@ build aarch64-linux-android aarch64-linux-android arm64-v8a
 build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a
 
 cargo build -p rg_cli --release
+# the Finnish voice clips of rg.say (voice/fi.json → games/_voice/fi; only changed clips are rendered)
+cargo run -q --release -p rg_voice -- build voice/fi.json games/_voice/fi
 ./target/release/rg_cli pack games "$ASSETS/games.rgpk"
 if [[ ! -f "$ASSETS/fonts/Fredoka.ttf" ]]; then
   curl -sSfL -o "$ASSETS/fonts/Fredoka.ttf" "https://github.com/google/fonts/raw/main/ofl/fredoka/Fredoka%5Bwdth,wght%5D.ttf" \
