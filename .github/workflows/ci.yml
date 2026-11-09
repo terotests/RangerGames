@@ -11,10 +11,11 @@ on:
 permissions:
   contents: read
 
-# a newer push to the same branch (or PR) cancels the older run, so the
-# runners build only the latest commit and Pages publishes it sooner
+# a newer push to a branch or PR cancels its older run; on main every run
+# goes on (merges come every few minutes, cancelling would mean Pages never
+# gets published) and the pages job below keeps only the newest deploy
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref == 'refs/heads/main' && github.run_id || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -93,6 +94,10 @@ jobs:
     if: github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.ref == 'refs/heads/main')
     needs: engine
     runs-on: ubuntu-latest
+    # one deploy at a time; a newer waiting deploy replaces an older waiting one
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     permissions:
       pages: write
       id-token: write
