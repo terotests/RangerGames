@@ -1,0 +1,1207 @@
+// Tampereen liikenneretki: a child walks through the centre of Tampere to a
+// goal (mum's home on Tampellan esplanadi, school, day care, a park, a tram
+// stop, a sight). Streets are crossed only on zebra crossings: wait for the
+// green man at the lights, look out for cars at the other crossings and for
+// bikes on the cycle paths. The tram (lines 1 and 3) can be ridden from stop
+// to stop. The map is drawn from Tampere Taxi Driver's map data (OSM and the
+// city's own data) by tools/tampere/build_map.py.
+//
+// Coordinates are metres, x east and z south, as in Tampere Taxi Driver.
+
+import { MAP, WALK } from "lib/mapdata";
+
+type Car = { road: number; s: number; v: number; len: number; wid: number; color: string; bus: boolean; honk: number; wait: number };
+type Bike = { path: number; s: number; dir: number; v: number; color: string; ring: number; stop: number };
+type Tram = { line: number; s: number; dir: number; v: number; dwell: number; stopIdx: number; lastStop: number };
+type Place = { id: string; name: string; kind: string; x: number; z: number; icon: string };
+type Mode = "start" | "goal" | "play" | "ride" | "win";
+type Bit = { x: number; y: number; vx: number; vy: number; t: number; c: string; r: number };
+
+const X0: number = MAP.X0, Z0: number = MAP.Z0, MW: number = MAP.W, MH: number = MAP.H;
+const CELL: number = MAP.CELL, GW: number = MAP.GW, GH: number = MAP.GH;
+const TILE: number = MAP.TILE, TPPM: number = MAP.PPM;
+const WALK_SPEED = 6.5;          // m/s: a child in a hurry (the map is big)
+const CYCLE = 18;                // traffic light cycle, s
+const ZOOMS = [3, 4.5, 6];
+
+let mode: Mode = "start";
+let t = 0;
+let modeClock = 0;
+let zoomIdx = 1;
+let Z = ZOOMS[1];
+let places: Place[] = [];
+let homes: Place[] = [];
+let startPlace: Place | null = null;
+let goal: Place | null = null;
+let goalChoices: Place[] = [];
+let kid = { x: 0, z: 0, face: 0, step: 0, moving: false, safeX: 0, safeZ: 0 };
+let cam = { x: 0, z: 0 };
+let hearts = 3;
+let points = 0;
+let roundPoints = 0;
+let total = 0;
+let found = 0;
+let hurt = 0;
+let msg = "";
+let msgClock = 0;
+let msgKind = "info";
+let walking = false;
+let showMap = false;
+let cars: Car[] = [];
+let bikes: Bike[] = [];
+let trams: Tram[] = [];
+let tramSpawn = [32, 32];
+let nearRoads: number[] = [];
+let nearBikes: number[] = [];
+let nearClock = 0;
+let inCross = -1;
+let lastCross = -1;
+let crossOk = true;
+let waitedRed = false;
+let redWait = 0;
+let rewardClock = 0;
+let riding = -1;         // index of the tram the child is on
+let rideFrom = "";
+let bits: Bit[] = [];
+let roadHint = 0;
+let celebrate = 0;
+let debugOn = false;
+
+// ---- map data -------------------------------------------------------------
+
+const rowCache: any[] = [];
+function row(gz: number) {
+  let r = rowCache[gz];
+  if (r) return r;
+  const parts = WALK[gz].split(".");
+  const ends: number[] = [];
+  const vals: number[] = [];
+  let x = 0;
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    x += parseInt(p.slice(1), 36);
+    ends.push(x);
+    vals.push(parseInt(p.charAt(0), 10));
+  }
+  r = { ends, vals };
+  rowCache[gz] = r;
+  return r;
+}
+
+// 0 blocked, 1 walk, 2 road, 3 crossing, 4 cycle path, 5 tram track
+function cell(x: number, z: number): number {
+  const gx = Math.floor((x - X0) / CELL), gz = Math.floor((z - Z0) / CELL);
+  if (gx < 0 || gz < 0 || gx >= GW || gz >= GH) return 0;
+  const r = row(gz);
+  let lo = 0, hi = r.ends.length - 1;
+  while (lo < hi) {
+    const m = (lo + hi) >> 1;
+    if (r.ends[m] > gx) hi = m; else lo = m + 1;
+  }
+  return r.vals[lo];
+}
+
+type Line = { pts: number[]; cum: number[]; len: number };
+function makeLine(p: number[]): Line {
+  const cum = [0];
+  let acc = 0;
+  for (let i = 2; i < p.length; i += 2) {
+    acc += Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1]);
+    cum.push(acc);
+  }
+  return { pts: p, cum, len: acc };
+}
+// position and heading at distance s along a line
+function along(l: Line, s: number) {
+  const c = l.cum;
+  if (s <= 0) s = 0;
+  if (s >= l.len) s = l.len;
+  let lo = 0, hi = c.length - 1;
+  while (lo < hi - 1) {
+    const m = (lo + hi) >> 1;
+    if (c[m] <= s) lo = m; else hi = m;
+  }
+  const seg = c[hi] - c[lo] || 1;
+  const k = (s - c[lo]) / seg;
+  const ax = l.pts[lo * 2], az = l.pts[lo * 2 + 1], bx = l.pts[hi * 2], bz = l.pts[hi * 2 + 1];
+  return { x: ax + (bx - ax) * k, z: az + (bz - az) * k, a: Math.atan2(bz - az, bx - ax) };
+}
+
+const roadLines: Line[] = [];
+const roadsFrom: number[][] = [];
+const bikeLines: Line[] = [];
+const bikeNext: number[][][] = [];   // [path][end 0|1] -> list of [path, end]
+const tramLines: Line[] = [];
+const tramStops: any[] = [];         // per line: [{s, name, place}]
+const tramCross: any[] = [];         // per line: [[s, crossing, phase forward, phase backward]]
+const crossBuckets: any = {};
+
+function bucketKey(x: number, z: number) { return Math.floor(x / 40) + ":" + Math.floor(z / 40); }
+
+function setupMap() {
+  places = MAP.places;
+  for (let i = 0; i < MAP.roads.length; i++) {
+    const r = MAP.roads[i];
+    roadLines.push(makeLine(r.p));
+    if (!roadsFrom[r.f]) roadsFrom[r.f] = [];
+    roadsFrom[r.f].push(i);
+  }
+  for (let i = 0; i < MAP.bikes.length; i++) bikeLines.push(makeLine(MAP.bikes[i]));
+  for (let i = 0; i < bikeLines.length; i++) {
+    bikeNext.push([[], []]);
+    for (let e = 0; e < 2; e++) {
+      const p = bikeLines[i].pts;
+      const x = e === 0 ? p[0] : p[p.length - 2], z = e === 0 ? p[1] : p[p.length - 1];
+      for (let j = 0; j < bikeLines.length; j++) {
+        if (j === i) continue;
+        const q = bikeLines[j].pts;
+        if (Math.hypot(q[0] - x, q[1] - z) < 4) bikeNext[i][e].push([j, 0]);
+        else if (Math.hypot(q[q.length - 2] - x, q[q.length - 1] - z) < 4) bikeNext[i][e].push([j, 1]);
+      }
+    }
+  }
+  for (let i = 0; i < MAP.trams.length; i++) {
+    const tr = MAP.trams[i];
+    const l = makeLine(tr.p);
+    tramLines.push(l);
+    const st: any[] = [];
+    for (let k = 0; k < tr.stops.length; k++) {
+      const pl = findPlace("stop:" + tr.stops[k][1]);
+      st.push({ s: tr.stops[k][0], name: tr.stops[k][1], place: pl });
+    }
+    tramStops.push(st);
+    const cr: any[] = [];
+    for (let k = 0; k < tr.x.length; k++) {
+      const s = tr.x[k][0], ci = tr.x[k][1];
+      const c = MAP.crossings[ci];
+      let pf = -1, pb = -1;
+      if (c[4] >= 0) {
+        const axis = MAP.inters[c[4]][2];
+        const a = along(l, s).a;
+        pf = angDiff(a, axis) < Math.PI / 4 ? 0 : 1;
+        pb = pf;
+      }
+      cr.push([s, ci, pf, pb]);
+    }
+    tramCross.push(cr);
+  }
+  for (let i = 0; i < MAP.crossings.length; i++) {
+    const c = MAP.crossings[i];
+    const mx = (c[0] + c[2]) / 2, mz = (c[1] + c[3]) / 2;
+    const k = bucketKey(mx, mz);
+    if (!crossBuckets[k]) crossBuckets[k] = [];
+    crossBuckets[k].push(i);
+  }
+  // the four homes the game starts from
+  homes = [findPlace("koti"), findPlace("koulu"), findPlace("paivakoti"), findPlace("yo39")];
+  // tram stops no line serves are only places on the map
+  places = places.filter((p) => p.kind !== "stop" || onTram(p.id));
+}
+
+function onTram(id: string) {
+  for (let i = 0; i < tramStops.length; i++) for (let k = 0; k < tramStops[i].length; k++) if (tramStops[i][k].place && tramStops[i][k].place.id === id) return true;
+  return false;
+}
+
+function findPlace(id: string): Place {
+  for (let i = 0; i < MAP.places.length; i++) if (MAP.places[i].id === id) return MAP.places[i];
+  return MAP.places[0];
+}
+
+function angDiff(a: number, b: number) {
+  let d = Math.abs((a - b) % Math.PI);
+  if (d < 0) d += Math.PI;
+  return Math.min(d, Math.PI - d);
+}
+
+// the crossing under a point, or -1
+function crossingAt(x: number, z: number): number {
+  let best = -1, bd = 3.2;
+  const bx = Math.floor(x / 40), bz = Math.floor(z / 40);
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
+    const list = crossBuckets[(bx + dx) + ":" + (bz + dz)];
+    if (!list) continue;
+    for (let i = 0; i < list.length; i++) {
+      const c = MAP.crossings[list[i]];
+      const d = segDist(x, z, c[0], c[1], c[2], c[3]);
+      if (d < bd) { bd = d; best = list[i]; }
+    }
+  }
+  return best;
+}
+
+function segDist(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
+  const dx = bx - ax, dz = bz - az;
+  const L = dx * dx + dz * dz || 1;
+  let k = ((px - ax) * dx + (pz - az) * dz) / L;
+  k = k < -0.15 ? -0.15 : k > 1.15 ? 1.15 : k;
+  return Math.hypot(px - (ax + dx * k), pz - (az + dz * k));
+}
+
+// ---- traffic lights ---------------------------------------------------------
+
+// where the light cycle of an intersection is: [active phase or -1, seconds into it]
+function lightState(inter: number) {
+  const off = MAP.inters[inter][3];
+  const c = (t + off) % CYCLE;
+  if (c < 8) return [0, c];
+  if (c < 9) return [-1, 0];
+  if (c < 17) return [1, c - 9];
+  return [-1, 0];
+}
+// the walk light of a crossing: "green", "blink" or "red"
+function walkLight(ci: number): string {
+  const c = MAP.crossings[ci];
+  if (c[4] < 0) return "none";
+  const st = lightState(c[4]);
+  if (st[0] !== c[5]) return "red";
+  return st[1] < 5.5 ? "green" : "blink";
+}
+// may a vehicle of this phase drive through
+function carGo(inter: number, phase: number): boolean {
+  const st = lightState(inter);
+  return st[0] === phase && st[1] < 7.2;
+}
+
+// ---- game flow --------------------------------------------------------------
+
+function init() {
+  total = rg.load("points", 0);
+  found = rg.load("found", 0);
+  setupMap();
+  startPlace = homes[0];
+  placeKid(startPlace);
+  for (let i = 0; i < tramLines.length; i++) {
+    for (let k = 0; k < 3; k++) {
+      trams.push(makeTram(i, 1, tramLines[i].len * (0.1 + k * 0.33)));
+      trams.push(makeTram(i, -1, tramLines[i].len * (0.25 + k * 0.33)));
+    }
+  }
+}
+
+function placeKid(p: Place) {
+  kid.x = p.x; kid.z = p.z; kid.safeX = p.x; kid.safeZ = p.z;
+  cam.x = kid.x; cam.z = kid.z;
+  cars = []; bikes = [];
+  nearClock = 0;
+}
+
+function chooseStart(p: Place) {
+  rg.sound("click");
+  startPlace = p;
+  placeKid(p);
+  makeGoalChoices();
+  mode = "goal";
+  modeClock = 0;
+}
+
+function pickNear(kind: string, n: number): Place[] {
+  const list = places.filter((p) => p.kind === kind && Math.hypot(p.x - kid.x, p.z - kid.z) > 120);
+  list.sort((a, b) => Math.hypot(a.x - kid.x, a.z - kid.z) - Math.hypot(b.x - kid.x, b.z - kid.z));
+  const pool = list.slice(0, Math.max(n, 4));
+  return rg.shuffle(pool).slice(0, n);
+}
+
+function makeGoalChoices() {
+  const out: Place[] = [];
+  for (let i = 0; i < homes.length; i++) if (Math.hypot(homes[i].x - kid.x, homes[i].z - kid.z) > 60) out.push(homes[i]);
+  const park = pickNear("park", 1);
+  const stop = pickNear("stop", 1);
+  const sight = pickNear("sight", 1);
+  goalChoices = out.concat(park, stop, sight);
+}
+
+function chooseGoal(p: Place) {
+  rg.sound("coin");
+  goal = p;
+  hearts = 3;
+  roundPoints = 0;
+  mode = "play";
+  modeClock = 0;
+  riding = -1;
+  showMap = false;
+  say("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "info", 4);
+}
+
+function goalPhrase(p: Place) {
+  if (p.id === "koti") return "äidin luo";
+  if (p.kind === "stop") return "ratikkapysäkki " + p.name;
+  return p.name;
+}
+
+function say(text: string, kind: string, secs: number) {
+  msg = text; msgKind = kind; msgClock = secs;
+}
+
+function addPoints(n: number, why: string) {
+  points += n;
+  roundPoints += n;
+  say("+" + n + " " + why, "good", 2.5);
+}
+
+function mistake(text: string) {
+  if (hurt > 0) return;
+  hearts--;
+  hurt = 1.6;
+  rg.vibrate([120, 60, 120]);
+  rg.sound("wrong");
+  kid.x = kid.safeX; kid.z = kid.safeZ;
+  walking = false;
+  if (hearts <= 0) {
+    say("Harjoitellaan vielä! Aloitetaan alusta.", "bad", 4);
+    hearts = 3;
+    if (startPlace) placeKid(startPlace);
+  } else {
+    say(text, "bad", 3.5);
+  }
+}
+
+function win() {
+  mode = "win";
+  modeClock = 0;
+  celebrate = 0;
+  const bonus = 50 + hearts * 20;
+  points += bonus;
+  roundPoints += bonus;
+  total += roundPoints;
+  found++;
+  rg.save("points", total);
+  rg.save("found", found);
+  rg.sound("win");
+  rg.music("happy");
+  rg.vibrate([80, 60, 80, 60, 250]);
+  rg.celebrate(width / 2, height * 0.4, { big: true, sound: false });
+}
+
+function nextTrip() {
+  rg.stopMusic();
+  if (goal) startPlace = goal;
+  makeGoalChoices();
+  mode = "goal";
+  modeClock = 0;
+}
+
+function onClose() {
+  if (mode === "play" || mode === "ride" || mode === "win" || mode === "goal") { onBack(); return false; }
+  return true;
+}
+
+function onBack() {
+  if (showMap) { showMap = false; return; }
+  if (mode === "play" || mode === "ride") { mode = "goal"; riding = -1; makeGoalChoices(); return; }
+  if (mode === "goal") { mode = "start"; return; }
+  if (mode === "win") { nextTrip(); return; }
+  rg.exit();
+}
+
+// ---- input ----------------------------------------------------------------------
+
+function onPointerDown(x: number, y: number) {
+  if (mode === "play" && !showMap) walking = true;
+}
+function onPointerUp() { walking = false; }
+
+function onKeyDown(key: string) {
+  if (key === "m" || key === "M") showMap = !showMap;
+  if (key === "z" || key === "Z") cycleZoom();
+  if (key === "g") debugOn = !debugOn;
+  // for testing: T jumps to the next tram stop
+  if ((key === "t" || key === "T") && mode === "play") {
+    const st = places.filter((p) => p.kind === "stop");
+    const p = st[(st.indexOf(stopNear() as any) + 1) % st.length];
+    kid.x = p.x; kid.z = p.z; kid.safeX = p.x; kid.safeZ = p.z; cars = []; bikes = []; nearClock = 0;
+  }
+}
+
+function cycleZoom() {
+  zoomIdx = (zoomIdx + 1) % ZOOMS.length;
+  Z = ZOOMS[zoomIdx];
+  rg.sound("click");
+}
+
+// ---- the child --------------------------------------------------------------
+
+function moveKid(dt: number, input: any) {
+  let dx = 0, dz = 0;
+  const k = input.keys;
+  if (k.ArrowLeft || k.a) dx -= 1;
+  if (k.ArrowRight || k.d) dx += 1;
+  if (k.ArrowUp || k.w) dz -= 1;
+  if (k.ArrowDown || k.s) dz += 1;
+  if (walking && input.pointer.down) {
+    const sx = (kid.x - cam.x) * Z + width / 2, sy = (kid.z - cam.z) * Z + height / 2;
+    const px = input.pointer.x - sx, py = input.pointer.y - sy;
+    const d = Math.hypot(px, py);
+    if (d > 14) { dx = px / d; dz = py / d; }
+  } else if (!input.pointer.down) walking = false;
+  const L = Math.hypot(dx, dz);
+  kid.moving = L > 0;
+  if (!kid.moving) { redWaitCheck(dt); return; }
+  dx /= L; dz /= L;
+  kid.face = Math.atan2(dz, dx);
+  kid.step += dt * 9;
+  const dist = WALK_SPEED * dt;
+  const n = Math.max(1, Math.ceil(dist / 0.5));
+  for (let i = 0; i < n; i++) {
+    const sx = dx * dist / n, sz = dz * dist / n;
+    if (!tryStep(kid.x + sx, kid.z + sz)) {
+      if (Math.abs(sx) > 0.01 && tryStep(kid.x + sx, kid.z)) continue;
+      if (Math.abs(sz) > 0.01 && tryStep(kid.x, kid.z + sz)) continue;
+      break;
+    }
+  }
+}
+
+// one small step; false when the way is shut
+function tryStep(x: number, z: number): boolean {
+  const c = cell(x, z);
+  if (c === 0) return false;
+  if (c === 2 || c === 5) {
+    if (roadHint <= 0) {
+      say("Kadun yli vain suojatietä pitkin! 🦓", "info", 2.5);
+      rg.sound("tick");
+      roadHint = 3;
+    }
+    return false;
+  }
+  if (c === 3) {
+    const ci = crossingAt(x, z);
+    if (inCross < 0 && ci >= 0) {
+      // stepping onto a crossing: the light, then the cars
+      const wl = walkLight(ci);
+      if (wl === "red") { mistake("Punainen valo! Odota vihreää ukkoa. 🔴"); return false; }
+      if (carComing(ci)) { honkNear(ci); mistake("Auto tulee! Katso ensin vasemmalle ja oikealle. 🚗"); return false; }
+      inCross = ci;
+      crossOk = true;
+    }
+  } else {
+    if (inCross >= 0) {
+      // off the crossing on the other side
+      const c0 = MAP.crossings[inCross];
+      if (crossOk && rewardClock <= 0 && inCross !== lastCross) {
+        if (c0[4] >= 0) addPoints(waitedRed ? 15 : 10, waitedRed ? "Odotit vihreää valoa!" : "Ylitit vihreällä!");
+        else addPoints(5, "Hyvin katsottu!");
+        rg.celebrate(sx(kid.x), sy(kid.z), { count: c0[4] >= 0 ? 18 : 10 });
+        rewardClock = 2;
+      }
+      lastCross = inCross;
+      inCross = -1;
+      waitedRed = false;
+    }
+    kid.safeX = x; kid.safeZ = z;
+  }
+  kid.x = x; kid.z = z;
+  return true;
+}
+
+// standing still next to a red light earns the "waited for green" bonus
+function redWaitCheck(dt: number) {
+  if (inCross >= 0) return;
+  for (let r = 0; r < 4; r++) {
+    const a = r * Math.PI / 2;
+    const c = cell(kid.x + Math.cos(a) * 3, kid.z + Math.sin(a) * 3);
+    if (c === 3) {
+      const ci = crossingAt(kid.x + Math.cos(a) * 3, kid.z + Math.sin(a) * 3);
+      if (ci >= 0 && walkLight(ci) === "red") {
+        redWait += dt;
+        if (redWait > 1.2 && !waitedRed) { waitedRed = true; say("Hyvä, odotat vihreää! 🟢", "good", 2); }
+      }
+      return;
+    }
+  }
+}
+
+function carComing(ci: number): boolean {
+  for (let i = 0; i < cars.length; i++) {
+    const c = cars[i];
+    if (c.v < 2) continue;
+    const st = MAP.roads[c.road].s;
+    for (let k = 0; k < st.length; k++) {
+      if (st[k][1] !== ci) continue;
+      const ahead = st[k][0] - c.s;
+      if (ahead > -2 && ahead < 6 + c.v * 1.6) return true;
+    }
+  }
+  for (let i = 0; i < trams.length; i++) {
+    const tr = trams[i];
+    if (tr.v < 1) continue;
+    const cr = tramCross[tr.line];
+    for (let k = 0; k < cr.length; k++) {
+      if (cr[k][1] !== ci) continue;
+      const ahead = (cr[k][0] - tr.s) * tr.dir;
+      if (ahead > -30 && ahead < 25) return true;
+    }
+  }
+  return false;
+}
+
+function honkNear(ci: number) {
+  for (let i = 0; i < cars.length; i++) {
+    const st = MAP.roads[cars[i].road].s;
+    for (let k = 0; k < st.length; k++) if (st[k][1] === ci) cars[i].honk = 1;
+  }
+  rg.sound("hit", { pitch: 0.5 });
+}
+
+// ---- traffic ------------------------------------------------------------------
+
+const CAR_COLORS = ["#e63946", "#f4a261", "#2a9d8f", "#457b9d", "#ffffff", "#ffd166", "#8d99ae", "#6a4c93", "#222831"];
+
+function refreshNear() {
+  nearRoads = [];
+  for (let i = 0; i < MAP.roads.length; i++) {
+    const p = MAP.roads[i].p;
+    const m = (p.length >> 2) << 1;
+    if (Math.hypot(p[m] - kid.x, p[m + 1] - kid.z) < 260) nearRoads.push(i);
+  }
+  nearBikes = [];
+  for (let i = 0; i < bikeLines.length; i++) {
+    const p = bikeLines[i].pts;
+    const m = (p.length >> 2) << 1;
+    if (Math.hypot(p[m] - kid.x, p[m + 1] - kid.z) < 180) nearBikes.push(i);
+  }
+}
+
+function spawnTraffic(first: boolean) {
+  let tries = 0;
+  while (cars.length < 14 && nearRoads.length > 0 && tries < 20) {
+    tries++;
+    const r = rg.pick(nearRoads);
+    const l = roadLines[r];
+    const s = rg.random() * l.len;
+    const p = along(l, s);
+    const d = Math.hypot(p.x - kid.x, p.z - kid.z);
+    if (!first && d < 70) continue;
+    if (d < 25) continue;
+    if (carAt(r, s, 10)) continue;
+    const bus = MAP.roads[r].c <= 2 && rg.random() < 0.18;
+    cars.push({ road: r, s, v: 6, len: bus ? 12 : 4.6, wid: bus ? 2.6 : 2.0, color: bus ? "#1d6fb8" : rg.pick(CAR_COLORS), bus, honk: 0, wait: 0 });
+  }
+  tries = 0;
+  while (bikes.length < 5 && nearBikes.length > 0 && tries < 10) {
+    tries++;
+    const b = rg.pick(nearBikes);
+    const l = bikeLines[b];
+    const s = rg.random() * l.len;
+    const p = along(l, s);
+    const d = Math.hypot(p.x - kid.x, p.z - kid.z);
+    if (d < (first ? 30 : 60)) continue;
+    bikes.push({ path: b, s, dir: rg.random() < 0.5 ? 1 : -1, v: 4.5, color: rg.pick(CAR_COLORS), ring: 0, stop: 0 });
+  }
+}
+
+function carAt(road: number, s: number, gap: number): boolean {
+  for (let i = 0; i < cars.length; i++) if (cars[i].road === road && Math.abs(cars[i].s - s) < gap) return true;
+  return false;
+}
+
+function stepCars(dt: number) {
+  for (let i = cars.length - 1; i >= 0; i--) {
+    const c = cars[i];
+    const road = MAP.roads[c.road];
+    const l = roadLines[c.road];
+    const cruise = road.c === 1 ? 11 : road.c === 2 ? 9.5 : 7.5;
+    let limit = cruise;
+    // crossings and lights ahead
+    const st = road.s;
+    for (let k = 0; k < st.length; k++) {
+      const ahead = st[k][0] - c.s - c.len / 2;
+      if (ahead < -1 || ahead > 30) continue;
+      const ci = st[k][1];
+      let stop = false;
+      if (st[k][2] >= 0 && st[k][3] >= 0 && !carGo(st[k][2], st[k][3]) && ahead > 1.5) stop = true;
+      if (inCross === ci) stop = true;
+      if (!stop && kidNearCross(ci) && ahead > 1) stop = true;
+      if (stop) limit = Math.min(limit, Math.max(0, (ahead - 2.5) * 1.4));
+    }
+    // the car in front
+    for (let j = 0; j < cars.length; j++) {
+      if (j === i) continue;
+      const o = cars[j];
+      if (o.road === c.road && o.s > c.s) {
+        const gap = o.s - c.s - (o.len + c.len) / 2;
+        if (gap < 20) limit = Math.min(limit, Math.max(0, (gap - 2.5) * 1.2));
+      }
+    }
+    // the tram on the same street (a car never runs into it)
+    c.v += (limit > c.v ? 3.5 : -12) * dt;
+    if (c.v > limit && limit < 0.5) c.v = Math.max(0, c.v - 18 * dt);
+    if (c.v < 0) c.v = 0;
+    if (c.v > cruise) c.v = cruise;
+    c.s += c.v * dt;
+    if (c.honk > 0) c.honk -= dt;
+    if (c.s > l.len) {
+      // the next street: anything but straight back
+      const outs = roadsFrom[road.t] || [];
+      const choices = outs.filter((o) => MAP.roads[o].t !== road.f);
+      const pool = choices.length ? choices : outs;
+      if (!pool.length) { cars.splice(i, 1); continue; }
+      const next = rg.pick(pool);
+      c.wait += dt;
+      if (carAt(next, 0, 7) && c.wait < 3) { c.s = l.len; c.v = 0; continue; }
+      c.wait = 0;
+      c.s -= l.len;
+      c.road = next;
+    }
+    const p = along(roadLines[c.road], c.s);
+    if (Math.hypot(p.x - kid.x, p.z - kid.z) > 330) cars.splice(i, 1);
+  }
+}
+
+// the child stands at the kerb of the crossing, about to step on it
+function kidNearCross(ci: number): boolean {
+  const c = MAP.crossings[ci];
+  const da = Math.hypot(kid.x - c[0], kid.z - c[1]), db = Math.hypot(kid.x - c[2], kid.z - c[3]);
+  return (da < 4 || db < 4) && kid.moving;
+}
+
+function stepBikes(dt: number) {
+  for (let i = bikes.length - 1; i >= 0; i--) {
+    const b = bikes[i];
+    const l = bikeLines[b.path];
+    const p = along(l, b.s);
+    const hx = Math.cos(p.a) * b.dir, hz = Math.sin(p.a) * b.dir;
+    const rx = kid.x - p.x, rz = kid.z - p.z;
+    const ahead = rx * hx + rz * hz, side = Math.abs(-rx * hz + rz * hx);
+    let target = 4.5;
+    if (ahead > 0 && ahead < 12 && side < 2.5 && mode === "play") {
+      target = 1.5;
+      if (b.ring <= 0) { rg.sound("note", { pitch: 2.2, volume: 0.6 }); b.ring = 2.5; }
+    }
+    if (Math.hypot(rx, rz) < 1.5 && mode === "play" && hurt <= 0) {
+      b.stop = 1.2;
+      mistake("Varo pyöräilijää! Pyörätiellä kävellään reunassa. 🚲");
+    }
+    if (b.ring > 0) b.ring -= dt;
+    if (b.stop > 0) { b.stop -= dt; target = 0; }
+    b.v += (target - b.v) * Math.min(1, dt * 3);
+    b.s += b.v * b.dir * dt;
+    if (b.s < 0 || b.s > l.len) {
+      const end = b.s < 0 ? 0 : 1;
+      const nx = bikeNext[b.path][end];
+      if (!nx.length) { bikes.splice(i, 1); continue; }
+      const n = rg.pick(nx);
+      b.path = n[0];
+      b.dir = n[1] === 0 ? 1 : -1;
+      b.s = n[1] === 0 ? 0 : bikeLines[n[0]].len;
+    }
+    if (Math.hypot(p.x - kid.x, p.z - kid.z) > 220) bikes.splice(i, 1);
+  }
+}
+
+function makeTram(line: number, dir: number, s: number): Tram {
+  const st = tramStops[line];
+  let idx = dir > 0 ? 0 : st.length - 1;
+  for (let k = 0; k < st.length; k++) {
+    if (dir > 0 && st[k].s > s) { idx = k; break; }
+    if (dir < 0 && st[st.length - 1 - k].s < s) { idx = st.length - 1 - k; break; }
+  }
+  return { line, s, dir, v: 7, dwell: 0, stopIdx: idx, lastStop: -1 };
+}
+
+function stepTrams(dt: number) {
+  for (let i = 0; i < tramLines.length; i++) {
+    tramSpawn[i] = (tramSpawn[i] || 0) - dt;
+    if (tramSpawn[i] <= 0) {
+      tramSpawn[i] = 32;
+      trams.push(makeTram(i, 1, 0));
+      trams.push(makeTram(i, -1, tramLines[i].len));
+    }
+  }
+  for (let i = trams.length - 1; i >= 0; i--) {
+    const tr = trams[i];
+    const l = tramLines[tr.line];
+    const st = tramStops[tr.line];
+    if (tr.dwell > 0) {
+      tr.dwell -= dt;
+      if (tr.dwell <= 0) {
+        tr.lastStop = tr.stopIdx;
+        tr.stopIdx += tr.dir;
+        if (i === riding) rg.sound("whoosh", { volume: 0.4 });
+      }
+      continue;
+    }
+    let limit = 9;
+    if (tr.stopIdx >= 0 && tr.stopIdx < st.length) {
+      const ahead = (st[tr.stopIdx].s - tr.s) * tr.dir;
+      if (ahead < 40) limit = Math.min(limit, Math.max(0.6, ahead * 0.45));
+      if (ahead <= 0.3) {
+        tr.v = 0;
+        tr.dwell = i === riding ? 6 : (kidWaitsAt(st[tr.stopIdx]) ? 12 : 6);
+        if (i === riding) arriveAt(tr);
+        continue;
+      }
+    }
+    // crossings: the child on it, or a red light
+    const cr = tramCross[tr.line];
+    for (let k = 0; k < cr.length; k++) {
+      const ahead = (cr[k][0] - tr.s) * tr.dir - 14;
+      if (ahead < 0 || ahead > 25) continue;
+      const ci = cr[k][1];
+      const c = MAP.crossings[ci];
+      let stop = inCross === ci;
+      if (c[4] >= 0 && !carGo(c[4], cr[k][2]) && ahead > 1) stop = true;
+      if (stop) limit = Math.min(limit, Math.max(0, (ahead - 1) * 1.2));
+    }
+    // the tram in front
+    for (let j = 0; j < trams.length; j++) {
+      const o = trams[j];
+      if (j === i || o.line !== tr.line || o.dir !== tr.dir) continue;
+      const gap = (o.s - tr.s) * tr.dir;
+      if (gap > 0 && gap < 70) limit = Math.min(limit, Math.max(0, (gap - 40) * 0.5));
+    }
+    tr.v += (limit > tr.v ? 1.8 : -6) * dt;
+    if (tr.v < 0) tr.v = 0;
+    tr.s += tr.v * tr.dir * dt;
+    if (tr.s < -40 || tr.s > l.len + 40) {
+      if (i === riding) { endOfLine(tr); }
+      trams.splice(i, 1);
+      if (riding > i) riding--;
+    }
+  }
+}
+
+// ---- riding the tram ----------------------------------------------------------
+
+function kidWaitsAt(st: any): boolean {
+  return mode === "play" && st && st.place && Math.hypot(st.place.x - kid.x, st.place.z - kid.z) < 16;
+}
+
+function tramAtStop(stopId: string): number {
+  for (let i = 0; i < trams.length; i++) {
+    const tr = trams[i];
+    if (tr.dwell <= 0) continue;
+    const st = tramStops[tr.line][tr.stopIdx];
+    if (st && st.place && st.place.id === stopId) return i;
+  }
+  return -1;
+}
+
+function stopNear(): Place | null {
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i];
+    if (p.kind === "stop" && Math.hypot(p.x - kid.x, p.z - kid.z) < 16) return p;
+  }
+  return null;
+}
+
+function board(i: number) {
+  riding = i;
+  const tr = trams[i];
+  const st = tramStops[tr.line][tr.stopIdx];
+  rideFrom = st ? st.name : "";
+  mode = "ride";
+  walking = false;
+  rg.sound("note", { pitch: 1.5 });
+  rg.vibrate(40);
+  say("Kyydissä! Jää pois, kun ratikka on pysäkillä.", "info", 3);
+}
+
+function arriveAt(tr: Tram) {
+  const st = tramStops[tr.line][tr.stopIdx];
+  if (!st) return;
+  rg.sound("note", { pitch: 1.2 });
+  say("Pysäkki: " + st.name, "info", 4);
+}
+
+function alight() {
+  if (riding < 0) return;
+  const tr = trams[riding];
+  const st = tramStops[tr.line][tr.stopIdx];
+  const pl = st ? st.place : null;
+  if (pl) { kid.x = pl.x; kid.z = pl.z; kid.safeX = pl.x; kid.safeZ = pl.z; }
+  riding = -1;
+  mode = "play";
+  inCross = -1;
+  cars = []; bikes = []; nearClock = 0;
+  rg.sound("pop");
+  if (pl && rideFrom && st.name !== rideFrom) addPoints(20, "Ratikkamatka " + rideFrom + " – " + st.name + "!");
+}
+
+function endOfLine(tr: Tram) {
+  // the line leaves the map: everyone out at the last stop
+  const st = tramStops[tr.line];
+  const last = tr.dir > 0 ? st[st.length - 1] : st[0];
+  if (last.place) { kid.x = last.place.x; kid.z = last.place.z; kid.safeX = kid.x; kid.safeZ = kid.z; }
+  riding = -1;
+  mode = "play";
+  say("Päätepysäkki! Kaikki ulos.", "info", 3);
+}
+
+// ---- tick -----------------------------------------------------------------------
+
+function tick(dt: number, input: any) {
+  if (dt > 0.1) dt = 0.1;
+  t += dt;
+  modeClock += dt;
+  if (msgClock > 0) msgClock -= dt;
+  if (hurt > 0) hurt -= dt;
+  if (rewardClock > 0) rewardClock -= dt;
+  if (roadHint > 0) roadHint -= dt;
+  stepTrams(dt);
+  if (mode === "play" || mode === "ride") {
+    nearClock -= dt;
+    if (nearClock <= 0) {
+      refreshNear();
+      spawnTraffic(cars.length === 0);
+      nearClock = 1;
+    }
+    stepCars(dt);
+    stepBikes(dt);
+  }
+  if (mode === "play" && !showMap) {
+    if (hurt <= 0.8) moveKid(dt, input);
+    if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 12 && (goal.kind !== "stop" || true)) win();
+  }
+  if (mode === "ride" && riding >= 0 && riding < trams.length) {
+    const tr = trams[riding];
+    const p = along(tramLines[tr.line], tr.s);
+    kid.x = p.x; kid.z = p.z;
+    if (goal && goal.kind === "stop" && tr.dwell > 0) {
+      const st = tramStops[tr.line][tr.stopIdx];
+      if (st && st.place && st.place.id === goal.id) { alight(); win(); }
+    }
+  }
+  // the camera follows, a little ahead of the walk
+  const tx = kid.x, tz = kid.z;
+  cam.x += (tx - cam.x) * Math.min(1, dt * 6);
+  cam.z += (tz - cam.z) * Math.min(1, dt * 6);
+  const hw = width / 2 / Z, hh = height / 2 / Z;
+  cam.x = rg.clamp(cam.x, X0 + hw, X0 + MW - hw);
+  cam.z = rg.clamp(cam.z, Z0 + hh, Z0 + MH - hh);
+  if (mode === "win") {
+    celebrate += dt;
+  }
+}
+
+// ---- view -------------------------------------------------------------------------
+
+function sx(x: number) { return (x - cam.x) * Z + width / 2; }
+function sy(z: number) { return (z - cam.z) * Z + height / 2; }
+
+function Tiles() {
+  const out: any[] = [];
+  const size = TILE * Z;
+  const left = cam.x - width / 2 / Z, top = cam.z - height / 2 / Z;
+  const c0 = Math.max(0, Math.floor((left - X0) / TILE)), r0 = Math.max(0, Math.floor((top - Z0) / TILE));
+  const c1 = Math.min(MAP.NCOL - 1, Math.floor((left + width / Z - X0) / TILE));
+  const r1 = Math.min(MAP.NROW - 1, Math.floor((top + height / Z - Z0) / TILE));
+  for (let r = r0; r <= r1; r++) for (let c = c0; c <= c1; c++) {
+    const x = Math.floor(sx(X0 + c * TILE)), y = Math.floor(sy(Z0 + r * TILE));
+    out.push(<img className="tile" src={rg.asset("tiles/" + c + "_" + r + ".png")} style={{ left: x, top: y, width: Math.ceil(size) + 1, height: Math.ceil(size) + 1 }} />);
+  }
+  return out;
+}
+
+function visible(x: number, z: number, m: number) {
+  const X = sx(x), Y = sy(z);
+  return X > -m && X < width + m && Y > -m && Y < height + m;
+}
+
+function Lights() {
+  const out: any[] = [];
+  for (let i = 0; i < MAP.crossings.length; i++) {
+    const c = MAP.crossings[i];
+    if (!visible(c[0], c[1], 30) && !visible(c[2], c[3], 30)) continue;
+    const L = Math.hypot(c[2] - c[0], c[3] - c[1]) || 1;
+    const ux = (c[2] - c[0]) / L, uz = (c[3] - c[1]) / L;
+    if (c[4] >= 0) {
+      const wl = walkLight(i);
+      const on = wl === "green" || (wl === "blink" && Math.floor(t * 4) % 2 === 0);
+      for (let e = 0; e < 2; e++) {
+        const px = e === 0 ? c[0] - ux * 1.2 + uz * 2.6 : c[2] + ux * 1.2 - uz * 2.6;
+        const pz = e === 0 ? c[1] - uz * 1.2 - ux * 2.6 : c[3] + uz * 1.2 + ux * 2.6;
+        const s = Z / 4.5;
+        out.push(
+          <div className="sig" style={{ left: sx(px) - 6 * s, top: sy(pz) - 11 * s, width: 12 * s, height: 22 * s, borderRadius: 3 * s }}>
+            <div className="lamp" style={{ left: 2 * s, top: 2 * s, width: 8 * s, height: 8 * s, borderRadius: 4 * s, backgroundColor: on ? "#3a1010" : "#ff3b30" }} />
+            <div className="lamp" style={{ left: 2 * s, top: 12 * s, width: 8 * s, height: 8 * s, borderRadius: 4 * s, backgroundColor: on ? "#3cff6e" : "#103a18" }} />
+          </div>
+        );
+      }
+    } else {
+      // the blue crossing sign
+      const px = c[0] - ux * 1.5 + uz * 2.4, pz = c[1] - uz * 1.5 - ux * 2.4;
+      const s = Z / 4.5;
+      out.push(
+        <div className="zsign" style={{ left: sx(px) - 8 * s, top: sy(pz) - 8 * s, width: 16 * s, height: 16 * s, borderRadius: 2 * s }}>
+          <div className="ztri" style={{ fontSize: 10 * s, width: 16 * s, height: 16 * s }}>{"🚶"}</div>
+        </div>
+      );
+    }
+  }
+  return out;
+}
+
+function Places() {
+  const out: any[] = [];
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i];
+    if (!visible(p.x, p.z, 80)) continue;
+    const isGoal = goal && goal.id === p.id && (mode === "play" || mode === "ride");
+    const bob = isGoal ? Math.sin(t * 5) * 4 : 0;
+    const X = sx(p.x), Y = sy(p.z);
+    if (p.kind === "stop") {
+      out.push(<div className="stoppole" style={{ left: X - 2, top: Y - 34, height: 34 }} />);
+      out.push(<div className="stopsign" style={{ left: X - 16, top: Y - 54 + bob }}>{"🚋"}</div>);
+    } else {
+      out.push(<div className={isGoal ? "pin goal" : "pin"} style={{ left: X - 20, top: Y - 62 + bob }}>{p.icon}</div>);
+    }
+    out.push(<div className={isGoal ? "plabel goal" : "plabel"} style={{ left: X - 80, top: Y - 20 }}>{p.name}</div>);
+  }
+  return out;
+}
+
+function CarView(c: Car) {
+  const p = along(roadLines[c.road], c.s);
+  if (!visible(p.x, p.z, 60)) return null;
+  const k = Z * 1.25;
+  const L = c.len * k, W = c.wid * k;
+  const deg = p.a * 180 / Math.PI;
+  return (
+    <div className="car" style={{ left: sx(p.x) - L / 2, top: sy(p.z) - W / 2, width: L, height: W, backgroundColor: c.color, borderRadius: W * 0.35, transform: "rotate(" + deg + "deg)" }}>
+      {c.bus ? <div className="busroof" style={{ left: L * 0.08, top: W * 0.18, width: L * 0.84, height: W * 0.64 }} /> : null}
+      {c.bus ? null : <div className="wind" style={{ left: L * 0.56, top: W * 0.12, width: L * 0.17, height: W * 0.76 }} />}
+      {c.bus ? null : <div className="roof" style={{ left: L * 0.25, top: W * 0.14, width: L * 0.3, height: W * 0.72, backgroundColor: c.color }} />}
+      {c.honk > 0 ? <div className="honk" style={{ left: L - 4, top: -W * 0.8 }}>{"📢"}</div> : null}
+    </div>
+  );
+}
+
+function BikeView(b: Bike) {
+  const p = along(bikeLines[b.path], b.s);
+  if (!visible(p.x, p.z, 40)) return null;
+  const k = Z * 1.9;
+  const deg = p.a * 180 / Math.PI + (b.dir < 0 ? 180 : 0);
+  return (
+    <div className="bike" style={{ left: sx(p.x) - 1 * k, top: sy(p.z) - 0.35 * k, width: 2 * k, height: 0.7 * k, transform: "rotate(" + deg + "deg)" }}>
+      <div className="rider" style={{ left: 0.55 * k, top: -0.25 * k, width: 0.8 * k, height: 1.2 * k, borderRadius: 0.4 * k, backgroundColor: b.color }} />
+      <div className="helmet" style={{ left: 0.9 * k, top: 0.05 * k, width: 0.6 * k, height: 0.6 * k, borderRadius: 0.3 * k }} />
+      {b.ring > 1.8 ? <div className="ring" style={{ left: 1.6 * k, top: -1.6 * k }}>{"🔔"}</div> : null}
+    </div>
+  );
+}
+
+function TramView(tr: Tram, i: number) {
+  const l = tramLines[tr.line];
+  const out: any[] = [];
+  const k = Z;
+  const segs = 3, segLen = 9.2;
+  let any = false;
+  for (let n = 0; n < segs; n++) {
+    const s = tr.s - tr.dir * (n * segLen + segLen / 2);
+    const p = along(l, s);
+    if (!visible(p.x, p.z, 60)) continue;
+    any = true;
+    const L = (segLen - 0.4) * k, W = 2.65 * k * 1.3;
+    const deg = p.a * 180 / Math.PI;
+    out.push(
+      <div className="tram" style={{ left: sx(p.x) - L / 2, top: sy(p.z) - W / 2, width: L, height: W, borderRadius: n === 0 || n === segs - 1 ? W * 0.45 : W * 0.15, transform: "rotate(" + deg + "deg)" }}>
+        <div className="tramroof" style={{ left: L * 0.1, top: W * 0.32, width: L * 0.8, height: W * 0.36 }} />
+      </div>
+    );
+  }
+  if (!any) return null;
+  if (i === riding) {
+    const p = along(l, tr.s - tr.dir * segLen * 1.5);
+    out.push(<div className="ridekid" style={{ left: sx(p.x) - 10, top: sy(p.z) - 10 }}>{"🙂"}</div>);
+  }
+  return out;
+}
+
+function Kid() {
+  if (mode === "ride") return null;
+  const X = sx(kid.x), Y = sy(kid.z);
+  const s = Z / 4.5;
+  const bob = kid.moving ? Math.abs(Math.sin(kid.step)) * 3 * s : 0;
+  const blink = hurt > 0 && Math.floor(t * 10) % 2 === 0;
+  if (blink) return null;
+  const fx = Math.cos(kid.face), fz = Math.sin(kid.face);
+  const sw = kid.moving ? Math.sin(kid.step) * 4 * s : 0;
+  return (
+    <div className="kidbox" style={{ left: X - 20 * s, top: Y - 20 * s, width: 40 * s, height: 40 * s }}>
+      <div className="kshadow" style={{ left: 9 * s, top: 24 * s, width: 22 * s, height: 10 * s, borderRadius: 5 * s }} />
+      <div className="kfoot" style={{ left: 12 * s + sw * fz, top: 22 * s - sw * fx - bob, width: 7 * s, height: 7 * s, borderRadius: 3.5 * s }} />
+      <div className="kfoot" style={{ left: 21 * s - sw * fz, top: 22 * s + sw * fx - bob, width: 7 * s, height: 7 * s, borderRadius: 3.5 * s }} />
+      <div className="kbody" style={{ left: 9 * s, top: 12 * s - bob, width: 22 * s, height: 16 * s, borderRadius: 8 * s }} />
+      <div className="kbag" style={{ left: 13 * s - fx * 6 * s, top: 13 * s - fz * 5 * s - bob, width: 14 * s, height: 10 * s, borderRadius: 4 * s }} />
+      <div className="khead" style={{ left: 11 * s + fx * 3 * s, top: 2 * s + fz * 2 * s - bob, width: 18 * s, height: 18 * s, borderRadius: 9 * s }} />
+      <div className="khat" style={{ left: 11 * s + fx * 2 * s, top: 1 * s + fz * 1 * s - bob, width: 18 * s, height: 9 * s, borderRadius: 9 * s }} />
+    </div>
+  );
+}
+
+function Arrow() {
+  if (!goal || mode !== "play") return null;
+  const gx = sx(goal.x), gy = sy(goal.z);
+  const dist = Math.round(Math.hypot(goal.x - kid.x, goal.z - kid.z));
+  if (gx > 20 && gx < width - 20 && gy > 80 && gy < height - 90) return null;
+  const cx = width / 2, cy = height / 2;
+  const a = Math.atan2(gy - cy, gx - cx);
+  const rx = width / 2 - 34, ry = height / 2 - 100;
+  const k = Math.min(Math.abs(rx / (Math.cos(a) || 0.001)), Math.abs(ry / (Math.sin(a) || 0.001)));
+  const ax = cx + Math.cos(a) * k, ay = cy + Math.sin(a) * k;
+  return (
+    <div className="arrowbox" style={{ left: ax - 30, top: ay - 30 }}>
+      <div className="arrowdisc" style={{ transform: "rotate(" + (a * 180 / Math.PI) + "deg)" }}>{"➜"}</div>
+      <div className="arrowdist">{dist + " m"}</div>
+    </div>
+  );
+}
+
+function Hud() {
+  const out: any[] = [];
+  const hs = hearts >= 3 ? "❤️❤️❤️" : hearts === 2 ? "❤️❤️🤍" : "❤️🤍🤍";
+  out.push(
+    <div className="hud">
+      <div className="row"><div className="pill goalpill" onClick={() => { showMap = true; rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "")}</div></div>
+      <div className="row"><div className="pill hp">{hs + " " + points}</div></div>
+    </div>
+  );
+  const near = mode === "play" ? stopNear() : null;
+  if (near) {
+    const ti = tramAtStop(near.id);
+    if (ti >= 0) out.push(<div className="bigbtn tram" onClick={() => board(ti)}>{"🚋 Nouse ratikkaan"}</div>);
+    else out.push(<div className="stopinfo">{"🚋 " + near.name + ": odota ratikkaa…"}</div>);
+  }
+  if (mode === "ride" && riding >= 0 && riding < trams.length) {
+    const tr = trams[riding];
+    const st = tramStops[tr.line];
+    const nxt = st[tr.stopIdx];
+    out.push(<div className="ridebar">{"Ratikka " + MAP.trams[tr.line].line + (nxt ? (tr.dwell > 0 ? " · Pysäkki: " : " · Seuraava: ") + nxt.name : "")}</div>);
+    if (tr.dwell > 0) out.push(<div className="bigbtn exitbtn" onClick={() => alight()}>{"🚪 Jää pois"}</div>);
+  }
+  out.push(<div className="round mapbtn" onClick={() => { showMap = !showMap; rg.sound("click"); }}>{"🗺"}</div>);
+  out.push(<div className="round zoombtn" onClick={() => cycleZoom()}>{zoomIdx === 0 ? "🔍" : zoomIdx === 1 ? "🔎" : "🔭"}</div>);
+  if (debugOn) out.push(<div className="msg">{trams.map((tr) => tr.line + "/" + tr.dir + " s" + Math.round(tr.s) + " v" + Math.round(tr.v) + " d" + Math.round(tr.dwell) + " i" + tr.stopIdx).join(" | ") + " cars:" + cars.map((c) => Math.round(c.v)).join(",")}</div>);
+  if (msgClock > 0) out.push(<div className={"msg " + msgKind} style={{ opacity: Math.min(1, msgClock * 2) }}>{msg}</div>);
+  if (hurt > 0.8) out.push(<div className="ouch" />);
+  return out;
+}
+
+function MapView() {
+  // the whole map scaled to the screen, with the child, the goal and the stops
+  const ow = MAP.NCOL * 60, oh = MAP.NROW * 60;   // overview.png: 0.6 px a metre
+  const top = 70, avail = height - top - 90;
+  // fit both the child and the goal, zoomed in as far as fits
+  let minx = kid.x, maxx = kid.x, minz = kid.z, maxz = kid.z;
+  if (goal) { minx = Math.min(minx, goal.x); maxx = Math.max(maxx, goal.x); minz = Math.min(minz, goal.z); maxz = Math.max(maxz, goal.z); }
+  const spanX = maxx - minx + 260, spanZ = maxz - minz + 260;
+  let sc = Math.min(width / spanX, avail / spanZ, 1.2);
+  sc = Math.max(sc, Math.min(width / MW, avail / MH));
+  const cxm = (minx + maxx) / 2, czm = (minz + maxz) / 2;
+  let ox = width / 2 - (cxm - X0) * sc, oy = top + avail / 2 - (czm - Z0) * sc;
+  ox = Math.min(0, Math.max(width - MW * sc, ox));
+  oy = Math.min(top, Math.max(top + avail - MH * sc, oy));
+  const mx = (x: number) => ox + (x - X0) * sc, my = (z: number) => oy + (z - Z0) * sc;
+  const pins: any[] = [];
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i];
+    const isGoal = goal && goal.id === p.id;
+    pins.push(<div className={isGoal ? "mpin goal" : "mpin"} style={{ left: mx(p.x) - 11, top: my(p.z) - 11 }}>{p.icon}</div>);
+    if (isGoal || sc > 0.45) pins.push(<div className={isGoal ? "mlabel goal" : "mlabel"} style={{ left: mx(p.x) - 70, top: my(p.z) + 10 }}>{p.name}</div>);
+  }
+  return (
+    <div className="mapview" onClick={() => { showMap = false; }}>
+      <div className="mapclip" style={{ top: top, height: avail }}>
+        <img className="mapimg" src={rg.asset("overview.png")} style={{ left: ox, top: oy - top, width: ow * sc / 0.6, height: oh * sc / 0.6 }} />
+      </div>
+      {pins}
+      <div className="mkid" style={{ left: mx(kid.x) - 13, top: my(kid.z) - 13, transform: "scale(" + (1 + Math.sin(t * 6) * 0.15) + ")" }}>{"🧒"}</div>
+      <div className="maptitle">{"Kartta · sinä 🧒 ja kohde " + (goal ? goal.icon : "")}</div>
+      <div className="maphint">{"Napauta jatkaaksesi"}</div>
+    </div>
+  );
+}
+
+function StartView() {
+  const cards: any[] = [];
+  for (let i = 0; i < homes.length; i++) {
+    const h = homes[i];
+    const sub = h.id === "koti" ? "Tampellan esplanadi" : h.id === "yo39" ? "Kyttälä" : "";
+    cards.push(
+      <div className="card" onClick={() => chooseStart(h)}>
+        <div className="cicon">{h.icon}</div>
+        <div className="ctext">
+          <div className="cname">{h.name}</div>
+          {sub ? <div className="csub">{sub}</div> : null}
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel">
+      <div className="title">{"🚦 Tampereen liikenneretki"}</div>
+      <div className="subtitle">{"Kävele kaupungilla, odota vihreää ja varo autoja!"}</div>
+      <div className="ask">{"Mistä lähdetään?"}</div>
+      {cards}
+      <div className="score">{"⭐ " + total + " pistettä · " + found + " retkeä"}</div>
+      <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki"}</div>
+    </div>
+  );
+}
+
+function GoalView() {
+  const cards: any[] = [];
+  for (let i = 0; i < goalChoices.length; i++) {
+    const g = goalChoices[i];
+    const d = Math.round(Math.hypot(g.x - kid.x, g.z - kid.z) / 10) * 10;
+    const kind = g.id === "koti" ? "Äidin luo" : g.kind === "park" ? "Puistoon" : g.kind === "stop" ? "Ratikkapysäkille" : g.kind === "sight" ? "Katsomaan" : g.kind === "school" ? "Kouluun" : g.kind === "daycare" ? "Päiväkotiin" : "Kylään";
+    cards.push(
+      <div className="card small" onClick={() => chooseGoal(g)}>
+        <div className="cicon">{g.icon}</div>
+        <div className="ctext">
+          <div className="csub">{kind}</div>
+          <div className="cname">{g.name}</div>
+        </div>
+        <div className="cdist">{d + " m"}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="panel">
+      <div className="ask">{"Minne mennään?"}</div>
+      <div className="subtitle">{"Lähtö: " + (startPlace ? startPlace.name : "")}</div>
+      {cards}
+      <div className="back" onClick={() => { mode = "start"; rg.sound("click"); }}>{"← Vaihda lähtöpaikka"}</div>
+    </div>
+  );
+}
+
+function WinView() {
+  const stars = hearts >= 3 ? "⭐⭐⭐" : hearts === 2 ? "⭐⭐" : "⭐";
+  return (
+    <div className="winwrap">
+      <div className="wincard" style={{ transform: "scale(" + rg.ease.back(Math.min(1, modeClock * 2)) + ")" }}>
+        <div className="wicon">{goal ? goal.icon : "🎉"}</div>
+        <div className="wtitle">{"Perillä! 🎉"}</div>
+        <div className="wtext">{goal ? (goal.id === "koti" ? "Äiti on iloinen, kun tulit!" : "Löysit: " + goal.name) : ""}</div>
+        <div className="wstars">{stars}</div>
+        <div className="wpts">{"+" + roundPoints + " pistettä"}</div>
+        <div className="go" onClick={() => nextTrip()}>{"Uusi retki täältä ➜"}</div>
+        <div className="back" onClick={() => { rg.stopMusic(); mode = "start"; }}>{"Valikkoon"}</div>
+      </div>
+    </div>
+  );
+}
+
+function view() {
+  const game = mode === "play" || mode === "ride" || mode === "win";
+  return (
+    <div className="screen">
+      {Tiles()}
+      {Lights()}
+      {Places()}
+      {cars.map((c) => CarView(c))}
+      {bikes.map((b) => BikeView(b))}
+      {trams.map((tr, i) => TramView(tr, i))}
+      {game ? Kid() : null}
+      {game && mode !== "win" && !showMap ? Arrow() : null}
+      {game && mode !== "win" && !showMap ? Hud() : null}
+      {showMap && game ? MapView() : null}
+      {mode === "start" ? StartView() : null}
+      {mode === "goal" ? GoalView() : null}
+      {mode === "win" ? WinView() : null}
+    </div>
+  );
+}

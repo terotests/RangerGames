@@ -1,0 +1,109 @@
+.screen { width: 100%; height: 100%; overflow: hidden; background-color: #d4d2bc; }
+.tile { position: absolute; }
+
+/* lights and signs */
+.sig { position: absolute; background-color: #1d1d1f; border-width: 1px; border-color: #ffffff; }
+.lamp { position: absolute; }
+.zsign { position: absolute; background-color: #1f5fbf; border-width: 1px; border-color: #ffffff; align-items: center; justify-content: center; }
+.ztri { position: absolute; left: 0px; top: 0px; align-items: center; justify-content: center; color: #ffffff; }
+
+/* places */
+.pin { position: absolute; width: 40px; height: 40px; border-radius: 20px; background-color: #ffffff; font-size: 24px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: #3d405b; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.pin.goal { background-color: #ffd166; border-color: #e76f51; border-width: 3px; }
+.plabel { position: absolute; width: 160px; align-items: center; font-size: 12px; font-weight: 700; color: #2b2d42; }
+.plabel.goal { font-size: 15px; color: #9d0208; }
+.stoppole { position: absolute; width: 4px; background-color: #6c757d; }
+.stopsign { position: absolute; width: 32px; height: 26px; border-radius: 6px; background-color: #0a8754; font-size: 17px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: #ffffff; }
+
+/* traffic */
+.car { position: absolute; border-width: 1px; border-color: rgba(0,0,0,0.45); shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 2px; }
+.wind { position: absolute; background-color: #9ad1f5; border-radius: 2px; }
+.roof { position: absolute; border-radius: 2px; border-width: 1px; border-color: rgba(0,0,0,0.2); }
+.busroof { position: absolute; background-color: #dfe7f0; border-radius: 3px; }
+.honk { position: absolute; font-size: 16px; }
+.bike { position: absolute; background-color: #343a40; border-radius: 2px; }
+.rider { position: absolute; }
+.helmet { position: absolute; background-color: #ffd166; }
+.ring { position: absolute; font-size: 14px; }
+.tram { position: absolute; background-color: #c1121f; border-width: 1px; border-color: #4a0408; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 2px; }
+.tramroof { position: absolute; background-color: #e9e4dc; border-radius: 3px; }
+.ridekid { position: absolute; width: 20px; height: 20px; font-size: 18px; }
+
+/* the child */
+.kidbox { position: absolute; }
+.kshadow { position: absolute; background-color: rgba(0,0,0,0.25); }
+.kfoot { position: absolute; background-color: #3d405b; }
+.kbody { position: absolute; background-color: #f72585; border-width: 1px; border-color: #7a0e3e; }
+.kbag { position: absolute; background-color: #ffd166; border-width: 1px; border-color: #b5821f; }
+.khead { position: absolute; background-color: #ffd6b0; border-width: 1px; border-color: #b07c55; }
+.khat { position: absolute; background-color: #4cc9f0; }
+
+/* hud */
+.hud { position: absolute; left: 8px; top: 10px; width: 290px; align-items: flex-start; }
+.pill { background-color: rgba(255, 255, 255, 0.92); color: #2b2d42; font-size: 16px; font-weight: 700; padding: 6px; padding-left: 12px; padding-right: 12px;
+  border-radius: 18px; shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 2px; }
+.goalpill { max-width: 280px; }
+.hp { margin-top: 6px; font-size: 15px; }
+.round { position: absolute; width: 54px; height: 54px; border-radius: 27px; background-color: rgba(255,255,255,0.92); font-size: 28px;
+  align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.mapbtn { right: 12px; bottom: 16px; }
+.zoombtn { right: 76px; bottom: 16px; }
+.msg { position: absolute; left: 16px; right: 16px; top: 96px; padding: 10px; border-radius: 16px; font-size: 17px; font-weight: 700;
+  align-items: center; background-color: rgba(255,255,255,0.95); color: #2b2d42; shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 3px; }
+.msg.good { background-color: #d8f3dc; color: #1b4332; }
+.msg.bad { background-color: #ffccd5; color: #9d0208; }
+.stopinfo { position: absolute; left: 12px; bottom: 16px; width: 200px; padding: 10px; border-radius: 16px; background-color: #0a8754; color: #ffffff; font-size: 14px; font-weight: 700; }
+.bigbtn { position: absolute; left: 12px; bottom: 14px; padding: 14px; padding-left: 18px; padding-right: 18px; border-radius: 28px; font-size: 20px; font-weight: 700; color: #ffffff;
+  shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 4px; }
+.bigbtn.tram { background-color: #c1121f; }
+.exitbtn { background-color: #0a8754; }
+.ridebar { position: absolute; left: 12px; right: 12px; top: 96px; padding: 10px; border-radius: 14px; background-color: #1d1d1f; color: #ffd166; font-size: 16px; font-weight: 700; align-items: center; }
+.ouch { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(255, 60, 90, 0.18); }
+
+.arrowbox { position: absolute; width: 60px; height: 60px; align-items: center; justify-content: center; }
+.arrowdisc { width: 50px; height: 50px; border-radius: 25px; background-color: #e76f51; color: #ffffff; font-size: 30px; font-weight: 700;
+  align-items: center; justify-content: center; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 3px; }
+.arrowdist { position: absolute; top: 52px; left: -10px; width: 80px; align-items: center; font-size: 13px; font-weight: 700; color: #ffffff;
+  background-color: rgba(0,0,0,0.55); border-radius: 8px; }
+
+/* map view */
+.mapview { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(20, 30, 50, 0.85); }
+.mapclip { position: absolute; left: 0px; width: 100%; overflow: hidden; }
+.mapimg { position: absolute; }
+.mpin { position: absolute; width: 22px; height: 22px; border-radius: 11px; background-color: #ffffff; font-size: 13px; align-items: center; justify-content: center; }
+.mpin.goal { background-color: #ffd166; border-width: 2px; border-color: #e76f51; }
+.mlabel { position: absolute; width: 140px; align-items: center; font-size: 10px; font-weight: 700; color: #1d1d1f; }
+.mlabel.goal { font-size: 13px; color: #9d0208; }
+.mkid { position: absolute; width: 26px; height: 26px; border-radius: 13px; background-color: #f72585; font-size: 17px; align-items: center; justify-content: center; border-width: 2px; border-color: #ffffff; }
+.maptitle { position: absolute; left: 0px; top: 22px; width: 100%; align-items: center; color: #ffffff; font-size: 18px; font-weight: 700; }
+.maphint { position: absolute; left: 0px; bottom: 40px; width: 100%; align-items: center; color: #e0e0e0; font-size: 14px; }
+
+/* menus */
+.panel { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; padding-top: 26px; background-color: rgba(255, 250, 240, 0.55); }
+.title { font-size: 28px; font-weight: 700; color: #264653; }
+.subtitle { font-size: 14px; color: #3d405b; margin-top: 6px; }
+.ask { font-size: 24px; font-weight: 700; color: #e76f51; margin-top: 18px; margin-bottom: 8px; }
+.card { width: 320px; flex-direction: row; align-items: center; margin-top: 10px; padding: 10px; border-radius: 22px; background-color: #ffffff;
+  border-width: 2px; border-color: #2a9d8f; shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 4px; }
+.card.small { margin-top: 7px; padding: 7px; }
+.cicon { width: 52px; height: 52px; border-radius: 26px; background-color: #e9f5f3; font-size: 30px; align-items: center; justify-content: center; }
+.ctext { margin-left: 12px; width: 190px; }
+.cname { font-size: 18px; font-weight: 700; color: #264653; }
+.csub { font-size: 13px; color: #6c757d; }
+.cdist { font-size: 14px; font-weight: 700; color: #2a9d8f; }
+.score { font-size: 17px; font-weight: 700; color: #264653; margin-top: 18px; }
+.credit { position: absolute; bottom: 8px; left: 0px; width: 100%; align-items: center; font-size: 10px; color: #555555; }
+.back { margin-top: 14px; font-size: 16px; color: #264653; font-weight: 700; padding: 8px; }
+
+.winwrap { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(255, 240, 200, 0.45); }
+.bit { position: absolute; width: 10px; height: 14px; border-radius: 2px; }
+.wincard { width: 300px; padding: 20px; border-radius: 28px; background-color: #ffffff; align-items: center; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 6px; }
+.wicon { font-size: 64px; }
+.wtitle { font-size: 34px; font-weight: 700; color: #e76f51; margin-top: 4px; }
+.wtext { font-size: 17px; color: #264653; margin-top: 6px; }
+.wstars { font-size: 36px; margin-top: 10px; }
+.wpts { font-size: 22px; font-weight: 700; color: #2a9d8f; margin-top: 6px; }
+.go { margin-top: 18px; font-size: 20px; font-weight: 700; color: #ffffff; background-color: #2a9d8f; padding: 14px; padding-left: 22px; padding-right: 22px; border-radius: 26px; }
+.row { flex-direction: row; }
