@@ -9,6 +9,7 @@
 // Coordinates are metres, x east and z south, as in Tampere Taxi Driver.
 
 import { MAP, WALK } from "lib/mapdata";
+import { HOMES } from "lib/homes";
 
 type Car = { road: number; s: number; v: number; len: number; wid: number; color: string; bus: boolean; honk: number; wait: number };
 type Bike = { path: number; s: number; dir: number; v: number; color: string; ring: number; stop: number };
@@ -140,6 +141,10 @@ function bucketKey(x: number, z: number) { return Math.floor(x / 40) + ":" + Mat
 
 function setupMap() {
   places = MAP.places;
+  for (let i = 0; i < places.length; i++) {
+    const h = HOMES[places[i].id];
+    if (h) { places[i].x = h[0]; places[i].z = h[1]; }
+  }
   for (let i = 0; i < MAP.roads.length; i++) {
     const r = MAP.roads[i];
     roadLines.push(makeLine(r.p));
@@ -193,7 +198,7 @@ function setupMap() {
     crossBuckets[k].push(i);
   }
   // the four homes the game starts from
-  homes = [findPlace("koti"), findPlace("koulu"), findPlace("paivakoti"), findPlace("yo39")];
+  homes = [findPlace("koti"), findPlace("isa"), findPlace("koulu"), findPlace("paivakoti")];
   // tram stops no line serves are only places on the map
   places = places.filter((p) => p.kind !== "stop" || onTram(p.id));
 }
@@ -325,6 +330,7 @@ function chooseGoal(p: Place) {
 
 function goalPhrase(p: Place) {
   if (p.id === "koti") return "äidin luo";
+  if (p.id === "isa") return "isän luo";
   if (p.kind === "stop") return "ratikkapysäkki " + p.name;
   return p.name;
 }
@@ -1118,7 +1124,7 @@ function StartView() {
   const cards: any[] = [];
   for (let i = 0; i < homes.length; i++) {
     const h = homes[i];
-    const sub = h.id === "koti" ? "Tampellan esplanadi" : h.id === "yo39" ? "Kyttälä" : "";
+    const sub = h.id === "koti" ? "Tampella" : h.id === "isa" ? "Tammela" : "";
     cards.push(
       <div className="card" onClick={() => chooseStart(h)}>
         <div className="cicon">{h.icon}</div>
@@ -1146,7 +1152,7 @@ function GoalView() {
   for (let i = 0; i < goalChoices.length; i++) {
     const g = goalChoices[i];
     const d = Math.round(Math.hypot(g.x - kid.x, g.z - kid.z) / 10) * 10;
-    const kind = g.id === "koti" ? "Äidin luo" : g.kind === "park" ? "Puistoon" : g.kind === "stop" ? "Ratikkapysäkille" : g.kind === "sight" ? "Katsomaan" : g.kind === "school" ? "Kouluun" : g.kind === "daycare" ? "Päiväkotiin" : "Kylään";
+    const kind = g.id === "koti" ? "Äidin luo" : g.id === "isa" ? "Isän luo" : g.kind === "park" ? "Puistoon" : g.kind === "stop" ? "Ratikkapysäkille" : g.kind === "sight" ? "Katsomaan" : g.kind === "school" ? "Kouluun" : g.kind === "daycare" ? "Päiväkotiin" : "Kylään";
     cards.push(
       <div className="card small" onClick={() => chooseGoal(g)}>
         <div className="cicon">{g.icon}</div>
@@ -1175,7 +1181,7 @@ function WinView() {
       <div className="wincard" style={{ transform: "scale(" + rg.ease.back(Math.min(1, modeClock * 2)) + ")" }}>
         <div className="wicon">{goal ? goal.icon : "🎉"}</div>
         <div className="wtitle">{"Perillä! 🎉"}</div>
-        <div className="wtext">{goal ? (goal.id === "koti" ? "Äiti on iloinen, kun tulit!" : "Löysit: " + goal.name) : ""}</div>
+        <div className="wtext">{goal ? (goal.id === "koti" ? "Äiti on iloinen, kun tulit!" : goal.id === "isa" ? "Isä on iloinen, kun tulit!" : "Löysit: " + goal.name) : ""}</div>
         <div className="wstars">{stars}</div>
         <div className="wpts">{"+" + roundPoints + " pistettä"}</div>
         <div className="go" onClick={() => nextTrip()}>{"Uusi retki täältä ➜"}</div>

@@ -205,37 +205,80 @@ def fit_crossing(cx, cz, ux, uz):
     ta = march(cx, cz, -ux, -uz); tb = march(cx, cz, ux, uz)
     if ta is None or tb is None or ta + tb > 40: return None
     return {"a": (cx - ux * ta, cz - uz * ta), "b": (cx + ux * tb, cz + uz * tb)}
-# OSM crossings stretched to the kerbs too
-for c in crossings:
-    a, b = c["a"], c["b"]
-    L = seg_len(a, b); ux, uz = (b[0] - a[0]) / L, (b[1] - a[1]) / L
-    best = None
-    for i in range(1, int(L)):
-        x, z = a[0] + ux * i, a[1] + uz * i
-        if is_road(x, z):
-            best = fit_crossing(x, z, ux, uz)
-            if best: break
-    if best and seg_len(best["a"], best["b"]) >= L * 0.8:
-        c["a"], c["b"] = best["a"], best["b"]
+CROSS = []
+def angdiff_(a, b):
+    d0 = abs((a - b) % math.pi)
+    return min(d0, math.pi - d0)
 def mid(c): return ((c["a"][0] + c["b"][0]) / 2, (c["a"][1] + c["b"][1]) / 2)
-gen = 0
+# Real crossings: where a footway or cycle path of OSM (Tampere Taxi Driver's
+# F lines, plus the ways tagged as crossings) runs over a carriageway.
+street_segs = []
+for st in streets:
+    for p0, p1 in zip(st["p"], st["p"][1:]):
+        street_segs.append((p0, p1))
+def street_dir_near(x, z):
+    best = None
+    for p0, p1 in street_segs:
+        L = seg_len(p0, p1)
+        if L < 0.5: continue
+        k = max(0, min(1, ((x - p0[0]) * (p1[0] - p0[0]) + (z - p0[1]) * (p1[1] - p0[1])) / (L * L)))
+        dd = math.hypot(x - (p0[0] + (p1[0] - p0[0]) * k), z - (p0[1] + (p1[1] - p0[1]) * k))
+        if dd < 25 and (best is None or dd < best[0]): best = (dd, math.atan2(p1[1] - p0[1], p1[0] - p0[0]))
+    return None if best is None else best[1]
+signal_ways = [mid({"a": c["a"], "b": c["b"]}) for c in crossings if c["sig"]]
+foot_lines = [pts for kind, pts in foots if kind != 4] + [c[0] for c in osm_cross]
+found = []
+for pts in foot_lines:
+    if not inb(pts, 0): continue
+    for p0, p1 in zip(pts, pts[1:]):
+        L = seg_len(p0, p1)
+        if L < 1: continue
+        ux, uz = (p1[0] - p0[0]) / L, (p1[1] - p0[1]) / L
+        run = None
+        n = int(L / 0.5) + 1
+        for i in range(n + 1):
+            tt = min(L, i * 0.5)
+            x, z = p0[0] + ux * tt, p0[1] + uz * tt
+            r = is_road(x, z)
+            if r and run is None: run = tt
+            if (not r or i == n) and run is not None:
+                if not r and run > 0 and 2.0 <= tt - run <= 32:
+                    mx, mz = p0[0] + ux * (run + tt) / 2, p0[1] + uz * (run + tt) / 2
+                    sd = street_dir_near(mx, mz)
+                    if sd is None or angdiff_(sd, math.atan2(uz, ux)) > 0.6:
+                        f = fit_crossing(mx, mz, ux, uz)
+                        if f and all(math.hypot(mid(f)[0] - q[0], mid(f)[1] - q[1]) > 6 for q in found):
+                            f["sig"] = any(math.hypot(mid(f)[0] - q[0], mid(f)[1] - q[1]) < 8 for q in signal_ways)
+                            crossings_new = found.append(mid(f))
+                            f["gen"] = False
+                            CROSS.append(f)
+                run = None
+crossings = CROSS
+print(f"crossings from footways over carriageways: {len(crossings)}")
+# arm positions of every street junction: where a crossing would usually be
+arm_spots = []
 for k, arms in node_arms.items():
     if len(arms) < 3: continue
     nx, nz = arms[0][1]
     if not (X0 < nx < X1 and Z0 < nz < Z1): continue
+    lit = any(math.hypot(sx_ - nx, sz_ - nz) < 30 for sx_, sz_ in signals)
     wmax = max(ROAD_W[a[0]["cls"]] for a in arms)
-    for s, p0, p1 in arms:
+    for st, p0, p1 in arms:
         L = seg_len(p0, p1)
         dd = wmax / 2 + 3
         if L < dd + 2: continue
         ux, uz = (p1[0] - p0[0]) / L, (p1[1] - p0[1]) / L
-        cx, cz = p0[0] + ux * dd, p0[1] + uz * dd
-        if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 14 for c in crossings): continue
-        f = fit_crossing(cx, cz, -uz, ux)
-        if not f: continue
-        f["sig"] = False; f["gen"] = True
-        crossings.append(f); gen += 1
-print(f"generated crossings: {gen}")
+        arm_spots.append((lit, p0[0] + ux * dd, p0[1] + uz * dd, -uz, ux))
+# junctions with traffic lights have a crossing on every arm
+gen = 0
+for lit, cx, cz, ux, uz in arm_spots:
+    if not lit: continue
+    if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 12 for c in crossings): continue
+    f = fit_crossing(cx, cz, ux, uz)
+    if not f: continue
+    f["sig"] = False; f["gen"] = True
+    crossings.append(f); gen += 1
+print(f"crossings added at traffic lights: {gen}")
 # ---- walk grid with the crossings marked
 CW = 4.0
 def cross_poly(c, w=CW, ext=0.0):
@@ -307,6 +350,16 @@ for rnd in range(3):
         ca, cb = comp_at(lab, *c["a"]), comp_at(lab, *c["b"])
         if ca >= 0 and cb >= 0: parent[find(ca)] = find(cb)
     added = 0
+    for lit, cx, cz, ux, uz in arm_spots:
+        f = fit_crossing(cx, cz, ux, uz)
+        if not f: continue
+        ca, cb = comp_at(lab, *f["a"]), comp_at(lab, *f["b"])
+        if ca < 0 or cb < 0 or find(ca) == find(cb): continue
+        if min(sizes[ca], sizes[cb]) < 25: continue
+        if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 12 for c in crossings): continue
+        parent[find(ca)] = find(cb)
+        f["sig"] = False; f["gen"] = True
+        crossings.append(f); added += 1
     for st in streets:
         p = st["p"]
         for a0, b0 in zip(p, p[1:]):
@@ -538,10 +591,10 @@ for ln in sorted(cands):
 # ---------------------------------------------------------------- places
 PLACES = [
     # id, name, kind, x, z, icon   (approximate where noted)
-    ("koti", "Äidin koti", "home", 2, -598, "🏠"),                      # Tampellan esplanadi
-    ("koulu", "Juhannuskylän koulu", "school", 196, -346, "🏫"),       # likiarvo
-    ("paivakoti", "Jussinkylän päiväkoti", "daycare", -768, -306, "🎈"),  # likiarvo
-    ("yo39", "Yliopistonkatu 39", "home", 852, 300, "🏢"),             # likiarvo
+    ("koti", "Äidin koti", "home", 2, -598, "🏠"),   # Tampellan esplanadi, likimain (tarkka paikka vain lib/homes.ts:n paikallisessa versiossa)
+    ("koulu", "Juhannuskylän koulu", "school", 377, -300, "🏫"),   # Erkkilänkadun eteläpuoli, Rautatienkadun ja radan välissä (Teron kartta)
+    ("paivakoti", "Jussinkylän päiväkoti", "daycare", 125, -373, "🎈"),  # Lapintie / Juhannuskylänkatu, Juhlatalo Hovin vieressä (Teron kartta)
+    ("isa", "Isän koti", "home", 900, 60, "🏡"),     # Kyttälä/Tammela, likimain (tarkka paikka vain paikallisesti)
     ("pikkukakkonen", "Pikku Kakkosen puisto", "park", 99, -37, "🌳"),
     ("koskipuisto", "Koskipuisto", "park", 50, 30, "🌳"),
     ("nasinpuisto", "Näsinpuisto", "park", -640, -500, "🌳"),
@@ -576,6 +629,9 @@ def snap(x, z):
         if best: break
     return (X0 + (best[1] + 0.5) * CELL, Z0 + (best[2] + 0.5) * CELL) if best else (x, z)
 places = []
+EXACT = json.loads(os.environ.get("EXACT", "{}"))   # {"id": [x, z]}: print snapped points, never written
+for pid, (x, z) in EXACT.items():
+    print("exact", pid, snap(x, z))
 for pid, name, kind, x, z, icon in PLACES:
     sx, sz = snap(x, z)
     places.append({"id": pid, "name": name, "kind": kind, "x": round(sx, 1), "z": round(sz, 1), "icon": icon})
