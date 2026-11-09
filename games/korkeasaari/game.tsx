@@ -22,6 +22,16 @@ if (KS) {
   }
   for (const k in FOODS) if (KS["ks_ruoka_" + k]) FOODS[k].name = unbang(KS["ks_ruoka_" + k]);
   for (const k in HOMES) if (KS["ks_koti_" + k]) HOMES[k].name = unbang(KS["ks_koti_" + k]);
+  for (const k in MOVES) if (KS["ks_liike_" + k]) MOVES[k].name = unbang(KS["ks_liike_" + k]);
+  for (const k in SLEEPS) if (KS["ks_uni_" + k]) SLEEPS[k].name = unbang(KS["ks_uni_" + k]);
+  for (const k in ACTIVE) if (KS["ks_aika_" + k]) ACTIVE[k].name = unbang(KS["ks_aika_" + k]);
+  for (const k in PRINTS) if (KS["ks_jalki_" + k]) PRINTS[k] = unbang(KS["ks_jalki_" + k]);
+  for (const k in COVERS) if (KS["ks_peite_" + k]) COVERS[k] = unbang(KS["ks_peite_" + k]);
+  const continents: any = {
+    en: { eurooppa: "Europe", aasia: "Asia", afrikka: "Africa", pamerikka: "North America", eamerikka: "South America", australia: "Australia" },
+    es: { eurooppa: "Europa", aasia: "Asia", afrikka: "África", pamerikka: "América del Norte", eamerikka: "América del Sur", australia: "Australia" },
+  };
+  for (const k in WORLD) if (continents[rg.lang] && continents[rg.lang][k]) WORLD[k].name = continents[rg.lang][k];
 }
 // a question's text: the clip's text in English or Spanish, built in Finnish
 function qtext(clip: string, fi: string) { return KS && KS[clip] ? KS[clip] : fi; }
