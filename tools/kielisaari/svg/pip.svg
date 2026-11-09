@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200"><ellipse cx="100" cy="188" rx="50" ry="8" fill="#000" opacity="0.13"/>
+  <path d="M84 150 L70 196 L92 168 Z" fill="#3a86ff" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/><path d="M100 152 L100 198 L112 166 Z" fill="#ffd60a" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <ellipse cx="100" cy="118" rx="46" ry="52" fill="#e63946" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <ellipse cx="104" cy="134" rx="26" ry="30" fill="#ffd166"/>
+  <path d="M56 104 Q 30 130 50 160 Q 70 150 72 120 Z" fill="#06d6a0" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M144 104 Q 170 130 150 160 Q 130 150 128 120 Z" fill="#06d6a0" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M52 140 Q 50 152 56 158 M148 140 Q 150 152 144 158" stroke="#3a86ff" stroke-width="5" fill="none"/>
+  <circle cx="100" cy="64" r="40" fill="#e63946" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M92 26 Q 96 6 110 10 Q 104 18 104 26 Q 116 12 126 20 Q 114 24 110 32" fill="#ffd60a" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <ellipse cx="80" cy="62" rx="14" ry="16" fill="#fff"/><ellipse cx="120" cy="62" rx="14" ry="16" fill="#fff"/>
+  <circle cx="82" cy="62" r="7" fill="#1d1d24"/><circle cx="84.45" cy="59.34" r="2.66" fill="#fff"/><circle cx="118" cy="62" r="7" fill="#1d1d24"/><circle cx="120.45" cy="59.34" r="2.66" fill="#fff"/>
+  <path d="M90 78 Q 100 70 110 78 Q 112 96 100 104 Q 92 94 90 78Z" fill="#ffb703" stroke="#3b2a1e" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M92 86 Q 100 90 108 86" stroke="#3b2a1e" stroke-width="2.5" fill="none"/>
+  <ellipse cx="68" cy="80" rx="7" ry="3.8500000000000005" fill="#ff8fa3" opacity="0.5"/><ellipse cx="132" cy="80" rx="7" ry="3.8500000000000005" fill="#ff8fa3" opacity="0.5"/>
+  <path d="M84 176 l-8 10 M84 176 l0 12 M84 176 l8 10 M116 176 l-8 10 M116 176 l0 12 M116 176 l8 10" stroke="#ffb703" stroke-width="4" stroke-linecap="round"/></svg>
