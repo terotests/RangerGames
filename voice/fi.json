@@ -815,6 +815,11 @@
   "sk_lahetti": "Lähetti",
   "sk_torni": "Torni",
   "sk_kuningatar": "Kuningatar",
-  "sk_kuningas": "Kuningas"
+  "sk_kuningas": "Kuningas",
+  "ll_alku": "Sulata jää ja vapauta jäätyneet aarteet!",
+  "ll_leikki": "Vapaa leikki! Lisää jäätä ja kokeile kaikkia lämmittimiä.",
+  "ll_vapaa": "Aarre on vapaa!",
+  "ll_valmis": "Kaikki aarteet ovat vapaina. Hienoa!",
+  "ll_kasi": "Kämmen jäätyi! Odota, että käsi lämpenee."
  }
 }
