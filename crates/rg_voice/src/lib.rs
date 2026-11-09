@@ -24,13 +24,20 @@ pub struct Voice {
     pub f0: f64,
     /// speaking rate (1 = CHIMERA's normal, <1 slower)
     pub rate: f64,
-    /// pitch excursion on stressed syllables (fraction; None = CHIMERA's default)
+    /// pitch excursion on stressed syllables (fraction; None = CHIMERA's default 0.14)
     pub accent: Option<f64>,
+    /// voice source settings (None = CHIMERA's defaults: breathiness 0.15,
+    /// drift 5 (slow pitch wander, cents), roughness 0.1, tension 0.5, vibrato 0)
+    pub breathiness: Option<f64>,
+    pub drift: Option<f64>,
+    pub roughness: Option<f64>,
+    pub tension: Option<f64>,
+    pub vibrato: Option<f64>,
 }
 
 impl Default for Voice {
     fn default() -> Self {
-        Voice { body: "female".into(), f0: 215.0, rate: 0.9, accent: None }
+        Voice { body: "female".into(), f0: 215.0, rate: 0.9, accent: None, breathiness: None, drift: None, roughness: None, tension: None, vibrato: None }
     }
 }
 
@@ -62,7 +69,9 @@ pub fn say(text: &str, voice: &Voice) -> Vec<f32> {
         .iter()
         .map(|p| PhraseInput {
             segments: tokenize_ipa(&p.ipa),
-            intonation: Some(if p.question { Intonation::Question } else { Intonation::Statement }),
+            // Finnish questions fall like statements (the question word or -ko/-kö
+            // carries the question); CHIMERA's English final rise sounds foreign
+            intonation: Some(Intonation::Statement),
             pause: Some(0.3),
         })
         .collect();
@@ -78,7 +87,15 @@ pub fn say(text: &str, voice: &Voice) -> Vec<f32> {
         },
     );
     let mut v = HumanVoice::new(FS_RENDER, body(&voice.body), 2);
-    v.set_source(&SourcePatch::f0(voice.f0));
+    v.set_source(&SourcePatch {
+        f0: Some(voice.f0),
+        breathiness: voice.breathiness,
+        drift: voice.drift,
+        roughness: voice.roughness,
+        tension: voice.tension,
+        vibrato_depth: voice.vibrato,
+        ..Default::default()
+    });
     v.schedule(&plan.gestures);
     let total = (FS_RENDER * (plan.end + 0.3)).round() as usize;
     let mut out = vec![0f32; total];

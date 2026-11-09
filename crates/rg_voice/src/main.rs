@@ -17,6 +17,11 @@ fn voice_of(v: &Value) -> Voice {
         f0: v.get("f0").and_then(Value::as_f64).unwrap_or(d.f0),
         rate: v.get("rate").and_then(Value::as_f64).unwrap_or(d.rate),
         accent: v.get("accent").and_then(Value::as_f64),
+        breathiness: v.get("breathiness").and_then(Value::as_f64),
+        drift: v.get("drift").and_then(Value::as_f64),
+        roughness: v.get("roughness").and_then(Value::as_f64),
+        tension: v.get("tension").and_then(Value::as_f64),
+        vibrato: v.get("vibrato").and_then(Value::as_f64),
     }
 }
 
@@ -105,13 +110,16 @@ fn main() {
     let r = match a.first().map(String::as_str) {
         Some("build") => build(&arg(1, "voice/fi.json"), &arg(2, "games/_voice/fi")),
         Some("say") => {
-            let d = Voice::default();
-            let v = Voice {
-                body: arg(3, &d.body),
-                f0: arg(4, "").parse().unwrap_or(d.f0),
-                rate: arg(5, "").parse().unwrap_or(d.rate),
-                accent: None,
-            };
+            // say <text> <out.wav> [body] [f0] [rate] ['{"accent":0.25,"breathiness":0.3,…}']
+            let mut j: Value = serde_json::from_str(&arg(6, "{}")).unwrap_or(Value::Null);
+            if !j.is_object() {
+                j = Value::Object(Map::new());
+            }
+            let o = j.as_object_mut().unwrap();
+            if let Some(b) = a.get(3) { o.insert("body".into(), Value::String(b.clone())); }
+            if let Some(f) = a.get(4).and_then(|x| x.parse::<f64>().ok()) { o.insert("f0".into(), f.into()); }
+            if let Some(r) = a.get(5).and_then(|x| x.parse::<f64>().ok()) { o.insert("rate".into(), r.into()); }
+            let v = voice_of(&j);
             let t = arg(1, "Hyvä!");
             let pcm = say(&t, &v);
             let file = arg(2, "say.wav");
