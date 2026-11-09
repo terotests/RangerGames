@@ -28,6 +28,10 @@
   "km_ohje": "Roll the die and choose where to go. On a big spot you can open the token. Find the Kanada Cup and be the first to take it to Nokia Areena.",
   "km_timantti": "A diamond! You get five hundred euros.",
   "km_taklaus": "Tackle! The cup changed hands!",
-  "km_aloitus": "Where do you start? Keskustori or the railway station?"
+  "km_aloitus": "Where do you start? Keskustori or the railway station?",
+  "km_lahella": "So close! The arena is just a little further. Try again!",
+  "km_areena_ulottuvilla": "Nokia Areena is in reach! Tap the star!",
+  "km_areena_ilman": "Find the Kanada Cup first, and bring it here!",
+  "km_areena_malja_toisella": "The other team has the cup. Tackle it off them!"
  }
 }
