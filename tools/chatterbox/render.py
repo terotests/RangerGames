@@ -39,6 +39,17 @@ def lists(lang):
     return clips
 
 
+def trim(x, sr):
+    """The clip without the silence (below 2 % of its peak) before and after, 50 ms kept."""
+    import numpy as np
+    a = np.abs(x)
+    if a.size == 0 or a.max() <= 0:
+        return x
+    on = np.nonzero(a > 0.02 * a.max())[0]
+    keep = int(0.05 * sr)
+    return x[max(0, on[0] - keep):min(len(x), on[-1] + keep)]
+
+
 def done(lang, cid, text):
     try:
         with open(os.path.join(OUT, lang, cid + ".json"), encoding="utf-8") as fh:
@@ -88,10 +99,10 @@ def main():
             seed = int(hashlib.sha1(f"{lang}:{cid}:{attempt}".encode()).hexdigest()[:8], 16)
             torch.manual_seed(seed)
             wav = model.generate(text, language_id=lang)
-            x = wav.squeeze().detach().cpu().numpy()
+            x = trim(wav.squeeze().detach().cpu().numpy(), model.sr)
             dur = len(x) / model.sr
             # far too long (repeats, trailing noise) or too short (words dropped): try again
-            ok = 0.4 * want - 0.3 <= dur <= 2.0 * want + 1.2
+            ok = 0.4 * want - 0.3 <= dur <= max(2.0 * want + 1.2, 2.5)
             if best is None or abs(dur - want) < abs(best[1] - want):
                 best = (x, dur, seed)
             if ok:
