@@ -1,2 +1,2 @@
-{ "name": "Kielisaari", "description": "Englantia tai espanjaa seikkaillen: auta saaren eläimiä ja etsi aarre", "icon": "🏝️", "color": "#219ebc", "players": "1", "width": 360, "order": 9,
+{ "name": "Kielisaari", "description": "Englantia tai espanjaa seikkaillen: auta saaren eläimiä ja etsi aarre", "icon": "🏝️", "color": "#219ebc", "players": "1", "width": 360, "order": 60,
   "i18n": { "en": { "name": "Mystery Island", "description": "Learn English or Spanish on an adventure" }, "es": { "name": "Isla Misteriosa", "description": "Aprende inglés o español en una aventura" } } }

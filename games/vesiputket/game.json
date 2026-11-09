@@ -1,2 +1,2 @@
-{ "name": "Vesiputket", "description": "Ohjaa vesi ja hiekka perille: kaiva tunneleita, rakenna putkia ja kastele kukat", "icon": "🚰", "color": "#3a86ff", "players": "1", "width": 360, "order": 7,
+{ "name": "Vesiputket", "description": "Ohjaa vesi ja hiekka perille: kaiva tunneleita, rakenna putkia ja kastele kukat", "icon": "🚰", "color": "#3a86ff", "players": "1", "width": 360, "order": 130,
   "i18n": { "en": { "name": "Water Pipes", "description": "Guide the water and sand: dig tunnels, build pipes and water the flowers" }, "es": { "name": "Tuberías de agua", "description": "Guía el agua y la arena: cava túneles, construye tuberías y riega las flores" } } }
