@@ -32,6 +32,17 @@ if [[ "${RG_PUBLIC:-}" == 1 ]]; then
   done
   find "$GAMES" \( -name '*.local.*' -o -name perhe \) -prune -exec rm -rf {} +
 fi
+# The voice clips (games/_voice/*/*.wav, ~70 MB) are not in the pack: they
+# are files beside the page that audio.js fetches when a game first says
+# them, so the page starts after the engine and a ~20 MB pack. (The Android
+# app packs everything, see build-android.sh: it works offline.)
+if [[ "$GAMES" == games ]]; then
+  GAMES=dist/games-web
+  rm -rf "$GAMES"; mkdir -p "$GAMES"; cp -r games/* "$GAMES/"
+fi
+if [[ -d "$GAMES/_voice" ]]; then
+  (cd "$GAMES" && find _voice -name '*.wav' | while read -r f; do mkdir -p "../web/games/$(dirname "$f")"; mv "$f" "../web/games/$f"; done)
+fi
 ./target/release/rg_cli pack "$GAMES" "$OUT/games.rgpk"
 # the games' list for the playground (playground.html): every game.json not hidden
 node -e '

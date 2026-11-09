@@ -160,9 +160,33 @@
 
   Audio.prototype.buffer = function (path) {
     if (this.buffers[path] !== undefined) return this.buffers[path];
-    var buf = this.decodeWav(this.readFile(path));
+    var bytes = this.readFile(path);
+    if (!bytes && this.remote(path)) return undefined;   // being fetched
+    var buf = this.decodeWav(bytes);
     this.buffers[path] = buf;
     return buf;
+  };
+
+  // The web build keeps the voice clips out of the games pack (they are most
+  // of its size): a clip is fetched from beside the page the first time it is
+  // needed. Returns true while the fetch is on, then the clip is in buffers.
+  Audio.prototype.remote = function (path) {
+    if (!/^\/games\/_voice\/.+\.wav$/.test(path)) return false;
+    this.fetching = this.fetching || {};
+    if (this.fetching[path]) return true;
+    var self = this;
+    this.fetching[path] = fetch(path.slice(1)).then(function (r) {
+      if (!r.ok) throw new Error(r.status);
+      return r.arrayBuffer();
+    }).then(function (ab) {
+      self.buffers[path] = self.ctx ? self.decodeWav(new Uint8Array(ab)) : null;
+    }).catch(function () {
+      self.buffers[path] = null;
+    }).then(function () {
+      delete self.fetching[path];
+      if (self.waitingFor === path) { self.waitingFor = null; self.sayNext(); }
+    });
+    return true;
   };
 
   // speech: a list of clips one after another; a new list cuts the old one
@@ -170,20 +194,25 @@
   Audio.prototype.say = function (opts) {
     var list = (opts && opts.list) || [];
     if (!(opts && opts.queue)) {
-      this.speech = [];
+      this.speech = []; this.waitingFor = null;
       if (this.speaking) { try { this.speaking.onended = null; this.speaking.stop(); } catch (e) { } this.speaking = null; }
     }
     if (!this.ready()) return;
     this.speechVol = opts && opts.volume !== undefined ? opts.volume : 1;
     this.speech = (this.speech || []).concat(list);
-    if (!this.speaking) this.sayNext();
+    // start fetching every clip of the list at once (web build)
+    for (var i = 0; i < this.speech.length; i++) this.buffer(this.speech[i]);
+    if (!this.speaking && !this.waitingFor) this.sayNext();
   };
 
   Audio.prototype.sayNext = function () {
     var self = this;
     this.speaking = null;
+    this.waitingFor = null;
     while (this.speech && this.speech.length) {
-      var buf = this.buffer(this.speech.shift());
+      var buf = this.buffer(this.speech[0]);
+      if (buf === undefined) { this.waitingFor = this.speech[0]; return; }   // still downloading
+      this.speech.shift();
       if (!buf) continue;
       var s = this.ctx.createBufferSource(), g = this.ctx.createGain();
       s.buffer = buf;
