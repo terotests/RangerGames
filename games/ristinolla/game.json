@@ -1,1 +1,1 @@
-{ "name": "Ristinolla", "description": "Kolme samaa riviin!", "icon": "❌", "color": "#ef476f", "players": "1-2", "width": 360, "order": 1, "i18n": { "en": { "name": "Tic-Tac-Toe", "description": "Three in a row!" }, "es": { "name": "Tres en raya", "description": "¡Tres en línea!" } } }
+{ "name": "Ristinolla", "description": "Kolme samaa riviin!", "icon": "❌", "color": "#ef476f", "players": "1-2", "width": 360, "order": 250, "i18n": { "en": { "name": "Tic-Tac-Toe", "description": "Three in a row!" }, "es": { "name": "Tres en raya", "description": "¡Tres en línea!" } } }

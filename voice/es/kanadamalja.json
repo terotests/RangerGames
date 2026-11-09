@@ -28,6 +28,10 @@
   "km_ohje": "Tira el dado y elige adónde ir. En una casilla grande puedes abrir la ficha. Encuentra la Copa Kanada y llévala el primero al Nokia Areena.",
   "km_timantti": "¡Un diamante! Ganas quinientos euros.",
   "km_taklaus": "¡Placaje! ¡La copa cambió de manos!",
-  "km_aloitus": "¿Dónde empiezas? ¿En Keskustori o en la estación de tren?"
+  "km_aloitus": "¿Dónde empiezas? ¿En Keskustori o en la estación de tren?",
+  "km_lahella": "¡Casi! El estadio está un poco más lejos. ¡Inténtalo otra vez!",
+  "km_areena_ulottuvilla": "¡El Nokia Areena está al alcance! ¡Toca la estrella!",
+  "km_areena_ilman": "Primero encuentra la Copa Kanada, ¡y tráela aquí!",
+  "km_areena_malja_toisella": "El otro equipo tiene la copa. ¡Quítasela con un placaje!"
  }
 }

@@ -1,2 +1,2 @@
-{ "name": "Lamppulabra", "description": "Rakenna virtapiiri paristoista ja vastuksista ja saa lamppu palamaan sopivasti", "icon": "💡", "color": "#f4a100", "players": "1", "width": 360, "order": 8,
+{ "name": "Lamppulabra", "description": "Rakenna virtapiiri paristoista ja vastuksista ja saa lamppu palamaan sopivasti", "icon": "💡", "color": "#f4a100", "players": "1", "width": 360, "order": 180,
   "i18n": { "en": { "name": "Lamp Lab", "description": "Build a circuit from batteries and resistors and make the lamp glow just right" }, "es": { "name": "Laboratorio de la bombilla", "description": "Construye un circuito con pilas y resistencias y enciende la bombilla" } } }
