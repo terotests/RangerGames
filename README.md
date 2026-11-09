@@ -17,6 +17,16 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
  alusta ◄── piirtovirta (f32 + merkkijonot), komennot ──┘
 ```
 
+## Kuvia peleistä
+
+Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games/README.md](games/README.md). Pelejä voi kokeilla selaimessa: [playground](https://terotests.github.io/RangerGames/playground.html).
+
+<table>
+<tr><td align="center"><img src="docs/screenshots/haamujahti.png" width="180"><br><b>Haamujahti</b></td><td align="center"><img src="docs/screenshots/muutto.png" width="180"><br><b>Muuttolintu</b></td><td align="center"><img src="docs/screenshots/luut.png" width="180"><br><b>Kenen luut?</b></td><td align="center"><img src="docs/screenshots/korkeasaari.png" width="180"><br><b>Korkeasaari</b></td></tr>
+<tr><td align="center"><img src="docs/screenshots/vuodenajat.png" width="180"><br><b>Vuodenajat</b></td><td align="center"><img src="docs/screenshots/kielipelit.png" width="180"><br><b>Kielipelit</b></td><td align="center"><img src="docs/screenshots/pallopolku.png" width="180"><br><b>Pallopolku</b></td><td align="center"><img src="docs/screenshots/kopteri.png" width="180"><br><b>Kopterilento</b></td></tr>
+<tr><td align="center"><img src="docs/screenshots/pupu.png" width="180"><br><b>Pupu hyppii</b></td><td align="center"><img src="docs/screenshots/laskupeli.png" width="180"><br><b>Laskupeli</b></td><td align="center"><img src="docs/screenshots/aakkoset.png" width="180"><br><b>Aakkoset</b></td><td align="center"><img src="docs/screenshots/launcher.png" width="180"><br><b>Pelivalikko</b></td></tr>
+</table>
+
 ## Hakemistot
 
 | Polku | Mitä |

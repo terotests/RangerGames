@@ -18,6 +18,10 @@ Kuvat on otettu web-versiosta (360 × 720) komennolla `node tools/shot.js`, ja n
 | <img src="../docs/screenshots/navi.png" width="160"> | **Kotiin** | `navi` | Lapsen kävelynavigaattori: GPS, iso nuoli ja reittiviiva kotiin, kouluun tai päiväkotiin. Toimii ilman nettiä. |
 | <img src="../docs/screenshots/vuodenajat.png" width="160"> | **Vuodenajat** | `vuodenajat` | Eläinten vuosi: herätä karhu, valitse jäniksen, kärpän ja riekon turkki vuodenajan mukaan, mitkä linnut lentävät etelään, auta oravaa ja närheä varastoimaan ruokaa, vie eläimet talvipesiin ja onki kesällä veneestä ja talvella pilkillä jään alta. Katsele-tilassa vuodenaikaa vaihdetaan ja eläimiä napautetaan. Kaikki ohjeet puhutaan. |
 | <img src="../docs/screenshots/korkeasaari.png" width="160"> | **Korkeasaari** | `korkeasaari` | Suunnistus Korkeasaaren eläintarhassa: etsi eläin kartalta, kävele sen luo sormella tai oikeasti GPS:n kanssa (toimii ilman nettiä), ja vastaa ääneen luettuihin kuvakysymyksiin. Jokaisesta eläimestä saa tarran. 🐣 Eskari / 🎒 Koulu. Kartta ja eläinten paikat © OpenStreetMap-tekijät (ODbL), ks. `tools/korkeasaari`. |
+| <img src="../docs/screenshots/luut.png" width="160"> | **Kenen luut?** | `luut` | Oikea valokuva eläimen pääkallosta tai luurangosta, ja neljästä eläimestä valitaan oikea. Kuvat Wikimedia Commonsista (CC/PD), tekijät `games/luut/CREDITS.md`. |
+| <img src="../docs/screenshots/kopteri.png" width="160"> | **Kopterilento** | `kopteri` | Maantietoa helikopterilla: Tampereen paikat ylhäältä ja maapallolla mantereet ja maat. |
+| <img src="../docs/screenshots/muutto.png" width="160"> | **Muuttolintu** | `muutto` | Lennä muuttolintuna Suomeen pesimään ja takaisin. Vuodenajat ja aurinko näkyvät maapallolla. |
+| <img src="../docs/screenshots/kielipelit.png" width="160"> | **Kielipelit** | `kielipelit` | Englantia ja espanjaa: sanat, "Find the red key", kahvila ja tarina. Ohjeet puhutaan. |
 
 Seuraavat pelit tehtiin puhelinta varten Macilla, ja ne tulevat tähän listaan, kun ne on viety GitHubiin: Kirjainpallot, Onkipeli, Avaruusretki, Sanaseikkailu ja Kolmården.
 
