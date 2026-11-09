@@ -11,7 +11,7 @@
 //!   rg_voice en-dict cmudict.dict voice/en           adds the words of voice/en/*.json that
 //!                                                  voice/en/*.dict lacks to voice/en/words.dict
 
-use rg_voice::{FS_CLIP, Lang, Voice, say_in, wav};
+use rg_voice::{FS_CLIP, Lang, Voice, finish_at, piper, say_in, wav};
 use serde_json::{Map, Value};
 use std::path::Path;
 
@@ -99,12 +99,57 @@ fn build(list: &str, out: &str) -> Result<(), String> {
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
-    let mut jobs: Vec<(String, String, Option<String>, Voice, String)> = Vec::new();
+    let mut jobs: Vec<(String, String, Option<String>, Voice, String, Option<std::path::PathBuf>, Option<std::path::PathBuf>)> = Vec::new();
+    // a list whose voice has "engine": "piper" is said by Piper when it is installed
+    // (scripts/setup-piper.sh), else by CHIMERA with a note
+    let piper_cmd = piper::command();
+    // clips rendered ahead by a slow engine (tools/chatterbox/render.py): <dir>/<lang>/<id>.wav
+    // with <id>.json {"text"}; used while their text matches the list
+    let clip_dir = std::env::var("RG_VOICE_CLIPS").map(std::path::PathBuf::from).unwrap_or_else(|_| std::path::PathBuf::from(".deps/voice-clips/chatterbox")).join(&code);
+    let mut from_clips = 0;
+    let mut piper_missing: Option<String> = None;
     let mut stamp = Map::new();
     let mut index = Map::new();
     let mut unknown: Vec<String> = Vec::new();
     for (id, c, base) in &clips {
         // a clip is "text", or { "text": …, "ipa": …, and voice settings of its own }
+        let merged_voice = match c {
+            Value::Object(o) => {
+                let mut m = base.as_object().cloned().unwrap_or_default();
+                for (k, v) in o {
+                    m.insert(k.clone(), v.clone());
+                }
+                m
+            }
+            _ => base.as_object().cloned().unwrap_or_default(),
+        };
+        let ready = {
+            let j = std::fs::read_to_string(clip_dir.join(format!("{id}.json"))).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok());
+            let w = clip_dir.join(format!("{id}.wav"));
+            match (j, std::fs::metadata(&w)) {
+                (Some(j), Ok(m)) if j.get("text").and_then(Value::as_str) == Some(clip_text(c).as_str()) => {
+                    Some((w, format!("{}-{:?}", m.len(), m.modified().ok())))
+                }
+                _ => None,
+            }
+        };
+        if ready.is_some() {
+            from_clips += 1;
+        }
+        let piper_model = if ready.is_some() {
+            None
+        } else if merged_voice.get("engine").and_then(Value::as_str) == Some("piper") {
+            let name = merged_voice.get("model").and_then(Value::as_str).unwrap_or("fi_FI-harri-medium").to_string();
+            match (&piper_cmd, piper::model(&name)) {
+                (Some(_), Some(m)) => Some(m),
+                _ => {
+                    piper_missing = Some(name);
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let (say_text, ipa, voice) = match c {
             Value::String(s) => (s.clone(), None, voice_of(base)),
             Value::Object(o) => {
@@ -130,6 +175,8 @@ fn build(list: &str, out: &str) -> Result<(), String> {
         // the English word lists change what is said: the stamp follows the words' entries
         // (fi3: Finnish vowels, unaspirated stops and melody of prosody.rs)
         let key = match (code.as_str(), &ipa) {
+            _ if ready.is_some() => format!("{say_text}|clip|{}", ready.as_ref().unwrap().1),
+            _ if piper_model.is_some() => format!("{say_text}|piper|{}|{}|piper1", piper_model.as_ref().unwrap().display(), voice.rate),
             ("fi", None) => format!("{say_text}|{voice:?}|pcm16-48k-fi3"),
             ("fi", _) => format!("{say_text}|{ipa:?}|{voice:?}|pcm16-48k-fi3"),
             ("en", None) => format!("{say_text}|{voice:?}|pcm16-48k-en1|{}", lang.ipa(&say_text)),
@@ -141,7 +188,10 @@ fn build(list: &str, out: &str) -> Result<(), String> {
         if old.get(id).and_then(Value::as_str) == Some(key.as_str()) && file.exists() {
             continue;
         }
-        jobs.push((id.clone(), say_text, ipa, voice, file.to_string_lossy().into_owned()));
+        jobs.push((id.clone(), say_text, ipa, voice, file.to_string_lossy().into_owned(), piper_model, ready.map(|r| r.0)));
+    }
+    if let Some(name) = &piper_missing {
+        println!("note: Piper voice {name} is not installed (scripts/setup-piper.sh): CHIMERA says those clips");
     }
     if !unknown.is_empty() {
         println!("note: {} English words not in voice/en/*.dict (said by letter-to-sound rules; add them with `rg_voice en-dict`): {}", unknown.len(), unknown.join(" "));
@@ -155,12 +205,31 @@ fn build(list: &str, out: &str) -> Result<(), String> {
             s.spawn(|| {
                 loop {
                     let job = jobs.lock().unwrap().pop();
-                    let Some((id, t, ipa, v, file)) = job else { break };
-                    let pcm = say_in(&lang, &t, ipa.as_deref(), &v);
-                    if let Err(e) = std::fs::write(&file, wav(&pcm, FS_CLIP)) {
+                    let Some((id, t, ipa, v, file, pm, ready)) = job else { break };
+                    let (pcm, rate) = match (&ready, &pm) {
+                        (Some(w), _) => match std::fs::read(w).ok().and_then(|b| piper::read_wav(&b)) {
+                            Some((x, r)) => (finish_at(&x, r), r),
+                            None => {
+                                failed.lock().unwrap().push(format!("{id}: {} is not a 16-bit PCM WAV", w.display()));
+                                continue;
+                            }
+                        },
+                        (None, pm) => match pm {
+                        Some(m) => match piper::say(piper_cmd.as_ref().unwrap(), m, &t, v.rate, &std::path::PathBuf::from(format!("{file}.piper.wav"))) {
+                            Ok((x, r)) => (finish_at(&x, r), r),
+                            Err(e) => {
+                                failed.lock().unwrap().push(format!("{id}: {e}"));
+                                continue;
+                            }
+                        },
+                        None => (say_in(&lang, &t, ipa.as_deref(), &v), FS_CLIP),
+                        },
+                    };
+                    if let Err(e) = std::fs::write(&file, wav(&pcm, rate)) {
                         failed.lock().unwrap().push(format!("{file}: {e}"));
                     } else {
-                        println!("  {id:<16} {:.2} s  {}", pcm.len() as f64 / FS_CLIP as f64, ipa.clone().unwrap_or_else(|| lang.ipa(&t)));
+                        let what = if ready.is_some() { format!("ready clip: {t}") } else if pm.is_some() { format!("piper: {t}") } else { ipa.clone().unwrap_or_else(|| lang.ipa(&t)) };
+                        println!("  {id:<16} {:.2} s  {what}", pcm.len() as f64 / rate as f64);
                     }
                 }
             });
@@ -187,8 +256,17 @@ fn build(list: &str, out: &str) -> Result<(), String> {
     w(&Path::new(out).join("clips.json"), index).map_err(|e| e.to_string())?;
     // the ids alone, for the engine: rg.say falls back to Finnish for an id a language lacks
     std::fs::write(Path::new(out).join("index.json"), serde_json::to_string(&Value::Array(ids)).unwrap() + "\n").map_err(|e| e.to_string())?;
-    println!("{out}: {} clips, {n} rendered", clips.len());
+    println!("{out}: {} clips, {n} rendered ({from_clips} are ready clips of {})", clips.len(), clip_dir.display());
     Ok(())
+}
+
+/// The text of a clip entry ("text" or { "text": … }).
+fn clip_text(c: &Value) -> String {
+    match c {
+        Value::String(s) => s.clone(),
+        Value::Object(o) => o.get("text").and_then(Value::as_str).unwrap_or("").to_string(),
+        _ => String::new(),
+    }
 }
 
 /// A language's default voice when its list gives none.
