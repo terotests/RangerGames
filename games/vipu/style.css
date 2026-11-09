@@ -78,3 +78,7 @@
 .stitle { font-size: 26px; font-weight: 700; color: #2a9d8f; }
 .sline { font-size: 22px; font-weight: 700; color: #264653; margin-top: 4px; }
 .row { flex-direction: row; margin-top: 10px; }
+.spout.small { width: 10px; height: 10px; }
+.valve.small { width: 18px; height: 6px; }
+.stream.thin { width: 6px; }
+.basin { height: 12px; border-radius: 6px; border-width: 2px; border-color: #6c757d; background-color: rgba(116,192,252,0.5); }
