@@ -26,6 +26,14 @@ fn main() {
             "EVGColor::black();\n    me.color = Some(",
             "{ let c = Rc::new(RefCell::new(EVGColor::new())); c.borrow_mut().is_set = false; c };\n    me.color = Some(",
         )
+        // Compound class selectors (`.a.b`) parse to the class name "a.b",
+        // which matchesClass compared as one class, so they never applied.
+        // Match each dot-separated part. (Order in the sheet still decides,
+        // there is no specificity.)
+        .stub(
+            "  pub fn matches_class(__self_rc: &Rc<RefCell<EVGStyleSheet>>, classes: &[String], want: &str) -> bool {\n",
+            "  pub fn matches_class(__self_rc: &Rc<RefCell<EVGStyleSheet>>, classes: &[String], want: &str) -> bool {\n    if want.contains('.') {\n      return want.split('.').filter(|p| !p.is_empty()).all(|p| classes.iter().any(|c| c == p));\n    }\n",
+        )
         .compile();
     println!("cargo:rerun-if-changed=../../.deps/Ranger/lib/evg");
 }
