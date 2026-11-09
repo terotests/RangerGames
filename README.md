@@ -46,7 +46,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 
 | Peli | Mitä |
 | --- | --- |
-| `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Pienille sopiva: kolme sydäntä, putoamisesta pelastuspilvi, reunat ovat seiniä. Ohjaus: pidä sormea vasemmalla/oikealla puolella (tai nuolinäppäimet). |
+| `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Pienille sopiva: kolme sydäntä, putoamisesta pelastuspilvi, reunat ovat seiniä. Ohjaus: pupu hyppää sormen kohdalle, napautus riittää (tai nuolinäppäimet). |
 | `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella tai puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa). |
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |

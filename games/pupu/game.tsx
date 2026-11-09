@@ -1,5 +1,5 @@
-// Pupu hyppii: a bunny bounces up from cloud to cloud. Hold the left or
-// right side of the screen (or the arrow keys) to steer; the bunny jumps by
+// Pupu hyppii: a bunny bounces up from cloud to cloud. Touch the screen
+// and the bunny hops toward your finger (or use the arrow keys); the bunny jumps by
 // itself. Carrots are points, a spring throws you high, a grey cloud breaks
 // after one bounce, and a cloud that sways moves under you.
 // Made for small children: the bunny is slow and stops when you let go, the
@@ -36,6 +36,8 @@ let newBest = false;
 let lives = LIVES;
 let nextLife = 500;     // score that gives a heart back
 let safe = 0;          // seconds left of the rescue blink
+let target = -1;       // x the bunny heads for after a touch, -1 = none
+let waitLift = false;  // the tap that started the round doesn't steer
 let stars: { x: number; y: number; s: number }[] = [];
 
 function init() {
@@ -57,6 +59,7 @@ function reset() {
   lives = LIVES;
   nextLife = 500;
   safe = 0;
+  target = -1;
   // a long first cloud, so the first jumps cannot miss
   const first = makePlatform(20, height - 60, "cloud");
   first.w = width - 40;
@@ -97,12 +100,22 @@ function puff(x: number, y: number, c: string) {
   for (let i = 0; i < 5; i++) puffs.push({ x: x + rg.random() * 30 - 15, y: y + rg.random() * 8, t: 0, c });
 }
 
+// The bunny goes toward the finger, measured from the bunny itself, not from
+// the middle of the screen. A short tap is enough: it keeps going to the
+// tapped spot after the finger lifts and stops under it.
 function steer(): number {
   let d = 0;
   if (__input.keys["ArrowLeft"] || __input.keys["a"]) d -= 1;
   if (__input.keys["ArrowRight"] || __input.keys["d"]) d += 1;
-  for (const p of __input.pointers) if (p.down) d += p.x < width / 2 ? -1 : 1;
-  return Math.max(-1, Math.min(1, d));
+  if (d !== 0) { target = -1; return d; }
+  let down = false;
+  for (const p of __input.pointers) if (p.down) { down = true; if (!waitLift) target = p.x; }
+  if (!down) waitLift = false;
+  if (target < 0) return 0;
+  const dx = target - (P.x + 16);
+  if (Math.abs(dx) < 6) { target = -1; return 0; }
+  // slows down for the last few pixels so it doesn't overshoot
+  return Math.max(-1, Math.min(1, dx / 30));
 }
 
 function tick(dt: number) {
@@ -123,8 +136,8 @@ function tick(dt: number) {
   P.squash = Math.max(0, P.squash - dt * 4);
   safe = Math.max(0, safe - dt);
   // the edges are walls: the bunny never vanishes off one side
-  if (P.x < 0) { P.x = 0; P.vx = 0; }
-  if (P.x > width - 32) { P.x = width - 32; P.vx = 0; }
+  if (P.x < 0) { P.x = 0; P.vx = 0; if (target < 16) target = -1; }
+  if (P.x > width - 32) { P.x = width - 32; P.vx = 0; if (target > width - 16) target = -1; }
 
   for (const p of plats) {
     if (p.kind === "move") {
@@ -206,6 +219,7 @@ function rescue() {
 
 function startGame() {
   reset();
+  waitLift = true;
   mode = "play";
   modeClock = 0;
   rg.sound("click");
@@ -213,13 +227,15 @@ function startGame() {
   rg.say("keraa_porkkanat");
 }
 
-function onPointerDown() {
-  if (mode === "title") startGame();
+function onPointerDown(x: number, y: number) {
+  // a tap shorter than a frame never shows as held, so the tap itself sets the target
+  if (mode === "play") target = x;
+  else if (mode === "title") startGame();
   else if (mode === "over" && modeClock > 0.8) startGame();
 }
 
 function onKeyDown(key: string) {
-  if ((key === " " || key === "Enter") && mode !== "play") onPointerDown();
+  if ((key === " " || key === "Enter") && mode !== "play") onPointerDown(0, 0);
 }
 
 function onBack() {
@@ -319,7 +335,7 @@ function Title() {
   return (
     <div className="overlay">
       <div className="big" style={{ marginTop: bob }}>{rg.t("Pupu hyppii", "Bunny Jump", "Salta conejito")}</div>
-      <div className="hint">{rg.t("Pidä sormea vasemmalla tai oikealla puolella", "Hold your finger on the left or right side", "Mantén el dedo a la izquierda o a la derecha")}</div>
+      <div className="hint">{rg.t("Pupu hyppää sinne, mihin kosket", "The bunny hops to where you touch", "El conejito salta adonde toques")}</div>
       <div className="go">{rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")}</div>
       {best > 0 ? <div className="hint">Ennätys: {best}</div> : null}
     </div>
