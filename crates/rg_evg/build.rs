@@ -18,6 +18,14 @@ fn main() {
             "    EVGConnector::collect_anchors(\n      root.clone(),\n      &mut __self_rc.borrow_mut().anchor_names,\n      &mut __self_rc.borrow_mut().anchor_nodes\n    );",
             "    {\n      let mut __names = std::mem::take(&mut __self_rc.borrow_mut().anchor_names);\n      let mut __nodes = std::mem::take(&mut __self_rc.borrow_mut().anchor_nodes);\n      EVGConnector::collect_anchors(root.clone(), &mut __names, &mut __nodes);\n      __self_rc.borrow_mut().anchor_names = __names;\n      __self_rc.borrow_mut().anchor_nodes = __nodes;\n    }",
         )
+        // An element's colour starts as a black that is SET, so
+        // inheritProperties (`if color.isSet == false`) never hands a
+        // parent's `color` down and text under a coloured box stays black.
+        // Start it unset, as CSS's `color: inherit` initial value.
+        .stub(
+            "EVGColor::black();\n    me.color = Some(",
+            "{ let c = Rc::new(RefCell::new(EVGColor::new())); c.borrow_mut().is_set = false; c };\n    me.color = Some(",
+        )
         .compile();
     println!("cargo:rerun-if-changed=../../.deps/Ranger/lib/evg");
 }

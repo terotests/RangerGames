@@ -115,9 +115,24 @@ fn run(args: &[String]) -> i32 {
         e.draw.strings.len()
     );
     if std::env::var("RG_DUMP").is_ok() {
-        println!("{}", e.draw.strings.join(" | "));
+        dump(&e);
     }
     status
+}
+
+/// The last frame's draw stream, one command a line.
+fn dump(e: &Engine) {
+    let n = &e.draw.nums;
+    let mut i = 0;
+    while i < n.len() {
+        let s0 = n[i + 18] as i32;
+        let text = if s0 >= 0 { e.draw.strings[s0 as usize].as_str() } else { "" };
+        println!(
+            "k{} x{:.0} y{:.0} w{:.0} h{:.0} rgba({},{},{},{:.2}) t{} rot{} {}",
+            n[i], n[i + 1], n[i + 2], n[i + 3], n[i + 4], n[i + 5], n[i + 6], n[i + 7], n[i + 8], n[i + 13], n[i + 14], text
+        );
+        i += rg_engine::draw::HEADER + n[i + 22] as usize;
+    }
 }
 
 fn test(args: &[String]) -> i32 {

@@ -20,6 +20,29 @@ pub const BASE_CSS: &str = "
 
 const TEXT_TAGS: [&str; 12] = ["span", "text", "p", "b", "i", "label", "h1", "h2", "h3", "h4", "small", "strong"];
 
+/// The tag of a text run made from a string child (`<div>Hi {name}</div>`).
+const TEXT_RUN: &str = "#text";
+
+/// Gives each text run the font size its box will inherit. EVG settles
+/// inherited font sizes while it lays out, after it has measured a width-less
+/// box by its content, so a box sized `30px` that fits its text measured that
+/// text at the default 14px and was too narrow for it. A run gets the size
+/// it would have inherited (when the cascade gave it none) before layout.
+fn settle_font_sizes(el: &Rc<RefCell<EVGElement>>, inherited: Option<Rc<RefCell<EVGUnit>>>) {
+    let own = el.borrow().font_size.clone();
+    let own_set = own.as_ref().map(|u| u.borrow().is_set).unwrap_or(false);
+    let here = if own_set { own } else { inherited.clone() };
+    if !own_set && el.borrow().tag_name == TEXT_RUN {
+        if let Some(u) = &inherited {
+            el.borrow_mut().font_size = Some(u.clone());
+        }
+    }
+    let kids = el.borrow().children.clone();
+    for c in kids.iter() {
+        settle_font_sizes(c, here.clone());
+    }
+}
+
 pub struct Ui {
     sheet: Rc<RefCell<EVGStyleSheet>>,
     root: Option<Rc<RefCell<EVGElement>>>,
@@ -49,6 +72,11 @@ fn element(tag: &str) -> Rc<RefCell<EVGElement>> {
         EVGElement::create_div()
     };
     el.borrow_mut().tag_name = tag.to_string();
+    // boxes are flex containers, as in the CSS a game author knows: a box
+    // without a width fits its content in a row or under align-items
+    if !is_text_tag(tag) {
+        el.borrow_mut().display = "flex".to_string();
+    }
     el
 }
 
@@ -61,12 +89,14 @@ fn set_inline(el: &Rc<RefCell<EVGElement>>, name: &str, value: String) {
 pub fn build(node: &Json) -> Rc<RefCell<EVGElement>> {
     if let Json::Str(s) = node {
         let t = element("span");
+        t.borrow_mut().tag_name = TEXT_RUN.to_string();
         EVGElement::set_attribute(&t, "className", "text".to_string());
         t.borrow_mut().text_content = s.clone();
         return t;
     }
     if let Json::Num(_) = node {
         let t = element("span");
+        t.borrow_mut().tag_name = TEXT_RUN.to_string();
         EVGElement::set_attribute(&t, "className", "text".to_string());
         t.borrow_mut().text_content = node.as_str();
         return t;
@@ -151,6 +181,7 @@ impl Ui {
         let (w, h) = (self.width, self.height);
         EVGStyleSheet::set_viewport(&self.sheet, w, h, true);
         EVGStyleSheet::apply_tree(&self.sheet, &root, "");
+        settle_font_sizes(&root, None);
         let lay = Rc::new(RefCell::new(EVGLayout::new()));
         EVGLayout::set_page_size(&lay, w, h);
         EVGLayout::layout(&lay, root.clone());

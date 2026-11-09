@@ -1,0 +1,26 @@
+.screen { width: 100%; height: 100%; background: linear-gradient(180deg, #3a0ca3, #240046); align-items: center; }
+.menu { justify-content: flex-start; }
+.title { font-size: 44px; font-weight: 700; color: #ffd166; margin-bottom: 20px; }
+.demo { font-size: 64px; margin-bottom: 30px; }
+.btn {
+  width: 260px; height: 64px; border-radius: 32px; background-color: #ff5d8f; margin-top: 16px;
+  color: #ffffff; font-size: 21px; font-weight: 700; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 5px; shadow-radius: 0px;
+}
+.alt { background-color: #4cc9f0; }
+.back { background-color: #5a4b9c; font-size: 17px; height: 50px; }
+.small { width: 170px; }
+.again { background-color: #06d6a0; margin-top: 18px; }
+.spacer { height: 64px; margin-top: 18px; }
+.top { flex-direction: row; width: 100%; justify-content: space-between; padding: 18px; }
+.score { font-size: 18px; font-weight: 700; padding: 8px; padding-left: 14px; padding-right: 14px; border-radius: 16px; color: #ffffff; }
+.tx { background-color: #ff5d8f; }
+.to { background-color: #4cc9f0; }
+.status { margin-top: 6px; margin-bottom: 18px; font-size: 20px; color: #ffffff; padding: 8px; padding-left: 18px; padding-right: 18px; border-radius: 20px; }
+.status.big { font-size: 28px; font-weight: 700; color: #ffd166; background-color: transparent; }
+.board { width: 336px; height: 336px; flex-direction: row; flex-wrap: wrap; background-color: #7b2cbf; border-radius: 24px; padding: 6px; }
+.cell { width: 96px; height: 96px; margin: 6px; border-radius: 18px; background-color: #9d4edd; align-items: center; justify-content: center; }
+.cell.hot { background-color: #a663e8; }
+.mark { align-items: center; justify-content: center; }
+.xbar { position: absolute; border-radius: 8px; background-color: #ff5d8f; }
+.oring { border-radius: 999px; border-color: #4cc9f0; }
