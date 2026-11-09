@@ -4,6 +4,14 @@
 // take ages), and you bounce off its surface like a rubber ball instead of
 // crashing. Touch every body to collect its badge.
 //
+// Controls for small children: hold a finger still on the screen and the
+// rocket fires its engine until the finger lifts; dragging steers. Without
+// the engine the rocket slowly slows down, so it never gets too fast. A tap
+// on a planet (or its icon at the edge) is a quick flight close to it. When
+// the rocket falls into a planet's pull, the camera turns to watch it from
+// the side: it falls to the surface, bounces back into space, and only then
+// can be steered again.
+//
 // The bodies are drawn by the engine (rg.three("planet", …)): the same globe
 // as Muuttolintu's and Kopterilento's, placed in the 3D scene in perspective
 // and lit by the Sun. They are much bigger and closer to each other than in
@@ -40,12 +48,13 @@ const BODIES: Body[] = [
   { id: "jupiter", name: rg.t("Jupiter", "Jupiter", "Júpiter"), icon: "🟠", pos: [8800, 400, -2600], r: 340, g: 24.8, pull: 24.8 * FALL, soi: 3.2, bounce: 0.8, spin: 0.05, tilt: 0.05 },
 ];
 const SHIP_R = 0.9;
-const THRUST = 14;
-const BOOST = 42;
-const BRAKE = 16;
-const MAX_SPEED = 340;
-const MAX_BOOST = 620;
+const THRUST = 22;
+const MAX_SPEED = 150;      // the engine cannot push the rocket faster than this
+const DRAG = 0.45;          // without the engine the speed fades (1/s)
+const HOLD = 0.28;          // a finger held this long without moving fires the engine
+const STILL = 14;           // px a held finger may wander and still count as still
 const TURN = 1.7;
+const AUTO_TIME = 2.6;      // the quick flight to a tapped planet, seconds
 const FOV = 65;
 const BG = [6, 8, 22];
 
@@ -57,7 +66,10 @@ let vel = [0, 0, 0];
 let fwd = [1, 0, 0];
 let up = [0, 1, 0];
 let thrusting = 0;
-let boosting = false;
+// quick flight to a tapped planet
+let auto: { b: Body; from: number[]; to: number[]; f0: number[]; t: number } | null = null;
+// falling into a planet's pull: no steering until the bounce has thrown the rocket back out
+let fall: { b: Body; side: number[]; bounced: boolean; t: number } | null = null;
 let visited: any = {};
 let bounces = 0;
 let near: Body | null = null;        // the body whose pull is strongest
@@ -69,8 +81,8 @@ let message = "";
 let messageClock = 0;
 let skyKey = "";
 let cam = { pos: [0, 0, 0], look: [1, 0, 0], up: [0, 1, 0] };
-let stick: { id: number; x: number; y: number; dx: number; dy: number } | null = null;
-let held: any = {};                  // on-screen buttons held: thrust, boost, brake
+// the finger on the screen: dragging steers, holding still fires the engine
+let stick: { id: number; x: number; y: number; dx: number; dy: number; t: number; moved: boolean; fire: boolean } | null = null;
 let best = 0;
 
 // ---- vectors -------------------------------------------------------------------
@@ -288,7 +300,8 @@ function build() {
 
 function reset() {
   const earth = BODIES[3];
-  pos = add(earth.pos, [-300, 40, 80]);
+  // just outside the Earth's pull, so the game does not start with a fall
+  pos = add(earth.pos, [-450, 60, 120]);
   vel = [0, 0, 0];
   fwd = norm(sub(earth.pos, pos));
   up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
@@ -296,6 +309,10 @@ function reset() {
   bounces = 0;
   message = "";
   skyKey = "";
+  auto = null;
+  fall = null;
+  stick = null;
+  shipScale = 1;
   placeShip();
   camera(1);
 }
@@ -305,17 +322,23 @@ function hex(h: string) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(
 
 function say(text: string) { message = text; messageClock = 3.2; }
 
+// seen from far away (the side view of a fall) the rocket is drawn bigger
+let shipScale = 1;
+
 // the ship's parts, each at its offset in the ship's frame (x right, y up, z back)
 function part(id: string, off: number[], a: number[], b: number[], c: number[], extra?: any) {
   const right = cross(fwd, up);
   // the part's own axes in the world: columns a, b, c given in the ship frame
   const toWorld = (v: number[]) => add(add(mul(right, v[0]), mul(up, v[1])), mul(fwd, -v[2]));
   const e = euler(toWorld(a), toWorld(b), toWorld(c));
-  const p = add(pos, toWorld(off));
-  const args: any = { id, x: p[0], y: p[1], z: p[2], rx: e.rx, ry: e.ry, rz: e.rz };
+  const p = add(pos, toWorld(mul(off, shipScale)));
+  const args: any = { id, x: p[0], y: p[1], z: p[2], rx: e.rx, ry: e.ry, rz: e.rz, sx: shipScale, sy: shipScale, sz: shipScale, visible: true };
   if (extra) for (const k in extra) args[k] = extra[k];
   rg.three("set", args);
 }
+
+const PARTS = ["body", "band", "window", "wingL", "wingR", "fin", "flame", "flame2"];
+function hideShip() { for (const id of PARTS) rg.three("set", { id, visible: false }); }
 
 function placeShip() {
   // a cone points up its own y: lay it along the nose (−z of the ship)
@@ -328,59 +351,79 @@ function placeShip() {
   part("wingL", [-0.6, -0.07, 0.55], flat[0], flat[1], flat[2]);
   part("wingR", [0.6, -0.07, 0.55], flat[0], flat[1], flat[2]);
   part("fin", [0, 0.4, 0.58], flat[0], flat[1], flat[2]);
-  const f = thrusting > 0 ? (boosting ? 1.9 : 1) * (0.8 + 0.3 * Math.sin(t * 40)) : 0;
-  part("flame", [0, 0, 0.95 + 0.55 * f], tail[0], tail[1], tail[2], { visible: f > 0, sy: Math.max(0.01, f) });
-  part("flame2", [0, 0, 0.9 + 0.35 * f], tail[0], tail[1], tail[2], { visible: f > 0, sy: Math.max(0.01, f) });
+  const f = thrusting > 0 ? 0.8 + 0.3 * Math.sin(t * 40) : 0;
+  const k = shipScale;
+  part("flame", [0, 0, 0.95 + 0.55 * f], tail[0], tail[1], tail[2], { visible: f > 0, sy: Math.max(0.01, f) * k });
+  part("flame2", [0, 0, 0.9 + 0.35 * f], tail[0], tail[1], tail[2], { visible: f > 0, sy: Math.max(0.01, f) * k });
 }
 
-function camera(snap: number) {
-  const want = add(add(pos, mul(fwd, -11)), mul(up, 4.2));
-  const k = Math.min(1, snap);
-  let c = add(cam.pos, mul(sub(want, cam.pos), k));
-  // never inside a planet
+// keeps the camera out of the planets
+function outside(c: number[]) {
   for (const b of BODIES) {
     const d = sub(c, b.pos);
     const l = len(d);
     if (l < b.r + 2) c = add(b.pos, mul(d, (b.r + 2) / l));
   }
-  cam.pos = c;
-  cam.look = add(add(pos, mul(fwd, 30)), mul(up, 2.5));
-  cam.up = add(cam.up, mul(sub(up, cam.up), k));
-  rg.three("camera", { x: c[0], y: c[1], z: c[2], lookAt: cam.look, up: cam.up, fov: FOV });
+  return c;
+}
+
+// behind the rocket
+function camera(snap: number) {
+  const want = add(add(pos, mul(fwd, -11)), mul(up, 4.2));
+  const k = Math.min(1, snap);
+  cam.pos = outside(add(cam.pos, mul(sub(want, cam.pos), k)));
+  cam.look = add(cam.look, mul(sub(add(add(pos, mul(fwd, 30)), mul(up, 2.5)), cam.look), k));
+  cam.up = norm(add(cam.up, mul(sub(up, cam.up), k)));
+  rg.three("camera", { x: cam.pos[0], y: cam.pos[1], z: cam.pos[2], lookAt: cam.look, up: cam.up, fov: FOV });
+}
+
+// the side view of a fall: the rocket and the ground below it both in sight,
+// the ground at the bottom of the screen
+function fallCamera(snap: number) {
+  if (!fall) return;
+  const b = fall.b;
+  const n = norm(sub(pos, b.pos));
+  const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
+  const mid = sub(pos, mul(n, alt * 0.5));
+  const d = alt * 1.15 + 18;
+  const want = add(add(mid, mul(fall.side, d)), mul(n, d * 0.12));
+  const k = Math.min(1, snap);
+  cam.pos = outside(add(cam.pos, mul(sub(want, cam.pos), k)));
+  cam.look = add(cam.look, mul(sub(mid, cam.look), k));
+  cam.up = norm(add(cam.up, mul(sub(n, cam.up), k)));
+  rg.three("camera", { x: cam.pos[0], y: cam.pos[1], z: cam.pos[2], lookAt: cam.look, up: cam.up, fov: FOV });
+  shipScale = Math.max(1, len(sub(cam.pos, pos)) / 45);
 }
 
 function start() {
   screen = "play";
   rg.sound("click");
   reset();
-  say(rg.t("Lennä Maata kohti!", "Fly towards the Earth!", "¡Vuela hacia la Tierra!"));
+  say(rg.t("Pidä sormi paikallaan, niin raketti lentää!", "Hold your finger still and the rocket flies!", "¡Deja el dedo quieto y el cohete vuela!"));
 }
 
 // ---- controls ----------------------------------------------------------------
 
 const PAD_R = 54;
-function buttons() {
-  const s = Math.min(76, width * 0.2);
-  const x = width - s - 14, y = height - s - 24;
-  return [
-    { id: "thrust", x, y, s, icon: "🔥" },
-    { id: "boost", x, y: y - s - 12, s, icon: "⚡" },
-    { id: "brake", x: x - s - 12, y, s, icon: "🛑" },
-  ];
-}
-function buttonAt(px: number, py: number) {
-  for (const b of buttons()) if (px >= b.x && px <= b.x + b.s && py >= b.y && py <= b.y + b.s) return b.id;
-  return "";
-}
 
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { start(); return; }
-  if (buttonAt(px, py)) return;
-  if (px < width * 0.6 && py > height * 0.35) stick = { id: info.pointer, x: px, y: py, dx: 0, dy: 0 };
+  if (fall || auto) return;
+  stick = { id: info.pointer, x: px, y: py, dx: 0, dy: 0, t, moved: false, fire: false };
+  still = { x: px, y: py, t };
 }
+// where the finger last stopped, and since when
+let still = { x: 0, y: 0, t: 0 };
 
 function onPointerUp(px: number, py: number, info: any) {
-  if (stick && stick.id === info.pointer) stick = null;
+  if (!stick || stick.id !== info.pointer) return;
+  // a quick tap that did not move: a quick flight to the planet under it
+  const tap = !stick.fire && !stick.moved && t - stick.t < HOLD + 0.1;
+  stick = null;
+  if (tap && !fall && !auto) {
+    const b = bodyAt(px, py);
+    if (b) startAuto(b);
+  }
 }
 
 function onKeyDown(key: string) {
@@ -392,6 +435,12 @@ function onBack() {
   if (screen === "play") screen = "title"; else rg.exit();
 }
 
+// a finger's drag beyond the still zone, as -1…1
+function axis(d: number) {
+  const a = Math.max(0, Math.abs(d) - STILL) / PAD_R;
+  return (d < 0 ? -1 : 1) * Math.min(1, a);
+}
+
 function controls() {
   const k = __input.keys;
   let yaw = 0, pitch = 0;
@@ -399,24 +448,63 @@ function controls() {
   if (k["ArrowRight"] || k["d"]) yaw -= 1;
   if (k["ArrowUp"]) pitch += 1;
   if (k["ArrowDown"]) pitch -= 1;
-  held = {};
-  for (const p of __input.pointers) {
-    if (!p.down) continue;
-    const b = buttonAt(p.x, p.y);
-    if (b) held[b] = true;
-    if (stick && p.id === stick.id) { stick.dx = p.x - stick.x; stick.dy = p.y - stick.y; }
-  }
   if (stick) {
-    yaw -= Math.max(-1, Math.min(1, stick.dx / PAD_R));
-    pitch -= Math.max(-1, Math.min(1, stick.dy / PAD_R));
+    for (const p of __input.pointers) {
+      if (!p.down || p.id !== stick.id) continue;
+      stick.dx = p.x - stick.x; stick.dy = p.y - stick.y;
+      if (Math.abs(stick.dx) > STILL || Math.abs(stick.dy) > STILL) stick.moved = true;
+      // the finger moved: the hold starts again from here
+      if (Math.abs(p.x - still.x) > STILL || Math.abs(p.y - still.y) > STILL) still = { x: p.x, y: p.y, t };
+    }
+    if (!stick.fire && t - still.t > HOLD) { stick.fire = true; rg.vibrate(15); }
+    yaw -= axis(stick.dx);
+    pitch -= axis(stick.dy);
   }
-  const thrust = !!(k["w"] || k[" "] || held.thrust || held.boost);
-  const boost = !!(k["Shift"] || k["b"] || held.boost);
-  const brake = !!(k["s"] || k["x"] || held.brake);
-  return { yaw, pitch, thrust, boost, brake };
+  const thrust = !!(k["w"] || k[" "] || (stick && stick.fire));
+  return { yaw, pitch, thrust };
+}
+
+// ---- quick flight ------------------------------------------------------------
+
+function startAuto(b: Body) {
+  const d = sub(pos, b.pos);
+  const to = add(b.pos, mul(norm(d), b.r * b.soi * 1.06));
+  if (len(sub(to, pos)) < 20) return;
+  auto = { b, from: pos, to, f0: fwd, t: 0 };
+  vel = [0, 0, 0];
+  rg.sound("click");
+  say("🚀 " + rg.t("Pikalento", "Quick flight", "Vuelo rápido") + ": " + b.icon + " " + b.name);
+}
+
+let autoSpeed = 0;
+function stepAuto(dt: number) {
+  if (!auto) return;
+  auto.t += dt;
+  const u = Math.min(1, auto.t / AUTO_TIME);
+  const e = u * u * (3 - 2 * u);
+  const prev = pos;
+  pos = add(auto.from, mul(sub(auto.to, auto.from), e));
+  autoSpeed = len(sub(pos, prev)) / Math.max(1e-6, dt);
+  // the nose turns to the planet during the first half
+  const want = norm(sub(auto.b.pos, pos));
+  const w = Math.min(1, u * 2);
+  fwd = norm(add(mul(auto.f0, 1 - w), mul(want, w)));
+  if (len(fwd) < 0.5) fwd = want;
+  up = norm(cross(cross(fwd, up), fwd));
+  if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
+  thrusting = u < 0.8 ? 1 : 0;
+  if (u >= 1) { auto = null; thrusting = 0; }
 }
 
 // ---- physics -----------------------------------------------------------------
+
+function pullAt(b: Body, r: number) {
+  const reach = b.r * b.soi;
+  if (r > reach) return 0;
+  // the real 1/r² pull, fading out at the edge of its reach
+  const fade = Math.min(1, (reach - r) / (reach * 0.35));
+  return b.pull * (b.r / r) * (b.r / r) * fade * fade * (3 - 2 * fade);
+}
 
 function gravity(p: number[]) {
   let acc = [0, 0, 0];
@@ -425,46 +513,71 @@ function gravity(p: number[]) {
   for (const b of BODIES) {
     const d = sub(b.pos, p);
     const r = len(d);
-    const reach = b.r * b.soi;
-    if (r > reach) continue;
-    // the real 1/r² pull, fading out at the edge of its reach
-    const fade = Math.min(1, (reach - r) / (reach * 0.35));
-    const a = b.pull * (b.r / r) * (b.r / r) * fade * fade * (3 - 2 * fade);
+    const a = pullAt(b, r);
+    if (a <= 0) continue;
     acc = add(acc, mul(d, a / r));
     if (a > strongest) { strongest = a; who = b; }
   }
   return { acc, who, strongest };
 }
 
+// the speed straight up from the surface that carries the rocket out of the
+// pull, a little more so it does not crawl over the edge
+const escapes: any = {};
+function escape(b: Body) {
+  if (escapes[b.id]) return escapes[b.id];
+  const r0 = b.r + SHIP_R, r1 = b.r * b.soi;
+  let e = 0;
+  const n = 200;
+  for (let i = 0; i < n; i++) e += pullAt(b, r0 + (r1 - r0) * (i + 0.5) / n) * (r1 - r0) / n;
+  const v = Math.sqrt(2 * e) * 1.18 + 6;
+  escapes[b.id] = v;
+  return v;
+}
+
+function startFall(b: Body) {
+  const n = norm(sub(pos, b.pos));
+  let side = cross(n, vel);
+  if (len(side) < 1e-3) side = cross(n, up);
+  if (len(side) < 1e-3) side = cross(n, [0, 1, 0]);
+  side = norm(side);
+  // look from the side the camera already is on, so it does not swing through the ship
+  if (dot(side, sub(cam.pos, pos)) < 0) side = mul(side, -1);
+  fall = { b, side, bounced: false, t: 0 };
+  stick = null;
+  rg.vibrate(25);
+  say(b.icon + " " + b.name + " " + rg.t("vetää sinua!", "pulls you in!", "¡te atrae!"));
+}
+
 function step(dt: number, c: any) {
-  // turning
-  if (c.yaw) { fwd = norm(rotate(fwd, up, c.yaw * TURN * dt)); }
-  if (c.pitch) { const r = cross(fwd, up); fwd = norm(rotate(fwd, r, c.pitch * TURN * dt)); up = norm(rotate(up, r, c.pitch * TURN * dt)); }
-  up = norm(cross(cross(fwd, up), fwd));
-  // near a planet the rocket slowly rolls its top towards the sky (it keeps
-  // its heading), so that the horizon stays level
-  if (near && nearAcc > 0.2) {
-    const radial = norm(sub(pos, near.pos));
-    const want = norm(sub(radial, mul(fwd, dot(radial, fwd))));
-    if (len(want) > 0.5) up = norm(add(up, mul(sub(want, up), Math.min(1, dt * 1.5))));
+  if (c && !fall) {
+    // turning
+    if (c.yaw) { fwd = norm(rotate(fwd, up, c.yaw * TURN * dt)); }
+    if (c.pitch) { const r = cross(fwd, up); fwd = norm(rotate(fwd, r, c.pitch * TURN * dt)); up = norm(rotate(up, r, c.pitch * TURN * dt)); }
     up = norm(cross(cross(fwd, up), fwd));
-  }
-  thrusting = c.thrust ? 1 : 0;
-  boosting = c.thrust && c.boost;
-  if (c.thrust) vel = add(vel, mul(fwd, (boosting ? BOOST : THRUST) * dt));
-  if (c.brake) {
-    const s = len(vel);
-    if (s > 0.01) vel = mul(vel, Math.max(0, s - BRAKE * dt) / s);
+    thrusting = c.thrust ? 1 : 0;
+    if (c.thrust) vel = add(vel, mul(fwd, THRUST * dt));
+  } else {
+    // falling: the nose follows the way the rocket moves
+    thrusting = 0;
+    const v = norm(vel);
+    if (len(v) > 0.5) fwd = norm(add(fwd, mul(sub(v, fwd), Math.min(1, dt * 3))));
+    up = norm(cross(cross(fwd, up), fwd));
+    if (len(up) < 0.5) up = norm(cross(cross(fwd, fall ? fall.side : [0, 1, 0]), fwd));
   }
   const g = gravity(pos);
   vel = add(vel, mul(g.acc, dt));
   near = g.who;
   nearAcc = g.strongest;
-  const cap = boosting ? MAX_BOOST : MAX_SPEED;
   const s = len(vel);
-  if (s > cap) vel = mul(vel, Math.max(cap, s - 160 * dt) / s);
+  if (!fall) {
+    // the engine has a top speed, and without it the rocket slows down
+    if (s > MAX_SPEED) vel = mul(vel, Math.max(MAX_SPEED, s - 60 * dt) / s);
+    if (!thrusting && !near) vel = mul(vel, Math.exp(-DRAG * dt));
+  }
   pos = add(pos, mul(vel, dt));
-  // bounce off the surfaces
+  if (!fall && near) startFall(near);
+  // bounce off the surfaces: like a rubber ball, high enough to get back to space
   for (const b of BODIES) {
     const d = sub(pos, b.pos);
     const r = len(d);
@@ -474,13 +587,29 @@ function step(dt: number, c: any) {
     const vn = dot(vel, n);
     if (vn < 0) {
       const tang = sub(vel, mul(n, vn));
-      // like a rubber ball: most of the speed comes back up; a slow touch rests
-      const out = -vn * b.bounce;
-      vel = add(mul(tang, 0.985), mul(n, out < 1.2 && b.id !== "sun" ? 0 : out));
-      if (-vn > 2.5) hit(b, -vn);
+      vel = add(mul(tang, 0.5), mul(n, escape(b)));
+      hit(b, -vn);
+      if (fall) fall.bounced = true;
     }
     land(b);
   }
+  if (fall) {
+    fall.t += dt;
+    const out = len(sub(pos, fall.b.pos)) > fall.b.r * fall.b.soi;
+    // back in space (or something went wrong): steering again
+    if ((fall.bounced && out) || fall.t > 30) endFall();
+  }
+}
+
+function endFall() {
+  fall = null;
+  near = null;
+  // facing away from the planet, the camera back behind the rocket
+  const v = norm(vel);
+  if (len(v) > 0.5) fwd = v;
+  up = norm(cross(cross(fwd, up), fwd));
+  if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
+  shipScale = 1;
 }
 
 function hit(b: Body, speed: number) {
@@ -507,6 +636,9 @@ function land(b: Body) {
   }
 }
 
+// a fall is shown faster than real time, so it does not take ages
+const FALL_SPEEDUP = 2.2;
+
 function tick(dt: number) {
   t += dt;
   // the planets turn
@@ -518,15 +650,21 @@ function tick(dt: number) {
     const a = t * 0.08;
     const c = add(earth.pos, [-Math.cos(a) * 290, 70, Math.sin(a) * 290]);
     rg.three("camera", { x: c[0], y: c[1], z: c[2], lookAt: add(earth.pos, [0, 20, 0]), up: [0, 1, 0], fov: FOV });
-    rg.three("set", { id: "body", visible: false });
+    hideShip();
     return;
   }
-  const c = controls();
   const h = Math.min(dt, 0.05);
-  const n = 4;
-  for (let i = 0; i < n; i++) step(h / n, c);
+  if (auto) {
+    stepAuto(h);
+  } else {
+    const c = fall ? null : controls();
+    const n = fall ? 8 : 4;
+    const hh = fall ? h * FALL_SPEEDUP : h;
+    for (let i = 0; i < n; i++) step(hh / n, fall ? null : c);
+  }
+  if (fall) fallCamera(Math.min(1, dt * 2.5));
+  else camera(auto ? 1 : Math.min(1, dt * 4));
   placeShip();
-  camera(Math.min(1, dt * 6));
   if (near) alt = len(sub(pos, near.pos)) - near.r - SHIP_R;
   sky();
 }
@@ -570,34 +708,62 @@ function km(units: number) {
   return (t >= 1000 ? Math.floor(t / 1000) + " " + String(t % 1000 + 1000).slice(1) : String(t)) + " 000 km";
 }
 
-function markers() {
-  const out = [];
+// where each body is on the screen: its disk (tappable, labelled), or its
+// icon at the edge of the screen when it is out of sight
+function spots() {
+  const out: any[] = [];
   const focal = (height / 2) / Math.tan(FOV * Math.PI / 360);
   const f = norm(sub(cam.look, cam.pos));
   const rr = norm(cross(f, cam.up));
   const u = cross(rr, f);
   for (const b of BODIES) {
     const d = len(sub(b.pos, pos)) - b.r;
-    if (d < b.r * 0.6) continue;
     const s = project(b.pos);
-    const label = b.name + " · " + km(d);
     if (s && s.x > 0 && s.x < width && s.y > 0 && s.y < height) {
       const rpx = b.r / s.z * focal;
-      if (rpx > width * 0.9) continue;
-      const y = s.y - rpx - 20;
-      if (y < 120 || y > height - 120) continue;
-      out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>{label}</div>);
+      out.push({ b, d, edge: false, x: s.x, y: s.y, rpx });
     } else {
       // off the screen: its icon at the edge, towards it
       const dd = sub(b.pos, cam.pos);
       let ax = dot(dd, rr), ay = -dot(dd, u);
       const l = Math.sqrt(ax * ax + ay * ay) || 1;
       ax /= l; ay /= l;
-      // from the middle of the free area (below the HUD, above the buttons) to its edge
-      const top = 130, bottom = height - 200;
+      // from the middle of the free area (below the HUD) to its edge
+      const top = 130, bottom = height - 60;
       const cy = (top + bottom) / 2;
       const k = Math.min((width / 2 - 22) / Math.max(0.01, Math.abs(ax)), (bottom - top) / 2 / Math.max(0.01, Math.abs(ay)));
-      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: width / 2 + ax * k - 16, top: cy + ay * k - 16 }}>{b.icon}</div>);
+      out.push({ b, d, edge: true, x: width / 2 + ax * k, y: cy + ay * k, rpx: 16 });
+    }
+  }
+  return out;
+}
+
+// the body a tap at (px, py) points at: an edge icon, a planet's disk or its label
+function bodyAt(px: number, py: number) {
+  let best: Body | null = null, bestD = 1e9;
+  for (const s of spots()) {
+    if (s.d < s.b.r * 0.3) continue;
+    const r = s.edge ? 30 : Math.max(30, s.rpx + 8);
+    let dd = Math.hypot(px - s.x, py - s.y);
+    // the label above the disk counts too
+    if (!s.edge && Math.abs(px - s.x) < 80 && Math.abs(py - (s.y - s.rpx - 12)) < 18) dd = Math.min(dd, r - 1);
+    if (dd < r && dd - r < bestD) { bestD = dd - r; best = s.b; }
+  }
+  return best;
+}
+
+function markers() {
+  const out = [];
+  for (const s of spots()) {
+    const b = s.b;
+    if (s.d < b.r * 0.6) continue;
+    if (!s.edge) {
+      if (s.rpx > width * 0.9) continue;
+      const y = s.y - s.rpx - 20;
+      if (y < 120 || y > height - 60) continue;
+      out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>{b.name + " · " + km(s.d)}</div>);
+    } else {
+      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: s.x - 16, top: s.y - 16 }}>{b.icon}</div>);
     }
   }
   return out;
@@ -608,20 +774,20 @@ function view() {
     return (
       <div className="screen">
         <div className="overlay">
-          <div className="big">🪐 {rg.t("Painovoimalento", "Gravity Flight", "Vuelo gravitatorio")}</div>
+          <div className="big">🚀 {rg.t("Painovoimalento", "Gravity Flight", "Vuelo gravitatorio")}</div>
           <div className="text">{rg.t("Lennä planeettojen luo. Lähellä planeetta vetää sinua puoleensa, ja pinnalta pomppaat kuin kumipallo. Käy jokaisella!",
             "Fly to the planets. Close up a planet pulls you in, and you bounce off its surface like a rubber ball. Visit every one!",
             "Vuela hacia los planetas. De cerca un planeta te atrae y rebotas en su superficie como una pelota de goma. ¡Visítalos todos!")}</div>
-          <div className="text small">{rg.t("Ohjaus: vasemmalla sormi tai nuolet · 🔥 W/välilyönti · ⚡ Shift · 🛑 S",
-            "Steer: finger on the left or arrows · 🔥 W/space · ⚡ Shift · 🛑 S",
-            "Dirección: dedo a la izquierda o flechas · 🔥 W/espacio · ⚡ Shift · 🛑 S")}</div>
+          <div className="text small">{rg.t("Pidä sormi paikallaan: raketti kaasuttaa. Liu'uta sormea: raketti kääntyy. Napauta planeettaa: pikalento sen luo.",
+            "Hold your finger still: the rocket fires. Slide it: the rocket turns. Tap a planet: a quick flight to it.",
+            "Deja el dedo quieto: el cohete acelera. Deslízalo: el cohete gira. Toca un planeta: vuelo rápido hacia él.")}</div>
           <div className="go">{rg.t("Napauta ja lähde!", "Tap to go!", "¡Toca para salir!")}</div>
           {best > 0 ? <div className="text small">{rg.t("Kaikki käyty pienimmillä pompuilla", "All visited with the fewest bounces", "Todos visitados con menos botes")}: {best}</div> : null}
         </div>
       </div>
     );
   }
-  const speed = len(vel);
+  const speed = auto ? autoSpeed : len(vel);
   const badges = BODIES.map((b) => <div className={visited[b.id] ? "badge on" : "badge"}>{b.icon}</div>);
   const pull = near ? nearAcc / FALL : 0;
   const info = near
@@ -630,21 +796,20 @@ function view() {
         <div className="pline">{rg.t("vetää nyt", "pulling now", "atrae ahora")} {fmt(pull)} m/s² · {rg.t("korkeus", "height", "altura")} {km(Math.max(0, alt))}</div>
       </div>
     : <div className="pill col"><div className="pline">{rg.t("Avaruudessa: mikään ei vedä", "In space: nothing pulls", "En el espacio: nada te atrae")}</div></div>;
-  const btns = buttons().map((b) => <div className={held[b.id] ? "btn down" : "btn"} style={{ left: b.x, top: b.y, width: b.s, height: b.s, borderRadius: b.s / 2 }}>{b.icon}</div>);
   return (
     <div className="screen">
-      {markers()}
+      {fall || auto ? null : markers()}
       <div className="hud">
         {info}
         <div className="row">{badges}</div>
       </div>
-      <div className="speed">{fmt(speed * 64 / 1000)} {rg.t("t. km/s", "k km/s", "mil km/s")}{boosting ? " ⚡" : ""}</div>
+      <div className="speed">{fmt(speed * 64 / 1000)} {rg.t("t. km/s", "k km/s", "mil km/s")}{thrusting ? " 🔥" : ""}</div>
       {t - lastBounce < 0.7 ? <div className="boing" style={{ top: height * 0.38 }}><div className="boingt">{bounceText}</div></div> : null}
       {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3 }}>{message}</div> : null}
-      {stick ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
+      {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
         <div className="knob" style={{ left: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dx)), top: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dy)) }}></div>
       </div> : null}
-      {btns}
+      {stick && stick.fire && !stick.moved ? <div className="hold" style={{ left: stick.x - 30, top: stick.y - 30 }}>🔥</div> : null}
     </div>
   );
 }

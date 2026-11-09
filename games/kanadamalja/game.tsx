@@ -16,8 +16,8 @@
 import { BOARD } from "lib/board";
 
 type Team = "ilves" | "tappara";
-type Player = { team: Team; node: number; money: number; malja: boolean; makkara: number; winMakkara: boolean; jail: boolean; ai: boolean };
-type Phase = "menu" | "pick" | "rules" | "turn" | "rolling" | "choose" | "moving" | "ask" | "reveal" | "tram" | "jail" | "win";
+type Player = { team: Team; node: number; money: number; malja: boolean; makkara: number; winMakkara: boolean; jail: boolean; ai: boolean; started: boolean };
+type Phase = "menu" | "pick" | "rules" | "start" | "turn" | "rolling" | "choose" | "moving" | "ask" | "reveal" | "tram" | "jail" | "win";
 type Dest = { node: number; path: number[]; price: number; kind: string };
 
 const PLACES: any[] = BOARD.places;
@@ -28,12 +28,15 @@ const BOATS: any[] = BOARD.boats;
 const ARENA = 0;
 const SORI = PLACES.findIndex((p: any) => p.kind === "jail");
 const SARKANNIEMI = PLACES.findIndex((p: any) => p.kind === "double");
+// the two places a player can start from (Keskustori, Rautatieasema)
+const STARTS: number[] = [];
+for (let i = 0; i < PLACES.length; i++) if (PLACES[i].kind === "start2") STARTS.push(i);
 const START_MONEY = 300;
 const OPEN_PRICE = 100;
 const FINE = 200;
 const TOKENS: string[] = ["malja", "makkara", "makkara", "makkara", "rosvo", "rosvo", "rosvo", "poliisi", "poliisi",
   "barkov", "raipe", "raipe", "kummola", "kummola", "kummola", "kummola",
-  "timantti", "timantti", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja"];
+  "timantti", "timantti", "tyhja", "tyhja", "tyhja", "tyhja", "tyhja"];
 const VALUE: any = { kummola: 300, raipe: 600, barkov: 1000, timantti: 500 };
 const TOPH = 62, BOTH = 150;
 
@@ -55,6 +58,10 @@ let aiClock = 0;
 let winner = -1;
 let winClock = 0;
 let pulse = 0;
+// the camera over the board: centre (board units) and scale (pixels a unit)
+let cam = { x: 180, y: 270, k: 1, set: false };
+let overview = false;          // 🔍: the whole board
+let pan = { on: false, x: 0, y: 0, sx: 0, sy: 0, moved: false, manual: false, key: "" };
 
 function P(): Player { return players[cur]; }
 function placeOf(node: number): number { return NODES[node][2]; }
@@ -65,11 +72,11 @@ function clip(id: string) { rg.say("km_" + id); }
 function newGame(aiTeam: string) {
   players = [];
   const order: Team[] = aiTeam === "ilves" ? ["tappara", "ilves"] : ["ilves", "tappara"];
-  for (const team of order) players.push({ team: team, node: ARENA, money: START_MONEY, malja: false, makkara: 0, winMakkara: false, jail: false, ai: team === aiTeam });
+  for (const team of order) players.push({ team: team, node: ARENA, money: START_MONEY, malja: false, makkara: 0, winMakkara: false, jail: false, ai: team === aiTeam, started: false });
   const bag = rg.shuffle(TOKENS.slice());
   tokens = [];
   let k = 0;
-  for (let i = 0; i < PLACES.length; i++) tokens.push(i === ARENA || i === SORI ? "" : bag[k++] || "tyhja");
+  for (let i = 0; i < PLACES.length; i++) tokens.push(i === ARENA || i === SORI || STARTS.indexOf(i) >= 0 ? "" : bag[k++] || "tyhja");
   maljaFound = false; cur = 0; winner = -1;
   rg.sound("click");
   startTurn();
@@ -93,6 +100,12 @@ function resume() {
 function startTurn() {
   dice = 0; dests = []; aiClock = 0; luckFailed = false;
   const p = P();
+  if (p.started === false) {
+    phase = "start";
+    msg = rg.t(teamName(p.team) + ": mistä aloitat?", teamName(p.team) + ": where do you start?", teamName(p.team) + ": ¿dónde empiezas?");
+    rg.say(["km_vuoro_" + p.team, "km_aloitus"]);
+    return;
+  }
   if (p.jail) {
     phase = "jail";
     msg = rg.t(teamName(p.team) + " on Sorin putkassa.", teamName(p.team) + " is in the Sori jail.", teamName(p.team) + " está en la cárcel de Sori.");
@@ -105,6 +118,17 @@ function startTurn() {
   save();
 }
 
+function chooseStart(pl: number) {
+  const p = P();
+  p.node = pl; p.started = true;
+  rg.sound("pop");
+  rg.say("km_p_" + PLACES[pl].id);
+  // both have chosen: the first player begins; else the other one chooses
+  if (players[1 - cur].started === false) { cur = 1 - cur; startTurn(); return; }
+  cur = 0;
+  startTurn();
+}
+
 function endTurn() {
   cur = 1 - cur;
   startTurn();
@@ -113,8 +137,138 @@ function endTurn() {
 function roll(purpose: string) {
   rollFor = purpose; rollClock = 0; phase = "rolling"; aiClock = 0;
   dice = rg.range(1, 6);
+  // the throw: where it lands and how much it spins on the way
+  const c = dieHome();
+  roll3 = { x0: c[0], y0: c[1], x1: c[0] + (rg.random() - 0.5) * 90, y1: c[1] + (rg.random() - 0.5) * 50,
+    sa: (3 + rg.random() * 3) * Math.PI * (rg.random() < 0.5 ? -1 : 1), sb: (3 + rg.random() * 3) * Math.PI * (rg.random() < 0.5 ? -1 : 1),
+    sc: (1 + rg.random() * 2) * Math.PI * (rg.random() < 0.5 ? -1 : 1) };
   rg.sound("whoosh");
   rg.vibrate(20);
+}
+
+// ---- the 3D die ------------------------------------------------------------
+// A cube drawn as paths: each face turned by a rotation matrix, seen in
+// perspective, only the faces looking at the viewer drawn, shaded by a light.
+const ROLL_T = 1.3, HOLD_T = 0.6;
+let roll3 = { x0: 0, y0: 0, x1: 0, y1: 0, sa: 0, sb: 0, sc: 0 };
+// faces: normal, the two axes on the face, the value (opposite faces add up to 7)
+const FACES: number[][][] = [
+  [[0, 0, 1], [1, 0, 0], [0, 1, 0], [1]], [[0, 0, -1], [-1, 0, 0], [0, 1, 0], [6]],
+  [[1, 0, 0], [0, 0, -1], [0, 1, 0], [3]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0], [4]],
+  [[0, 1, 0], [1, 0, 0], [0, 0, -1], [2]], [[0, -1, 0], [1, 0, 0], [0, 0, 1], [5]],
+];
+const PIPS: any = { 1: [[0, 0]], 2: [[-0.5, 0.5], [0.5, -0.5]], 3: [[-0.5, 0.5], [0, 0], [0.5, -0.5]],
+  4: [[-0.5, 0.5], [0.5, 0.5], [-0.5, -0.5], [0.5, -0.5]], 5: [[-0.5, 0.5], [0.5, 0.5], [0, 0], [-0.5, -0.5], [0.5, -0.5]],
+  6: [[-0.5, 0.55], [0.5, 0.55], [-0.5, 0], [0.5, 0], [-0.5, -0.55], [0.5, -0.55]] };
+
+function mmul(a: number[], b: number[]): number[] {   // 3x3, row-major
+  const o: number[] = [];
+  for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) o.push(a[r * 3] * b[c] + a[r * 3 + 1] * b[3 + c] + a[r * 3 + 2] * b[6 + c]);
+  return o;
+}
+function mvec(m: number[], v: number[]): number[] {
+  return [m[0] * v[0] + m[1] * v[1] + m[2] * v[2], m[3] * v[0] + m[4] * v[1] + m[5] * v[2], m[6] * v[0] + m[7] * v[1] + m[8] * v[2]];
+}
+function rotX(a: number) { const c = Math.cos(a), s = Math.sin(a); return [1, 0, 0, 0, c, -s, 0, s, c]; }
+function rotY(a: number) { const c = Math.cos(a), s = Math.sin(a); return [c, 0, s, 0, 1, 0, -s, 0, c]; }
+function rotZ(a: number) { const c = Math.cos(a), s = Math.sin(a); return [c, -s, 0, s, c, 0, 0, 0, 1]; }
+
+// the turn that brings face `v` to look at the viewer (+z)
+const BASE: number[][] = [];
+for (let v = 1; v <= 6; v++) {
+  let best = rotX(0), bz = -9;
+  const f = FACES.filter((x) => x[3][0] === v)[0];
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) {
+    const m = mmul(rotY(j * Math.PI / 2), rotX(i * Math.PI / 2));
+    const z = mvec(m, f[0])[2];
+    if (z > bz) { bz = z; best = m; }
+  }
+  BASE.push(best);
+}
+
+function dieHome(): number[] {
+  if (phase === "ask" || phase === "jail" || rollFor === "luck" || rollFor === "jail") return [width / 2, TOPH + 150];
+  const L = layout();
+  return [width / 2, L.y + L.h / 2];
+}
+
+function n1(x: number) { return x.toFixed(1); }
+
+// the die at (cx, cy) with half-size h, turned by m
+function DieView(cx: number, cy: number, h: number, m: number[], lift: number, onTap: any) {
+  const S = Math.ceil(h * 3.2);
+  const f = 6;   // the eye's distance in half-sizes
+  const proj = (v: number[]) => { const p = f / (f - v[2]); return [S / 2 + v[0] * h * p, S / 2 - v[1] * h * p]; };
+  const faces: any[] = [];
+  for (const F of FACES) {
+    const n = mvec(m, F[0]);
+    if (n[2] <= 0.02) continue;
+    const u = mvec(m, F[1]), w = mvec(m, F[2]);
+    const pt = (a: number, b: number, out: number) => proj([n[0] * out + u[0] * a + w[0] * b, n[1] * out + u[1] * a + w[1] * b, n[2] * out + u[2] * a + w[2] * b]);
+    // a square with cut corners, for a rounder die
+    const K = 0.82;
+    const ring = [[-1, -K], [-K, -1], [K, -1], [1, -K], [1, K], [K, 1], [-K, 1], [-1, K]];
+    let d = "";
+    for (let i = 0; i < ring.length; i++) { const q = pt(ring[i][0], ring[i][1], 1); d += (i ? " L " : "M ") + n1(q[0]) + " " + n1(q[1]); }
+    d += " Z";
+    let pd = "";
+    for (const pp of PIPS[F[3][0]]) {
+      for (let k = 0; k < 10; k++) {
+        const a = k / 10 * Math.PI * 2;
+        const q = pt(pp[0] + Math.cos(a) * 0.17, pp[1] + Math.sin(a) * 0.17, 1.01);
+        pd += (k ? " L " : "M ") + n1(q[0]) + " " + n1(q[1]);
+      }
+      pd += " Z ";
+    }
+    const light = Math.max(0, n[0] * -0.35 + n[1] * 0.55 + n[2] * 0.76);
+    const g = Math.round(150 + 105 * light);
+    faces.push({ z: n[2], d: d, pd: pd, fill: "rgb(" + g + "," + g + "," + Math.round(g * 0.94) + ")", pip: F[3][0] === 1 ? "#d62828" : "#1d3557" });
+  }
+  faces.sort((a: any, b: any) => a.z - b.z);
+  const kids: any[] = [];
+  // the shadow on the ground, smaller and fainter the higher the die is
+  const sh = 1 - Math.min(1, lift / 120);
+  kids.push(<div className="dieshadow" style={{ left: S / 2 - h * 1.3 * sh, top: S / 2 + h * 0.9 + lift, width: h * 2.6 * sh, height: h * 0.7 * sh, borderRadius: h, opacity: String(0.35 * sh) }} />);
+  for (const fc of faces) {
+    kids.push(<path d={fc.d} fill={fc.fill} stroke="#8d99ae" strokeWidth="1.5" viewBox={"0 0 " + S + " " + S} style={{ position: "absolute", left: 0, top: 0, width: S, height: S }} />);
+    kids.push(<path d={fc.pd} fill={fc.pip} viewBox={"0 0 " + S + " " + S} style={{ position: "absolute", left: 0, top: 0, width: S, height: S }} />);
+  }
+  if (onTap) return <div className="die3" id="die3" style={{ left: cx - S / 2, top: cy - S / 2, width: S, height: S }} onClick={onTap}>{kids}</div>;
+  return <div className="die3" style={{ left: cx - S / 2, top: cy - S / 2, width: S, height: S }}>{kids}</div>;
+}
+
+function Die3() {
+  const p = players.length ? P() : null;
+  if (!p) return null;
+  const tilt = mmul(rotX(-0.42), rotY(0.5));
+  if (phase === "turn" && !p.ai) {
+    // waiting to be thrown: in the middle of the board, rocking a little
+    const c = dieHome();
+    const m = mmul(mmul(rotX(-0.42 + Math.sin(t * 2) * 0.12), rotY(0.5 + Math.sin(t * 1.3) * 0.25)), BASE[0]);
+    const s = 1 + Math.sin(t * 5) * 0.04;
+    return (
+      <div className="diewrap" style={{ left: 0, top: 0, width: width, height: height }}>
+        {DieView(c[0], c[1] - 10, 34 * s, m, 6, () => roll("move"))}
+        <div className="dietip" id="dietip" style={{ left: c[0] - 90, top: c[1] + 52 }} onClick={() => roll("move")}>{rg.t("Napauta noppaa!", "Tap the die!", "¡Toca el dado!")}</div>
+      </div>
+    );
+  }
+  if (phase !== "rolling") return null;
+  const u = Math.min(1, rollClock / ROLL_T);
+  const e = 1 - Math.pow(1 - u, 3);
+  const r = roll3;
+  const m = mmul(mmul(mmul(rotX(-0.42 + r.sa * (1 - e)), rotY(0.5 + r.sb * (1 - e))), rotZ(r.sc * (1 - e))), BASE[dice - 1]);
+  // three bounces, each lower than the one before
+  const k = u * 3, b = k - Math.floor(k);
+  const lift = u >= 1 ? 0 : Math.sin(b * Math.PI) * 110 * Math.pow(0.45, Math.floor(k)) * (1 - u * 0.3);
+  const x = r.x0 + (r.x1 - r.x0) * e, y = r.y0 + (r.y1 - r.y0) * e;
+  const h = 36 + lift * 0.12;
+  const hold = rollClock > ROLL_T ? Math.min(1, (rollClock - ROLL_T) / 0.15) : 0;
+  return (
+    <div className="diewrap" style={{ left: 0, top: 0, width: width, height: height }}>
+      {DieView(x, y - lift, h * (1 + hold * 0.15), m, lift, null)}
+    </div>
+  );
 }
 
 function rolled() {
@@ -388,6 +542,7 @@ function aiTarget(): number {
 
 function aiStep() {
   const p = P();
+  if (phase === "start") { chooseStart(rg.pick(STARTS)); return; }
   if (phase === "jail") {
     if (luckFailed) { endTurn(); return; }
     if (p.makkara > 0) jailMakkara();
@@ -432,12 +587,18 @@ function aiStep() {
 }
 
 // ---- frame -----------------------------------------------------------------
-function tick(dt: number) {
+function tick(dt: number, input: any) {
   t += dt; pulse += dt;
+  panStep(input);
   if (phase === "rolling") {
+    const before = rollClock;
     rollClock += dt;
-    if (rollClock < 0.8 && Math.floor(rollClock * 14) !== Math.floor((rollClock - dt) * 14)) rg.sound("tick", { pitch: 1 + rg.random() * 0.4 });
-    if (rollClock >= 0.8) rolled();
+    // a knock at every landing of the bounces
+    if (before < ROLL_T && Math.floor(rollClock / ROLL_T * 3) !== Math.floor(before / ROLL_T * 3)) {
+      rg.sound("hit", { pitch: 1.3 + Math.floor(rollClock / ROLL_T * 3) * 0.15, volume: 0.6 });
+      rg.vibrate(15);
+    }
+    if (rollClock >= ROLL_T + HOLD_T) rolled();
   }
   if (phase === "moving") {
     const sp = moving.kind === "walk" ? 5.5 : moving.kind === "police" ? 1.6 : 2.6;
@@ -455,7 +616,8 @@ function tick(dt: number) {
   }
   if (phase === "reveal") reveal.clock += dt;
   if (phase === "win") winClock += dt;
-  if (players.length && P().ai && (phase === "turn" || phase === "choose" || phase === "tram" || phase === "ask" || phase === "jail" || phase === "reveal")) {
+  if (players.length) camStep(dt);
+  if (players.length && P().ai && (phase === "start" || phase === "turn" || phase === "choose" || phase === "tram" || phase === "ask" || phase === "jail" || phase === "reveal")) {
     aiClock += dt;
     if (aiClock > 1.0) { aiClock = 0; aiStep(); }
   }
@@ -471,8 +633,65 @@ function onBack() {
 function layout() {
   const avail = height - TOPH - BOTH;
   const k = Math.min(width / BOARD.W, avail / BOARD.H);
-  const bw = BOARD.W * k, bh = BOARD.H * k;
-  return { k: k, x: (width - bw) / 2, y: TOPH + (avail - bh) / 2, w: bw, h: bh };
+  return { k: k, x: 0, y: TOPH, w: width, h: avail };
+}
+
+// where the camera wants to be: around the player whose turn it is and the
+// places they can go to, close enough to see the board well
+function camTarget(): number[] {
+  const L = layout();
+  if (overview) return [BOARD.W / 2, BOARD.H / 2, L.k];
+  const pts: number[][] = [];
+  const p = P();
+  if (phase === "start") for (const s of STARTS) pts.push([PLACES[s].x, PLACES[s].y]);
+  else if (p.started !== false) { const pp = pawnPos(cur); pts.push([pp[0], pp[1]]); }
+  for (const d of dests) pts.push([NODES[d.node][0], NODES[d.node][1]]);
+  if (!pts.length) pts.push([BOARD.W / 2, BOARD.H / 2]);
+  let x0 = 9999, y0 = 9999, x1 = -9999, y1 = -9999;
+  for (const q of pts) { x0 = Math.min(x0, q[0]); y0 = Math.min(y0, q[1]); x1 = Math.max(x1, q[0]); y1 = Math.max(y1, q[1]); }
+  const kClose = L.k * 2.0;
+  const k = Math.max(L.k, Math.min(kClose, (L.w - 70) / Math.max(1, x1 - x0), (L.h - 90) / Math.max(1, y1 - y0)));
+  // while the die waits in the middle, the pawn is shown above it
+  const lift = (phase === "turn" || phase === "rolling") && !dests.length ? L.h * 0.22 / k : 0;
+  return [(x0 + x1) / 2, (y0 + y1) / 2 + lift, k];
+}
+
+// keeps the view on the board
+function camClamp() {
+  const L = layout();
+  const hw = L.w / 2 / cam.k, hh = L.h / 2 / cam.k;
+  cam.x = hw * 2 >= BOARD.W ? BOARD.W / 2 : rg.clamp(cam.x, hw, BOARD.W - hw);
+  cam.y = hh * 2 >= BOARD.H ? BOARD.H / 2 : rg.clamp(cam.y, hh, BOARD.H - hh);
+}
+
+function camStep(dt: number) {
+  // a new situation (turn, roll, move) takes the camera back from the finger
+  const key = phase + cur + dests.length + (overview ? "o" : "");
+  if (key !== pan.key) { pan.key = key; if (phase !== "rolling") pan.manual = false; }
+  const tg = camTarget();
+  const a = cam.set ? 1 - Math.exp(-dt * 4) : 1;
+  cam.k += (tg[2] - cam.k) * a;
+  if (!pan.manual) { cam.x += (tg[0] - cam.x) * a; cam.y += (tg[1] - cam.y) * a; }
+  cam.set = true;
+  camClamp();
+}
+
+function sx(u: number) { return width / 2 + (u - cam.x) * cam.k; }
+function sy(v: number) { return layout().h / 2 + (v - cam.y) * cam.k; }
+
+// dragging the board with a finger moves the view
+function onPointerDown(x: number, y: number) {
+  if (phase === "menu" || phase === "pick" || phase === "rules" || phase === "win") return;
+  if (y < TOPH || y > height - BOTH) return;
+  pan = { on: true, x: x, y: y, sx: cam.x, sy: cam.y, moved: false, manual: pan.manual, key: pan.key };
+}
+function onPointerUp() { pan.on = false; }
+function panStep(input: any) {
+  if (!pan.on) return;
+  if (!input.pointer.down) { pan.on = false; return; }
+  const dx = input.pointer.x - pan.x, dy = input.pointer.y - pan.y;
+  if (!pan.moved && Math.hypot(dx, dy) > 10) pan.moved = true;
+  if (pan.moved) { pan.manual = true; cam.x = pan.sx - dx / cam.k; cam.y = pan.sy - dy / cam.k; camClamp(); }
 }
 
 function pawnPos(i: number): number[] {
@@ -490,12 +709,17 @@ function pawnPos(i: number): number[] {
 }
 
 function boardTap(info: any) {
-  if (P().ai || (phase !== "choose" && phase !== "tram")) return;
-  const L = layout();
-  let best: Dest | null = null, bd = 30;
+  if (pan.moved) { pan.moved = false; return; }
+  if (P().ai) return;
+  if (phase === "start") {
+    for (const s of STARTS) if (Math.hypot(sx(PLACES[s].x) - info.x, TOPH + sy(PLACES[s].y) - info.y) < 34) { chooseStart(s); return; }
+    return;
+  }
+  if (phase !== "choose" && phase !== "tram") return;
+  let best: Dest | null = null, bd = 34;
   for (const d of dests) {
     const n = NODES[d.node];
-    const dd = Math.hypot(L.x + n[0] * L.k - info.x, L.y + n[1] * L.k - info.y);
+    const dd = Math.hypot(sx(n[0]) - info.x, TOPH + sy(n[1]) - info.y);
     if (dd < bd) { bd = dd; best = d; }
   }
   if (best) go(best);
@@ -503,34 +727,40 @@ function boardTap(info: any) {
 
 function Board() {
   const L = layout();
-  const k = L.k;
+  const k = cam.k;
   const out: any[] = [];
-  out.push(<img className="board" id="board" src={rg.asset("img/board.png")} style={{ left: 0, top: 0, width: L.w, height: L.h }} onClick={boardTap} />);
+  out.push(<img className="board" id="board" src={rg.asset("img/board.png")} style={{ left: sx(0), top: sy(0), width: BOARD.W * k, height: BOARD.H * k }} onClick={boardTap} />);
   // destinations: pulsing rings (and the fare on rides)
   const s = 1 + Math.sin(pulse * 6) * 0.12;
-  for (const d of dests) {
-    const n = NODES[d.node];
-    const r = (placeOf(d.node) >= 0 ? 16 : 10) * k * s;
-    out.push(<div className={d.kind === "walk" ? "dest" : "dest ride"} style={{ left: n[0] * k - r, top: n[1] * k - r, width: r * 2, height: r * 2, borderRadius: r }} />);
-    if (d.price > 0) out.push(<div className="fare" style={{ left: n[0] * k - 22, top: n[1] * k - 15 * k - 20 }}>{(d.kind === "boat" ? "⛴ " : "🚋 ") + d.price + " €"}</div>);
+  const rings: number[][] = [];
+  for (const d of dests) rings.push([d.node, d.price, d.kind === "walk" ? 0 : d.kind === "boat" ? 2 : 1]);
+  if (phase === "start" && !P().ai) for (const st of STARTS) rings.push([st, 0, 0]);
+  for (const rr of rings) {
+    const n = NODES[rr[0]];
+    const r = (placeOf(rr[0]) >= 0 ? 15 : 7.5) * k * s;
+    out.push(<div className={rr[2] === 0 ? "dest" : "dest ride"} style={{ left: sx(n[0]) - r, top: sy(n[1]) - r, width: r * 2, height: r * 2, borderRadius: r }} />);
+    if (rr[1] > 0) out.push(<div className="fare" style={{ left: sx(n[0]) - 22, top: sy(n[1]) - 15 * k - 20 }}>{(rr[2] === 2 ? "⛴ " : "🚋 ") + rr[1] + " €"}</div>);
   }
   const ts = 20 * k;
   for (let i = 0; i < PLACES.length; i++) {
     if (!tokens[i]) continue;
-    out.push(<img className="tok" src={rg.asset("img/puck.png")} style={{ left: PLACES[i].x * k - ts / 2, top: PLACES[i].y * k - ts / 2 - 1, width: ts, height: ts }} />);
+    out.push(<img className="tok" src={rg.asset("img/puck.png")} style={{ left: sx(PLACES[i].x) - ts / 2, top: sy(PLACES[i].y) - ts / 2 - 1, width: ts, height: ts }} />);
   }
   // pawns, the one whose turn it is on top
   const order = [1 - cur, cur];
   for (const i of order) {
-    if (!players[i]) continue;
+    if (!players[i] || players[i].started === false) continue;
     const pos = pawnPos(i);
     const ps = (i === cur ? 30 : 26) * k;
     const bob = i === cur && (phase === "turn" || phase === "choose") ? Math.abs(Math.sin(t * 4)) * 3 : 0;
-    out.push(<img className="pawn" src={rg.asset("img/" + players[i].team + ".png")} style={{ left: pos[0] * k - ps / 2, top: pos[1] * k - ps * 0.85 - (pos[2] + bob) * k, width: ps, height: ps }} />);
-    if (players[i].malja) out.push(<img className="pawn" src={rg.asset("img/malja.png")} style={{ left: pos[0] * k + ps * 0.15, top: pos[1] * k - ps * 1.25 - (pos[2] + bob) * k, width: ps * 0.6, height: ps * 0.6 }} />);
-    if (phase === "moving" && i === cur && moving.kind !== "walk") out.push(<div className="vehicle" style={{ left: pos[0] * k - 14, top: pos[1] * k + 2 }}>{moving.kind === "boat" ? "⛴" : moving.kind === "police" ? "🚓" : "🚋"}</div>);
+    const X = sx(pos[0]), Y = sy(pos[1]);
+    out.push(<img className="pawn" src={rg.asset("img/" + players[i].team + ".png")} style={{ left: X - ps / 2, top: Y - ps * 0.85 - (pos[2] + bob) * k, width: ps, height: ps }} />);
+    if (players[i].malja) out.push(<img className="pawn" src={rg.asset("img/malja.png")} style={{ left: X + ps * 0.15, top: Y - ps * 1.25 - (pos[2] + bob) * k, width: ps * 0.6, height: ps * 0.6 }} />);
+    if (phase === "moving" && i === cur && moving.kind !== "walk") out.push(<div className="vehicle" style={{ left: X - 14, top: Y + 2 }}>{moving.kind === "boat" ? "⛴" : moving.kind === "police" ? "🚓" : "🚋"}</div>);
   }
-  return <div className="boardbox" style={{ left: L.x, top: L.y, width: L.w, height: L.h }}>{out}</div>;
+  // 🔍: the whole board, or back close to the game
+  out.push(<div className="zoombtn" id="zoom" style={{ left: 8, top: L.h - 52 }} onClick={() => { overview = !overview; pan.manual = false; rg.sound("click"); }}>{overview ? "🔎" : "🗺️"}</div>);
+  return <div className="boardbox" style={{ left: 0, top: L.y, width: L.w, height: L.h }}>{out}</div>;
 }
 
 function PlayerPanel(i: number) {
@@ -553,7 +783,7 @@ function PlayerPanel(i: number) {
 }
 
 function Dice() {
-  if (!dice) return null;
+  if (!dice || phase === "rolling") return null;
   const face = phase === "rolling" ? 1 + Math.floor(rollClock * 14 * 7) % 6 : dice;
   const spots: any = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
   const cells: any[] = [];
@@ -577,6 +807,10 @@ function Bottom() {
     if (rideDests().length) btns.push(Btn("ride", "🚋 " + rg.t("Kyyti", "Ride", "Viaje"), "tram", startRide, canRide()));
     if (here >= 0 && tokens[here]) btns.push(Btn("open", "🔓 " + rg.t("Avaa", "Open", "Abrir"), "open", () => { phase = "ask"; luckFailed = false; msg = rg.t("Avataanko nappi?", "Open the token?", "¿Abrir la ficha?"); clip("avaa"); }, true));
   }
+  if (human && phase === "start") {
+    btns.push(Btn("start_k", "⛲ Keskustori", "go sbtn", () => chooseStart(STARTS[0]), true));
+    btns.push(Btn("start_a", "🚉 Rautatieasema", "tram sbtn", () => chooseStart(STARTS[1]), true));
+  }
   if (human && phase === "tram") btns.push(Btn("cancel", rg.t("← Takaisin", "← Back", "← Atrás"), "back", () => { phase = "turn"; dests = []; }, true));
   return (
     <div className="bottom" style={{ top: height - BOTH, height: BOTH }}>
@@ -596,6 +830,15 @@ function tokenImg(token: string) {
 function Dialog() {
   const p = P();
   const human = !p.ai;
+  if (phase === "start") {
+    if (!human) return null;
+    return (
+      <div className="startbar" style={{ left: 10, top: height - BOTH - 70, width: width - 20 }}>
+        {Btn("start_k", "⛲ Keskustori", "go sbtn", () => chooseStart(STARTS[0]), true)}
+        {Btn("start_a", "🚉 Rautatieasema", "tram sbtn", () => chooseStart(STARTS[1]), true)}
+      </div>
+    );
+  }
   if (phase === "ask") {
     const pl = placeOf(p.node);
     const btns: any[] = [];
@@ -619,7 +862,7 @@ function Dialog() {
     return (
       <div className="dialog" style={{ left: (width - 300) / 2, top: TOPH + 40 }}>
         <div className="dtitle">{rollFor === "luck" ? rg.t("4, 5 tai 6 avaa!", "4, 5 or 6 opens!", "¡4, 5 o 6 abre!") : rg.t("5 tai 6 vapauttaa!", "5 or 6 sets you free!", "¡5 o 6 te libera!")}</div>
-        <div className="bigdice">{Dice()}</div>
+        <div className="bigdice" />
       </div>
     );
   }
@@ -668,6 +911,7 @@ function Game() {
       {Board()}
       {Bottom()}
       {Dialog()}
+      {Die3()}
     </div>
   );
 }
@@ -724,7 +968,7 @@ function Rules() {
   return (
     <div className="screen menu">
       <div className="title small">{rg.t("Säännöt", "Rules", "Reglas")}</div>
-      {Rule("puck", rg.t("Heitä noppaa ja valitse, minne siirryt. Isolla ruudulla voit avata napin: maksa 100 € tai heitä 4, 5 tai 6.", "Roll the die and choose where to go. On a big spot you can open the token: pay 100 € or roll 4, 5 or 6.", "Tira el dado y elige adónde ir. En una casilla grande puedes abrir la ficha: paga 100 € o saca 4, 5 o 6."))}
+      {Rule("puck", rg.t("Aloita Keskustorilta tai Rautatieasemalta. Heitä noppaa ja valitse, minne siirryt. Isolla ruudulla voit avata napin: maksa 100 € tai heitä 4, 5 tai 6.", "Start at Keskustori or the railway station. Roll the die and choose where to go. On a big spot you can open the token: pay 100 € or roll 4, 5 or 6.", "Empieza en Keskustori o en la estación. Tira el dado y elige adónde ir. En una casilla grande puedes abrir la ficha: paga 100 € o saca 4, 5 o 6."))}
       {Rule("malja", rg.t("Etsi Kanada-malja ja vie se Nokia Areenalle. Jos osut tasan maljan kantajan kohdalle, taklaat maljan itsellesi!", "Find the Kanada Cup and take it to Nokia Areena. Land exactly on the cup carrier to tackle the cup off them!", "Encuentra la Copa Kanada y llévala al Nokia Areena. ¡Si caes justo sobre quien la lleva, le quitas la copa!"))}
       {Rule("barkov", rg.t("Kummola 300 €, timantti 500 €, Raipe 600 €, Barkov 1000 €. Särkänniemessä kaikki tuplana!", "Kummola 300 €, diamond 500 €, Raipe 600 €, Barkov 1000 €. Everything is double in Särkänniemi!", "Kummola 300 €, diamante 500 €, Raipe 600 €, Barkov 1000 €. ¡En Särkänniemi todo vale el doble!"))}
       {Rule("makkara", rg.t("Mustamakkaralla pääsee pois Sorin putkasta. Kun malja on löytynyt, uusi makkara kelpaa maljan sijaan.", "A black sausage gets you out of the Sori jail. After the cup is found, a new sausage counts as the cup.", "Una morcilla te saca de la cárcel de Sori. Cuando se encuentra la copa, una morcilla nueva vale como la copa."))}
