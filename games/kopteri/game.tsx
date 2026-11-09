@@ -281,11 +281,11 @@ function makeSilhouette(tg: Target) {
 
 // ---- input ------------------------------------------------------------------
 
-function onPointerDown(x: number, y: number) {
+// A press steers unless it lands on the task card or a button (EVG's hit test
+// gives their id), not fixed screen rectangles that miss on short screens.
+function onPointerDown(x: number, y: number, info?: any) {
   if (screen !== "fly") return;
-  if (y < 76) return;                                       // the task card
-  if (isGlobe() && x > width - 70 && y > height - 150) return;  // zoom buttons
-  if (x < 70 && y > height - 80) return;                    // hint button
+  if (info && info.id) return;
   flying = true;
 }
 function onPointerUp() { flying = false; }

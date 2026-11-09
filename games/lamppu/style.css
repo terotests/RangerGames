@@ -1,0 +1,86 @@
+.root { width: 100%; height: 100%; background: linear-gradient(180deg, #14213d, #0b1426); }
+.menu { align-items: center; }
+.title { font-size: 38px; font-weight: 700; color: #ffd166; }
+.title.small { font-size: 30px; margin-bottom: 8px; }
+.lead { font-size: 17px; color: #cfd8e8; margin-top: 6px; margin-bottom: 14px; }
+.level { width: 280px; height: 50px; border-radius: 25px; margin-top: 10px; background-color: #f4a100;
+  align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 4px; }
+.level.free { background-color: #2a9d8f; }
+.level.helpb { background-color: #3a86ff; }
+.level.back { background-color: #6c757d; margin-top: 18px; }
+.lvname { font-size: 19px; font-weight: 700; color: #ffffff; }
+.helpline { width: 320px; font-size: 15px; color: #e9eef6; margin-top: 10px; padding: 10px; border-radius: 12px; background-color: rgba(255,255,255,0.08); }
+
+.head { position: absolute; left: 14px; top: 10px; width: 290px; }
+.tname { font-size: 21px; font-weight: 700; color: #ffd166; }
+.ttext { font-size: 14px; color: #dbe4f0; margin-top: 4px; text-align: left; }
+
+.board { position: absolute; border-radius: 18px; background-color: #1f4e3d; border-width: 3px; border-color: #2d6a4f; }
+.roomlight { position: absolute; border-radius: 18px; background-color: #ffe08a; }
+.wire { position: absolute; border-radius: 3px; background-color: #b5651d; }
+.wire.hot { background-color: #e09f3e; }
+.charge { position: absolute; width: 8px; height: 8px; border-radius: 4px; background-color: #fff3b0; }
+
+.slot { position: absolute; width: 60px; height: 40px; border-radius: 10px; border-width: 2px; border-color: rgba(255,255,255,0.45);
+  background-color: rgba(255,255,255,0.06); align-items: center; justify-content: center; }
+.slotplus { font-size: 22px; color: rgba(255,255,255,0.6); }
+.placed { position: absolute; width: 68px; height: 44px; align-items: center; justify-content: center; }
+
+.bat { flex-direction: row; align-items: center; height: 30px; }
+.batbody { height: 28px; border-radius: 5px; flex-direction: row; align-items: center; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 2px; }
+.batend { width: 10px; height: 28px; border-radius: 5px; }
+.batlabel { font-size: 12px; font-weight: 700; margin-left: 3px; }
+.batnub { width: 6px; height: 12px; border-radius: 2px; background-color: #c0c7d1; }
+
+.resw { align-items: center; }
+.res { width: 52px; height: 18px; border-radius: 9px; background-color: #e9d8a6; flex-direction: row; justify-content: center;
+  shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 2px; }
+.band { width: 5px; height: 18px; margin-left: 3px; margin-right: 3px; }
+.reslabel { font-size: 12px; font-weight: 700; color: #ffffff; margin-top: 2px; }
+
+.contact { position: absolute; width: 12px; height: 12px; border-radius: 6px; background-color: #ced4da; }
+.lever { position: absolute; width: 8px; height: 46px; border-radius: 4px; background-color: #e63946; }
+.lever.on { background-color: #06d6a0; }
+.swlabel { position: absolute; font-size: 12px; font-weight: 700; color: #ffadad; padding: 3px; padding-left: 6px; padding-right: 6px;
+  border-radius: 8px; background-color: rgba(0,0,0,0.35); }
+.swlabel.on { color: #b7f5d8; }
+.swhit { position: absolute; width: 96px; height: 80px; border-radius: 16px; }
+
+.glow { position: absolute; background-color: #ffe066; }
+.bulb { position: absolute; width: 52px; height: 52px; border-radius: 26px; align-items: center; justify-content: center;
+  border-width: 2px; border-color: rgba(255,255,255,0.6); }
+.filament { width: 16px; height: 12px; border-width: 3px; border-radius: 6px; margin-top: 8px; }
+.filament.broken { width: 6px; }
+.lbase { position: absolute; width: 26px; height: 22px; border-radius: 4px; background-color: #8d99ae; align-items: center; justify-content: space-around; }
+.thread { width: 26px; height: 3px; background-color: #5c677d; }
+.crack { position: absolute; font-size: 24px; }
+.puff { position: absolute; background-color: #adb5bd; }
+
+.meter { position: absolute; width: 340px; padding: 10px; padding-left: 12px; border-radius: 16px; background-color: #f8f9fb; }
+.row { flex-direction: row; justify-content: space-between; height: 22px; align-items: center; }
+.mv { font-size: 15px; font-weight: 700; color: #2b2d42; }
+.bar { width: 316px; height: 14px; border-radius: 7px; background-color: #dee2e6; margin-top: 6px; }
+.target { position: absolute; top: 0px; height: 14px; border-radius: 7px; background-color: #95d5b2; }
+.danger { position: absolute; top: 0px; height: 14px; border-radius: 7px; background-color: #ffadad; }
+.fill { position: absolute; left: 0px; top: 3px; height: 8px; border-radius: 4px; }
+.tick { position: absolute; top: -3px; width: 2px; height: 20px; background-color: #495057; }
+.scale { height: 16px; }
+.sl { position: absolute; top: 0px; font-size: 11px; color: #6c757d; }
+.status { font-size: 15px; color: #1d3557; margin-top: 4px; padding: 5px; padding-left: 8px; border-radius: 8px; background-color: #e7ecf5; }
+.status.bad { color: #ffffff; background-color: #e63946; }
+.status.warn { color: #7a3e00; background-color: #ffd166; }
+.status.good { color: #ffffff; background-color: #2a9d8f; font-weight: 700; }
+
+.tray { position: absolute; width: 340px; }
+.traytitle { font-size: 13px; color: #cfd8e8; margin-bottom: 4px; }
+.tiles { flex-direction: row; flex-wrap: wrap; }
+.tile { width: 64px; height: 44px; margin: 2px; border-radius: 12px; background-color: rgba(255,255,255,0.12); align-items: center; justify-content: center; }
+
+.buttons { position: absolute; left: 0px; width: 100%; flex-direction: row; justify-content: center; }
+.btn { width: 220px; height: 50px; border-radius: 25px; align-items: center; justify-content: center; font-size: 19px; font-weight: 700;
+  color: #ffffff; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 4px; }
+.btn.red { background-color: #e63946; }
+.btn.green { background-color: #2a9d8f; }
+.btn.grey { background-color: #495057; }
+.tile.clear { background-color: rgba(230,57,70,0.25); }
+.cleartext { font-size: 12px; font-weight: 700; color: #ffd6d9; }

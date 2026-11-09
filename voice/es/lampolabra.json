@@ -1,0 +1,11 @@
+{
+ "_comment": "Lämpölabra (games/lampolabra): the heat lab's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "ll_alku": "¡Derrite el hielo y libera los tesoros congelados!",
+  "ll_leikki": "¡Juego libre! Añade hielo y prueba todos los calentadores.",
+  "ll_vapaa": "¡El tesoro está libre!",
+  "ll_valmis": "Todos los tesoros están libres. ¡Muy bien!",
+  "ll_kasi": "¡Se te congeló la mano! Espera a que se caliente."
+ }
+}
