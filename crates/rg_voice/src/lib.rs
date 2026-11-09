@@ -10,12 +10,13 @@
 
 pub mod es;
 pub mod fi;
+pub mod prosody;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, HumanBody};
 use chimera::phonetics::english::EnglishG2P;
-use chimera::phonetics::{Intonation, Segment};
 use chimera::phonetics::ipa::tokenize_ipa;
 use chimera::phonetics::planner::{PhraseInput, PlanOptions, plan_phrases};
+use chimera::phonetics::{Intonation, Segment};
 use chimera::voice::human_voice::{HumanVoice, SourcePatch};
 
 /// The rate CHIMERA renders at (its airway runs at twice this). 48 kHz as in
@@ -82,7 +83,9 @@ impl Lang {
                         }
                         // "word  PHONES" or "word\tPHONES"; "word(2)" variants are left out
                         let mut it = line.splitn(2, |c: char| c == ' ' || c == '\t');
-                        let (Some(w), Some(ph)) = (it.next(), it.next()) else { continue };
+                        let (Some(w), Some(ph)) = (it.next(), it.next()) else {
+                            continue;
+                        };
                         if w.contains('(') {
                             continue;
                         }
@@ -134,11 +137,7 @@ impl Lang {
                 .collect(),
             Lang::Es => es::to_phrases(text)
                 .iter()
-                .map(|p| PhraseInput {
-                    segments: spanish_timing(tokenize_ipa(&p.ipa)),
-                    intonation: Some(if p.question { Intonation::Question } else { Intonation::Statement }),
-                    pause: Some(0.3),
-                })
+                .map(|p| PhraseInput { segments: spanish_timing(tokenize_ipa(&p.ipa)), intonation: Some(if p.question { Intonation::Question } else { Intonation::Statement }), pause: Some(0.3) })
                 .collect(),
             Lang::En(g, _) => g
                 .to_phrases(text)
@@ -173,11 +172,7 @@ impl Lang {
     pub fn ipa(&self, text: &str) -> String {
         match self {
             Lang::Fi => ipa(text),
-            Lang::Es => es::to_phrases(text)
-                .iter()
-                .map(|p| format!("{}{}", p.ipa, if p.question { "?" } else { "" }))
-                .collect::<Vec<_>>()
-                .join(" | "),
+            Lang::Es => es::to_phrases(text).iter().map(|p| format!("{}{}", p.ipa, if p.question { "?" } else { "" })).collect::<Vec<_>>().join(" | "),
             Lang::En(..) => self
                 .phrases(text, None)
                 .iter()
@@ -202,7 +197,9 @@ impl Lang {
     /// Words of `text` that the English lists do not have (said by CHIMERA's
     /// letter-to-sound rules, which often miss). Empty for other languages.
     pub fn unknown_words(&self, text: &str) -> Vec<String> {
-        let Lang::En(_, known) = self else { return Vec::new() };
+        let Lang::En(_, known) = self else {
+            return Vec::new();
+        };
         let mut out: Vec<String> = Vec::new();
         for w in text.to_lowercase().split(|c: char| !(c.is_ascii_lowercase() || c == '\'')) {
             let w = w.trim_matches('\'');
@@ -230,7 +227,15 @@ fn wh_question(lang: &Lang, text: &str) -> bool {
 pub fn ipa(text: &str) -> String {
     fi::to_phrases(text)
         .iter()
-        .map(|p| format!("{}{}", p.ipa, if p.question { "?" } else { "" }))
+        .map(|p| {
+            let end = match p.kind {
+                fi::Kind::Question => "?",
+                fi::Kind::Exclaim => "!",
+                fi::Kind::Continue => ",",
+                fi::Kind::Statement => "",
+            };
+            format!("{}{}", p.ipa, end)
+        })
         .collect::<Vec<_>>()
         .join(" | ")
 }
@@ -238,29 +243,82 @@ pub fn ipa(text: &str) -> String {
 /// Finnish `text` said by `voice`: mono samples at [`FS_CLIP`], trimmed,
 /// peak 0.9. Empty when there is nothing to say.
 pub fn say(text: &str, voice: &Voice) -> Vec<f32> {
-    render(&Lang::Fi.phrases(text, None), voice)
+    say_in(&Lang::Fi, text, None, voice)
 }
 
 /// `text` in `lang` (or the hand-written `ipa`) said by `voice`.
 pub fn say_in(lang: &Lang, text: &str, ipa: Option<&str>, voice: &Voice) -> Vec<f32> {
-    render(&lang.phrases(text, ipa), voice)
+    let o = plan_options(voice);
+    match lang {
+        Lang::Fi => {
+            let phrases = fi_phrases(text, ipa);
+            if phrases.is_empty() {
+                return Vec::new();
+            }
+            let plan = prosody::plan(&phrases, &PlanOptions { t0: 0.15, ..o }, 0.3);
+            let mut x = synth_raw(&plan, voice);
+            silence(&mut x, &prosody::silences(&plan));
+            finish(&x)
+        }
+        _ => {
+            let inputs = lang.phrases(text, ipa);
+            if inputs.is_empty() {
+                return Vec::new();
+            }
+            synth(&plan_phrases(&inputs, &o), voice)
+        }
+    }
 }
 
-fn render(inputs: &[PhraseInput], voice: &Voice) -> Vec<f32> {
-    if inputs.is_empty() {
-        return Vec::new();
+/// Finnish phrases timed, each with how it ends (hand-written IPA: phrases
+/// split at `|`, the last one ending as the text does).
+pub fn fi_phrases(text: &str, ipa: Option<&str>) -> Vec<(Vec<Segment>, fi::Kind)> {
+    if let Some(ipa) = ipa.filter(|s| !s.trim().is_empty()) {
+        let end = match text.trim_end().chars().last() {
+            Some('?') => fi::Kind::Question,
+            Some('!') => fi::Kind::Exclaim,
+            _ => fi::Kind::Statement,
+        };
+        let parts: Vec<&str> = ipa.split('|').filter(|p| !p.trim().is_empty()).collect();
+        let n = parts.len();
+        return parts.into_iter().enumerate().map(|(i, p)| (finnish_timing(tokenize_ipa(p.trim())), if i + 1 == n { end } else { fi::Kind::Continue })).collect();
     }
-    let plan = plan_phrases(
-        inputs,
-        &PlanOptions {
-            body: voice.body.as_str().into(),
-            t0: 0.05,
-            f0: Some(voice.f0),
-            rate: Some(voice.rate),
-            accent: voice.accent,
-            ..Default::default()
-        },
-    );
+    fi::to_phrases(text).iter().map(|p| (finnish_timing(tokenize_ipa(&p.ipa)), p.kind)).collect()
+}
+
+fn plan_options(voice: &Voice) -> PlanOptions {
+    PlanOptions { body: voice.body.as_str().into(), t0: 0.05, f0: Some(voice.f0), rate: Some(voice.rate), accent: voice.accent, ..Default::default() }
+}
+
+fn synth(plan: &chimera::phonetics::Plan, voice: &Voice) -> Vec<f32> {
+    finish(&synth_raw(plan, voice))
+}
+
+/// Zeroes the stretches `spans` (s) of `x`, with 10 ms fades at their edges.
+fn silence(x: &mut [f32], spans: &[(f64, f64)]) {
+    let fs = FS_CLIP as f64;
+    let fade = (0.01 * fs) as usize;
+    for &(a, b) in spans {
+        let (i, j) = (((a * fs) as usize).min(x.len()), ((b * fs) as usize).min(x.len()));
+        if j <= i {
+            continue;
+        }
+        for k in i..j {
+            // fade out over the first 10 ms (not at the clip's start) and in over the last 10 ms
+            let out = if i > 0 && k < i + fade { 1.0 - (k - i) as f32 / fade as f32 } else { 0.0 };
+            let inn = if j < x.len() && k + fade >= j { 1.0 - (j - k) as f32 / fade as f32 } else { 0.0 };
+            x[k] *= out.max(inn);
+        }
+    }
+}
+
+/// The Finnish plan of `text` (for measurements: `examples/fi_lab.rs`).
+pub fn plan_fi(text: &str, voice: &Voice) -> chimera::phonetics::Plan {
+    prosody::plan(&fi_phrases(text, None), &PlanOptions { t0: 0.15, ..plan_options(voice) }, 0.3)
+}
+
+/// `plan` rendered at [`FS_CLIP`], untrimmed (time 0 = the plan's time 0).
+pub fn synth_raw(plan: &chimera::phonetics::Plan, voice: &Voice) -> Vec<f32> {
     let mut v = HumanVoice::new(FS_RENDER, body(&voice.body), 2);
     v.set_source(&SourcePatch {
         f0: Some(voice.f0),
@@ -277,7 +335,7 @@ fn render(inputs: &[PhraseInput], voice: &Voice) -> Vec<f32> {
     for block in out.chunks_mut(128) {
         v.render(block);
     }
-    finish(&halve(&out))
+    halve(&out)
 }
 
 /// Spanish segment durations (s, before the rate). Spanish is syllable-timed
