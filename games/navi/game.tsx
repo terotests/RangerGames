@@ -10,6 +10,7 @@
 
 import { NET } from "net";
 import { MAP } from "mapinfo";
+import { TRAM } from "tram";
 
 // ---- geography: metres, x east and z south of Keskustori ----
 const LAT0 = 61.4994, LON0 = 23.764;
@@ -291,7 +292,7 @@ function nextTurn(p: number[]): { at: number; dir: number; deg: number } | null 
 }
 
 // ---- state ----
-type Mode = "loading" | "menu" | "computing" | "nav" | "arrived" | "settings" | "pick";
+type Mode = "loading" | "menu" | "computing" | "choose" | "nav" | "arrived" | "settings" | "pick";
 let mode: Mode = "loading";
 let loadClock = 0;
 let places: { [id: string]: Place } = {};
@@ -366,6 +367,8 @@ function placeName(id: string) { for (const s of SLOTS) if (s.id === id) return 
 function onLocation(f: any) {
   if (demo || !f) return;
   const x = toX(f.lon), z = toZ(f.lat);
+  if (fix && t - fix.at > 0.5) speed = Math.hypot(x - fix.x, z - fix.z) / (t - fix.at);
+  if (f.speed >= 0) speed = f.speed;
   fix = { x: x, z: z, acc: f.accuracy || 30, at: t };
   lastFixAt = t;
   gpsError = "";
@@ -421,11 +424,13 @@ function sensorsOn() { rg.sensor("location", true); rg.sensor("heading", true); 
 // ---- walking ----
 function go(id: string) {
   target = id;
+  travel = "walk"; phase = ""; plan = null; stopTree = null;
   route = null; turn = null; turnBuzzed = -1; startLen = 0;
   follow = true; zoom = 0.5;
   rg.sound("click");
-  if (!trees[id]) { mode = "computing"; loadClock = 0; }
-  else startNav();
+  // test mode: the pretend child starts at Pyynikintori (a tap on the map moves it)
+  if (demo && !fix) fix = { x: -1150, z: -80, acc: 5, at: t };
+  mode = "computing"; loadClock = 0;
 }
 
 function startNav() {
@@ -438,9 +443,212 @@ function startNav() {
   update();
 }
 
+// ---- the tram: walk to a stop, ride, get off at the right stop, walk on ----
+// TRAM (tools/navi/tram.py, Nysse's timetable): stops {n, p, x, z} and trip
+// patterns {line, head, stops, off (s from the first stop), dep[day] (minute
+// leaving the first stop; day 0 Mon-Thu, 1 Fri, 2 Sat, 3 Sun)}.
+type TramPlan = { pat: number; i: number; j: number; walkA: number; walkB: number; ride: number; dep: number; total: number };
+let travel = "walk";        // "walk" | "tram"
+let phase = "";             // tram: "toStop" | "wait" | "ride" | "home"
+let plan: TramPlan | null = null;
+let stopTree: Tree | null = null;
+let planClock = 0;
+let walkSecs = 0;
+let rideIdx = 0;            // the last stop of the ride the tram has passed
+let rideAlert = 0;          // 1: "next stop off" given, 2: "off now" given
+let phaseClock = 0;
+let speed = 0;
+let demoRide = 0;           // test mode: metres along the ride
+const homeCost: { [k: string]: number } = {};
+
+const tStop = (pi: number, k: number) => TRAM.stops[TRAM.pats[pi].stops[k]];
+
+function daysFromCivil(y: number, m: number, d: number): number {
+  const yy = m <= 2 ? y - 1 : y;
+  const era = Math.floor(yy / 400);
+  const yoe = yy - era * 400;
+  const doy = Math.floor((153 * (m + (m > 2 ? -3 : 9)) + 2) / 5) + d - 1;
+  const doe = yoe * 365 + Math.floor(yoe / 4) - Math.floor(yoe / 100) + doy;
+  return era * 146097 + doe - 719468;
+}
+function lastSundayUtc(y: number, m: number): number {
+  const last = daysFromCivil(y, m + 1, 1) - 1;
+  const wd = (last + 4) % 7;
+  return (last - wd) * 86400 + 3600;
+}
+// Finnish time now: seconds of the day and the kind of day (0 Mon-Thu, 1 Fri, 2 Sat, 3 Sun)
+function finnishNow(): { sec: number; day: number } {
+  const u = Math.floor(Date.now() / 1000);
+  const days = Math.floor(u / 86400);
+  const z = days + 719468, era = Math.floor(z / 146097), doe = z - era * 146097;
+  const yoe = Math.floor((doe - Math.floor(doe / 1460) + Math.floor(doe / 36524) - Math.floor(doe / 146096)) / 365);
+  const doy = doe - (365 * yoe + Math.floor(yoe / 4) - Math.floor(yoe / 100));
+  const mp = Math.floor((5 * doy + 2) / 153);
+  const mo = mp + (mp < 10 ? 3 : -9);
+  const y = yoe + era * 400 + (mo <= 2 ? 1 : 0);
+  const summer = u >= lastSundayUtc(y, 3) && u < lastSundayUtc(y, 10);
+  const local = u + (summer ? 3 : 2) * 3600;
+  const ld = Math.floor(local / 86400);
+  const wd = (ld + 4) % 7;
+  return { sec: local - ld * 86400, day: wd === 0 ? 3 : wd === 6 ? 2 : wd === 5 ? 1 : 0 };
+}
+function clockText(sec: number): string {
+  const m = Math.floor(sec / 60) % 1440;
+  const mm = m % 60;
+  return Math.floor(m / 60) + ":" + (mm < 10 ? "0" : "") + mm;
+}
+
+// the next trip of pattern pi leaving its stop k at or after T: seconds of the day, or -1
+function nextDep(pi: number, k: number, T: number, day: number): number {
+  const p = TRAM.pats[pi];
+  const deps = p.dep[day];
+  for (let q = 0; q < deps.length; q++) { const at = deps[q] * 60 + p.off[k]; if (at >= T) return at; }
+  return -1;
+}
+
+// the walk from a point of the network to the goal of a tree, in its cost (about metres)
+function costVia(tree: Tree, sn: Snap): number {
+  const e = sn.e;
+  if (e === tree.home.e) return Math.abs(sn.along - tree.home.along) * EC[e];
+  return Math.min(sn.along * EC[e] + tree.dist[EA[e]], (EL[e] - sn.along) * EC[e] + tree.dist[EB[e]]);
+}
+
+function costHome(tree: Tree, si: number): number {
+  const key = target + ":" + si;
+  if (homeCost[key] === undefined) {
+    const st = TRAM.stops[si];
+    const sn = snap(st.x, st.z, 200);
+    homeCost[key] = sn ? costVia(tree, sn) + sn.d : 1e9;
+  }
+  return homeCost[key];
+}
+
+// the quickest tram trip home from where the child is now
+function planTram(): TramPlan | null {
+  const tree = trees[target];
+  if (!fix || !tree) return null;
+  const now = finnishNow();
+  let best: TramPlan | null = null;
+  for (let pi = 0; pi < TRAM.pats.length; pi++) {
+    const p = TRAM.pats[pi];
+    let pb: TramPlan | null = null;
+    for (let i = 0; i < p.stops.length - 1; i++) {
+      const st = tStop(pi, i);
+      const walkA = Math.hypot(st.x - fix.x, st.z - fix.z) * 1.3;
+      if (walkA > 1500) continue;
+      for (let j = i + 1; j < p.stops.length; j++) {
+        const walkB = costHome(tree, p.stops[j]);
+        if (walkB > 1500) continue;
+        const ride = p.off[j] - p.off[i];
+        const total = (walkA + walkB) / WALK_SPEED + ride;
+        if (!pb || total < pb.total) pb = { pat: pi, i: i, j: j, walkA: walkA, walkB: walkB, ride: ride, dep: 0, total: total };
+      }
+    }
+    if (!pb) continue;
+    const at = now.sec + pb.walkA / WALK_SPEED + 60;  // a minute to spare
+    const dep = nextDep(pi, pb.i, at, now.day);
+    if (dep < 0) continue;
+    pb.dep = dep;
+    pb.total += dep - at + 60;
+    if (!best || pb.total < best.total) best = pb;
+  }
+  return best;
+}
+
+// the next trams from a stop (this platform): [{ line, head, at }]
+// ok: the trip also stops at offName later (any line that takes the child there)
+function departuresAt(si: number, n: number, offName: string): any[] {
+  const now = finnishNow();
+  const out: any[] = [];
+  for (let pi = 0; pi < TRAM.pats.length; pi++) {
+    const p = TRAM.pats[pi];
+    for (let k = 0; k < p.stops.length - 1; k++) {
+      if (p.stops[k] !== si) continue;
+      let ok = false;
+      for (let m = k + 1; m < p.stops.length; m++) if (TRAM.stops[p.stops[m]].n === offName) ok = true;
+      for (const d of p.dep[now.day]) {
+        const at = d * 60 + p.off[k];
+        if (at >= now.sec - 30 && at < now.sec + 3 * 3600) out.push({ line: p.line, head: p.head, at: at, ok: ok });
+      }
+    }
+  }
+  out.sort((a, b) => a.at - b.at);
+  const seen: { [k: string]: boolean } = {};
+  return out.filter((d) => { const k = d.line + d.head + d.at; if (seen[k]) return false; seen[k] = true; return true; }).slice(0, n);
+}
+
+function walkTime(): number {
+  const tree = trees[target];
+  if (!fix || !tree) return 0;
+  const me = snap(fix.x, fix.z, 600);
+  if (!me) return 0;
+  const r = routeFrom(tree, me, fix.x, fix.z);
+  return r ? lengthOf(r) / WALK_SPEED : 0;
+}
+
+function chooseWalk() {
+  travel = "walk"; phase = "";
+  rg.sound("click");
+  startNav();
+}
+
+function chooseTram() {
+  if (!plan) { rg.sound("hit"); return; }
+  travel = "tram"; phase = "toStop"; rideIdx = plan.i; rideAlert = 0; phaseClock = 0;
+  startLen = 0;
+  rg.sound("click");
+  const st = tStop(plan.pat, plan.i);
+  stopTree = null;
+  mode = "computing"; loadClock = 0;
+  pendingStop = { x: st.x, z: st.z };
+}
+let pendingStop: Place | null = null;
+
+function setPhase(p: string) {
+  phase = p; phaseClock = 0; startLen = 0; route = null; turn = null;
+}
+
+// the tram phases between the walks: waiting at the stop and riding
+function tramUpdate() {
+  if (!plan || !fix) return;
+  const pat = TRAM.pats[plan.pat];
+  if (phase === "wait") {
+    const st = tStop(plan.pat, plan.i), nx = tStop(plan.pat, plan.i + 1);
+    const dSt = Math.hypot(fix.x - st.x, fix.z - st.z), dNx = Math.hypot(fix.x - nx.x, fix.z - nx.z);
+    // moving fast, or well on the way to the next stop: on the tram
+    if ((speed > 4.5 && dSt > 40) || (dSt > 120 && dNx < Math.hypot(nx.x - st.x, nx.z - st.z))) { setPhase("ride"); rg.sound("whoosh"); }
+    return;
+  }
+  if (phase === "ride") {
+    for (let k = rideIdx; k <= Math.min(plan.j + 2, pat.stops.length - 1); k++) {
+      const st = tStop(plan.pat, k);
+      if (Math.hypot(fix.x - st.x, fix.z - st.z) < 70) rideIdx = Math.max(rideIdx, k);
+    }
+    const off = tStop(plan.pat, plan.j), prev = tStop(plan.pat, plan.j - 1);
+    const dOff = Math.hypot(fix.x - off.x, fix.z - off.z);
+    if (rideAlert < 1 && rideIdx >= plan.j - 1 && (plan.j - 1 === plan.i || Math.hypot(fix.x - prev.x, fix.z - prev.z) > 70 || dOff < 450)) {
+      rideAlert = 1; rg.vibrate([200, 100, 200]); rg.sound("note");
+    }
+    if (rideAlert < 2 && dOff < 90) { rideAlert = 2; rg.vibrate([400, 150, 400, 150, 400]); rg.sound("coin"); }
+    if (rideIdx > plan.j) {
+      // past the stop: off at the next one and walk from there
+      say(rg.t("Jää pois seuraavalla, kävellään sieltä", "Get off at the next stop, we'll walk from there", "Bájate en la próxima, caminamos desde allí"));
+      setPhase("home");
+    } else if (rideAlert >= 2 && dOff < 60 && speed < 1.5 && phaseClock > 5) {
+      setPhase("home");
+    }
+  }
+}
+
+function goalTree(): Tree | null {
+  if (travel === "tram" && phase === "toStop") return stopTree;
+  return trees[target] || null;
+}
+
 // a new position: the route again, turns, arrival
 function update() {
-  const tree = trees[target];
+  if (travel === "tram" && (phase === "wait" || phase === "ride")) { tramUpdate(); return; }
+  const tree = goalTree();
   if (!tree || !fix) return;
   const me = snap(fix.x, fix.z, 600);
   if (!me) { route = null; offNet = 9999; return; }
@@ -470,6 +678,12 @@ function update() {
     }
   }
   const home = tree.place;
+  if (travel === "tram" && phase === "toStop") {
+    if (Math.hypot(fix.x - home.x, fix.z - home.z) < 25 || routeLen < 15) {
+      setPhase("wait"); rg.sound("coin"); rg.vibrate([60, 60, 60]);
+    }
+    return;
+  }
   if (Math.hypot(fix.x - home.x, fix.z - home.z) < 18 || routeLen < 12) {
     mode = "arrived"; arrivedClock = 0;
     rg.celebrate(width / 2, height * 0.4, { big: true });
@@ -494,12 +708,22 @@ function tick(dt: number, input: any) {
   if (mode === "computing") {
     loadClock += dt;
     if (loadClock > 0.05) {
+      if (pendingStop) {
+        stopTree = buildTree(pendingStop);
+        pendingStop = null;
+        if (stopTree) startNav(); else { travel = "walk"; phase = ""; mode = "choose"; }
+        return;
+      }
       const p = places[target];
-      const tr = p ? buildTree(p) : null;
-      if (tr) { trees[target] = tr; startNav(); }
+      const tr = trees[target] || (p ? buildTree(p) : null);
+      if (tr) { trees[target] = tr; mode = "choose"; planClock = 99; }
       else mode = "menu";
     }
     return;
+  }
+  if (mode === "choose") {
+    planClock += dt;
+    if (planClock > 2) { planClock = 0; plan = planTram(); walkSecs = walkTime(); }
   }
   if (mode === "arrived") arrivedClock += dt;
   if (popup) { popupClock += dt; if (popupClock > 9) popup = null; }
@@ -507,6 +731,21 @@ function tick(dt: number, input: any) {
   if (delHold >= 0) {
     if (!input.pointer.down) delHold = -1;
     else { delHold += dt; if (delHold > 1.2 && viewing) { delHold = -1; deletePhoto(viewing); } }
+  }
+  phaseClock += dt;
+  if (mode === "nav" && travel === "tram" && demo && fix && plan && (phase === "wait" || phase === "ride")) {
+    if (phase === "wait" && phaseClock > 3) { setPhase("ride"); demoRide = 0; rg.sound("whoosh"); }
+    else if (phase === "ride") {
+      // the pretend tram drives from stop to stop at 12 m/s
+      const pts: number[] = [];
+      for (let k = plan.i; k <= plan.j; k++) { const st = tStop(plan.pat, k); pts.push(st.x, st.z); }
+      const L = lengthOf(pts);
+      demoRide = Math.min(L, demoRide + 12 * dt);
+      const q = pointAlong(pts, demoRide);
+      speed = demoRide < L ? 12 : 0;
+      fix.x = q[0]; fix.z = q[1]; fix.at = t; lastFixAt = t;
+      tramUpdate();
+    }
   }
   if (mode === "nav" && demo && route && fix) {
     // the pretend child walks 3 m/s along the route
@@ -524,6 +763,7 @@ function tick(dt: number, input: any) {
     fix.acc = 5; fix.at = t; lastFixAt = t;
     update();
   }
+  if (mode === "nav" && travel === "tram" && !demo && fix && (phase === "wait" || phase === "ride") && t - lastFixAt > 3) speed = 0;
   if ((mode === "nav" || mode === "arrived") && follow && fix) {
     cx += (fix.x - cx) * Math.min(1, dt * 4);
     cz += (fix.z - cz) * Math.min(1, dt * 4);
@@ -632,6 +872,7 @@ function childMarker() {
 function mapLayer(extra: any[]) {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: BG }}>
     {tiles()}
+    {tramLayer()}
     {routeLine()}
     {photoMarkers()}
     {homeMarkers()}
@@ -756,6 +997,134 @@ function bigArrow() {
   </div>;
 }
 
+// "Linja 1 tai 3": every line from the boarding platform to the stop to get off at
+function linesText(pl: TramPlan): string {
+  const from = TRAM.pats[pl.pat].stops[pl.i], offName = tStop(pl.pat, pl.j).n;
+  const lines: string[] = [];
+  for (const p of TRAM.pats) {
+    const k = p.stops.indexOf(from);
+    if (k < 0 || lines.indexOf(p.line) >= 0) continue;
+    for (let m = k + 1; m < p.stops.length; m++) if (TRAM.stops[p.stops[m]].n === offName) { lines.push(p.line); break; }
+  }
+  lines.sort();
+  return rg.t("Linja ", "Line ", "Línea ") + lines.join(rg.t(" tai ", " or ", " o ")) + " → " + TRAM.pats[pl.pat].head;
+}
+
+function viewChoose() {
+  const s = placeName(target);
+  const wm = Math.max(1, Math.round(walkSecs / 60));
+  let tramBtn: any;
+  if (plan) {
+    const pat = TRAM.pats[plan.pat];
+    const a = tStop(plan.pat, plan.i), b = tStop(plan.pat, plan.j);
+    const tm = Math.max(1, Math.round(plan.total / 60));
+    tramBtn = <div style={{ width: 310, marginTop: 16, padding: 14, borderRadius: 24, backgroundColor: "#da2128", shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 5, shadowRadius: 0 }}
+      onClick={chooseTram}>
+      <div style={{ flexDirection: "row", alignItems: "center" }}>
+        <div style={{ fontSize: 46 }}>🚋</div>
+        <div style={{ marginLeft: 10 }}>
+          <div style={{ fontSize: 24, fontWeight: "700", color: "#ffffff" }}>{rg.t("Ratikalla", "By tram", "En tranvía") + " " + tm + " min"}</div>
+          <div style={{ fontSize: 15, color: "#ffe3e3" }}>{linesText(plan)}</div>
+        </div>
+      </div>
+      <div style={{ fontSize: 14, color: "#ffffff", marginTop: 8 }}>{"🚶 " + a.n + "  ·  " + rg.t("lähtee ", "leaves ", "sale ") + clockText(plan.dep)}</div>
+      <div style={{ fontSize: 14, color: "#ffffff", marginTop: 2 }}>{"🚪 " + rg.t("pois: ", "off at: ", "bajar en: ") + b.n + "  ·  " + (plan.j - plan.i) + rg.t(" pysäkkiä", " stops", " paradas")}</div>
+    </div>;
+  } else {
+    tramBtn = <div style={{ width: 310, marginTop: 16, padding: 14, borderRadius: 24, backgroundColor: "#b0bec5", flexDirection: "row", alignItems: "center" }}>
+      <div style={{ fontSize: 40 }}>🚋</div>
+      <div style={{ fontSize: 16, color: "#ffffff", marginLeft: 10, width: 220 }}>{fix ? rg.t("Ratikka ei sovi tähän nyt", "No good tram right now", "Ahora no hay tranvía") : rg.t("Odotetaan GPS:ää…", "Waiting for GPS…", "Esperando el GPS…")}</div>
+    </div>;
+  }
+  return <div style={{ width: width, height: height, backgroundColor: "#bde0fe", alignItems: "center" }}>
+    <div style={{ marginTop: 50, fontSize: 64 }}>{s.house}</div>
+    <div style={{ fontSize: 28, fontWeight: "700", color: "#1d3557", marginTop: 4 }}>{s.name}</div>
+    <div style={{ fontSize: 18, color: "#1d3557", marginTop: 6 }}>{rg.t("Miten mennään?", "How do we go?", "¿Cómo vamos?")}</div>
+    <div style={{ width: 310, marginTop: 22, height: 84, borderRadius: 24, backgroundColor: s.color, flexDirection: "row", paddingLeft: 16, paddingTop: 14,
+      shadowColor: "rgba(0,0,0,0.3)", shadowOffsetY: 5, shadowRadius: 0 }} onClick={chooseWalk}>
+      <div style={{ fontSize: 46 }}>🚶</div>
+      <div style={{ fontSize: 24, fontWeight: "700", color: "#ffffff", marginLeft: 12, marginTop: 12 }}>{rg.t("Kävellen", "Walking", "Caminando") + (walkSecs > 0 ? " " + wm + " min" : "")}</div>
+    </div>
+    {tramBtn}
+  </div>;
+}
+
+// the top panel while waiting for the tram or riding it
+function tramPanel(W: number) {
+  if (!plan) return null;
+  const pat = TRAM.pats[plan.pat];
+  const box = { position: "absolute", left: 10, top: 10, width: W - 76, padding: 12, borderRadius: 24, backgroundColor: "rgba(255,255,255,0.95)",
+    shadowColor: "rgba(0,0,0,0.25)", shadowOffsetY: 3, shadowRadius: 4 };
+  const badge = <div style={{ height: 40, borderRadius: 12, paddingLeft: 10, paddingRight: 10, backgroundColor: "#da2128", alignItems: "center", justifyContent: "center" }}>
+    <div style={{ fontSize: 22, fontWeight: "700", color: "#ffffff" }}>{"🚋 " + pat.line}</div>
+  </div>;
+  if (phase === "wait") {
+    const st = tStop(plan.pat, plan.i);
+    const now = finnishNow();
+    const deps = departuresAt(pat.stops[plan.i], 3, tStop(plan.pat, plan.j).n);
+    return <div style={box}>
+      <div style={{ flexDirection: "row", alignItems: "center" }}>
+        {badge}
+        <div style={{ fontSize: 18, fontWeight: "700", color: "#1d3557", marginLeft: 10 }}>{"→ " + pat.head}</div>
+      </div>
+      <div style={{ fontSize: 15, color: "#457b9d", marginTop: 6 }}>{rg.t("Pysäkki ", "Stop ", "Parada ") + st.n + (st.p ? " " + st.p : "")}</div>
+      {deps.map((d) => {
+        const mins = Math.max(0, Math.round((d.at - now.sec) / 60));
+        const mine = d.ok;
+        return <div style={{ flexDirection: "row", marginTop: 4 }}>
+          <div style={{ fontSize: 17, fontWeight: "700", color: mine ? "#da2128" : "#90a4ae", width: 150 }}>{d.line + " " + d.head}</div>
+          <div style={{ fontSize: 17, fontWeight: "700", color: mine ? "#1d3557" : "#90a4ae" }}>{mins === 0 ? rg.t("nyt", "now", "ya") : mins + " min"}</div>
+        </div>;
+      })}
+    </div>;
+  }
+  // riding: the stops left, and getting off
+  const left = Math.max(0, plan.j - rideIdx);
+  const next = tStop(plan.pat, Math.min(plan.j, rideIdx + 1));
+  const off = tStop(plan.pat, plan.j);
+  let say1 = left + rg.t(" pysäkkiä jäljellä", " stops to go", " paradas más");
+  let col = "#1d3557";
+  if (rideAlert === 1) { say1 = "🔔 " + rg.t("Seuraavalla pois!", "Off at the next stop!", "¡Bájate en la próxima!"); col = "#da2128"; }
+  if (rideAlert === 2) { say1 = "🚪 " + rg.t("Jää pois nyt!", "Get off now!", "¡Bájate ahora!"); col = "#da2128"; }
+  const dots: any[] = [];
+  for (let k = plan.i; k <= plan.j; k++) {
+    const done = k <= rideIdx, last = k === plan.j;
+    dots.push(<div style={{ width: last ? 22 : 14, height: last ? 22 : 14, borderRadius: last ? 11 : 7, marginRight: 4, backgroundColor: done ? "#da2128" : last ? "#ffd166" : "#dde5ee",
+      borderWidth: last ? 3 : 0, borderColor: "#da2128" }} />);
+  }
+  return <div style={box}>
+    <div style={{ flexDirection: "row", alignItems: "center" }}>
+      {badge}
+      <div style={{ fontSize: 18, fontWeight: "700", color: "#1d3557", marginLeft: 10 }}>{"→ " + pat.head}</div>
+    </div>
+    <div style={{ fontSize: 22, fontWeight: "700", color: col, marginTop: 8 }}>{say1}</div>
+    <div style={{ flexDirection: "row", alignItems: "center", marginTop: 8, flexWrap: "wrap" }}>{dots}</div>
+    <div style={{ fontSize: 15, color: "#457b9d", marginTop: 6 }}>{rg.t("Seuraava: ", "Next: ", "Próxima: ") + next.n + "   🚪 " + off.n}</div>
+  </div>;
+}
+
+// the tram's part on the map: the ride's stops joined, and the two stops
+function tramLayer(): any[] {
+  if (travel !== "tram" || !plan) return [];
+  const pts: number[] = [];
+  for (let k = plan.i; k <= plan.j; k++) { const st = tStop(plan.pat, k); pts.push(st.x, st.z); }
+  const full = { position: "absolute", left: 0, top: 0, width: width, height: mapH() };
+  const vb = "0 0 " + width + " " + mapH();
+  const out: any[] = [
+    <path d={pathD(pts)} stroke="#ffffff" strokeWidth="10" fill="none" viewBox={vb} style={full} />,
+    <path d={pathD(pts)} stroke="#da2128" strokeWidth="6" fill="none" strokeDasharray="10 6" viewBox={vb} style={full} />,
+  ];
+  for (let k = plan.i; k <= plan.j; k++) {
+    const st = tStop(plan.pat, k);
+    const X = sx(st.x), Y = sy(st.z);
+    const end = k === plan.i || k === plan.j;
+    if (end) out.push(<div style={{ position: "absolute", left: X - 18, top: Y - 18, width: 36, height: 36, borderRadius: 18, backgroundColor: "#da2128", borderWidth: 3, borderColor: "#ffffff",
+      alignItems: "center", justifyContent: "center" }}><div style={{ fontSize: 20 }}>{k === plan.i ? "🚋" : "🚪"}</div></div>);
+    else out.push(<div style={{ position: "absolute", left: X - 6, top: Y - 6, width: 12, height: 12, borderRadius: 6, backgroundColor: "#ffffff", borderWidth: 3, borderColor: "#da2128" }} />);
+  }
+  return out;
+}
+
 function viewNav() {
   const s = placeName(target);
   const extra: any[] = [];
@@ -767,7 +1136,18 @@ function viewNav() {
   else if (offNet > 45) msg = rg.t("Kävele lähimmälle tielle", "Walk to the nearest road", "Camina hasta la calle más cercana");
   const progress = startLen > 0 && route ? rg.clamp(1 - routeLen / startLen, 0, 1) : 0;
   const mins = route ? Math.max(1, Math.round(routeLen / WALK_SPEED / 60)) : 0;
-  extra.push(<div style={{ position: "absolute", left: 10, top: 10, width: W - 76, flexDirection: "row", alignItems: "center", padding: 8, borderRadius: 26,
+  const riding = travel === "tram" && (phase === "wait" || phase === "ride");
+  if (travel === "tram" && phase === "toStop" && plan && !msg) {
+    const st = tStop(plan.pat, plan.i);
+    msg = "🚋 " + st.n + " · " + rg.t("lähtee ", "leaves ", "sale ") + clockText(plan.dep);
+  }
+  if (riding) {
+    extra.push(tramPanel(W));
+    if (phase === "wait") extra.push(btn("🚋 " + rg.t("Olen ratikassa", "I'm on the tram", "Estoy en el tranvía"), "#da2128", () => { setPhase("ride"); rg.sound("click"); },
+      { position: "absolute", left: 84, top: height - 150, width: W - 160, fontSize: 18 }));
+    else extra.push(btn("🚪 " + rg.t("Jäin pois", "I got off", "Me bajé"), "#2a9d8f", () => { setPhase("home"); rg.sound("click"); update(); },
+      { position: "absolute", left: 84, top: height - 150, width: W - 160, fontSize: 18 }));
+  } else extra.push(<div style={{ position: "absolute", left: 10, top: 10, width: W - 76, flexDirection: "row", alignItems: "center", padding: 8, borderRadius: 26,
     backgroundColor: "rgba(255,255,255,0.94)", shadowColor: "rgba(0,0,0,0.25)", shadowOffsetY: 3, shadowRadius: 4 }}>
     {bigArrow()}
     <div style={{ marginLeft: 10, width: W - 76 - 16 - 96 - 14 }}>
@@ -941,6 +1321,7 @@ function withPhoto(under: any) {
 function view() {
   if (mode === "loading") return viewLoading();
   if (mode === "computing") return viewComputing();
+  if (mode === "choose") return viewChoose();
   if (mode === "nav") return viewNav();
   if (mode === "arrived") return viewArrived();
   if (mode === "settings") return viewSettings();
@@ -950,14 +1331,14 @@ function view() {
 
 function onBack() {
   if (viewing) { viewing = null; return; }
-  if (mode === "nav" || mode === "arrived") { mode = "menu"; return; }
+  if (mode === "nav" || mode === "arrived" || mode === "choose") { mode = "menu"; return; }
   if (mode === "pick") { mode = "settings"; return; }
   if (mode === "settings") { mode = "menu"; return; }
   rg.exit();
 }
 
 function onClose() {
-  if (mode === "nav" || mode === "pick" || mode === "settings" || mode === "arrived") { onBack(); return false; }
+  if (mode === "nav" || mode === "pick" || mode === "settings" || mode === "arrived" || mode === "choose") { onBack(); return false; }
   return true;
 }
 
