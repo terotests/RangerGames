@@ -9,13 +9,12 @@
 // Coordinates are metres, x east and z south, as in Tampere Taxi Driver.
 
 import { MAP, WALK } from "lib/mapdata";
-import { HOMES } from "lib/homes";
 
 type Car = { road: number; s: number; v: number; len: number; wid: number; color: string; bus: boolean; honk: number; wait: number };
 type Bike = { path: number; s: number; dir: number; v: number; color: string; ring: number; stop: number };
 type Tram = { line: number; s: number; dir: number; v: number; dwell: number; stopIdx: number; lastStop: number };
 type Place = { id: string; name: string; kind: string; x: number; z: number; icon: string };
-type Mode = "start" | "goal" | "play" | "ride" | "win";
+type Mode = "start" | "gpswait" | "goal" | "play" | "ride" | "win";
 type Bit = { x: number; y: number; vx: number; vy: number; t: number; c: string; r: number };
 
 const X0: number = MAP.X0, Z0: number = MAP.Z0, MW: number = MAP.W, MH: number = MAP.H;
@@ -35,7 +34,7 @@ let homes: Place[] = [];
 let startPlace: Place | null = null;
 let goal: Place | null = null;
 let goalChoices: Place[] = [];
-let kid = { x: 0, z: 0, face: 0, step: 0, moving: false, safeX: 0, safeZ: 0 };
+let kid = { x: 0, z: 0, face: 0, step: 0, moving: false, safeX: 0, safeZ: 0, tx: 0, tz: 0 };
 let cam = { x: 0, z: 0 };
 let hearts = 3;
 let points = 0;
@@ -67,6 +66,18 @@ let bits: Bit[] = [];
 let roadHint = 0;
 let celebrate = 0;
 let debugOn = false;
+// GPS: the child's real position drives the walk, and a route is shown
+let gps = false;
+let gpsFix: any = null;         // { x, z, acc, time }
+let gpsWait = 0;
+let gpsMsg = "";
+let route: number[] = [];       // x, z, x, z ... from the child to the goal
+let routeClock = 0;
+let routeCross: number[] = [];  // crossings on the route
+const LAT0 = 61.4994, LON0 = 23.764;
+const KX = 111320 * Math.cos(LAT0 * Math.PI / 180), KY = 110950;
+function lonToX(lon: number) { return (lon - LON0) * KX; }
+function latToZ(lat: number) { return -(lat - LAT0) * KY; }
 
 // ---- map data -------------------------------------------------------------
 
@@ -141,10 +152,16 @@ function bucketKey(x: number, z: number) { return Math.floor(x / 40) + ":" + Mat
 
 function setupMap() {
   places = MAP.places;
-  for (let i = 0; i < places.length; i++) {
-    const h = HOMES[places[i].id];
-    if (h) { places[i].x = h[0]; places[i].z = h[1]; }
-  }
+  // exact homes from places.local.js beside this file (git-ignored, so
+  // addresses never go to GitHub): export const PLACES = { koti: { lat, lon }, isa: { lat, lon } }
+  try {
+    const m = __cerxesImport("places.local");
+    const lp = m && m.PLACES;
+    for (let i = 0; i < places.length; i++) {
+      const h = lp && lp[places[i].id];
+      if (h && typeof h.lat === "number") { places[i].x = lonToX(h.lon); places[i].z = latToZ(h.lat); }
+    }
+  } catch (e) { }
   for (let i = 0; i < MAP.roads.length; i++) {
     const r = MAP.roads[i];
     roadLines.push(makeLine(r.p));
@@ -199,6 +216,9 @@ function setupMap() {
   }
   // the four homes the game starts from
   homes = [findPlace("koti"), findPlace("isa"), findPlace("koulu"), findPlace("paivakoti")];
+  // mum and dad wait at their homes (Emoji 11 at most: the phone's font is old)
+  homes[0].icon = "👩";
+  homes[1].icon = "👨";
   // tram stops no line serves are only places on the map
   places = places.filter((p) => p.kind !== "stop" || onTram(p.id));
 }
@@ -293,6 +313,7 @@ function placeKid(p: Place) {
 
 function chooseStart(p: Place) {
   rg.sound("click");
+  stopGps();
   startPlace = p;
   placeKid(p);
   makeGoalChoices();
@@ -325,7 +346,15 @@ function chooseGoal(p: Place) {
   modeClock = 0;
   riding = -1;
   showMap = false;
-  say("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "info", 4);
+  if (gps) {
+    kid.tx = kid.x; kid.tz = kid.z;
+    updateRoute();
+    routeClock = 0;
+    route = [];
+    say("Lasketaan reittiä " + goalPhrase(p) + "…", "info", 3);
+  } else {
+    say("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "info", 4);
+  }
 }
 
 function goalPhrase(p: Place) {
@@ -346,7 +375,7 @@ function addPoints(n: number, why: string) {
 }
 
 function mistake(text: string) {
-  if (hurt > 0) return;
+  if (hurt > 0 || gps) return;
   hearts--;
   hurt = 1.6;
   rg.vibrate([120, 60, 120]);
@@ -395,7 +424,8 @@ function onClose() {
 function onBack() {
   if (showMap) { showMap = false; return; }
   if (mode === "play" || mode === "ride") { mode = "goal"; riding = -1; makeGoalChoices(); return; }
-  if (mode === "goal") { mode = "start"; return; }
+  if (mode === "goal") { stopGps(); mode = "start"; return; }
+  if (mode === "gpswait") { stopGps(); mode = "start"; return; }
   if (mode === "win") { nextTrip(); return; }
   rg.exit();
 }
@@ -423,6 +453,203 @@ function cycleZoom() {
   zoomIdx = (zoomIdx + 1) % ZOOMS.length;
   Z = ZOOMS[zoomIdx];
   rg.sound("click");
+}
+
+// ---- GPS ---------------------------------------------------------------------
+
+function startGps() {
+  rg.sound("click");
+  gps = true;
+  gpsFix = null;
+  gpsWait = 0;
+  gpsMsg = "Haetaan sijaintia… mene ulos taivaan alle.";
+  rg.sensor("location", true);
+  mode = "gpswait";
+  modeClock = 0;
+}
+
+function stopGps() {
+  if (gps) rg.sensor("location", false);
+  gps = false;
+  route = [];
+}
+
+function onLocation(f: any) {
+  if (!f || typeof f.lat !== "number") return;
+  const x = lonToX(f.lon), z = latToZ(f.lat);
+  gpsFix = { x, z, acc: f.accuracy || 0, time: t };
+  if (x < X0 + 5 || x > X0 + MW - 5 || z < Z0 + 5 || z > Z0 + MH - 5) {
+    gpsMsg = "Olet kartan ulkopuolella. Kartta kattaa Tampereen keskustan.";
+    return;
+  }
+  // onto the nearest walkable spot (GPS drifts into buildings and streets)
+  const p = nearestWalk(x, z);
+  if (mode === "gpswait") {
+    kid.x = p.x; kid.z = p.z; kid.safeX = p.x; kid.safeZ = p.z;
+    cam.x = kid.x; cam.z = kid.z;
+    startPlace = { id: "gps", name: "Oma sijainti", kind: "gps", x: p.x, z: p.z, icon: "📍" };
+    cars = []; bikes = []; nearClock = 0;
+    makeGoalChoices();
+    mode = "goal";
+    modeClock = 0;
+    rg.sound("coin");
+    return;
+  }
+  kid.tx = p.x; kid.tz = p.z;
+}
+
+function onSensor(kind: string, data: any) {
+  if (kind !== "error" || !data || data.sensor !== "location") return;
+  gpsMsg = data.reason === "permission" ? "Sijaintilupa puuttuu. Salli sijainti puhelimen asetuksista."
+    : data.reason === "gps-off" ? "GPS on pois päältä. Laita sijainti päälle."
+    : "Sijaintia ei saatu tästä laitteesta.";
+}
+
+function nearestWalk(x: number, z: number) {
+  for (let r = 0; r < 30; r++) {
+    for (let k = 0; k < Math.max(1, r * 8); k++) {
+      const a = k / Math.max(1, r * 8) * Math.PI * 2;
+      const px = x + Math.cos(a) * r * CELL, pz = z + Math.sin(a) * r * CELL;
+      const c = cell(px, pz);
+      if (c === 1 || c === 4) return { x: px, z: pz };
+    }
+  }
+  return { x, z };
+}
+
+// A* over the walk grid: sidewalks, paths and crossings, never across a
+// carriageway. It runs a slice at a time (an old phone needs a few frames);
+// the result is x, z pairs from the child to the goal, [] when not found.
+function cellClass(i: number): number {
+  const z = Math.floor(i / GW), x = i - z * GW;
+  const r = row(z);
+  let lo = 0, hi = r.ends.length - 1;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (r.ends[m] > x) hi = m; else lo = m + 1; }
+  return r.vals[lo];
+}
+function walkable(c: number) { return c === 1 || c === 3 || c === 4; }
+
+function makeRouteJob(fx: number, fz: number, tx: number, tz: number): any {
+  const sx0 = Math.floor((fx - X0) / CELL), sz0 = Math.floor((fz - Z0) / CELL);
+  const job: any = { gx: Math.floor((tx - X0) / CELL), gz: Math.floor((tz - Z0) / CELL), start: sz0 * GW + sx0,
+    g: {}, from: {}, closed: {}, heap: [], steps: 0, done: false, result: [] };
+  job.g[job.start] = 0;
+  heapPush(job.heap, routeH(job, job.start), job.start);
+  return job;
+}
+function routeH(job: any, i: number) {
+  const z = Math.floor(i / GW), x = i - z * GW;
+  return Math.hypot(x - job.gx, z - job.gz) * 1.5;
+}
+function heapPush(heap: number[], f: number, i: number) {
+  heap.push(f, i);
+  let k = heap.length / 2 - 1;
+  while (k > 0) {
+    const pk = (k - 1) >> 1;
+    if (heap[pk * 2] <= heap[k * 2]) break;
+    const tf = heap[pk * 2], ti = heap[pk * 2 + 1];
+    heap[pk * 2] = heap[k * 2]; heap[pk * 2 + 1] = heap[k * 2 + 1];
+    heap[k * 2] = tf; heap[k * 2 + 1] = ti;
+    k = pk;
+  }
+}
+function heapPop(heap: number[]): number {
+  const i = heap[1];
+  const li = heap.pop() as number;
+  const lf = heap.pop() as number;
+  if (heap.length > 0) {
+    heap[0] = lf; heap[1] = li;
+    let k = 0;
+    const n = heap.length / 2;
+    while (true) {
+      const a = k * 2 + 1, b = k * 2 + 2;
+      let m = k;
+      if (a < n && heap[a * 2] < heap[m * 2]) m = a;
+      if (b < n && heap[b * 2] < heap[m * 2]) m = b;
+      if (m === k) break;
+      const tf = heap[m * 2], ti = heap[m * 2 + 1];
+      heap[m * 2] = heap[k * 2]; heap[m * 2 + 1] = heap[k * 2 + 1];
+      heap[k * 2] = tf; heap[k * 2 + 1] = ti;
+      k = m;
+    }
+  }
+  return i;
+}
+const DX8 = [1, -1, 0, 0, 1, 1, -1, -1], DZ8 = [0, 0, 1, -1, 1, -1, 1, -1];
+// a slice of the search; true when finished
+function runRouteJob(job: any, budget: number): boolean {
+  if (job.done) return true;
+  const heap = job.heap, g = job.g, from = job.from, closed = job.closed;
+  let n = 0;
+  while (heap.length && n < budget) {
+    const i = heapPop(heap);
+    if (closed[i]) continue;
+    closed[i] = 1;
+    n++; job.steps++;
+    const z = Math.floor(i / GW), x = i - z * GW;
+    if (Math.abs(x - job.gx) + Math.abs(z - job.gz) <= 2) { finishRoute(job, i); return true; }
+    const gi = g[i];
+    for (let d = 0; d < 8; d++) {
+      const nx = x + DX8[d], nz = z + DZ8[d];
+      if (nx < 0 || nz < 0 || nx >= GW || nz >= GH) continue;
+      const j = nz * GW + nx;
+      if (closed[j]) continue;
+      const c = cellClass(j);
+      if (!walkable(c)) continue;
+      if (d >= 4 && (!walkable(cellClass(z * GW + nx)) || !walkable(cellClass(nz * GW + x)))) continue;
+      const ng = gi + (d >= 4 ? 1.414 : 1) * (c === 4 ? 1.4 : c === 3 ? 1.2 : 1);
+      if (g[j] === undefined || ng < g[j]) {
+        g[j] = ng; from[j] = i;
+        heapPush(heap, ng + routeH(job, j), j);
+      }
+    }
+  }
+  if (!heap.length || job.steps > 250000) { job.done = true; job.result = []; return true; }
+  return false;
+}
+function finishRoute(job: any, end: number) {
+  const pts: number[] = [];
+  let i = end, n = 0;
+  while (true) {
+    if (n % 2 === 0 || i === job.start) {
+      const z = Math.floor(i / GW), x = i - z * GW;
+      pts.push(X0 + (x + 0.5) * CELL, Z0 + (z + 0.5) * CELL);
+    }
+    n++;
+    if (i === job.start) break;
+    i = job.from[i];
+  }
+  const rev: number[] = [];
+  for (let k = pts.length - 2; k >= 0; k -= 2) rev.push(pts[k], pts[k + 1]);
+  job.done = true;
+  job.result = rev;
+}
+let routeJob: any = null;
+
+function updateRoute() {
+  if (!goal) return;
+  routeJob = makeRouteJob(kid.x, kid.z, goal.x, goal.z);
+}
+function routeReady() {
+  route = routeJob.result;
+  routeJob = null;
+  routeCross = [];
+  for (let k = 0; k < route.length; k += 2) {
+    if (cell(route[k], route[k + 1]) === 3) {
+      const ci = crossingAt(route[k], route[k + 1]);
+      if (ci >= 0 && routeCross.indexOf(ci) < 0) routeCross.push(ci);
+    }
+  }
+}
+
+// how far the child is from the route, metres
+function offRoute(): number {
+  let best = 1e9;
+  for (let k = 0; k + 3 < route.length; k += 2) {
+    const d = segDist(kid.x, kid.z, route[k], route[k + 1], route[k + 2], route[k + 3]);
+    if (d < best) best = d;
+  }
+  return best;
 }
 
 // ---- the child --------------------------------------------------------------
@@ -855,7 +1082,34 @@ function tick(dt: number, input: any) {
     stepCars(dt);
     stepBikes(dt);
   }
-  if (mode === "play" && !showMap) {
+  if (mode === "gpswait") gpsWait += dt;
+  if (mode === "play" && gps && !showMap) {
+    // the real position, eased so the figure walks instead of jumping
+    const dx = kid.tx - kid.x, dz = kid.tz - kid.z;
+    const d = Math.hypot(dx, dz);
+    kid.moving = d > 0.6;
+    if (d > 60) { kid.x = kid.tx; kid.z = kid.tz; }
+    else if (d > 0.05) {
+      const k = Math.min(1, dt * 2.5);
+      kid.x += dx * k; kid.z += dz * k;
+      kid.face = Math.atan2(dz, dx);
+      kid.step += dt * 8;
+    }
+    if (routeJob && runRouteJob(routeJob, 2500)) {
+      const first = route.length === 0;
+      routeReady();
+      if (first) say(route.length ? "Kävele sinistä viivaa pitkin! Pysähdy aina suojatien eteen." : "Reittiä ei löytynyt tältä kartalta.", "info", 5);
+    }
+    routeClock += dt;
+    if (!routeJob && routeClock > 4 && (offRoute() > 15 || routeClock > 30)) { updateRoute(); routeClock = 0; }
+    // a red light on the route just ahead
+    for (let k = 0; k < routeCross.length; k++) {
+      const c = MAP.crossings[routeCross[k]];
+      const d0 = Math.min(Math.hypot(kid.x - c[0], kid.z - c[1]), Math.hypot(kid.x - c[2], kid.z - c[3]));
+      if (d0 < 10 && msgClock <= 0) say(c[4] >= 0 ? "Suojatie valoilla: odota vihreää ukkoa! 🚦" : "Suojatie: pysähdy ja katso molempiin suuntiin! 👀", "info", 4);
+    }
+    if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 15) win();
+  } else if (mode === "play" && !showMap) {
     if (hurt <= 0.8) moveKid(dt, input);
     if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 12 && (goal.kind !== "stop" || true)) win();
   }
@@ -902,6 +1156,19 @@ function Tiles() {
 function visible(x: number, z: number, m: number) {
   const X = sx(x), Y = sy(z);
   return X > -m && X < width + m && Y > -m && Y < height + m;
+}
+
+function RouteView() {
+  if (!gps || mode !== "play" || route.length < 4) return null;
+  const out: any[] = [];
+  const r = 4.5 * Z / 4.5;
+  for (let k = 0; k < route.length; k += 2) {
+    const x = route[k], z = route[k + 1];
+    if (!visible(x, z, 10)) continue;
+    const onCross = cell(x, z) === 3;
+    out.push(<div className="rdot" style={{ left: sx(x) - r, top: sy(z) - r, width: r * 2, height: r * 2, borderRadius: r, backgroundColor: onCross ? "#ffd166" : "#3a86ff" }} />);
+  }
+  return out;
 }
 
 function Lights() {
@@ -952,6 +1219,7 @@ function Places() {
       out.push(<div className="stopsign" style={{ left: X - 16, top: Y - 54 + bob }}>{"🚋"}</div>);
     } else {
       out.push(<div className={isGoal ? "pin goal" : "pin"} style={{ left: X - 20, top: Y - 62 + bob }}>{p.icon}</div>);
+      if (p.id === "koti" || p.id === "isa") out.push(<div className="housebadge" style={{ left: X + 10, top: Y - 70 + bob }}>{"🏠"}</div>);
     }
     out.push(<div className={isGoal ? "plabel goal" : "plabel"} style={{ left: X - 80, top: Y - 20 }}>{p.name}</div>);
   }
@@ -1141,6 +1409,13 @@ function StartView() {
       <div className="subtitle">{"Kävele kaupungilla, odota vihreää ja varo autoja!"}</div>
       <div className="ask">{"Mistä lähdetään?"}</div>
       {cards}
+      <div className="card gpscard" onClick={() => startGps()}>
+        <div className="cicon">{"📍"}</div>
+        <div className="ctext">
+          <div className="cname">{"Missä olen nyt"}</div>
+          <div className="csub">{"Puhelimen sijainti ja reitti"}</div>
+        </div>
+      </div>
       <div className="score">{"⭐ " + total + " pistettä · " + found + " retkeä"}</div>
       <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki"}</div>
     </div>
@@ -1169,7 +1444,19 @@ function GoalView() {
       <div className="ask">{"Minne mennään?"}</div>
       <div className="subtitle">{"Lähtö: " + (startPlace ? startPlace.name : "")}</div>
       {cards}
-      <div className="back" onClick={() => { mode = "start"; rg.sound("click"); }}>{"← Vaihda lähtöpaikka"}</div>
+      <div className="back" onClick={() => { stopGps(); mode = "start"; rg.sound("click"); }}>{"← Vaihda lähtöpaikka"}</div>
+    </div>
+  );
+}
+
+function GpsWaitView() {
+  return (
+    <div className="panel">
+      <div className="ticon">{"📍"}</div>
+      <div className="ask">{"Missä olen?"}</div>
+      <div className="gpstext">{gpsMsg}</div>
+      <div className="gpsdots">{"• • •".slice(0, 1 + (Math.floor(t * 2) % 3) * 2)}</div>
+      <div className="back" onClick={() => { stopGps(); mode = "start"; }}>{"← Takaisin"}</div>
     </div>
   );
 }
@@ -1185,7 +1472,7 @@ function WinView() {
         <div className="wstars">{stars}</div>
         <div className="wpts">{"+" + roundPoints + " pistettä"}</div>
         <div className="go" onClick={() => nextTrip()}>{"Uusi retki täältä ➜"}</div>
-        <div className="back" onClick={() => { rg.stopMusic(); mode = "start"; }}>{"Valikkoon"}</div>
+        <div className="back" onClick={() => { rg.stopMusic(); stopGps(); mode = "start"; }}>{"Valikkoon"}</div>
       </div>
     </div>
   );
@@ -1196,6 +1483,7 @@ function view() {
   return (
     <div className="screen">
       {Tiles()}
+      {RouteView()}
       {Lights()}
       {Places()}
       {cars.map((c) => CarView(c))}
@@ -1206,6 +1494,7 @@ function view() {
       {game && mode !== "win" && !showMap ? Hud() : null}
       {showMap && game ? MapView() : null}
       {mode === "start" ? StartView() : null}
+      {mode === "gpswait" ? GpsWaitView() : null}
       {mode === "goal" ? GoalView() : null}
       {mode === "win" ? WinView() : null}
     </div>
