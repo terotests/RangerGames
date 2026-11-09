@@ -54,12 +54,18 @@
   align-items: center; background-color: rgba(255,255,255,0.95); color: #2b2d42; shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 3px; }
 .msg.good { background-color: #d8f3dc; color: #1b4332; }
 .msg.bad { background-color: #ffccd5; color: #9d0208; }
-.stopinfo { position: absolute; left: 12px; bottom: 16px; width: 200px; padding: 10px; border-radius: 16px; background-color: #0a8754; color: #ffffff; font-size: 14px; font-weight: 700; }
+.stopinfo { position: absolute; left: 12px; bottom: 140px; width: 250px; padding: 10px; border-radius: 16px; background-color: #0a8754; color: #ffffff; font-size: 14px; font-weight: 700; }
+.stophead { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+.deprow { font-size: 13px; color: #e9f5f3; margin-top: 2px; }
+.deprow.good { color: #ffd166; font-weight: 700; }
+.skipbtn { position: absolute; right: 12px; bottom: 84px; padding: 10px; padding-left: 14px; padding-right: 14px; border-radius: 22px; font-size: 16px; font-weight: 700;
+  color: #ffffff; background-color: #3d405b; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.tramcard { border-color: #c1121f; }
 .bigbtn { position: absolute; left: 12px; bottom: 14px; padding: 14px; padding-left: 18px; padding-right: 18px; border-radius: 28px; font-size: 20px; font-weight: 700; color: #ffffff;
   shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 4px; }
 .bigbtn.tram { background-color: #c1121f; }
 .exitbtn { background-color: #0a8754; }
-.ridebar { position: absolute; left: 12px; right: 12px; top: 96px; padding: 10px; border-radius: 14px; background-color: #1d1d1f; color: #ffd166; font-size: 16px; font-weight: 700; align-items: center; }
+.ridebar { position: absolute; left: 12px; right: 12px; top: 160px; padding: 10px; border-radius: 14px; background-color: #1d1d1f; color: #ffd166; font-size: 16px; font-weight: 700; align-items: center; }
 .ouch { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(255, 60, 90, 0.18); }
 
 .arrowbox { position: absolute; width: 60px; height: 60px; align-items: center; justify-content: center; }

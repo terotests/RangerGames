@@ -15,6 +15,9 @@ and writes into games/tampere/:
                                   bike paths, tram lines and stops, places
 
 Usage: python3 tools/tampere/build_map.py <TampereTaxiDriver dir>
+  GTFS=<dir>  the unzipped Nysse GTFS (only the trams is enough): real tram
+              lines, stops and timetables (Mon-Thu, Fri, Sat, Sun) instead
+              of Tampere Taxi Driver's tram routes
 Map data (c) OpenStreetMap contributors (ODbL); Tampereen kaupunki /
 Maanmittauslaitos (CC BY 4.0); Nysse (CC BY 4.0).
 """
@@ -686,8 +689,93 @@ def project(p, line):
         acc += L
     return best
 tram_lines = []
-cands = defaultdict(list)
-for ln, pts in routes:
+GTFS = os.environ.get("GTFS")   # unzipped Nysse tram GTFS (tram.zip): real lines, stops, timetables
+def tram_cross(part):
+    tstops = []
+    acc = 0.0
+    for a, b in zip(part, part[1:]):
+        L2 = seg_len(a, b)
+        for ci, c in enumerate(crossings):
+            t = seg_inter(a, b, c["a"], c["b"])
+            if t is not None: tstops.append([round(acc + t * L2, 1), ci])
+        acc += L2
+    return sorted(tstops)
+if GTFS:
+    import csv
+    rd = lambda f: list(csv.DictReader(open(os.path.join(GTFS, f), encoding="utf-8-sig")))
+    gstops = {r["stop_id"]: (r["stop_name"], proj(float(r["stop_lon"]), float(r["stop_lat"]))) for r in rd("stops.txt")}
+    # a stop is its A and B platforms together
+    byname = defaultdict(list)
+    for sid, (nm, q) in gstops.items(): byname[nm.rsplit(" ", 1)[0]].append(q)
+    stops = {nm: (sum(q[0] for q in qs) / len(qs), sum(q[1] for q in qs) / len(qs)) for nm, qs in byname.items()}
+    trips = {r["trip_id"]: r for r in rd("trips.txt")}
+    # day types: the regular weekly services (the longest-running one for each weekday group)
+    DAYS = [("monday", "Ma–To"), ("friday", "Pe"), ("saturday", "La"), ("sunday", "Su")]
+    cal = rd("calendar.txt")
+    svc_day = {}
+    for di, (dname, _) in enumerate(DAYS):
+        cs = [c for c in cal if c[dname] == "1"]
+        best = max(cs, key=lambda c: int(c["end_date"]) - int(c["start_date"]))
+        svc_day[best["service_id"]] = di
+    shapes = defaultdict(list)
+    for r in rd("shapes.txt"): shapes[r["shape_id"]].append((int(r["shape_pt_sequence"]), proj(float(r["shape_pt_lon"]), float(r["shape_pt_lat"]))))
+    st_by_trip = defaultdict(list)
+    for r in rd("stop_times.txt"):
+        if r["trip_id"] in trips and trips[r["trip_id"]]["service_id"] in svc_day:
+            h, m, sec = map(int, r["departure_time"].split(":"))
+            st_by_trip[r["trip_id"]].append((int(r["stop_sequence"]), gstops[r["stop_id"]][0].rsplit(" ", 1)[0], h * 3600 + m * 60 + sec))
+    inmap = lambda q: X0 < q[0] < X1 and Z0 < q[1] < Z1
+    # patterns: route + the stops it serves inside the map, in direction 1 order
+    pats = defaultdict(list)
+    for tid, sl in st_by_trip.items():
+        t = trips[tid]; sl.sort()
+        names = tuple(nm for _, nm, _ in sl if inmap(stops[nm]))
+        if len(names) < 2: continue
+        key = names if t["direction_id"] == "1" else names[::-1]
+        pats[(t["route_id"], key)].append((tid, t["direction_id"], sl))
+    for (route, key), lst in sorted(pats.items(), key=lambda kv: -len(kv[1])):
+        if len(lst) < 100: continue          # odd trips (depot runs and such)
+        if any(tl["line"] == route for tl in tram_lines): continue
+        # geometry: the most used direction 1 shape, the part inside the map
+        sh = defaultdict(int)
+        for tid, d, _ in lst:
+            if d == "1": sh[trips[tid]["shape_id"]] += 1
+        pts = [q for _, q in sorted(shapes[max(sh, key=sh.get)])]
+        parts = clip_line(pts)
+        part = max(parts, key=lambda q: sum(seg_len(a, b) for a, b in zip(q, q[1:])))
+        part = [part[0]] + [q for a, q in zip(part, part[1:]) if seg_len(a, q) > 0.3]
+        L = sum(seg_len(a, b) for a, b in zip(part, part[1:]))
+        sl = sorted([round(project(stops[nm], part)[1], 1), nm] for nm in key)
+        # timetable: for each day type and direction, the time the tram is at its
+        # first stop (minutes), and each stop's time after that (seconds, median)
+        tt = []
+        for di in range(len(DAYS)):
+            dirs = []
+            for d in ("1", "0"):
+                order = [nm for _, nm in sl] if d == "1" else [nm for _, nm in sl][::-1]
+                deps, offs = [], defaultdict(list)
+                for tid, dd, stl in lst:
+                    if dd != d or svc_day[trips[tid]["service_id"]] != di: continue
+                    tm = {nm: tt_ for _, nm, tt_ in stl}
+                    if order[0] not in tm: continue
+                    t0 = tm[order[0]]
+                    deps.append(t0 // 60)
+                    for nm in order: offs[nm].append(tm.get(nm, t0) - t0)
+                med = [sorted(offs[nm])[len(offs[nm]) // 2] if offs[nm] else 0 for nm in order]
+                dirs.append({"dep": sorted(deps), "off": med})
+            tt.append(dirs)
+        tram_lines.append({"line": route, "p": part, "len": L, "stops": sl, "tt": tt,
+                           "head": [trips[lst[0][0]]["trip_headsign"] if lst[0][1] == "1" else "", ""]})
+        for tid, d, _ in lst:
+            tram_lines[-1]["head"][0 if d == "1" else 1] = tram_lines[-1]["head"][0 if d == "1" else 1] or trips[tid]["trip_headsign"]
+        print(f"tram {route}: {round(L)} m, stops {[s_[1] for s_ in sl]}, heads {tram_lines[-1]['head']}, "
+              f"departures {[len(tt[di][0]['dep']) for di in range(len(DAYS))]}")
+        tram_lines[-1]["cross"] = tram_cross(part)
+    TT_DAYS = [d[1] for d in DAYS]
+else:
+  TT_DAYS = []
+  cands = defaultdict(list)
+  for ln, pts in routes:
     parts = clip_line(pts)
     if not parts: continue
     part = max(parts, key=lambda q: sum(seg_len(a, b) for a, b in zip(q, q[1:])))
@@ -699,7 +787,7 @@ for ln, pts in routes:
         if dd < 20: sl.append([round(s, 1), name])
     sl.sort()
     cands[ln].append((len(sl), L, part, sl))
-for ln in sorted(cands):
+  for ln in sorted(cands):
     n, L, part, sl = max(cands[ln], key=lambda c: (c[0], c[1]))
     if n < 2: continue
     same = [t for t in tram_lines if [q[1] for q in t["stops"]] == [q[1] for q in sl]]
@@ -708,16 +796,7 @@ for ln in sorted(cands):
         continue
     tram_lines.append({"line": ln, "p": part, "len": L, "stops": sl})
     print(f"tram {ln}: {round(L)} m, stops {[s[1] for s in sl]}")
-    # tram crossings for the tram itself
-    tstops = []
-    acc = 0.0
-    for a, b in zip(part, part[1:]):
-        L2 = seg_len(a, b)
-        for ci, c in enumerate(crossings):
-            t = seg_inter(a, b, c["a"], c["b"])
-            if t is not None: tstops.append([round(acc + t * L2, 1), ci])
-        acc += L2
-    tram_lines[-1]["cross"] = sorted(tstops)
+    tram_lines[-1]["cross"] = tram_cross(part)
 
 # ---------------------------------------------------------------- places
 PLACES = [
@@ -972,7 +1051,9 @@ data = {
     "nodes": [list(n) for n in nodes],
     "roads": [{"f": de["from"], "t": de["to"], "p": flat(de["lp"]), "c": de["cls"], "s": de["stops"], "l": r1(de["len"])} for de in dedges],
     "bikes": [flat(p) for p in bikes],
-    "trams": [{"line": t["line"], "p": flat(t["p"]), "len": r1(t["len"]), "stops": t["stops"], "x": t["cross"]} for t in tram_lines],
+    "trams": [{"line": t["line"], "p": flat(t["p"]), "len": r1(t["len"]), "stops": t["stops"], "x": t["cross"],
+               "tt": t.get("tt"), "head": t.get("head")} for t in tram_lines],
+    "ttDays": TT_DAYS,
     "places": places,
 }
 os.makedirs(os.path.join(OUT, "lib"), exist_ok=True)
