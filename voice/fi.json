@@ -825,6 +825,20 @@
   "lamppu_syttyi": "Lamppu syttyi!",
   "lamppu_himmea": "Lamppu palaa himmeästi.",
   "liian_kirkas": "Varo! Liian kirkas, lamppu kuumenee.",
-  "lamppu_paloi": "Voi ei, lamppu paloi! Virta oli liian suuri."
+  "lamppu_paloi": "Voi ei, lamppu paloi! Virta oli liian suuri.",
+  "peli_peilit": "Valopeilit",
+  "peilit_pollo": "Hups! Pöllö heräsi.",
+  "peilit_tip1": "Napauta peiliä, niin se kääntyy. Ohjaa valo kukalle.",
+  "peilit_tip2": "Laita peili valon tielle. Kissa haluaa nukkua auringossa.",
+  "peilit_tip3": "Kaksi peiliä vie valon kiven ohi auringonkukalle.",
+  "peilit_tip4": "Peilin voi kääntää myös vinoon. Vie valo aurinkopaneelille.",
+  "peilit_tip5": "Puolipeili jakaa valon kahtia. Valaise molemmat kukat.",
+  "peilit_tip6": "Pöllö nukkuu päivällä. Älä herätä sitä! Lämmitä lisko.",
+  "peilit_tip7": "Lukitut peilit eivät käänny. Valaise kissa ja kuivata pyykit.",
+  "peilit_tip8": "Kaksi valoa. Kumpikin tarvitsee oman tiensä.",
+  "peilit_tip9": "Valo menee veden yli, mutta veteen ei voi laittaa peiliä.",
+  "peilit_tip10": "Kaksi puolipeiliä ja kolme kukkaa.",
+  "peilit_tip11": "Monta pöllöä. Etsi turvallinen reitti.",
+  "peilit_tip12": "Kaikki haluavat valoa, paitsi pöllö."
  }
 }
