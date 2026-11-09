@@ -1,0 +1,12 @@
+[package]
+name = "rg_core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(ranger)'] }

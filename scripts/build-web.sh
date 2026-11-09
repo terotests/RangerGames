@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Builds the web version into dist/web: the engine as WebAssembly, the
+# page and its scripts, and every game under games/ in one pack.
+#   scripts/build-web.sh            release build
+#   scripts/build-web.sh --dev      faster build, slower engine
+set -euo pipefail
+cd "$(dirname "$0")/.."
+PROFILE=release
+FLAGS=(--release)
+if [[ "${1:-}" == "--dev" ]]; then PROFILE=debug; FLAGS=(); fi
+cargo build -p rg_web --target wasm32-wasip1 "${FLAGS[@]}"
+cargo build -p rg_cli --release
+OUT=dist/web
+rm -rf "$OUT"; mkdir -p "$OUT"
+cp -r web/* "$OUT"/
+cp "target/wasm32-wasip1/$PROFILE/rg_web.wasm" "$OUT/rg_web.wasm"
+if command -v wasm-opt >/dev/null 2>&1 && [[ "$PROFILE" == release ]]; then
+  wasm-opt -O2 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
+fi
+./target/release/rg_cli pack games "$OUT/games.rgpk"
+echo "dist/web: $(du -sh "$OUT" | cut -f1)  (serve it: npx serve dist/web, or python3 -m http.server -d dist/web)"

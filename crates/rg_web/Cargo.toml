@@ -1,0 +1,13 @@
+[package]
+name = "rg_web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+rg_engine = { path = "../rg_engine" }
+rg_core = { path = "../rg_core" }
+
+[lib]
+crate-type = ["cdylib"]

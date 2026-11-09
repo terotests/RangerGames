@@ -1,0 +1,15 @@
+# EVG (Ranger's lib/evg, from terotests/evg) as a Rust crate: build.rs runs
+# rgrc on Ranger's EVGCrate.rgr, as runtime/rust/rangerevg does, with the
+# fixes rustc's borrow rules need in the written module (see build.rs).
+[package]
+name = "rg_evg"
+version.workspace = true
+edition.workspace = true
+license = "MIT"
+publish = false
+
+[dependencies]
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }
+
+[build-dependencies]
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }

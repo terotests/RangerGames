@@ -1,0 +1,41 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# RangerGames: a game engine for web, Android and desktop (Raspberry Pi).
+#
+#   crates/rg_core    the portable core in Ranger's strict Rust subset
+#                     (`use ranger::prelude::*`): VFS, input, host commands,
+#                     the binary draw stream, math. Builds with cargo and rgrc.
+#   crates/rg_engine  the engine: CErXes runs the game's TSX, EVG lays out
+#                     its element tree with the game's CSS, rg_core holds the rest
+#   crates/rg_web     the engine as a WebAssembly module (wasm32-wasip1) for
+#                     the browser and the Android WebView shell
+#   crates/rg_cli     a headless native runner: tests, CI, packs
+#
+# .deps/ is filled by scripts/setup.sh (Ranger with lib/evg, ComponentEngine).
+
+[workspace]
+resolver = "2"
+members = ["crates/rg_core", "crates/rg_evg", "crates/rg_engine", "crates/rg_web", "crates/rg_cli"]
+exclude = [".deps"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+
+# CErXes names the ranger prelude by git revision; use the one checkout so
+# CErXes, EVG and our crates share one `ranger` crate.
+[patch."https://github.com/terotests/Ranger.git"]
+ranger = { path = ".deps/Ranger/runtime/rust/ranger" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+overflow-checks = false
+debug = false
+panic = "abort"
+
+[profile.dev]
+overflow-checks = false
+opt-level = 1
