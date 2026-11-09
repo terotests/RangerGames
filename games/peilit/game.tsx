@@ -1,7 +1,8 @@
 // Valopeilit: light comes from the sun or a torch, and mirrors bring it to
 // a flower, a solar panel, a cat that wants a sunny nap, a cold lizard or
 // wet laundry – but never to the owl, who sleeps in the day. The angle of
-// incidence is the angle of reflection: a tapped mirror turns 22.5°, and
+// incidence is the angle of reflection: a tapped mirror turns 22.5°, a mirror turns
+// with the finger dragged around it (the light follows as it turns), and
 // the angle at the selected mirror is shown on the board.
 // Optics: lib/optics.ts, levels: lib/levels.ts (checked by tools/peilit/solve.ts).
 
@@ -9,7 +10,8 @@ import { trace, parseMap, solved, incidence, Cell, Trace } from "lib/optics";
 import { LEVELS } from "lib/levels";
 
 type Piece = Cell & { turns?: number; va?: number; born?: number };
-type Drag = { kind: string; fromX: number; fromY: number; tray: boolean; x: number; y: number; sx: number; sy: number; moved: boolean };
+type Drag = { kind: string; fromX: number; fromY: number; tray: boolean; x: number; y: number; sx: number; sy: number; moved: boolean;
+  rot: boolean; turns0: number; m0: number };
 
 const W = 7, H = 9;
 const TOP = 58;
@@ -133,7 +135,7 @@ function onPointerDown(px: number, py: number) {
   const [x, y] = cell;
   const c = piece(x, y);
   if (c) {
-    drag = { kind: c.k, fromX: x, fromY: y, tray: false, x: px, y: py, sx: px, sy: py, moved: false };
+    drag = { kind: c.k, fromX: x, fromY: y, tray: false, x: px, y: py, sx: px, sy: py, moved: false, rot: false, turns0: c.turns || 0, m0: c.m || 0 };
     return;
   }
   if (canPlace(x, y)) {
@@ -149,7 +151,7 @@ function onPointerDown(px: number, py: number) {
 function trayDown(k: string, info: any) {
   if (won || !left[k]) return;
   kind = k;
-  drag = { kind: k, fromX: -1, fromY: -1, tray: true, x: info.x, y: info.y, sx: info.x, sy: info.y, moved: false };
+  drag = { kind: k, fromX: -1, fromY: -1, tray: true, x: info.x, y: info.y, sx: info.x, sy: info.y, moved: false, rot: false, turns0: 0, m0: 0 };
 }
 
 function onPointerUp(px: number, py: number) {
@@ -167,6 +169,7 @@ function onPointerUp(px: number, py: number) {
   }
   const c = piece(d.fromX, d.fromY);
   if (!c) return;
+  if (d.rot) { endRotate(c); return; }
   if (!d.moved || (cell && cell[0] === d.fromX && cell[1] === d.fromY)) { turn(d.fromX, d.fromY, 1); return; }
   if (c.fixed) { rg.sound("wrong"); return; }
   if (!cell) { takeBack(d.fromX, d.fromY); return; }
@@ -188,6 +191,57 @@ function onKeyDown(key: string) {
   if (key === "Delete" || key === "Backspace") takeBack(sel[0], sel[1]);
 }
 
+// --- turning with the finger -----------------------------------------------
+// Pressing a mirror and moving the finger around it turns the mirror to point
+// at the finger. The mirror follows the finger smoothly and the light is traced
+// again at every step of 22.5° it passes. A finger that goes far from the
+// mirror (more than ROT_R cells) carries the mirror to another square instead.
+
+const ROT_R = 1.6;
+
+function rotateDrag(d: Drag) {
+  const c = piece(d.fromX, d.fromY);
+  if (!c) return;
+  const cx = BX + (d.fromX + 0.5) * C, cy = BY + (d.fromY + 0.5) * C;
+  const dx = d.x - cx, dy = d.y - cy;
+  const r = Math.sqrt(dx * dx + dy * dy);
+  if (r > ROT_R * C && !c.fixed) {
+    // too far: this is a move, the mirror keeps the angle it had
+    if (d.rot) { c.turns = d.turns0; c.m = d.m0; c.va = d.turns0 * 22.5; d.rot = false; retrace(); }
+    d.moved = true;
+    return;
+  }
+  if (c.lock) { if (!d.rot && r > C * 0.35) { d.rot = true; rg.sound("wrong"); rg.vibrate(20); } return; }
+  if (r < C * 0.3 && !d.rot) return;
+  if (r < C * 0.15) return;
+  d.rot = true;
+  d.moved = false;
+  sel = [d.fromX, d.fromY];
+  // a mirror is the same turned half a circle: take the angle nearest to now
+  let a = Math.atan2(dy, dx) * 180 / Math.PI;
+  const now = c.va === undefined ? (c.turns || 0) * 22.5 : c.va;
+  while (a - now > 90) a -= 180;
+  while (a - now < -90) a += 180;
+  c.va = a;
+  const tn = Math.round(a / 22.5);
+  const m = ((tn % 8) + 8) % 8;
+  c.turns = tn;
+  if (m !== c.m) {
+    c.m = m;
+    rg.sound("tick", { pitch: 0.9 + m * 0.05 });
+    rg.vibrate(6);
+    retrace();
+  }
+}
+
+function endRotate(c: Piece) {
+  if (c.lock) return;
+  // snaps to the step the light already follows
+  c.turns = Math.round((c.va === undefined ? (c.turns || 0) * 22.5 : c.va) / 22.5);
+  c.m = ((c.turns % 8) + 8) % 8;
+  retrace();
+}
+
 // --- time ----------------------------------------------------------------
 
 function tick(dt: number, input: any) {
@@ -196,12 +250,13 @@ function tick(dt: number, input: any) {
   if (mode !== "play") return;
   if (drag && input.pointer.down) {
     drag.x = input.pointer.x; drag.y = input.pointer.y;
-    if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 12) drag.moved = true;
+    if (drag.tray) { if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 12) drag.moved = true; }
+    else if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 6 || drag.rot) rotateDrag(drag);
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const c = grid[y][x];
     if (!c) continue;
-    if (c.k === "mirror" || c.k === "split") {
+    if ((c.k === "mirror" || c.k === "split") && !(drag && drag.rot && drag.fromX === x && drag.fromY === y)) {
       const to = (c.turns || 0) * 22.5;
       c.va = (c.va === undefined ? to : c.va) + (to - (c.va === undefined ? to : c.va)) * Math.min(1, dt * 16);
     }
@@ -599,7 +654,7 @@ function Menu() {
       <div className="subtitle">{rg.t("Ohjaa valo peileillä perille", "Guide the light with mirrors", "Guía la luz con espejos")}</div>
       {MenuBeam()}
       <div className="grid">{cards}</div>
-      <div className="mhelp">{rg.t("Napauta peiliä: se kääntyy. Vedä: se siirtyy.", "Tap a mirror to turn it, drag to move it.", "Toca un espejo para girarlo, arrástralo para moverlo.")}</div>
+      <div className="mhelp">{rg.t("Pyöritä peiliä sormella. Vedä kauas: siirtyy.", "Circle a mirror to turn it. Drag far to move it.", "Gira el espejo con el dedo. Arrástralo lejos para moverlo.")}</div>
     </div>
   );
 }
