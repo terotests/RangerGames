@@ -1,0 +1,15 @@
+{
+ "_comment": "Vesiputket (games/vesiputket): the water and sand game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "vp_kukka": "Cava un túnel por la colina y abre el grifo. ¡La flor necesita agua!",
+  "vp_nuotio": "Hay una fogata en la cueva. ¡Cava un camino para el agua y apaga el fuego!",
+  "vp_allas": "El pato quiere nadar. Construye una tubería sobre el hueco para llenar la piscina.",
+  "vp_hiekka": "Haz agujeros en los estantes para que la arena caiga en el arenero.",
+  "vp_kaksi": "Dos flores esperan agua. ¡Cava un camino hasta las dos!",
+  "vp_silta": "Llena el hoyo con arena para que el agua llegue a la flor.",
+  "vp_leikki": "¡Juego libre! Prueba agua, arena, tuberías y fuego.",
+  "vp_valmis": "¡Genial, lo lograste!",
+  "vp_tyhja": "El depósito está vacío. ¡Inténtalo otra vez!"
+ }
+}

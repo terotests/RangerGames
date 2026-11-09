@@ -1,0 +1,15 @@
+{
+ "_comment": "Vesiputket (games/vesiputket): the water and sand game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "vp_kukka": "Dig a tunnel through the hill and open the tap. The flower needs water!",
+  "vp_nuotio": "A campfire is burning in the cave. Dig a way for the water past the rock and put out the fire!",
+  "vp_allas": "The duck wants to swim. Build a pipe over the gap so the water reaches the pool.",
+  "vp_hiekka": "Dig holes in the shelves so the sand pours into the sandbox.",
+  "vp_kaksi": "Two flowers are waiting for water. Dig a way to both of them!",
+  "vp_silta": "Fill the pit with sand so the water reaches the flower.",
+  "vp_leikki": "Free play! Try water, sand, pipes and fire.",
+  "vp_valmis": "Great, you did it!",
+  "vp_tyhja": "The tank is empty. Try again!"
+ }
+}
