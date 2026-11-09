@@ -360,16 +360,16 @@ function chooseGoal(p: Place) {
     updateRoute();
     routeClock = 0;
     route = [];
-    say("Lasketaan reittiä " + goalPhrase(p) + "…", "info", 3);
+    say(rg.t("Lasketaan reittiä " + goalPhrase(p) + "…", "Finding the way to " + goalPhrase(p) + "…", "Calculando la ruta a " + goalPhrase(p) + "…"), "info", 3);
   } else {
-    say("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "info", 4);
+    say(rg.t("Etsi " + goalPhrase(p) + "! Nuoli näyttää suunnan.", "Find " + goalPhrase(p) + "! The arrow shows the way.", "¡Busca " + goalPhrase(p) + "! La flecha te indica el camino."), "info", 4);
   }
 }
 
 function goalPhrase(p: Place) {
-  if (p.id === "koti") return "äidin luo";
-  if (p.id === "isa") return "isän luo";
-  if (p.kind === "stop") return "ratikkapysäkki " + p.name;
+  if (p.id === "koti") return rg.t("äidin luo", "mum's home", "la casa de mamá");
+  if (p.id === "isa") return rg.t("isän luo", "dad's home", "la casa de papá");
+  if (p.kind === "stop") return rg.t("ratikkapysäkki ", "the tram stop ", "la parada de tranvía ") + p.name;
   return p.name;
 }
 
@@ -392,7 +392,7 @@ function mistake(text: string) {
   kid.x = kid.safeX; kid.z = kid.safeZ;
   walking = false;
   if (hearts <= 0) {
-    say("Harjoitellaan vielä! Aloitetaan alusta.", "bad", 4);
+    say(rg.t("Harjoitellaan vielä! Aloitetaan alusta.", "Let's practise more! Back to the start.", "¡Practiquemos más! Volvemos al principio."), "bad", 4);
     hearts = 3;
     if (startPlace) placeKid(startPlace);
   } else {
@@ -471,7 +471,7 @@ function startGps() {
   gps = true;
   gpsFix = null;
   gpsWait = 0;
-  gpsMsg = "Haetaan sijaintia… mene ulos taivaan alle.";
+  gpsMsg = rg.t("Haetaan sijaintia… mene ulos taivaan alle.", "Finding your location… go outside under the open sky.", "Buscando tu ubicación… sal al aire libre.");
   rg.sensor("location", true);
   mode = "gpswait";
   modeClock = 0;
@@ -488,7 +488,7 @@ function onLocation(f: any) {
   const x = lonToX(f.lon), z = latToZ(f.lat);
   gpsFix = { x, z, acc: f.accuracy || 0, time: t };
   if (x < X0 + 5 || x > X0 + MW - 5 || z < Z0 + 5 || z > Z0 + MH - 5) {
-    gpsMsg = "Olet kartan ulkopuolella. Kartta kattaa Tampereen keskustan.";
+    gpsMsg = rg.t("Olet kartan ulkopuolella. Kartta kattaa Tampereen keskustan.", "You are outside the map. The map covers Tampere city centre.", "Estás fuera del mapa. El mapa cubre el centro de Tampere.");
     return;
   }
   // onto the nearest walkable spot (GPS drifts into buildings and streets)
@@ -496,7 +496,7 @@ function onLocation(f: any) {
   if (mode === "gpswait") {
     kid.x = p.x; kid.z = p.z; kid.safeX = p.x; kid.safeZ = p.z;
     cam.x = kid.x; cam.z = kid.z;
-    startPlace = { id: "gps", name: "Oma sijainti", kind: "gps", x: p.x, z: p.z, icon: "📍" };
+    startPlace = { id: "gps", name: rg.t("Oma sijainti", "My location", "Mi ubicación"), kind: "gps", x: p.x, z: p.z, icon: "📍" };
     cars = []; bikes = []; nearClock = 0;
     makeGoalChoices();
     mode = "goal";
@@ -509,9 +509,9 @@ function onLocation(f: any) {
 
 function onSensor(kind: string, data: any) {
   if (kind !== "error" || !data || data.sensor !== "location") return;
-  gpsMsg = data.reason === "permission" ? "Sijaintilupa puuttuu. Salli sijainti puhelimen asetuksista."
-    : data.reason === "gps-off" ? "GPS on pois päältä. Laita sijainti päälle."
-    : "Sijaintia ei saatu tästä laitteesta.";
+  gpsMsg = data.reason === "permission" ? rg.t("Sijaintilupa puuttuu. Salli sijainti puhelimen asetuksista.", "No location permission. Allow location in the phone's settings.", "Falta el permiso de ubicación. Actívalo en los ajustes del teléfono.")
+    : data.reason === "gps-off" ? rg.t("GPS on pois päältä. Laita sijainti päälle.", "GPS is off. Turn on location.", "El GPS está apagado. Activa la ubicación.")
+    : rg.t("Sijaintia ei saatu tästä laitteesta.", "This device could not get a location.", "Este dispositivo no pudo obtener la ubicación.");
 }
 
 function nearestWalk(x: number, z: number) {
@@ -700,7 +700,7 @@ function tryStep(x: number, z: number): boolean {
   if (c === 0) return false;
   if (c === 2 || c === 5) {
     if (roadHint <= 0) {
-      say("Kadun yli vain suojatietä pitkin! 🦓", "info", 2.5);
+      say(rg.t("Kadun yli vain suojatietä pitkin!", "Cross the street only at a zebra crossing!", "¡Cruza la calle solo por el paso de cebra!") + " 🦓", "info", 2.5);
       rg.sound("tick");
       roadHint = 3;
     }
@@ -711,8 +711,8 @@ function tryStep(x: number, z: number): boolean {
     if (inCross < 0 && ci >= 0) {
       // stepping onto a crossing: the light, then the cars
       const wl = walkLight(ci);
-      if (wl === "red") { mistake("Punainen valo! Odota vihreää ukkoa. 🔴"); return false; }
-      if (carComing(ci)) { honkNear(ci); mistake("Auto tulee! Katso ensin vasemmalle ja oikealle. 🚗"); return false; }
+      if (wl === "red") { mistake(rg.t("Punainen valo! Odota vihreää ukkoa.", "Red light! Wait for the green man.", "¡Luz roja! Espera al muñeco verde.") + " 🔴"); return false; }
+      if (carComing(ci)) { honkNear(ci); mistake(rg.t("Auto tulee! Katso ensin vasemmalle ja oikealle.", "A car is coming! Look left and right first.", "¡Viene un coche! Mira primero a la izquierda y a la derecha.") + " 🚗"); return false; }
       inCross = ci;
       crossOk = true;
     }
@@ -721,8 +721,8 @@ function tryStep(x: number, z: number): boolean {
       // off the crossing on the other side
       const c0 = MAP.crossings[inCross];
       if (crossOk && rewardClock <= 0 && inCross !== lastCross) {
-        if (c0[4] >= 0) addPoints(waitedRed ? 15 : 10, waitedRed ? "Odotit vihreää valoa!" : "Ylitit vihreällä!");
-        else addPoints(5, "Hyvin katsottu!");
+        if (c0[4] >= 0) addPoints(waitedRed ? 15 : 10, waitedRed ? rg.t("Odotit vihreää valoa!", "You waited for the green light!", "¡Esperaste la luz verde!") : rg.t("Ylitit vihreällä!", "You crossed on green!", "¡Cruzaste en verde!"));
+        else addPoints(5, rg.t("Hyvin katsottu!", "Good looking!", "¡Bien mirado!"));
         rg.celebrate(sx(kid.x), sy(kid.z), { count: c0[4] >= 0 ? 18 : 10 });
         rewardClock = 2;
       }
@@ -746,7 +746,7 @@ function redWaitCheck(dt: number) {
       const ci = crossingAt(kid.x + Math.cos(a) * 3, kid.z + Math.sin(a) * 3);
       if (ci >= 0 && walkLight(ci) === "red") {
         redWait += dt;
-        if (redWait > 1.2 && !waitedRed) { waitedRed = true; say("Hyvä, odotat vihreää! 🟢", "good", 2); }
+        if (redWait > 1.2 && !waitedRed) { waitedRed = true; say(rg.t("Hyvä, odotat vihreää!", "Good, you are waiting for green!", "¡Bien, esperas la luz verde!") + " 🟢", "good", 2); }
       }
       return;
     }
@@ -912,7 +912,7 @@ function stepBikes(dt: number) {
     }
     if (Math.hypot(rx, rz) < 1.5 && mode === "play" && hurt <= 0) {
       b.stop = 1.2;
-      mistake("Varo pyöräilijää! Pyörätiellä kävellään reunassa. 🚲");
+      mistake(rg.t("Varo pyöräilijää! Pyörätiellä kävellään reunassa.", "Watch out for the bike! Walk at the edge of the bike path.", "¡Cuidado con la bici! Camina por el borde del carril bici.") + " 🚲");
     }
     if (b.ring > 0) b.ring -= dt;
     if (b.stop > 0) { b.stop -= dt; target = 0; }
@@ -1036,14 +1036,14 @@ function board(i: number) {
   walking = false;
   rg.sound("note", { pitch: 1.5 });
   rg.vibrate(40);
-  say("Kyydissä! Jää pois, kun ratikka on pysäkillä.", "info", 3);
+  say(rg.t("Kyydissä! Jää pois, kun ratikka on pysäkillä.", "On board! Get off when the tram is at a stop.", "¡A bordo! Bájate cuando el tranvía esté en una parada."), "info", 3);
 }
 
 function arriveAt(tr: Tram) {
   const st = tramStops[tr.line][tr.stopIdx];
   if (!st) return;
   rg.sound("note", { pitch: 1.2 });
-  say("Pysäkki: " + st.name, "info", 4);
+  say(rg.t("Pysäkki: ", "Stop: ", "Parada: ") + st.name, "info", 4);
 }
 
 function alight() {
@@ -1057,7 +1057,7 @@ function alight() {
   inCross = -1;
   cars = []; bikes = []; nearClock = 0;
   rg.sound("pop");
-  if (pl && rideFrom && st.name !== rideFrom) addPoints(20, "Ratikkamatka " + rideFrom + " – " + st.name + "!");
+  if (pl && rideFrom && st.name !== rideFrom) addPoints(20, rg.t("Ratikkamatka ", "Tram ride ", "Viaje en tranvía ") + rideFrom + " – " + st.name + "!");
 }
 
 function endOfLine(tr: Tram) {
@@ -1067,7 +1067,7 @@ function endOfLine(tr: Tram) {
   if (last.place) { kid.x = last.place.x; kid.z = last.place.z; kid.safeX = kid.x; kid.safeZ = kid.z; }
   riding = -1;
   mode = "play";
-  say("Päätepysäkki! Kaikki ulos.", "info", 3);
+  say(rg.t("Päätepysäkki! Kaikki ulos.", "Last stop! Everybody off.", "¡Última parada! Todos fuera."), "info", 3);
 }
 
 // ---- tick -----------------------------------------------------------------------
@@ -1107,7 +1107,7 @@ function tick(dt: number, input: any) {
     if (routeJob && runRouteJob(routeJob, 2500)) {
       const first = route.length === 0;
       routeReady();
-      if (first) say(route.length ? "Kävele sinistä viivaa pitkin! Pysähdy aina suojatien eteen." : "Reittiä ei löytynyt tältä kartalta.", "info", 5);
+      if (first) say(route.length ? rg.t("Kävele sinistä viivaa pitkin! Pysähdy aina suojatien eteen.", "Walk along the blue line! Always stop before a zebra crossing.", "¡Camina por la línea azul! Para siempre antes del paso de cebra.") : rg.t("Reittiä ei löytynyt tältä kartalta.", "No route found on this map.", "No se encontró ruta en este mapa."), "info", 5);
     }
     routeClock += dt;
     if (!routeJob && routeClock > 4 && (offRoute() > 15 || routeClock > 30)) { updateRoute(); routeClock = 0; }
@@ -1115,7 +1115,7 @@ function tick(dt: number, input: any) {
     for (let k = 0; k < routeCross.length; k++) {
       const c = MAP.crossings[routeCross[k]];
       const d0 = Math.min(Math.hypot(kid.x - c[0], kid.z - c[1]), Math.hypot(kid.x - c[2], kid.z - c[3]));
-      if (d0 < 10 && msgClock <= 0) say(c[4] >= 0 ? "Suojatie valoilla: odota vihreää ukkoa! 🚦" : "Suojatie: pysähdy ja katso molempiin suuntiin! 👀", "info", 4);
+      if (d0 < 10 && msgClock <= 0) say(c[4] >= 0 ? rg.t("Suojatie valoilla: odota vihreää ukkoa!", "Crossing with lights: wait for the green man!", "Paso con semáforo: ¡espera al muñeco verde!") + " 🚦" : rg.t("Suojatie: pysähdy ja katso molempiin suuntiin!", "Zebra crossing: stop and look both ways!", "Paso de cebra: ¡para y mira a ambos lados!") + " 👀", "info", 4);
     }
     if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 15) win();
   } else if (mode === "play" && !showMap) {
@@ -1337,9 +1337,9 @@ function Hud() {
   const hs = hearts >= 3 ? "❤️❤️❤️" : hearts === 2 ? "❤️❤️🤍" : "❤️🤍🤍";
   if (goalPhoto && t < peekUntil) out.push(
     <div className="peek" onClick={() => { peekUntil = 0; }}>
-      <div className="peektitle">{"Etsi tämä: " + (goal ? goal.name : "")}</div>
+      <div className="peektitle">{rg.t("Etsi tämä: ", "Find this: ", "Busca esto: ") + (goal ? goal.name : "")}</div>
       <img className="peekimg" src={rg.asset(goalPhoto.f)} />
-      <div className="photoby">{"Kuva: " + goalPhoto.by + ", " + goalPhoto.lic + " (Wikimedia Commons)"}</div>
+      <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + goalPhoto.by + ", " + goalPhoto.lic + " (Wikimedia Commons)"}</div>
     </div>
   );
   out.push(
@@ -1351,15 +1351,15 @@ function Hud() {
   const near = mode === "play" ? stopNear() : null;
   if (near) {
     const ti = tramAtStop(near.id);
-    if (ti >= 0) out.push(<div className="bigbtn tram" onClick={() => board(ti)}>{"🚋 Nouse ratikkaan"}</div>);
-    else out.push(<div className="stopinfo">{"🚋 " + near.name + ": odota ratikkaa…"}</div>);
+    if (ti >= 0) out.push(<div className="bigbtn tram" onClick={() => board(ti)}>{"🚋 " + rg.t("Nouse ratikkaan", "Get on the tram", "Sube al tranvía")}</div>);
+    else out.push(<div className="stopinfo">{"🚋 " + near.name + rg.t(": odota ratikkaa…", ": wait for the tram…", ": espera el tranvía…")}</div>);
   }
   if (mode === "ride" && riding >= 0 && riding < trams.length) {
     const tr = trams[riding];
     const st = tramStops[tr.line];
     const nxt = st[tr.stopIdx];
-    out.push(<div className="ridebar">{"Ratikka " + MAP.trams[tr.line].line + (nxt ? (tr.dwell > 0 ? " · Pysäkki: " : " · Seuraava: ") + nxt.name : "")}</div>);
-    if (tr.dwell > 0) out.push(<div className="bigbtn exitbtn" onClick={() => alight()}>{"🚪 Jää pois"}</div>);
+    out.push(<div className="ridebar">{rg.t("Ratikka ", "Tram ", "Tranvía ") + MAP.trams[tr.line].line + (nxt ? (tr.dwell > 0 ? rg.t(" · Pysäkki: ", " · Stop: ", " · Parada: ") : rg.t(" · Seuraava: ", " · Next: ", " · Siguiente: ")) + nxt.name : "")}</div>);
+    if (tr.dwell > 0) out.push(<div className="bigbtn exitbtn" onClick={() => alight()}>{"🚪 " + rg.t("Jää pois", "Get off", "Bájate")}</div>);
   }
   out.push(<div className="round mapbtn" onClick={() => { showMap = !showMap; rg.sound("click"); }}>{"🗺"}</div>);
   out.push(<div className="round zoombtn" onClick={() => cycleZoom()}>{zoomIdx === 0 ? "🔍" : zoomIdx === 1 ? "🔎" : "🔭"}</div>);
@@ -1398,8 +1398,8 @@ function MapView() {
       </div>
       {pins}
       <div className="mkid" style={{ left: mx(kid.x) - 13, top: my(kid.z) - 13, transform: "scale(" + (1 + Math.sin(t * 6) * 0.15) + ")" }}>{"🧒"}</div>
-      <div className="maptitle">{"Kartta · sinä 🧒 ja kohde " + (goal ? goal.icon : "")}</div>
-      <div className="maphint">{"Napauta jatkaaksesi"}</div>
+      <div className="maptitle">{rg.t("Kartta · sinä 🧒 ja kohde ", "Map · you 🧒 and the goal ", "Mapa · tú 🧒 y el destino ") + (goal ? goal.icon : "")}</div>
+      <div className="maphint">{rg.t("Napauta jatkaaksesi", "Tap to continue", "Toca para seguir")}</div>
     </div>
   );
 }
@@ -1421,19 +1421,19 @@ function StartView() {
   }
   return (
     <div className="panel">
-      <div className="title">{"🚦 Tampereen liikenneretki"}</div>
-      <div className="subtitle">{"Kävele kaupungilla, odota vihreää ja varo autoja!"}</div>
-      <div className="ask">{"Mistä lähdetään?"}</div>
+      <div className="title">{"🚦 " + rg.t("Tampereen liikenneretki", "Tampere traffic walk", "Paseo por Tampere")}</div>
+      <div className="subtitle">{rg.t("Kävele kaupungilla, odota vihreää ja varo autoja!", "Walk in the city, wait for green and watch out for cars!", "¡Camina por la ciudad, espera la luz verde y cuidado con los coches!")}</div>
+      <div className="ask">{rg.t("Mistä lähdetään?", "Where do we start?", "¿Desde dónde salimos?")}</div>
       {cards}
       <div className="card gpscard" onClick={() => startGps()}>
         <div className="cicon">{"📍"}</div>
         <div className="ctext">
-          <div className="cname">{"Missä olen nyt"}</div>
-          <div className="csub">{"Puhelimen sijainti ja reitti"}</div>
+          <div className="cname">{rg.t("Missä olen nyt", "Where I am now", "Donde estoy ahora")}</div>
+          <div className="csub">{rg.t("Puhelimen sijainti ja reitti", "Phone location and route", "Ubicación del teléfono y ruta")}</div>
         </div>
       </div>
-      <div className="score">{"⭐ " + total + " pistettä · " + found + " retkeä"}</div>
-      <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki · Kuvat: Wikimedia Commons"}</div>
+      <div className="score">{"⭐ " + total + rg.t(" pistettä · ", " points · ", " puntos · ") + found + rg.t(" retkeä", " trips", " paseos")}</div>
+      <div className="credit">{rg.t("Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki · Kuvat: Wikimedia Commons", "Map: © OpenStreetMap contributors, City of Tampere · Photos: Wikimedia Commons", "Mapa: © colaboradores de OpenStreetMap, Ciudad de Tampere · Fotos: Wikimedia Commons")}</div>
     </div>
   );
 }
@@ -1443,7 +1443,7 @@ function GoalView() {
   for (let i = 0; i < goalChoices.length; i++) {
     const g = goalChoices[i];
     const d = Math.round(Math.hypot(g.x - kid.x, g.z - kid.z) / 10) * 10;
-    const kind = g.id === "koti" ? "Äidin luo" : g.id === "isa" ? "Isän luo" : g.kind === "park" ? "Puistoon" : g.kind === "stop" ? "Ratikkapysäkille" : g.kind === "sight" ? "Katsomaan" : g.kind === "school" ? "Kouluun" : g.kind === "daycare" ? "Päiväkotiin" : "Kylään";
+    const kind = g.id === "koti" ? rg.t("Äidin luo", "To mum", "A casa de mamá") : g.id === "isa" ? rg.t("Isän luo", "To dad", "A casa de papá") : g.kind === "park" ? rg.t("Puistoon", "To the park", "Al parque") : g.kind === "stop" ? rg.t("Ratikkapysäkille", "To the tram stop", "A la parada de tranvía") : g.kind === "sight" ? rg.t("Katsomaan", "Sightseeing", "De visita") : g.kind === "school" ? rg.t("Kouluun", "To school", "Al colegio") : g.kind === "daycare" ? rg.t("Päiväkotiin", "To daycare", "A la guardería") : rg.t("Kylään", "Visiting", "De visita");
     cards.push(
       <div className="card small" onClick={() => chooseGoal(g)}>
         {photosOf(g).length ? <div className="cthumb"><img className="cthumbimg" src={rg.asset(photosOf(g)[0].f)} /></div> : <div className="cicon">{g.icon}</div>}
@@ -1457,8 +1457,8 @@ function GoalView() {
   }
   return (
     <div className="panel">
-      <div className="ask">{"Minne mennään?"}</div>
-      <div className="subtitle">{"Lähtö: " + (startPlace ? startPlace.name : "")}</div>
+      <div className="ask">{rg.t("Minne mennään?", "Where are we going?", "¿Adónde vamos?")}</div>
+      <div className="subtitle">{rg.t("Lähtö: ", "Start: ", "Salida: ") + (startPlace ? startPlace.name : "")}</div>
       {cards}
       <div className="back" onClick={() => { stopGps(); mode = "start"; rg.sound("click"); }}>{"← Vaihda lähtöpaikka"}</div>
     </div>
@@ -1469,10 +1469,10 @@ function GpsWaitView() {
   return (
     <div className="panel">
       <div className="ticon">{"📍"}</div>
-      <div className="ask">{"Missä olen?"}</div>
+      <div className="ask">{rg.t("Missä olen?", "Where am I?", "¿Dónde estoy?")}</div>
       <div className="gpstext">{gpsMsg}</div>
       <div className="gpsdots">{"• • •".slice(0, 1 + (Math.floor(t * 2) % 3) * 2)}</div>
-      <div className="back" onClick={() => { stopGps(); mode = "start"; }}>{"← Takaisin"}</div>
+      <div className="back" onClick={() => { stopGps(); mode = "start"; }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
     </div>
   );
 }
@@ -1483,13 +1483,13 @@ function WinView() {
     <div className="winwrap">
       <div className="wincard" style={{ transform: "scale(" + rg.ease.back(Math.min(1, modeClock * 2)) + ")" }}>
         {goalPhoto ? <img className="winimg" src={rg.asset(goalPhoto.f)} /> : <div className="wicon">{goal ? goal.icon : "🎉"}</div>}
-        {goalPhoto ? <div className="photoby">{"Kuva: " + goalPhoto.by + ", " + goalPhoto.lic}</div> : null}
-        <div className="wtitle">{"Perillä! 🎉"}</div>
-        <div className="wtext">{goal ? (goal.id === "koti" ? "Äiti on iloinen, kun tulit!" : goal.id === "isa" ? "Isä on iloinen, kun tulit!" : "Löysit: " + goal.name) : ""}</div>
+        {goalPhoto ? <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + goalPhoto.by + ", " + goalPhoto.lic}</div> : null}
+        <div className="wtitle">{rg.t("Perillä!", "You made it!", "¡Llegaste!") + " 🎉"}</div>
+        <div className="wtext">{goal ? (goal.id === "koti" ? rg.t("Äiti on iloinen, kun tulit!", "Mum is happy you came!", "¡Mamá está contenta de que vinieras!") : goal.id === "isa" ? rg.t("Isä on iloinen, kun tulit!", "Dad is happy you came!", "¡Papá está contento de que vinieras!") : rg.t("Löysit: ", "You found: ", "Encontraste: ") + goal.name) : ""}</div>
         <div className="wstars">{stars}</div>
-        <div className="wpts">{"+" + roundPoints + " pistettä"}</div>
-        <div className="go" onClick={() => nextTrip()}>{"Uusi retki täältä ➜"}</div>
-        <div className="back" onClick={() => { rg.stopMusic(); stopGps(); mode = "start"; }}>{"Valikkoon"}</div>
+        <div className="wpts">{"+" + roundPoints + rg.t(" pistettä", " points", " puntos")}</div>
+        <div className="go" onClick={() => nextTrip()}>{rg.t("Uusi retki täältä", "New trip from here", "Nuevo paseo desde aquí") + " ➜"}</div>
+        <div className="back" onClick={() => { rg.stopMusic(); stopGps(); mode = "start"; }}>{rg.t("Valikkoon", "Menu", "Menú")}</div>
       </div>
     </div>
   );

@@ -19,21 +19,23 @@ type Phase = "spring" | "wait" | "autumn";
 
 // the route points run from the wintering place to Finland [lon, lat]
 const SPECIES = [
-  { id: "joutsen", name: "Laulujoutsen", winter: "DNK", wname: "Tanska", wlon: 9.5, wlat: 56, start: 70, leave: 293,
+  { id: "joutsen", name: rg.t("Laulujoutsen", "Whooper swan", "Cisne cantor"), winter: "DNK", wname: rg.t("Tanska", "Denmark", "Dinamarca"), wlon: 9.5, wlat: 56, start: 70, leave: 293,
     food: "🌿", foodAt: "land", color: "#48cae4", stars: 1,
     route: [[9.5, 56], [12.5, 55.6], [15.5, 56.5], [18, 58.5], [21, 60.2], [24, 61.5], [26, 63]] },
-  { id: "kurki", name: "Kurki", winter: "ETH", wname: "Etiopia", wlon: 39, wlat: 9, start: 40, leave: 253,
+  { id: "kurki", name: rg.t("Kurki", "Crane", "Grulla"), winter: "ETH", wname: rg.t("Etiopia", "Ethiopia", "Etiopía"), wlon: 39, wlat: 9, start: 40, leave: 253,
     food: "🐸", foodAt: "land", color: "#8d99ae", stars: 2,
     route: [[39, 9], [34, 15], [31.5, 24], [30, 31], [26, 37], [22, 42.5], [20.5, 47.5], [20.5, 52], [23.5, 57], [26, 63]] },
-  { id: "paasky", name: "Haarapääsky", winter: "ZAF", wname: "Etelä-Afrikka", wlon: 25, wlat: -29, start: 30, leave: 244,
+  { id: "paasky", name: rg.t("Haarapääsky", "Barn swallow", "Golondrina"), winter: "ZAF", wname: rg.t("Etelä-Afrikka", "South Africa", "Sudáfrica"), wlon: 25, wlat: -29, start: 30, leave: 244,
     food: "🦟", foodAt: "land", color: "#3a0ca3", stars: 3,
     route: [[25, -29], [27, -15], [23, -2], [17, 9], [14, 20], [12, 30], [12.5, 38], [12, 45], [17, 51], [22, 57], [26, 63]] },
-  { id: "tiira", name: "Lapintiira", winter: "ATA", wname: "Etelämanner", wlon: -10, wlat: -71, start: 15, leave: 222,
+  { id: "tiira", name: rg.t("Lapintiira", "Arctic tern", "Charrán ártico"), winter: "ATA", wname: rg.t("Etelämanner", "Antarctica", "Antártida"), wlon: -10, wlat: -71, start: 15, leave: 222,
     food: "🐟", foodAt: "sea", color: "#e63946", stars: 4,
     route: [[-10, -69], [0, -55], [8, -38], [5, -20], [-2, -5], [-16, 8], [-19, 20], [-13, 33], [-10, 44], [-3, 49], [4, 56], [12, 57.5], [19, 59], [21, 62], [24, 64]] },
 ];
 const FIN = { id: "FIN", lon: 26, lat: 63 };
-const MONTHS = ["Tammikuu", "Helmikuu", "Maaliskuu", "Huhtikuu", "Toukokuu", "Kesäkuu", "Heinäkuu", "Elokuu", "Syyskuu", "Lokakuu", "Marraskuu", "Joulukuu"];
+const MONTHS = rg.lang === "en" ? ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+  : rg.lang === "es" ? ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"]
+  : ["Tammikuu", "Helmikuu", "Maaliskuu", "Huhtikuu", "Toukokuu", "Kesäkuu", "Heinäkuu", "Elokuu", "Syyskuu", "Lokakuu", "Marraskuu", "Joulukuu"];
 const MDAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const ZOOMS = [1, 1.6, 2.6];
 const SPEED = 7;                // degrees a second, full of energy
@@ -865,7 +867,7 @@ function Card() {
     <div className="card" id="card" onClick={sayTask} style={{ width: width - 72 }}>
       {pic}
       <div className="cardtext">
-        <div className="find">{phase === "autumn" ? "Talveksi 🔊" : "Pesimään 🔊"}</div>
+        <div className="find">{(phase === "autumn" ? rg.t("Talveksi", "For the winter", "Para el invierno") : rg.t("Pesimään", "To nest", "A anidar")) + " 🔊"}</div>
         <div className="tname">{name}</div>
       </div>
     </div>
@@ -881,7 +883,7 @@ function Hud() {
       <div className="ebar"><div className="efill" style={{ width: Math.round(70 * energy), backgroundColor: low ? "#e63946" : "#06d6a0" }} /></div>
     </div>
   );
-  if (phase === "wait") out.push(<div className="under" style={{ left: 0, width: width, top: birdY() + 62 }}><div className="underin">❄️ ➜ 🌱  odotetaan kevättä</div></div>);
+  if (phase === "wait") out.push(<div className="under" style={{ left: 0, width: width, top: birdY() + 62 }}><div className="underin">{"❄️ ➜ 🌱  " + rg.t("odotetaan kevättä", "waiting for spring", "esperando la primavera")}</div></div>);
   if (!hinted && arriveClock < 0 && phase !== "wait") out.push(<div className="btn" id="hint" onClick={hint} style={{ left: 12, top: height - 68 }}>❓</div>);
   out.push(<div className="btn" id="zin" onClick={() => zoom(1)} style={{ left: width - 64, top: height - 136 }}>➕</div>);
   out.push(<div className="btn" id="zout" onClick={() => zoom(-1)} style={{ left: width - 64, top: height - 68 }}>➖</div>);
@@ -958,7 +960,7 @@ function Nest() {
         <div className="pic"><div className="picicon">{nest.grown ? "🍂" : "🏡"}</div></div>
         <div className="cardtext">
           <div className="find">{nest.hatched ? "Ruoki poikaset 🔊" : "Munat kuoriutuvat …"}</div>
-          <div className="tname">{nest.grown ? "Lennä etelään!" : "Pesä Suomessa"}</div>
+          <div className="tname">{nest.grown ? rg.t("Lennä etelään!", "Fly south!", "¡Vuela al sur!") : rg.t("Pesä Suomessa", "Nest in Finland", "Nido en Finlandia")}</div>
         </div>
       </div>
       {Orbit()}
@@ -978,7 +980,7 @@ function Menu() {
         <div className="micon"><div className="mbird">{birdArt(s.id, 64, 0.8)}</div></div>
         <div className="mtext">
           <div className="mname">{s.name}</div>
-          <div className="msub">{"Suomi ⇄ " + s.wname}</div>
+          <div className="msub">{rg.t("Suomi", "Finland", "Finlandia") + " ⇄ " + s.wname}</div>
           <div className="mstars">{st.join("") + got}</div>
         </div>
       </div>
@@ -990,7 +992,7 @@ function Menu() {
       <div className="title" style={{ marginTop: 14 + bob }}>
         <div className="mbird big">{birdArt("paasky", 84, 0.5 + 0.5 * Math.sin(t * 8))}</div>
       </div>
-      <div className="logo">Muuttolintu</div>
+      <div className="logo">{rg.t("Muuttolintu", "Migrating Bird", "Ave migratoria")}</div>
       <div className="mlist">{tiles}</div>
     </div>
   );
@@ -1004,7 +1006,7 @@ function Done() {
     <div className="overlay">
       <div className="donebox">
         <div className="mbird done">{birdArt(sp.id, 90, 0.5 + 0.5 * Math.sin(t * 8))}</div>
-        <div className="donetitle">Vuosi lennetty!</div>
+        <div className="donetitle">{rg.t("Vuosi lennetty!", "A year of flying!", "¡Un año volando!")}</div>
         <div className="donestars">{st}</div>
         <div className="donerow">{sp.food + " " + eaten + "    ❄️ " + Math.round(coldTime) + " s"}</div>
         <div className="row">

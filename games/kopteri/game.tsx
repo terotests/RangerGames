@@ -13,17 +13,101 @@
 // Data: tools/kopteri/build.py.
 
 import { REGIONS, STAGES, CONTINENT_COLORS, TAMPERE, MAPINFO } from "lib/world";
+// place names in English and Spanish (lib/world.ts has the Finnish ones),
+// by id in lower case; the spoken prompts are the k_<id> clips of each language
+const PLACE_NAMES: any = {
+  af: ["Africa", "África"],
+  eu: ["Europe", "Europa"],
+  as: ["Asia", "Asia"],
+  na: ["North America", "América del Norte"],
+  sa: ["South America", "América del Sur"],
+  oc: ["Australia", "Australia"],
+  an: ["Antarctica", "Antártida"],
+  fin: ["Finland", "Finlandia"],
+  swe: ["Sweden", "Suecia"],
+  nor: ["Norway", "Noruega"],
+  rus: ["Russia", "Rusia"],
+  chn: ["China", "China"],
+  usa: ["United States", "Estados Unidos"],
+  can: ["Canada", "Canadá"],
+  bra: ["Brazil", "Brasil"],
+  ind: ["India", "India"],
+  aus: ["Australia", "Australia"],
+  egy: ["Egypt", "Egipto"],
+  jpn: ["Japan", "Japón"],
+  mex: ["Mexico", "México"],
+  grl: ["Greenland", "Groenlandia"],
+  arg: ["Argentina", "Argentina"],
+  deu: ["Germany", "Alemania"],
+  fra: ["France", "Francia"],
+  ita: ["Italy", "Italia"],
+  esp: ["Spain", "España"],
+  gbr: ["Great Britain", "Gran Bretaña"],
+  est: ["Estonia", "Estonia"],
+  isl: ["Iceland", "Islandia"],
+  zaf: ["South Africa", "Sudáfrica"],
+  tur: ["Turkey", "Turquía"],
+  idn: ["Indonesia", "Indonesia"],
+  mdg: ["Madagascar", "Madagascar"],
+  nzl: ["New Zealand", "Nueva Zelanda"],
+  chl: ["Chile", "Chile"],
+  kaz: ["Kazakhstan", "Kazajistán"],
+  mng: ["Mongolia", "Mongolia"],
+  sau: ["Saudi Arabia", "Arabia Saudita"],
+  pol: ["Poland", "Polonia"],
+  ukr: ["Ukraine", "Ucrania"],
+  grc: ["Greece", "Grecia"],
+  prt: ["Portugal", "Portugal"],
+  dnk: ["Denmark", "Dinamarca"],
+  lva: ["Latvia", "Letonia"],
+  ltu: ["Lithuania", "Lituania"],
+  irl: ["Ireland", "Irlanda"],
+  irn: ["Iran", "Irán"],
+  pak: ["Pakistan", "Pakistán"],
+  tha: ["Thailand", "Tailandia"],
+  vnm: ["Vietnam", "Vietnam"],
+  phl: ["Philippines", "Filipinas"],
+  kor: ["South Korea", "Corea del Sur"],
+  nga: ["Nigeria", "Nigeria"],
+  ken: ["Kenya", "Kenia"],
+  mar: ["Morocco", "Marruecos"],
+  dza: ["Algeria", "Argelia"],
+  col: ["Colombia", "Colombia"],
+  per: ["Peru", "Perú"],
+  cub: ["Cuba", "Cuba"],
+  nasinneula: ["Näsinneula tower", "Torre Näsinneula"],
+  tuomiokirkko: ["Cathedral", "Catedral"],
+  asema: ["Railway station", "Estación de tren"],
+  kauppahalli: ["Market hall", "Mercado"],
+  keskustori: ["Central square", "Plaza central"],
+  koskikeskus: ["Koskikeskus", "Koskikeskus"],
+  finlayson: ["Finlayson", "Finlayson"],
+  tampella: ["Tampella", "Tampella"],
+  metso: ["Metso library", "Biblioteca Metso"],
+  koskipuisto: ["Rapids Park", "Parque de los rápidos"],
+  hameenpuisto: ["Hämeenpuisto park", "Parque Hämeenpuisto"],
+  nasinpuisto: ["Näsinpuisto park", "Parque Näsinpuisto"],
+  pikkukakkonen: ["Pikku Kakkonen park", "Parque Pikku Kakkonen"],
+  sorinaukio: ["Sori square playground", "Parque infantil de Sori"],
+  tammerkoski: ["Tammerkoski rapids", "Rápidos de Tammerkoski"],
+  nasijarvi: ["Lake Näsijärvi", "Lago Näsijärvi"]
+};
+if (rg.lang !== "fi") {
+  const tr = (p: any) => { const n = PLACE_NAMES[String(p.id).toLowerCase()]; if (n) p.name = rg.lang === "en" ? n[0] : n[1]; };
+  for (const st of STAGES) for (const c of st) tr(c);
+  for (const p of TAMPERE) tr(p);
+}
 
 type Screen = "menu" | "fly" | "done";
 type Target = { id: string; name: string; icon: string; x: number; z: number; lon: number; lat: number; group: string };
 type Box = { x0: number; y0: number; x1: number; y1: number };
 
 const STAGE_INFO = [
-  { key: "tampere", icon: "🏙", name: "Tampere", sub: "Näsinneula ja muut", color: "#2a9d8f", stars: 1 },
-  { key: "mantereet", icon: "🌍", name: "Mantereet", sub: "Afrikka, Australia …", color: "#3a86ff", stars: 1 },
-  { key: "maat1", icon: "🗺", name: "Tutut maat", sub: "Suomi, Kiina, Brasilia …", color: "#8338ec", stars: 2 },
-  { key: "maat2", icon: "🧭", name: "Lisää maita", sub: "Saksa, Viro, Chile …", color: "#e76f51", stars: 3 },
-  { key: "maat3", icon: "🏆", name: "Vaikeat maat", sub: "Latvia, Kenia, Peru …", color: "#c1121f", stars: 4 },
+  { key: "tampere", icon: "🏙", name: "Tampere", sub: rg.t("Näsinneula ja muut", "Näsinneula and more", "Näsinneula y más"), color: "#2a9d8f", stars: 1 },
+  { key: "mantereet", icon: "🌍", name: rg.t("Mantereet", "Continents", "Continentes"), sub: rg.t("Afrikka, Australia …", "Africa, Australia …", "África, Australia …"), color: "#3a86ff", stars: 1 },
+  { key: "maat1", icon: "🗺", name: rg.t("Tutut maat", "Famous countries", "Países conocidos"), sub: rg.t("Suomi, Kiina, Brasilia …", "Finland, China, Brazil …", "Finlandia, China, Brasil …"), color: "#8338ec", stars: 2 },
+  { key: "maat2", icon: "🧭", name: rg.t("Lisää maita", "More countries", "Más países"), sub: rg.t("Saksa, Viro, Chile …", "Germany, Estonia, Chile …", "Alemania, Estonia, Chile …"), color: "#e76f51", stars: 3 },
+  { key: "maat3", icon: "🏆", name: rg.t("Vaikeat maat", "Hard countries", "Países difíciles"), sub: rg.t("Latvia, Kenia, Peru …", "Latvia, Kenya, Peru …", "Letonia, Kenia, Perú …"), color: "#c1121f", stars: 4 },
 ];
 const ROUND = 8;
 const ZOOMS = [1, 1.6, 2.6, 4];
@@ -492,7 +576,7 @@ function Card() {
     <div className="card" id="card" onClick={() => rg.say("k_" + cur().id.toLowerCase())} style={{ width: width - 72 }}>
       {pic}
       <div className="cardtext">
-        <div className="find">Etsi 🔊</div>
+        <div className="find">{rg.t("Etsi", "Find", "Busca")} 🔊</div>
         <div className="tname">{tg.name}</div>
         <div className="dots">{dots}</div>
       </div>
@@ -546,7 +630,7 @@ function Menu() {
   return (
     <div className="menu">
       <div className="title" style={{ marginTop: 18 + bob }}>🚁</div>
-      <div className="logo">Kopterilento</div>
+      <div className="logo">{rg.t("Kopterilento", "Helicopter Flight", "Vuelo en helicóptero")}</div>
       <div className="mlist">{tiles}</div>
     </div>
   );
@@ -561,10 +645,10 @@ function Done() {
     <div className="overlay">
       <div className="donebox">
         <div className="donebig">{STAGE_INFO[stage].icon}</div>
-        <div className="donetitle">Löysit kaikki!</div>
+        <div className="donetitle">{rg.t("Löysit kaikki!", "You found them all!", "¡Los encontraste todos!")}</div>
         <div className="donestars">{st}</div>
         <div className="donescore">⭐ {score}</div>
-        {newBest ? <div className="record">🏅 Uusi ennätys!</div> : <div className="record dim">🏅 {best[stage]}</div>}
+        {newBest ? <div className="record">🏅 {rg.t("Uusi ennätys!", "New record!", "¡Nuevo récord!")}</div> : <div className="record dim">🏅 {best[stage]}</div>}
         <div className="row">
           <div className="go" id="again" onClick={() => start(stage)}>🔁</div>
           <div className="go alt" id="menu" onClick={back}>🏠</div>
