@@ -115,7 +115,7 @@
 .bnum { font-size: 26px; font-weight: 700; color: #ef476f; margin-right: 6px; }
 .bemo { font-size: 24px; }
 .counter { width: 340px; flex-direction: row; align-items: center; margin-top: 4px; }
-.tray { width: 250px; min-height: 92px; padding: 6px; border-radius: 46px; background-color: #ffffff; flex-direction: row; flex-wrap: wrap;
+.tray { width: 330px; min-height: 92px; padding: 6px; border-radius: 46px; background-color: #ffffff; flex-direction: row; flex-wrap: wrap;
   align-items: center; justify-content: center; border-width: 4px; border-color: #d4a373; }
 .trayhint { font-size: 40px; opacity: 0.35; }
 .titem { font-size: 34px; margin: 2px; }
@@ -170,3 +170,10 @@
 .trayhelp { font-size: 16px; color: #9a8c98; text-align: center; justify-content: center; }
 .slim { height: 88px; }
 .ttext.s { font-size: 20px; }
+.twords { flex-direction: row; flex-wrap: wrap; justify-content: center; align-items: baseline; }
+.tw { font-size: 24px; color: #3d405b; margin-left: 3px; margin-right: 3px; }
+.tw.s { font-size: 20px; }
+.tw.b { font-weight: 700; color: #ef476f; }
+.plabel.bad { color: #ef476f; }
+.pright { font-size: 16px; font-weight: 700; color: #06a77d; }
+.miemo { font-size: 44px; }

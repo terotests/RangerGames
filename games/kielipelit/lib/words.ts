@@ -93,7 +93,7 @@ export const PHRASES: any[] = [
   { id: "good_job", en: "Good job!", es: "¡Buen trabajo!" },
   { id: "yes", en: "Yes!", es: "¡Sí!" },
   { id: "no", en: "No.", es: "No." },
-  { id: "correct", en: "That's right!", es: "¡Correcto!" },
+  { id: "correct", en: "Correct!", es: "¡Correcto!" },
   { id: "try_again", en: "Try again.", es: "Inténtalo otra vez." },
   { id: "oops", en: "Oops!", es: "¡Uy!" },
   { id: "almost", en: "Almost!", es: "¡Casi!" },
