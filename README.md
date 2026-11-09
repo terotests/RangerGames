@@ -56,6 +56,9 @@ bash scripts/setup.sh          # Ranger (+ EVG) ja ComponentEngine (CErXes) hake
 rustup target add wasm32-wasip1
 bash scripts/build-web.sh      # → dist/web
 python3 -m http.server -d dist/web 8000   # avaa http://localhost:8000  (?game=pupu, ?debug)
+# playground: http://localhost:8000/playground.html – pelit Android-puhelimen
+# kehyksessä puhelimen omalla ruutukoolla (Huawei P20: 360 × 720), pelivalitsin,
+# hiiri sormena, ◁ takaisin, ○ valikko, värinä näkyy puhelimen tärinänä
 ```
 
 Testit:
