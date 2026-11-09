@@ -116,6 +116,20 @@ def main():
         return t3_inference(*a, **k)
 
     model.t3.inference = capped
+
+    # the library's alignment check fails on a text of very few tokens ("on", "ja": an empty
+    # slice in AlignmentStreamAnalyzer.step); skip the check for that step, the cap above still holds
+    from chatterbox.models.t3.inference.alignment_stream_analyzer import AlignmentStreamAnalyzer
+
+    analyzer_step = AlignmentStreamAnalyzer.step
+
+    def safe_step(self, logits, *a, **k):
+        try:
+            return analyzer_step(self, logits, *a, **k)
+        except IndexError:
+            return logits
+
+    AlignmentStreamAnalyzer.step = safe_step
     t_all = time.time()
     for n, (lang, cid, text) in enumerate(todo):
         os.makedirs(os.path.join(OUT, lang), exist_ok=True)
