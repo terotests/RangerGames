@@ -815,20 +815,6 @@
   "sk_lahetti": "Lähetti",
   "sk_torni": "Torni",
   "sk_kuningatar": "Kuningatar",
-  "sk_kuningas": "Kuningas",
-  "mj_ilves_vuoro": "Ilveksen vuoro.",
-  "mj_tappara_vuoro": "Tapparan vuoro.",
-  "mj_malja": "Kanada-malja löytyi! Vie se Nokia Areenalle!",
-  "mj_rosvo": "Rosvo! Kaikki rahat menivät.",
-  "mj_makkara": "Mustamakkara.",
-  "mj_tyhja": "Tyhjä.",
-  "mj_kummola": "Kummola! Kolmesataa euroa.",
-  "mj_raipe": "Raipe! Kuusisataa euroa.",
-  "mj_barkov": "Barkov! Tuhat euroa.",
-  "mj_diamond": "Timantti!",
-  "mj_putka": "Putkaan Sorin asemalle!",
-  "mj_taklaus": "Taklaus! Malja vaihtoi omistajaa.",
-  "mj_ilves_voitti": "Ilves voitti!",
-  "mj_tappara_voitti": "Tappara voitti!"
+  "sk_kuningas": "Kuningas"
  }
 }
