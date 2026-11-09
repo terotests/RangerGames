@@ -179,8 +179,9 @@ def key(p): return (round(p[0]), round(p[1]))
 node_arms = defaultdict(list)
 for s in streets:
     p = s["p"]
-    node_arms[key(p[0])].append((s, p[0], p[1]))
-    node_arms[key(p[-1])].append((s, p[-1], p[-2]))
+    for i, q in enumerate(p):   # interior points too: a street can run through a junction
+        if i > 0: node_arms[key(q)].append((s, q, p[i - 1]))
+        if i < len(p) - 1: node_arms[key(q)].append((s, q, p[i + 1]))
 RA = None
 def is_road(x, z):
     px, pz = int(x - X0), int(z - Z0)
@@ -268,10 +269,78 @@ for k, arms in node_arms.items():
         dd = wmax / 2 + 3
         if L < dd + 2: continue
         ux, uz = (p1[0] - p0[0]) / L, (p1[1] - p0[1]) / L
-        arm_spots.append((lit, p0[0] + ux * dd, p0[1] + uz * dd, -uz, ux))
+        arm_spots.append((lit, p0[0] + ux * dd, p0[1] + uz * dd, -uz, ux, st["cls"]))
+# Streets often cross without a shared point in the data, so also find the
+# junctions geometrically: where two streets' centre lines cross or a street
+# ends within a few metres of another.
+def walk_poly(p, i, t, sign, dist):
+    """point `dist` metres from p[i]+t*(p[i+1]-p[i]) along polyline p (sign +1/-1),
+    with the local direction; None if the street ends first"""
+    x = p[i][0] + (p[i + 1][0] - p[i][0]) * t; z = p[i][1] + (p[i + 1][1] - p[i][1]) * t
+    j = i + 1 if sign > 0 else i
+    while 0 <= j < len(p):
+        L = math.hypot(p[j][0] - x, p[j][1] - z)
+        if L >= dist and L > 0:
+            ux, uz = (p[j][0] - x) / L, (p[j][1] - z) / L
+            return (x + ux * dist, z + uz * dist, ux, uz)
+        dist -= L; x, z = p[j]; j += sign
+    return None
+segs_all = []
+for si, st in enumerate(streets):
+    p = st["p"]
+    for i in range(len(p) - 1): segs_all.append((si, i))
+buck = defaultdict(list)
+for k, (si, i) in enumerate(segs_all):
+    a, b = streets[si]["p"][i], streets[si]["p"][i + 1]
+    for bx in range(int(min(a[0], b[0]) // 20) - 1, int(max(a[0], b[0]) // 20) + 2):
+        for bz in range(int(min(a[1], b[1]) // 20) - 1, int(max(a[1], b[1]) // 20) + 2):
+            buck[(bx, bz)].append(k)
+jpts = []   # (x, z, [(street, seg, t)])
+def add_j(x, z, hits):
+    for J in jpts:
+        if math.hypot(J[0] - x, J[1] - z) < 8:
+            J[2].extend(hits); return
+    jpts.append((x, z, list(hits)))
+seen_pairs = set()
+for cellk, ks in buck.items():
+    for ia in range(len(ks)):
+        for ib in range(ia + 1, len(ks)):
+            ka, kb = ks[ia], ks[ib]
+            sa, ia_ = segs_all[ka]; sb, ib_ = segs_all[kb]
+            if sa == sb or (ka, kb) in seen_pairs: continue
+            seen_pairs.add((ka, kb))
+            pa, pb = streets[sa]["p"], streets[sb]["p"]
+            a0, a1, b0, b1 = pa[ia_], pa[ia_ + 1], pb[ib_], pb[ib_ + 1]
+            dx1, dz1 = a1[0] - a0[0], a1[1] - a0[1]; dx2, dz2 = b1[0] - b0[0], b1[1] - b0[1]
+            den = dx1 * dz2 - dz1 * dx2
+            La, Lb = math.hypot(dx1, dz1), math.hypot(dx2, dz2)
+            if abs(den) < 1e-9 or La < 0.5 or Lb < 0.5: continue
+            if abs(den) / (La * Lb) < 0.35: continue          # nearly parallel
+            t = ((b0[0] - a0[0]) * dz2 - (b0[1] - a0[1]) * dx2) / den
+            u = ((b0[0] - a0[0]) * dz1 - (b0[1] - a0[1]) * dx1) / den
+            # a street's own ends may fall short of the other street by a few metres
+            ea0 = 3 / La if ia_ == 0 else 0; ea1 = 3 / La if ia_ == len(pa) - 2 else 0
+            eb0 = 3 / Lb if ib_ == 0 else 0; eb1 = 3 / Lb if ib_ == len(pb) - 2 else 0
+            if -ea0 <= t <= 1 + ea1 and -eb0 <= u <= 1 + eb1:
+                x, z = a0[0] + dx1 * t, a0[1] + dz1 * t
+                if X0 < x < X1 and Z0 < z < Z1:
+                    add_j(x, z, [(sa, ia_, max(0, min(1, t))), (sb, ib_, max(0, min(1, u)))])
+for x, z, hits in jpts:
+    lit = any(math.hypot(sx_ - x, sz_ - z) < 30 for sx_, sz_ in signals)
+    wmax = max(ROAD_W[streets[si]["cls"]] for si, _, _ in hits)
+    done = set()
+    for si, i, t in hits:
+        if si in done: continue
+        done.add(si)
+        p = streets[si]["p"]
+        for sign in (1, -1):
+            w = walk_poly(p, i, t, sign, wmax / 2 + 3)
+            if w and walk_poly(p, i, t, sign, wmax / 2 + 5):
+                arm_spots.append((lit, w[0], w[1], -w[3], w[2], streets[si]["cls"]))
+print(f"junctions found geometrically: {len(jpts)}")
 # junctions with traffic lights have a crossing on every arm
 gen = 0
-for lit, cx, cz, ux, uz in arm_spots:
+for lit, cx, cz, ux, uz, _cls in arm_spots:
     if not lit: continue
     if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 12 for c in crossings): continue
     f = fit_crossing(cx, cz, ux, uz)
@@ -292,6 +361,26 @@ bd = ImageDraw.Draw(BI)
 for bld in buildings:
     if len(bld[2]) > 2: bd.polygon([to_px(x, z, X0, Z0, 1) for x, z in bld[2]], fill=0)
 B0 = np.array(BI, dtype=np.uint8)
+# Other junctions: in the city centre almost every arm of a junction has a
+# zebra crossing (the city and OSM data only map some of them).
+def on_foot_ground(x, z):
+    px, pz = int(x - X0), int(z - Z0)
+    if not (0 <= px < W and 0 <= pz < H): return False
+    return B0[pz, px] == 1 and RA[pz, px] not in (2, 5)
+gen = 0
+REJ = defaultdict(int); REJP = []
+for lit, cx, cz, ux, uz, cls in arm_spots:
+    if lit: continue
+    if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 7 for c in crossings): REJ["near"] += 1; REJP.append((cx, cz, "near")); continue
+    f = fit_crossing(cx, cz, ux, uz)
+    if not f: REJ["fit"] += 1; REJP.append((cx, cz, "fit")); continue
+    if seg_len(f["a"], f["b"]) > 20: REJ["long"] += 1; REJP.append((cx, cz, "long")); continue
+    L = seg_len(f["a"], f["b"]); vx, vz = (f["b"][0] - f["a"][0]) / L, (f["b"][1] - f["a"][1]) / L
+    if not (on_foot_ground(f["a"][0] - vx, f["a"][1] - vz) and on_foot_ground(f["b"][0] + vx, f["b"][1] + vz)): REJ["ground"] += 1; REJP.append((cx, cz, "ground")); continue
+    f["sig"] = False; f["gen"] = True
+    crossings.append(f); gen += 1
+print(f"crossings added at other junctions: {gen}", dict(REJ))
+if os.environ.get("DEBUGREJ"): json.dump({"rej": REJP, "arms": [(a[1], a[2]) for a in arm_spots]}, open(os.environ["DEBUGREJ"], "w"))
 def compute_G(crossings):
     cross_mask = Image.new("L", (W, H), 0)
     cmd = ImageDraw.Draw(cross_mask)
@@ -350,7 +439,7 @@ for rnd in range(3):
         ca, cb = comp_at(lab, *c["a"]), comp_at(lab, *c["b"])
         if ca >= 0 and cb >= 0: parent[find(ca)] = find(cb)
     added = 0
-    for lit, cx, cz, ux, uz in arm_spots:
+    for lit, cx, cz, ux, uz, _cls in arm_spots:
         f = fit_crossing(cx, cz, ux, uz)
         if not f: continue
         ca, cb = comp_at(lab, *f["a"]), comp_at(lab, *f["b"])
@@ -383,6 +472,48 @@ for rnd in range(3):
     print(f"round {rnd}: {len(sizes)} areas, {added} joining crossings")
     if not added: break
     G = compute_G(crossings)
+
+# Where the two kerbs of a street are only reachable from each other by a
+# long walk round (no crossing near), add one in the middle of the block.
+from collections import deque
+def walk_dist(G, a, b, limit):
+    ax, az = int((a[0] - X0) / CELL), int((a[1] - Z0) / CELL)
+    bx, bz = int((b[0] - X0) / CELL), int((b[1] - Z0) / CELL)
+    if not (0 <= ax < GW and 0 <= az < GH and 0 <= bx < GW and 0 <= bz < GH): return 0
+    if G[az, ax] not in (1, 3, 4) or G[bz, bx] not in (1, 3, 4): return 0
+    D = {(ax, az): 0}; q = deque([(ax, az)])
+    while q:
+        x, z = q.popleft(); dd = D[(x, z)]
+        if (x, z) == (bx, bz): return dd
+        if dd >= limit: continue
+        for X, Z in ((x + 1, z), (x - 1, z), (x, z + 1), (x, z - 1)):
+            if (X, Z) not in D and 0 <= X < GW and 0 <= Z < GH and G[Z, X] in (1, 3, 4):
+                D[(X, Z)] = dd + 1; q.append((X, Z))
+    return None
+gen = 0; added_mid = []
+for st in streets:
+    p = st["p"]; maxw = 14 if st["cls"] >= 3 else 20
+    for i in range(len(p) - 1):
+        L = seg_len(p[i], p[i + 1])
+        if L < 1: continue
+        ux, uz = (p[i + 1][0] - p[i][0]) / L, (p[i + 1][1] - p[i][1]) / L
+        t = 3.0
+        while t < L - 3:
+            cx, cz = p[i][0] + ux * t, p[i][1] + uz * t
+            t += 8
+            if not (X0 + 5 < cx < X1 - 5 and Z0 + 5 < cz < Z1 - 5): continue
+            if any(math.hypot(mid(c)[0] - cx, mid(c)[1] - cz) < 30 for c in crossings): continue
+            if any(math.hypot(q[0] - cx, q[1] - cz) < 50 for q in added_mid): continue
+            f = fit_crossing(cx, cz, -uz, ux)
+            if not f or seg_len(f["a"], f["b"]) > maxw: continue
+            Lf = seg_len(f["a"], f["b"]); vx, vz = (f["b"][0] - f["a"][0]) / Lf, (f["b"][1] - f["a"][1]) / Lf
+            ea = (f["a"][0] - vx * 1.5, f["a"][1] - vz * 1.5); eb = (f["b"][0] + vx * 1.5, f["b"][1] + vz * 1.5)
+            wd = walk_dist(G, ea, eb, 60)   # 60 cells = 120 m
+            if wd is not None: continue     # close enough round, or an end is not walkable
+            f["sig"] = False; f["gen"] = True
+            crossings.append(f); added_mid.append((cx, cz)); gen += 1
+print(f"crossings added mid-block where the way round is over 120 m: {gen}")
+G = compute_G(crossings)
 
 # signals: a crossing within 22 m of a signal node is controlled by it
 for c in crossings:
