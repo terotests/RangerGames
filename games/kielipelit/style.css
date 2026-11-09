@@ -74,9 +74,9 @@
 .ltile.used { background-color: rgba(0,0,0,0.08); }
 
 /* Etsi */
-.room { position: absolute; left: 0px; width: 360px; height: 380px; }
-.wall { position: absolute; left: 0px; top: 0px; width: 360px; height: 190px; background: linear-gradient(180deg, #cdeffd, #a7dcf5); }
-.floor { position: absolute; left: 0px; top: 190px; width: 360px; height: 190px; background: linear-gradient(180deg, #e8c39e, #d4a373); }
+.room { position: absolute; left: 0px; width: 360px; height: 316px; }
+.wall { position: absolute; left: 0px; top: 0px; width: 360px; height: 140px; background: linear-gradient(180deg, #cdeffd, #a7dcf5); }
+.floor { position: absolute; left: 0px; top: 140px; width: 360px; height: 176px; background: linear-gradient(180deg, #e8c39e, #d4a373); }
 .eshelf { position: absolute; height: 12px; border-radius: 4px; background-color: #8b5a2b; }
 .thing { position: absolute; width: 56px; height: 56px; }
 .thing.sel { shadow-color: rgba(255,183,3,0.9); shadow-radius: 14px; }
@@ -106,14 +106,14 @@
 /* Kahvila */
 .cafe { background: linear-gradient(180deg, #fff1e0, #ffd6b0); }
 .awning { width: 360px; height: 18px; margin-top: 8px; background: linear-gradient(90deg, #ef476f, #ffffff, #ef476f, #ffffff, #ef476f, #ffffff, #ef476f); }
-.custrow { width: 360px; height: 170px; flex-direction: row; align-items: center; padding-left: 16px; }
-.cust { font-size: 92px; }
+.custrow { width: 360px; height: 150px; flex-direction: row; align-items: center; padding-left: 16px; }
+.cust { font-size: 80px; }
 .heart { position: absolute; left: 70px; top: 0px; font-size: 30px; }
-.bubble { min-width: 120px; min-height: 80px; margin-left: 12px; padding: 10px; border-radius: 26px; background-color: #ffffff;
+.bubble { width: 210px; min-height: 80px; margin-left: 8px; padding: 10px; border-radius: 26px; background-color: #ffffff;
   align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.15); shadow-offset-y: 4px; }
 .brow { flex-direction: row; align-items: center; }
 .bnum { font-size: 26px; font-weight: 700; color: #ef476f; margin-right: 6px; }
-.bemo { font-size: 34px; }
+.bemo { font-size: 24px; }
 .counter { width: 340px; flex-direction: row; align-items: center; margin-top: 4px; }
 .tray { width: 250px; min-height: 92px; padding: 6px; border-radius: 46px; background-color: #ffffff; flex-direction: row; flex-wrap: wrap;
   align-items: center; justify-content: center; border-width: 4px; border-color: #d4a373; }
@@ -144,3 +144,29 @@
 .tlabel { font-size: 18px; font-weight: 700; color: #3d405b; }
 .tnext { width: 90px; height: 90px; margin-top: 26px; border-radius: 45px; background-color: #06d6a0; color: #ffffff; font-size: 40px;
   align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+
+/* task card, feedback and written words (the games work without sound) */
+.task { width: 330px; margin-top: 10px; padding: 8px; padding-left: 12px; padding-right: 12px; border-radius: 20px; background-color: #ffffff;
+  align-items: center; shadow-color: rgba(0,0,0,0.12); shadow-offset-y: 4px; }
+.ttext { font-size: 24px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; }
+.tfi { font-size: 14px; color: #6d6875; margin-top: 3px; text-align: center; justify-content: center; }
+.slim { position: absolute; left: 0px; top: 96px; width: 360px; align-items: center; }
+
+.fb { position: absolute; left: 20px; top: 6px; width: 260px; min-height: 44px; padding: 6px; border-radius: 22px; align-items: center; justify-content: center;
+  font-size: 19px; font-weight: 700; color: #ffffff; text-align: center; }
+.fb.ok { background-color: rgba(6,167,125,0.95); }
+.fb.bad { background-color: rgba(239,71,111,0.95); }
+.plabel.ok { color: #06a77d; }
+.plabel { font-size: 20px; font-weight: 700; color: #3d405b; }
+.mpic { align-items: center; }
+.mlabel { font-size: 13px; font-weight: 700; color: #3d405b; }
+.btext { width: 190px; font-size: 16px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; }
+.cafefi { width: 330px; font-size: 13px; color: #6d4c2b; margin-top: 6px; text-align: center; justify-content: center; }
+.miemo { font-size: 34px; }
+.milabel { font-size: 11px; font-weight: 700; color: #6d4c2b; }
+.thelp { width: 320px; font-size: 14px; color: #6d6875; margin-top: 8px; text-align: center; justify-content: center; }
+.thelp.night { color: #d0d8ff; }
+.mhelp { font-size: 15px; color: #6d6875; margin-top: 2px; }
+.trayhelp { font-size: 16px; color: #9a8c98; text-align: center; justify-content: center; }
+.slim { height: 88px; }
+.ttext.s { font-size: 20px; }

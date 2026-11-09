@@ -5,56 +5,15 @@
 const fs = require("fs");
 const path = require("path");
 const root = path.join(__dirname, "..", "..");
+const names = [];
 const src = fs.readFileSync(path.join(root, "games/kielipelit/lib/words.ts"), "utf8")
-  .replace(/export const (\w+)(?::[^=]+)? =/g, "D.$1 =");
+  .replace(/export const (\w+)(?::[^=]+)? =/g, (_m, n) => { names.push(n); return "const " + n + " ="; })
+  .replace(/export function (\w+)/g, (_m, n) => { names.push(n); return "function " + n; });
 const D = {};
-new Function("D", src)(D);
-
-const fill = (t, w) => t.split("{w}").join(w);
-const word = (id) => D.WORDS.find((w) => w.id === id);
-const color = (id) => D.COLORS.find((c) => c.id === id);
+new Function("D", src + "\n" + names.map((n) => "D." + n + " = " + n + ";").join("\n"))(D);
 
 for (const lang of ["en", "es"]) {
-  const common = {}, game = {};
-  for (const w of D.WORDS) common[w.id] = w[lang];
-  for (const c of D.COLORS) common[c.id] = c[lang];
-  const nums = lang === "en" ? D.NUMBERS_EN : D.NUMBERS_ES;
-  // the numbers n0–n20 are in voice/<lang>/games.json (the existing games' list)
-  for (const p of D.PHRASES) common[p.id] = p[lang];
-
-  // Sanat
-  for (const w of D.WORDS) game["kp_where_" + w.id] = fill(D.SANAT.where[lang], w[lang]);
-  game.kp_what = D.SANAT.what[lang];
-  game.kp_pairs = D.SANAT.pairs[lang];
-  game.kp_build = D.SANAT.build[lang];
-  // Etsi: "the red key" / "la llave roja"
-  for (const o of D.OBJECTS) {
-    for (const cid of D.FIND_COLORS) {
-      const c = color(cid), w = word(o.id);
-      const np = lang === "en" ? c.en + " " + w.en : w.es + " " + (o.g === "f" ? c.esf : c.es);
-      game["kp_find_" + cid + "_" + o.id] = fill(D.ETSI.find[lang], np);
-      game["kp_put_" + cid + "_" + o.id] = fill(D.ETSI.put[lang], np);
-    }
-  }
-  for (const p of D.PLACES) game["kp_" + p.id] = p[lang];
-  game.kp_open = D.ETSI.open[lang];
-  game.kp_keys = D.ETSI.keys[lang];
-  game.kp_tidy = D.ETSI.tidy[lang];
-  // Kahvila
-  for (const m of D.MENU) {
-    for (let n = 1; n <= D.CAFE_MAX; n++) {
-      const np = n === 1 ? m[lang + "1"] : nums[n] + " " + m[lang];
-      game["kp_q" + n + "_" + m.id] = np;
-      game["kp_order" + n + "_" + m.id] = fill(D.KAHVILA.like[lang], np);
-    }
-  }
-  for (const k of ["like2", "and", "here", "yummy", "more", "too_many", "not_this", "welcome", "closed"]) game["kp_" + k] = D.KAHVILA[k][lang];
-  // Tarina
-  for (const s of D.STORY) {
-    game["kp_" + s.id] = s[lang];
-    for (const c of s.choices || []) game["kp_" + c.id] = c[lang];
-  }
-
+  const all = D.clipTexts(lang), common = all.common, game = all.game;
   const write = (file, comment, clips) => {
     const out = path.join(root, "voice", lang, file);
     fs.mkdirSync(path.dirname(out), { recursive: true });
