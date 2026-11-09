@@ -1,14 +1,17 @@
 // Valopeilit: light comes from the sun or a torch, and mirrors bring it to
 // a flower, a solar panel, a cat that wants a sunny nap, a cold lizard or
 // wet laundry – but never to the owl, who sleeps in the day. The angle of
-// incidence is the angle of reflection: a tapped mirror turns 22.5°, a mirror turns
-// with the finger dragged around it (the light follows as it turns), and
-// the angle at the selected mirror is shown on the board.
+// incidence is the angle of reflection: a mirror turns steplessly with the
+// finger dragged around it (the light follows at any angle, traceFree), a tap
+// turns it to the next 22.5° step, and the angle at the selected mirror is
+// shown on the board.
 // Optics: lib/optics.ts, levels: lib/levels.ts (checked by tools/peilit/solve.ts).
 
-import { trace, parseMap, solved, incidence, Cell, Trace } from "lib/optics";
+import { traceFree, parseMap, solved, incidenceOf, Cell, FreeTrace, FreeHit } from "lib/optics";
 import { LEVELS } from "lib/levels";
 
+// turns: the mirror's angle in steps of 22.5° (fractional when turned with the
+// finger), m the same within 0–8
 type Piece = Cell & { turns?: number; va?: number; born?: number };
 type Drag = { kind: string; fromX: number; fromY: number; tray: boolean; x: number; y: number; sx: number; sy: number; moved: boolean;
   rot: boolean; turns0: number; m0: number };
@@ -25,7 +28,7 @@ let left: { [k: string]: number } = { mirror: 0, split: 0 };
 let kind = "mirror";
 let sel: number[] | null = null;
 let drag: Drag | null = null;
-let tr: Trace = { segs: [], lit: [], owls: [], hits: [] };
+let tr: FreeTrace = { segs: [], lit: [], owls: [], hits: [] };
 let glow: { [k: string]: number } = {};
 let goodClock = 0;
 let won = false;
@@ -66,7 +69,7 @@ function start(i: number) {
 }
 
 function retrace() {
-  tr = trace(grid, W, H);
+  tr = traceFree(grid, W, H);
 }
 
 function placed(): number {
@@ -96,7 +99,9 @@ function piece(x: number, y: number): Piece | null {
 function turn(x: number, y: number, by: number) {
   const c = piece(x, y);
   if (!c || c.lock) { if (c) { rg.sound("wrong"); rg.vibrate(20); } return; }
-  c.turns = (c.turns || 0) + by;
+  // to the next whole step of 22.5° in that direction
+  const now = c.turns || 0;
+  c.turns = by > 0 ? Math.floor(now + 1e-6) + 1 : Math.ceil(now - 1e-6) - 1;
   c.m = ((c.turns % 8) + 8) % 8;
   sel = [x, y];
   rg.sound("tick", { pitch: 0.9 + c.m * 0.05 });
@@ -193,9 +198,9 @@ function onKeyDown(key: string) {
 
 // --- turning with the finger -----------------------------------------------
 // Pressing a mirror and moving the finger around it turns the mirror to point
-// at the finger. The mirror follows the finger smoothly and the light is traced
-// again at every step of 22.5° it passes. A finger that goes far from the
-// mirror (more than ROT_R cells) carries the mirror to another square instead.
+// at the finger, steplessly, and the light follows at every angle. A finger
+// that goes far from the mirror (more than ROT_R cells) carries the mirror to
+// another square instead.
 
 const ROT_R = 1.6;
 
@@ -222,22 +227,22 @@ function rotateDrag(d: Drag) {
   const now = c.va === undefined ? (c.turns || 0) * 22.5 : c.va;
   while (a - now > 90) a -= 180;
   while (a - now < -90) a += 180;
+  if (Math.abs(a - now) < 0.05) return;
+  // a soft click every 22.5° passed, like a dial
+  if (Math.floor(a / 22.5) !== Math.floor(now / 22.5)) { rg.sound("tick", { pitch: 0.9 + (((Math.round(a / 22.5) % 8) + 8) % 8) * 0.05, volume: 0.5 }); rg.vibrate(4); }
   c.va = a;
-  const tn = Math.round(a / 22.5);
-  const m = ((tn % 8) + 8) % 8;
-  c.turns = tn;
-  if (m !== c.m) {
-    c.m = m;
-    rg.sound("tick", { pitch: 0.9 + m * 0.05 });
-    rg.vibrate(6);
-    retrace();
-  }
+  c.turns = a / 22.5;
+  c.m = ((c.turns % 8) + 8) % 8;
+  retrace();
 }
 
 function endRotate(c: Piece) {
   if (c.lock) return;
-  // snaps to the step the light already follows
-  c.turns = Math.round((c.va === undefined ? (c.turns || 0) * 22.5 : c.va) / 22.5);
+  // stays where the finger left it; only within 1.5° of a whole step it
+  // settles on the step (so the exact angles of the levels are easy to hit)
+  const a = c.va === undefined ? (c.turns || 0) * 22.5 : c.va;
+  const step = Math.round(a / 22.5) * 22.5;
+  c.turns = (Math.abs(a - step) < 1.5 ? step : a) / 22.5;
   c.m = ((c.turns % 8) + 8) % 8;
   retrace();
 }
@@ -297,7 +302,8 @@ function win() {
 
 // 22.5 → "22,5°" (Finnish, Spanish) / "22.5°"; whole degrees without decimals
 function deg(a: number): string {
-  const r = Math.round(a * 10) / 10;
+  // 22.5 stays 22.5, other angles in whole degrees
+  const r = Math.abs(a * 2 - Math.round(a * 2)) < 0.05 ? Math.round(a * 2) / 2 : Math.round(a);
   const s = r % 1 ? r.toFixed(1) : String(Math.round(r));
   return (rg.lang === "en" ? s : s.split(".").join(",")) + "°";
 }
@@ -420,21 +426,24 @@ function MirrorView(c: Piece, x: number, y: number, ghost?: boolean, px0?: numbe
   );
 }
 
-// the angle at the selected mirror: its normal and the two equal angles
+function selHit(): FreeHit | null {
+  if (!sel) return null;
+  for (const h of tr.hits) if (h.x === sel[0] && h.y === sel[1]) return h;
+  return null;
+}
+
+// the angle at the selected mirror: its normal at the point the light hits
+// and the two equal angles
 function AngleView() {
-  if (!sel) return [];
-  const c = piece(sel[0], sel[1]);
-  if (!c) return [];
-  let h: any = null;
-  for (const x of tr.hits) if (x.x === sel[0] && x.y === sel[1] && x.dout !== x.din) { h = x; break; }
+  const h = selHit();
   if (!h) return [];
-  const a = incidence(c.m || 0, h.din);
-  const cx = (sel[0] + 0.5) * C, cy = (sel[1] + 0.5) * C;
-  const nAng = ((c.m || 0) * 22.5 + 90) * Math.PI / 180;
-  // the normal on the side the light comes from
-  const back = (h.din * 45 + 180) * Math.PI / 180;
-  let nx = Math.cos(nAng), ny = Math.sin(nAng);
-  if (nx * Math.cos(back) + ny * Math.sin(back) < 0) { nx = -nx; ny = -ny; }
+  const a = incidenceOf(h);
+  const cx = h.px * C, cy = h.py * C;
+  // the normal on the side the light comes from: along out − in
+  let nx = h.ox - h.ix, ny = h.oy - h.iy;
+  const nl = Math.sqrt(nx * nx + ny * ny);
+  if (nl < 1e-6) return [];
+  nx /= nl; ny /= nl;
   let d = "";
   const L = C * 0.85;
   for (let k = 0; k < 5; k++) {
@@ -444,9 +453,8 @@ function AngleView() {
   const vb = "0 0 " + C * W + " " + C * H;
   const out: any[] = [<path d={d} stroke="#ffffff" strokeWidth="2" fill="none" viewBox={vb} style={{ position: "absolute", left: 0, top: 0, width: C * W, height: C * H }} />];
   if (a > 0.5) {
-    const outA = h.dout * 45 * Math.PI / 180;
     const label = deg(a);
-    const spots = [[Math.cos(back) + nx, Math.sin(back) + ny], [Math.cos(outA) + nx, Math.sin(outA) + ny]];
+    const spots = [[-h.ix + nx, -h.iy + ny], [h.ox + nx, h.oy + ny]];
     for (const s of spots) {
       const l = Math.sqrt(s[0] * s[0] + s[1] * s[1]) || 1;
       const lx = cx + (s[0] / l) * C * 0.95, ly = cy + (s[1] / l) * C * 0.95;
@@ -456,15 +464,32 @@ function AngleView() {
   return out;
 }
 
+// the same angle of a mirror (half a turn is the same mirror), in steps
+function sameAngle(m1: number, m2: number): boolean {
+  const d = (((m1 - m2) % 8) + 8) % 8;
+  return d < 0.07 || d > 8 - 0.07;
+}
+
 function hintPiece(): any {
   if (!hintOn) return null;
   for (const hp of LEVELS[lv].hint || []) {
     const [x, y, k, m] = hp;
     const c = grid[y][x];
-    if (c && c.k === k && c.m === m) continue;
+    if (c && c.k === k && sameAngle(c.m || 0, m)) continue;
     return { x: x, y: y, k: k, m: m };
   }
   return null;
+}
+
+// a stone drawn with boxes (the rock emoji is too new for many phones)
+function Stone(x: number, y: number) {
+  const w = Math.round(C * 0.7), h = Math.round(C * 0.52);
+  const tilt = ((x * 7 + y * 3) % 5) * 6 - 12;
+  return (
+    <div className="stone" style={{ width: w, height: h, borderRadius: Math.round(h * 0.48), transform: "rotate(" + tilt + "deg)" }}>
+      <div className="stonehi" style={{ left: Math.round(w * 0.18), top: Math.round(h * 0.16), width: Math.round(w * 0.36), height: Math.round(h * 0.26), borderRadius: Math.round(h * 0.13) }} />
+    </div>
+  );
 }
 
 function Board() {
@@ -475,7 +500,7 @@ function Board() {
     if (ch === "#") cls = "tile wall";
     else if (ch === "~") cls = "tile pond";
     if (drag && drag.moved && canPlace(x, y)) { const cc = cellAt(drag.x, drag.y); if (cc && cc[0] === x && cc[1] === y) cls += " drop"; }
-    tiles.push(<div className={cls} style={{ left: x * C + 1, top: y * C + 1, width: C - 2, height: C - 2 }}>{ch === "#" ? <div className="rock" style={{ fontSize: Math.round(C * 0.55) }}>🪨</div> : null}</div>);
+    tiles.push(<div className={cls} style={{ left: x * C + 1, top: y * C + 1, width: C - 2, height: C - 2 }}>{ch === "#" ? Stone(x, y) : null}</div>);
   }
   const things: any[] = [];
   const mirrors: any[] = [];
@@ -514,8 +539,9 @@ function info(): string {
   if (owlWoke > 0) return rg.t("Hups! Pöllö heräsi. Pidä valo poissa siitä.", "Oops! The owl woke up. Keep the light away.", "¡Uy! El búho se despertó. Aleja la luz.");
   if (sel) {
     const c = piece(sel[0], sel[1]);
-    for (const h of tr.hits) if (c && h.x === sel[0] && h.y === sel[1] && h.dout !== h.din) {
-      const a = incidence(c.m || 0, h.din);
+    const h = selHit();
+    if (c && h) {
+      const a = incidenceOf(h);
       if (a < 0.5) return rg.t("Valo osuu suoraan ja palaa takaisin.", "The light hits straight on and comes back.", "La luz llega de frente y vuelve.");
       return rg.t("Tulokulma " + deg(a) + " = heijastuskulma " + deg(a), "Angle in " + deg(a) + " = angle out " + deg(a), "Ángulo de entrada " + deg(a) + " = ángulo de salida " + deg(a));
     }
@@ -543,12 +569,12 @@ function Tools() {
   const sc = sel ? piece(sel[0], sel[1]) : null;
   const tools: any[] = [];
   if (sc && !sc.lock) {
-    tools.push(<div className="tool" id="rotl" onClick={() => sel && turn(sel[0], sel[1], -1)}>⟲</div>);
-    tools.push(<div className="tool" id="rotr" onClick={() => sel && turn(sel[0], sel[1], 1)}>⟳</div>);
-    if (!sc.fixed) tools.push(<div className="tool" id="remove" onClick={() => sel && takeBack(sel[0], sel[1])}>↩</div>);
+    tools.push(<div className="tool" id="rotl" onClick={() => sel && turn(sel[0], sel[1], -1)}>{Icon("rotl", 26)}</div>);
+    tools.push(<div className="tool" id="rotr" onClick={() => sel && turn(sel[0], sel[1], 1)}>{Icon("rotr", 26)}</div>);
+    if (!sc.fixed) tools.push(<div className="tool" id="remove" onClick={() => sel && takeBack(sel[0], sel[1])}>{Icon("tray", 26)}</div>);
   }
   tools.push(<div className={hintOn ? "tool hint on" : "tool hint"} id="hint" onClick={() => { hintOn = !hintOn; rg.sound("click"); }}>💡</div>);
-  tools.push(<div className="tool" id="reset" onClick={() => reset()}>↺</div>);
+  tools.push(<div className="tool" id="reset" onClick={() => reset()}>{Icon("reset", 26)}</div>);
   const y0 = BY + C * H + 8;
   return (
     <div className="dock" style={{ top: y0, width: width }}>
@@ -559,10 +585,61 @@ function Tools() {
   );
 }
 
-function starText(n: number) {
-  let s = "";
-  for (let i = 0; i < 3; i++) s += i < n ? "⭐" : "☆";
-  return s;
+function Stars(n: number, size: number) {
+  const out: any[] = [];
+  for (let i = 0; i < 3; i++) out.push(<div style={{ fontSize: size, opacity: i < n ? "1" : "0.25" }}>⭐</div>);
+  return <div className="stars">{out}</div>;
+}
+
+// the buttons' symbols drawn as lines (arrow and box-drawing characters are
+// missing from many phone fonts)
+function arc(cx: number, cy: number, r: number, a0: number, a1: number): number[][] {
+  const pts: number[][] = [];
+  for (let i = 0; i <= 16; i++) { const a = (a0 + (a1 - a0) * i / 16) * Math.PI / 180; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return pts;
+}
+
+function line(pts: number[][]): string {
+  let d = "";
+  for (let i = 0; i < pts.length; i++) d += (i ? " L " : "M ") + pts[i][0].toFixed(2) + " " + pts[i][1].toFixed(2);
+  return d;
+}
+
+// a filled arrow head at p pointing along angle a (degrees)
+function head(p: number[], a: number, s: number): string {
+  const r = a * Math.PI / 180, b = 2.5;
+  const tip = [p[0] + Math.cos(r) * s, p[1] + Math.sin(r) * s];
+  const l = [p[0] + Math.cos(r + b) * s * 0.8, p[1] + Math.sin(r + b) * s * 0.8];
+  const q = [p[0] + Math.cos(r - b) * s * 0.8, p[1] + Math.sin(r - b) * s * 0.8];
+  return line([tip, l, q]) + " Z";
+}
+
+function Icon(name: string, size: number) {
+  const vb = "0 0 24 24";
+  const st = { width: size, height: size };
+  if (name === "menu") {
+    return (
+      <div style={{ width: size, height: size, flexDirection: "column", justifyContent: "space-around", paddingTop: 3, paddingBottom: 3 }}>
+        <div className="mline" /><div className="mline" /><div className="mline" />
+      </div>
+    );
+  }
+  let d = "", f = "";
+  if (name === "rotl" || name === "rotr" || name === "reset") {
+    const pts = name === "rotr" ? arc(12, 12, 7.5, 200, 400) : name === "rotl" ? arc(12, 12, 7.5, 340, 140) : arc(12, 12, 7.5, -60, 230);
+    d = line(pts);
+    const e = pts[pts.length - 1], p = pts[pts.length - 2];
+    f = head(e, Math.atan2(e[1] - p[1], e[0] - p[0]) * 180 / Math.PI, 7);
+  } else if (name === "tray") {
+    d = "M 12 3 L 12 14 M 4 16 L 4 20 L 20 20 L 20 16";
+    f = head([12, 14], 90, 5.5);
+  }
+  return (
+    <div style={st}>
+      <path d={d} stroke="#ffffff" strokeWidth="2.6" fill="none" viewBox={vb} style={{ position: "absolute", left: 0, top: 0, width: size, height: size }} />
+      <path d={f} fill="#ffffff" viewBox={vb} style={{ position: "absolute", left: 0, top: 0, width: size, height: size }} />
+    </div>
+  );
 }
 
 function WonCard() {
@@ -573,11 +650,11 @@ function WonCard() {
     <div className="wonwrap" style={{ top: height - 210 + (1 - rg.ease.out(k)) * 220, width: width }}>
       <div className="won">
         <div className="wtitle">{last ? rg.t("Kaikki valaistu! 🎉", "All lit up! 🎉", "¡Todo iluminado! 🎉") : rg.t("Valoa riitti! 🎉", "Light for all! 🎉", "¡Luz para todos! 🎉")}</div>
-        <div className="wstars">{starText(stars)}</div>
-        <div className="wsub">{stars < 3 ? rg.t("Onnistuu vähemmälläkin: " + (LEVELS[lv].par || 0) + " kpl", "Can be done with fewer: " + (LEVELS[lv].par || 0), "Se puede con menos: " + (LEVELS[lv].par || 0)) : rg.t("Vähin mahdollinen määrä peilejä!", "The fewest mirrors possible!", "¡El mínimo de espejos!")}</div>
+        {Stars(stars, 30)}
+        <div className="wsub">{stars < 3 ? rg.t("Onnistuu vähemmälläkin: " + (LEVELS[lv].par || 0) + " kpl", "Can be done with fewer: " + (LEVELS[lv].par || 0), "Se puede con menos: " + (LEVELS[lv].par || 0)) : rg.t("Vähillä peileillä, hienoa!", "With few mirrors, great!", "¡Con pocos espejos, genial!")}</div>
         <div className="wrow">
-          <div className="wbtn alt" id="again" onClick={() => start(lv)}>↺</div>
-          <div className="wbtn alt" id="tomenu" onClick={() => { mode = "menu"; rg.sound("click"); }}>☰</div>
+          <div className="wbtn alt" id="again" onClick={() => start(lv)}>{Icon("reset", 26)}</div>
+          <div className="wbtn alt" id="tomenu" onClick={() => { mode = "menu"; rg.sound("click"); }}>{Icon("menu", 22)}</div>
           {last ? null : <div className="wbtn next" id="next" onClick={() => start(lv + 1)}>{rg.t("Seuraava ▶", "Next ▶", "Siguiente ▶")}</div>}
         </div>
       </div>
@@ -590,7 +667,7 @@ function Play() {
   return (
     <div className="screen">
       <div className="head" style={{ width: width }}>
-        <div className="hbtn" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}>☰</div>
+        <div className="hbtn" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}>{Icon("menu", 22)}</div>
         <div className="htext">
           <div className="hnum">{rg.t("Taso", "Level", "Nivel")} {lv + 1}/{LEVELS.length}</div>
           <div className="hname">{rg.t(L.name)}</div>
@@ -644,7 +721,7 @@ function Menu() {
         style={isNext ? { borderColor: Math.floor(t * 2) % 2 ? "#ffffff" : "#ffd166" } : {}}>
         <div className="lnum">{i + 1}</div>
         <div className="licons">{levelIcons(i)}</div>
-        <div className="lstars">{b ? starText(b) : " "}</div>
+        <div className="lstars">{b ? Stars(b, 13) : null}</div>
       </div>
     );
   }
@@ -654,7 +731,7 @@ function Menu() {
       <div className="subtitle">{rg.t("Ohjaa valo peileillä perille", "Guide the light with mirrors", "Guía la luz con espejos")}</div>
       {MenuBeam()}
       <div className="grid">{cards}</div>
-      <div className="mhelp">{rg.t("Pyöritä peiliä sormella. Vedä kauas: siirtyy.", "Circle a mirror to turn it. Drag far to move it.", "Gira el espejo con el dedo. Arrástralo lejos para moverlo.")}</div>
+      <div className="mhelp">{rg.t("Pyöritä peiliä sormella, se kääntyy portaattomasti. Vedä kauas: siirtyy.", "Circle a mirror to turn it. Drag far to move it.", "Gira el espejo con el dedo. Arrástralo lejos para moverlo.")}</div>
     </div>
   );
 }

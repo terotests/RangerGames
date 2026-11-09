@@ -122,3 +122,100 @@ export function solved(grid: (Cell | null)[][], tr: Trace): boolean {
   }
   return true;
 }
+
+// The same light at any angle (the game: a mirror turns steplessly). A ray
+// runs in cell units from the source's centre; a mirror is a segment through
+// its cell's centre (length MIRROR_LEN, angle m × 22.5°, m may be fractional),
+// a target, owl or source a circle, a wall a square a little smaller than its
+// cell (so light passes diagonally between two walls touching at a corner,
+// as in trace()). A ray running along a mirror passes it, as in trace().
+export type FreeHit = { x: number; y: number; px: number; py: number; ix: number; iy: number; ox: number; oy: number };
+export type FreeTrace = { segs: number[][]; lit: string[]; owls: string[]; hits: FreeHit[] };
+
+export const MIRROR_LEN = 0.92;
+const R_ROUND = 0.42;
+const WALL_IN = 0.04;
+const EPS = 1e-7;
+
+export function traceFree(grid: (Cell | null)[][], W: number, H: number): FreeTrace {
+  const segs: number[][] = [];
+  const lit: string[] = [];
+  const owls: string[] = [];
+  const hits: FreeHit[] = [];
+  // rays: x, y, dx, dy, the cell to ignore (where it starts) x, y
+  const queue: number[][] = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = grid[y][x];
+    if (c && c.k === "src") { const a = (c.d || 0) * Math.PI / 4; queue.push([x + 0.5, y + 0.5, Math.cos(a), Math.sin(a), x, y]); }
+  }
+  let n = 0;
+  while (queue.length && n < 120) {
+    n++;
+    const r = queue.shift() as number[];
+    const ox = r[0], oy = r[1], dx = r[2], dy = r[3];
+    // the board's edge
+    let best = 1e9;
+    if (dx > EPS) best = Math.min(best, (W - ox) / dx); else if (dx < -EPS) best = Math.min(best, -ox / dx);
+    if (dy > EPS) best = Math.min(best, (H - oy) / dy); else if (dy < -EPS) best = Math.min(best, -oy / dy);
+    let hx = -1, hy = -1;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const c = grid[y][x];
+      if (!c || c.k === "glass" || (x === r[4] && y === r[5])) continue;
+      const cx = x + 0.5, cy = y + 0.5;
+      let tt = -1;
+      if (c.k === "wall") {
+        // slab test against the square
+        let t0 = -1e9, t1 = 1e9;
+        const lo = [x + WALL_IN, y + WALL_IN], hi = [x + 1 - WALL_IN, y + 1 - WALL_IN], o = [ox, oy], d = [dx, dy];
+        let miss = false;
+        for (let k = 0; k < 2; k++) {
+          if (Math.abs(d[k]) < EPS) { if (o[k] < lo[k] || o[k] > hi[k]) miss = true; continue; }
+          let a = (lo[k] - o[k]) / d[k], b = (hi[k] - o[k]) / d[k];
+          if (a > b) { const s = a; a = b; b = s; }
+          if (a > t0) t0 = a;
+          if (b < t1) t1 = b;
+        }
+        if (!miss && t0 <= t1 && t0 > EPS) tt = t0;
+      } else if (c.k === "target" || c.k === "owl" || c.k === "src") {
+        const fx = ox - cx, fy = oy - cy;
+        const b = fx * dx + fy * dy, q = fx * fx + fy * fy - R_ROUND * R_ROUND;
+        const disc = b * b - q;
+        if (disc >= 0) { const s = -b - Math.sqrt(disc); if (s > EPS) tt = s; }
+      } else if (c.k === "mirror" || c.k === "split") {
+        const a = (c.m || 0) * Math.PI / 8;
+        const ux = Math.cos(a), uy = Math.sin(a);
+        const den = dx * uy - dy * ux;
+        if (Math.abs(den) > 1e-9) {
+          const wx = cx - ox, wy = cy - oy;
+          const s = (wx * uy - wy * ux) / den;       // along the ray
+          const u = (wx * dy - wy * dx) / den;       // along the mirror, from its centre
+          if (s > EPS && Math.abs(u) <= MIRROR_LEN / 2) tt = s;
+        }
+      }
+      if (tt > 0 && tt < best) { best = tt; hx = x; hy = y; }
+    }
+    const ex = ox + dx * best, ey = oy + dy * best;
+    segs.push([ox, oy, ex, ey]);
+    if (hx < 0) continue;
+    const c = grid[hy][hx] as Cell;
+    const key = hx + "," + hy;
+    if (c.k === "target") { if (lit.indexOf(key) < 0) lit.push(key); continue; }
+    if (c.k === "owl") { if (owls.indexOf(key) < 0) owls.push(key); continue; }
+    if (c.k === "mirror" || c.k === "split") {
+      const a = (c.m || 0) * Math.PI / 8;
+      const nx = -Math.sin(a), ny = Math.cos(a);
+      const dn = dx * nx + dy * ny;
+      const rx = dx - 2 * dn * nx, ry = dy - 2 * dn * ny;
+      hits.push({ x: hx, y: hy, px: ex, py: ey, ix: dx, iy: dy, ox: rx, oy: ry });
+      queue.push([ex, ey, rx, ry, hx, hy]);
+      if (c.k === "split") queue.push([ex, ey, dx, dy, hx, hy]);
+    }
+  }
+  return { segs: segs, lit: lit, owls: owls, hits: hits };
+}
+
+// the angle of incidence at a hit, in degrees (0 = straight on)
+export function incidenceOf(h: FreeHit): number {
+  const c = -(h.ix * h.ox + h.iy * h.oy);           // cos of the angle between the two rays = cos(2i)
+  return Math.acos(Math.min(1, Math.max(-1, c))) * 90 / Math.PI;
+}
