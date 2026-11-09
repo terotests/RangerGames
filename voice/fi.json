@@ -815,6 +815,10 @@
   "sk_lahetti": "Lähetti",
   "sk_torni": "Torni",
   "sk_kuningatar": "Kuningatar",
-  "sk_kuningas": "Kuningas"
+  "sk_kuningas": "Kuningas",
+  "lamppu_syttyi": "Lamppu syttyi!",
+  "lamppu_himmea": "Lamppu palaa himmeästi.",
+  "liian_kirkas": "Varo! Liian kirkas, lamppu kuumenee.",
+  "lamppu_paloi": "Voi ei, lamppu paloi! Virta oli liian suuri."
  }
 }

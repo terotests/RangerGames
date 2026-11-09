@@ -23,6 +23,7 @@ Kuvat on otettu web-versiosta (360 × 720) komennolla `node tools/shot.js`, ja n
 | <img src="../docs/screenshots/muutto.png" width="160"> | **Muuttolintu** | `muutto` | Lennä muuttolintuna Suomeen pesimään ja takaisin. Vuodenajat ja aurinko näkyvät maapallolla. |
 | <img src="../docs/screenshots/kielipelit.png" width="160"> | **Kielipelit** | `kielipelit` | Englantia ja espanjaa: sanat, "Find the red key", kahvila ja tarina. Ohjeet puhutaan. |
 | <img src="../docs/screenshots/kielisaari.png" width="160"> | **Kielisaari** | `kielisaari` | Englantia tai espanjaa (lippu valitaan alussa) seikkaillen: auta kilpikonnaa, apinaa ja karhun kahvilaa, kerää kolme karttapalaa ja avaa luolan aarrearkku. Jokainen sana kulkee polun kuule → tunnista → muista (kokoa kirjaimista ja sano ääneen) → käytä ("Give me two red apples") → kertaa; uusi päivä alkaa kertauksella (Leitner-laatikot). Väärästä vastauksesta tulee vihje, ei rangaistusta. 💡 näyttää lauseen suomeksi. |
+| <img src="../docs/screenshots/lamppu.png" width="160"> | **Lamppulabra** | `lamppu` | Sähköoppia: rakenna virtapiiri paristoista ja vastuksista ja saa lamppu palamaan sopivasti. Isompi vastus himmentää, isompi paristo kirkastaa, ja liian suuri virta polttaa lampun. Mittari näyttää Ohmin lain: U, R, I = U / R ja teho P = I² · R. Viisi tehtävää ja vapaa kokeilu. |
 
 Seuraavat pelit tehtiin puhelinta varten Macilla, ja ne tulevat tähän listaan, kun ne on viety GitHubiin: Kirjainpallot, Onkipeli, Avaruusretki, Sanaseikkailu ja Kolmården.
 
