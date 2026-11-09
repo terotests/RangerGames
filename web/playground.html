@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RangerGames Playground</title>
+<link rel="icon" href="icon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap" rel="stylesheet">
+<!--
+  SPDX-License-Identifier: AGPL-3.0-or-later
+
+  The web playground: the games inside a (generic) Android phone, at the
+  phone's own screen size. The phone's screen is index.html in an iframe, so
+  the game runs exactly as on the web version; the playground only picks the
+  game (rgHost.start), presses Back (rgBack) and shows vibration as a shake.
+  The mouse is the finger (pointer events), the keyboard works when the
+  phone has focus.
+-->
+<style>
+  @font-face { font-family: "Fredoka"; src: url("fonts/Fredoka.ttf") format("truetype"); font-weight: 300 700; font-display: swap; }
+  :root {
+    --bg: #eef0f7; --panel: #ffffff; --text: #1b1f3b; --muted: #636a8a; --line: #dde1ee;
+    --accent: #3a56e8; --chip: #f2f4fa; --body: #24262e; --body2: #3a3d48; --shadow: rgba(27,31,59,.18);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #11131f; --panel: #1b1e2e; --text: #eef0fa; --muted: #9aa1c2; --line: #2c3047;
+      --accent: #7d92ff; --chip: #242840; --body: #0b0c10; --body2: #2a2c35; --shadow: rgba(0,0,0,.5); }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 400 15px/1.35 "Fredoka", system-ui, sans-serif;
+    display: flex; overflow: hidden; }
+  button, select { font: inherit; color: inherit; }
+
+  /* the game list */
+  aside { width: 330px; flex: none; display: flex; flex-direction: column; background: var(--panel);
+    border-right: 1px solid var(--line); min-height: 0; }
+  header { padding: 18px 18px 10px; }
+  header h1 { margin: 0; font-size: 22px; font-weight: 700; }
+  header p { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+  #games { list-style: none; margin: 0; padding: 6px 10px 16px; overflow-y: auto; flex: 1; }
+  #games li { margin: 0; }
+  .game { width: 100%; display: flex; gap: 12px; align-items: center; text-align: left; padding: 9px 10px;
+    border: 2px solid transparent; border-radius: 14px; background: none; cursor: pointer; }
+  .game:hover { background: var(--chip); }
+  .game[aria-current="true"] { border-color: var(--accent); background: var(--chip); }
+  .game .ico { width: 46px; height: 46px; flex: none; border-radius: 12px; display: grid; place-items: center;
+    font-size: 26px; background: var(--c, #888); }
+  .game b { display: block; font-weight: 600; font-size: 16px; }
+  .game small { display: block; color: var(--muted); font-size: 12.5px; }
+  .game .pl { margin-left: auto; flex: none; font-size: 11px; color: var(--muted); background: var(--chip);
+    border-radius: 99px; padding: 2px 8px; white-space: nowrap; }
+  .game[aria-current="true"] .pl { background: var(--panel); }
+
+  /* the stage with the phone and the toolbar */
+  main { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; padding: 12px 12px 0; }
+  .bar button, .bar select { background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    padding: 6px 12px; cursor: pointer; }
+  .bar button:hover, .bar select:hover { border-color: var(--accent); }
+  .bar button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #stage { flex: 1; width: 100%; min-height: 0; position: relative; }
+  #hint { color: var(--muted); font-size: 12.5px; text-align: center; padding: 0 12px 10px; }
+
+  /* the phone: sizes are set from script (screen size + bezels), then scaled to fit */
+  #phone { position: absolute; left: 50%; top: 50%; transform-origin: 0 0; border-radius: 46px;
+    background: linear-gradient(145deg, var(--body2), var(--body) 40%); padding: 0;
+    box-shadow: 0 30px 60px var(--shadow), inset 0 0 0 2px #50535f, inset 0 0 0 6px #111; }
+  #phone .glass { position: absolute; background: #000; border-radius: 30px; overflow: hidden; }
+  #phone iframe { position: absolute; border: 0; display: block; background: #1b1f3b; }
+  #phone .cam { position: absolute; width: 10px; height: 10px; border-radius: 50%; background: #1a1d2c;
+    box-shadow: inset 0 0 0 2px #2d3245, 0 0 0 1px #000; }
+  #phone .speaker { position: absolute; height: 5px; width: 60px; border-radius: 4px; background: #15171f; }
+  #phone .side { position: absolute; background: #2b2d36; border-radius: 3px; }
+  #phone .nav { position: absolute; display: flex; justify-content: space-around; align-items: center; }
+  #phone .nav button { width: 54px; height: 34px; border: 0; background: none; color: #c9ccd8; cursor: pointer;
+    border-radius: 17px; display: grid; place-items: center; }
+  #phone .nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
+  #phone .nav svg { width: 20px; height: 20px; }
+  #phone.shake { animation: shake .09s linear infinite; }
+  @keyframes shake {
+    0% { translate: 0 0; } 25% { translate: -3px 1px; } 50% { translate: 2px -1px; } 75% { translate: -1px -2px; } 100% { translate: 0 0; }
+  }
+
+  @media (max-width: 760px) {
+    body { flex-direction: column; overflow: auto; }
+    aside { width: auto; border-right: 0; border-bottom: 1px solid var(--line); max-height: 38vh; }
+    header { padding: 12px 16px 4px; }
+    #games { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 6px 12px 10px; }
+    .game { flex-direction: column; width: 96px; gap: 4px; text-align: center; padding: 8px 4px; }
+    .game small, .game .pl { display: none; }
+    .game b { font-size: 13px; }
+    main { min-height: 80vh; }
+  }
+</style>
+</head>
+<body>
+<aside>
+  <header>
+    <h1>RangerGames</h1>
+    <p>Pelit Android-puhelimen ruudulla. Hiiri on sormi.</p>
+  </header>
+  <ul id="games" aria-label="Pelit"></ul>
+</aside>
+<main>
+  <div class="bar">
+    <select id="device" aria-label="Puhelin"></select>
+    <button id="fit" aria-pressed="true" title="Sovita puhelin ikkunaan / oikea koko">Sovita</button>
+    <button id="reload" title="Käynnistä puhelin uudelleen">↻ Uudelleen</button>
+    <button id="full" title="Avaa peli koko ikkunaan">⛶ Koko ruutu</button>
+  </div>
+  <div id="stage">
+    <div id="phone">
+      <div class="side" id="pw"></div><div class="side" id="vu"></div><div class="side" id="vd"></div>
+      <div class="speaker" id="spk"></div><div class="cam" id="cam"></div>
+      <div class="glass" id="glass"><iframe id="screen" title="Puhelimen näyttö" allow="autoplay; vibrate; geolocation; fullscreen"></iframe></div>
+      <div class="nav" id="nav">
+        <button id="back" title="Takaisin (Esc)" aria-label="Takaisin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M17 4 6 12l11 8z"/></svg></button>
+        <button id="home" title="Pelivalikko" aria-label="Pelivalikko"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="7.5"/></svg></button>
+        <button id="close" title="Sulje peli (✕)" aria-label="Sulje peli"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button>
+      </div>
+    </div>
+  </div>
+  <div id="hint">Esc tai ◁ = takaisin · näppäimistö toimii, kun puhelinta on napautettu · kaksinpeleissä kosketusnäytöllä voi käyttää montaa sormea</div>
+</main>
+<script>
+(function () {
+  "use strict";
+  // Screen sizes in CSS pixels (dp). The Huawei P20 (EML-L29) is 1080×2244 at
+  // 3×; the app runs full screen and Android 9 keeps the notch strip black,
+  // which leaves 360×720 for the game.
+  var DEVICES = [
+    { id: "p20", name: "Huawei P20 (EML-L29) · 360 × 720", w: 360, h: 720, notch: true },
+    { id: "small", name: "Pieni puhelin · 360 × 640", w: 360, h: 640 },
+    { id: "big", name: "Iso puhelin · 412 × 892", w: 412, h: 892, notch: true },
+    { id: "tablet", name: "Tabletti · 600 × 960", w: 600, h: 960 }
+  ];
+  var params = new URLSearchParams(location.search);
+  var store = {
+    get: function (k) { try { return localStorage.getItem("rgpg:" + k); } catch (e) { return null; } },
+    set: function (k, v) { try { localStorage.setItem("rgpg:" + k, v); } catch (e) { } }
+  };
+  var state = {
+    device: params.get("device") || store.get("device") || "p20",
+    fit: store.get("fit") !== "0",
+    game: params.get("game") || ""
+  };
+  var $ = function (id) { return document.getElementById(id); };
+  var phone = $("phone"), frame = $("screen"), stage = $("stage");
+  var list = $("games"), sel = $("device");
+  var games = [];
+
+  DEVICES.forEach(function (d) {
+    var o = document.createElement("option");
+    o.value = d.id; o.textContent = d.name;
+    sel.appendChild(o);
+  });
+  if (!DEVICES.some(function (d) { return d.id === state.device; })) state.device = "p20";
+  sel.value = state.device;
+
+  function device() { return DEVICES.filter(function (d) { return d.id === state.device; })[0]; }
+
+  // the phone's parts around a screen of w×h (portrait only: the Android
+  // app is locked to portrait, see AndroidManifest.xml)
+  function layout() {
+    var d = device(), sw = d.w, sh = d.h;
+    var top = 46, bottom = 58, side = 14;           // bezels
+    var notch = d.notch ? 24 : 0;                    // the black strip the game does not use
+    var bw = sw + side * 2, bh = sh + notch + top + bottom;
+    place("spk", { left: bw / 2 - 30, top: 21, width: 60, height: 5 });
+    place("cam", { left: bw / 2 + 44, top: 18 });
+    place("nav", { left: side, top: top + sh + notch + 10, width: sw, height: 38 });
+    place("pw", { left: bw - 1, top: 190, width: 4, height: 60 });
+    place("vu", { left: bw - 1, top: 120, width: 4, height: 50 });
+    place("vd", { left: -3, top: 150, width: 4, height: 80 });
+    place("glass", { left: side, top: top, width: sw, height: sh + notch });
+    place("screen", { left: 0, top: notch, width: sw, height: sh });
+    phone.style.width = bw + "px"; phone.style.height = bh + "px";
+    phone.dataset.w = bw; phone.dataset.h = bh;
+    fit();
+  }
+  function place(id, css) {
+    var el = $(id);
+    for (var k in css) el.style[k] = typeof css[k] === "number" ? css[k] + "px" : css[k];
+  }
+  function fit() {
+    var bw = +phone.dataset.w, bh = +phone.dataset.h;
+    var r = stage.getBoundingClientRect(), pad = 24;
+    var k = state.fit ? Math.min((r.width - pad) / bw, (r.height - pad) / bh, 1.3) : 1;
+    k = Math.max(k, 0.2);
+    // centre: scale around the top-left corner, then move back by half the size
+    phone.style.transform = "translate(" + (-bw * k / 2) + "px," + (-bh * k / 2) + "px) scale(" + k + ")";
+    if (!state.fit) stage.style.minHeight = (bh + pad) + "px"; else stage.style.minHeight = "";
+  }
+
+  // the game list, from games.json (made by scripts/build-web.sh)
+  function renderList() {
+    list.innerHTML = "";
+    var items = [{ id: "", name: "Pelivalikko", description: "Kaikki pelit kuten puhelimessa", icon: "📱", color: "#1b1f3b", players: "" }].concat(games);
+    items.forEach(function (g) {
+      var li = document.createElement("li"), b = document.createElement("button");
+      b.className = "game"; b.type = "button"; b.dataset.id = g.id;
+      var ico = document.createElement("span"); ico.className = "ico"; ico.textContent = g.icon || "🎮";
+      ico.style.setProperty("--c", g.color || "#888");
+      var txt = document.createElement("span");
+      var name = document.createElement("b"); name.textContent = g.name;
+      var desc = document.createElement("small"); desc.textContent = g.description || "";
+      txt.appendChild(name); txt.appendChild(desc);
+      b.appendChild(ico); b.appendChild(txt);
+      if (g.players) {
+        var pl = document.createElement("span"); pl.className = "pl";
+        pl.textContent = g.players === "1" ? "1 pelaaja" : g.players + " pelaajaa";
+        b.appendChild(pl);
+      }
+      b.addEventListener("click", function () { start(g.id); });
+      li.appendChild(b); list.appendChild(li);
+    });
+    mark();
+  }
+  function mark() {
+    Array.prototype.forEach.call(list.querySelectorAll(".game"), function (b) {
+      b.setAttribute("aria-current", b.dataset.id === state.game ? "true" : "false");
+    });
+  }
+
+  function host() { try { return frame.contentWindow.rgHost; } catch (e) { return null; } }
+  function ready() { var h = host(); return h && h.x; }
+
+  function start(id) {
+    state.game = id;
+    mark();
+    var u = new URL(location.href);
+    if (id) u.searchParams.set("game", id); else u.searchParams.delete("game");
+    history.replaceState(null, "", u);
+    if (ready()) { host().start(id); frame.focus(); }
+    else boot();
+  }
+
+  // (re)load the phone's screen; the game starts from ?game=
+  function boot() {
+    frame.src = "index.html" + (state.game ? "?game=" + encodeURIComponent(state.game) : "");
+  }
+  frame.addEventListener("load", function () {
+    var w = frame.contentWindow, h = host();
+    if (!h) return;
+    // vibration: the phone shakes (and a real phone's browser vibrates too)
+    var vib = h.vibrate;
+    h.vibrate = function (v) { vib.call(h, v); shake(v); };
+    // which game is running: the engine sets the title when a game starts
+    var cmd = h.command;
+    h.command = function (kind, name, args) {
+      if (kind === "quit") { start(""); return; }   // Back in the menu would close the app
+      cmd.call(h, kind, name, args);
+      if (kind === "title") {
+        var g = games.filter(function (x) { return x.name === name; })[0];
+        var id = g ? g.id : "";
+        if (id !== state.game) { state.game = id; mark(); }
+      }
+    };
+    // keys pressed outside the phone go to it as well
+    w.focus();
+  });
+
+  var shakeTimer = 0;
+  function shake(v) {
+    var ms = Array.isArray(v) ? v.reduce(function (a, b) { return a + b; }, 0) : +v || 0;
+    if (ms <= 0) return;
+    phone.classList.add("shake");
+    clearTimeout(shakeTimer);
+    shakeTimer = setTimeout(function () { phone.classList.remove("shake"); }, Math.min(ms, 1500));
+  }
+
+  function back() { var w = frame.contentWindow; if (w && w.rgBack) w.rgBack(); frame.focus(); }
+  $("back").addEventListener("click", back);
+  $("close").addEventListener("click", function () { start(""); });
+  $("home").addEventListener("click", function () { start(""); });
+  document.addEventListener("keydown", function (e) {
+    if (e.target === sel) return;
+    if (e.key === "Escape") { e.preventDefault(); back(); }
+  });
+
+  sel.addEventListener("change", function () { state.device = sel.value; store.set("device", sel.value); layout(); });
+  var fitBtn = $("fit");
+  function setFit() { fitBtn.setAttribute("aria-pressed", state.fit ? "true" : "false"); fitBtn.textContent = state.fit ? "Sovita" : "1 : 1"; }
+  fitBtn.addEventListener("click", function () { state.fit = !state.fit; store.set("fit", state.fit ? "1" : "0"); setFit(); fit(); });
+  $("reload").addEventListener("click", boot);
+  $("full").addEventListener("click", function () { location.href = "index.html" + (state.game ? "?game=" + encodeURIComponent(state.game) : ""); });
+  window.addEventListener("resize", fit);
+
+  setFit(); layout();
+  fetch("games.json").then(function (r) { return r.ok ? r.json() : []; }).catch(function () { return []; })
+    .then(function (g) { games = g; renderList(); });
+  boot();
+})();
+</script>
+</body>
+</html>
