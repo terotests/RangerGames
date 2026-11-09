@@ -3,8 +3,11 @@
 # on GitHub Pages from the default branch.
 name: CI
 
+# pushes to main, and pull requests (a branch with a PR got two identical
+# runs per push before, and the runners queued up behind them)
 on:
   push:
+    branches: [main]
   pull_request:
   workflow_dispatch:
 
