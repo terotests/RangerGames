@@ -12,7 +12,7 @@
 // A wrong answer is a hint, never a punishment: the thing tapped is named,
 // and the question is said again.
 
-import { WORDS, COLORS, OBJECTS, FIND_COLORS, PLACES, MENU, CAFE_MAX, STORY } from "lib/words";
+import { WORDS, COLORS, OBJECTS, FIND_COLORS, PLACES, MENU, CAFE_MAX, STORY, clipTexts } from "lib/words";
 
 type Mode = "menu" | "sanat" | "etsi" | "kahvila" | "tarina" | "done";
 type Later = { at: number; f: () => void };
@@ -21,10 +21,10 @@ type Spark = { x: number; y: number; vx: number; vy: number; t: number; c: strin
 const SPARK = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#ffffff"];
 const PRAISE = ["great", "well_done", "super", "good_job", "correct"];
 const GAMES = [
-  { id: "sanat", e: "🍎", name: "Sanat", sub: "Kuuntele ja muista", color: "#ef476f" },
-  { id: "etsi", e: "🔑", name: "Etsi", sub: "Find the red key", color: "#118ab2" },
-  { id: "kahvila", e: "🍰", name: "Kahvila", sub: "Palvele asiakkaita", color: "#f78c6b" },
-  { id: "tarina", e: "📖", name: "Tarina", sub: "Pipin päivä", color: "#06a77d" },
+  { id: "sanat", e: "🍎", name: "Sanat", sub: "Kuuntele ja valitse kuva", color: "#ef476f" },
+  { id: "etsi", e: "🔑", name: "Etsi", sub: "Etsi värikkäät esineet", color: "#118ab2" },
+  { id: "kahvila", e: "🍰", name: "Kahvila", sub: "Palvele eläinasiakkaita", color: "#f78c6b" },
+  { id: "tarina", e: "📖", name: "Tarina", sub: "Pip-koiran päivä", color: "#06a77d" },
 ];
 
 let mode: Mode = "menu";
@@ -59,6 +59,53 @@ function say(ids: any, opts?: any) {
   for (const id of a) if (id) out.push(lang + ":" + id);
   rg.say(out, opts);
 }
+// the clip texts, shown on the screen as they are said (the game works without sound too)
+const TEXTS: any = { en: clipTexts("en"), es: clipTexts("es") };
+function txt(id: string) { const T = TEXTS[lang]; return T.game[id] || T.common[id] || ""; }
+// the task card: the sentence in the chosen language, and in Finnish what to do
+let card = { text: "", fi: "", bold: "" };
+// bold: the words of the text to show in bold (the word being learnt)
+function setCard(text: string, fi: string, bold?: string) { card = { text: text, fi: fi, bold: bold || "" }; }
+// feedback: ✓ or ✗ with what was said, shown for a moment
+let fb = { text: "", ok: true, at: -9 };
+function feedback(ok: boolean, ids: string[]) {
+  fb = { text: (ok ? "✓ " : "✗ ") + ids.map((i) => txt(i)).filter((x) => !!x).join(" "), ok: ok, at: t };
+  say(ids);
+}
+function Card(small?: boolean) {
+  return (
+    <div className="task" id="task" onClick={() => repeat()}>
+      <div className="twords">{Words(card.text, card.bold, small)}</div>
+      <div className="tfi">{card.fi}</div>
+    </div>
+  );
+}
+// the text as one box per word, so that the learnt word can be bold and coloured
+function Words(text: string, bold: string, small?: boolean) {
+  const bw = bold.toLowerCase().split(" ").filter((x) => !!x);
+  const ws = text.split(" ").filter((x) => !!x);
+  // where the bold words start in the text (ignoring punctuation and case)
+  const clean = (x: string) => x.toLowerCase().replace(/[¿?¡!.,:]/g, "");
+  let at = -1;
+  for (let i = 0; bw.length && i + bw.length <= ws.length; i++) {
+    let ok = true;
+    for (let k = 0; k < bw.length; k++) if (clean(ws[i + k]) !== clean(bw[k])) ok = false;
+    if (ok) { at = i; break; }
+  }
+  return ws.map((w, i) => {
+    const b = at >= 0 && i >= at && i < at + bw.length;
+    return <div className={(small ? "tw s" : "tw") + (b ? " b" : "")}>{w}</div>;
+  });
+}
+function Feedback() {
+  const age = t - fb.at;
+  if (age > 2.6 || !fb.text) return null;
+  return <div className={fb.ok ? "fb ok" : "fb bad"} style={{ opacity: String(Math.min(1, (2.6 - age) * 3)) }}>{fb.text}</div>;
+}
+function repeat() {
+  if (mode === "sanat") sAsk(); else if (mode === "etsi") eAsk(); else if (mode === "kahvila") cAsk(false); else if (mode === "tarina") say("kp_" + scene.id);
+}
+function fiWord(w: any) { return w.fi; }
 function praise() { praiseN++; return PRAISE[praiseN % PRAISE.length]; }
 function later(s: number, f: () => void) { laters.push({ at: t + s, f: f }); }
 function word(id: string): any { for (const w of WORDS) if (w.id === id) return w; return WORDS[0]; }
@@ -147,6 +194,7 @@ let sTask = 0;
 let sTarget: any = WORDS[0];
 let sChoices: any[] = [];
 let sShake: number[] = [];
+let sTapped: number[] = [];      // the wrong pictures tapped: their words are shown
 let sSolved = -1;
 let sMistakes = 0;
 let sRecent: string[] = [];
@@ -176,7 +224,7 @@ function sNext() {
       cards.push({ w: w, text: hard, open: false, done: false, at: 0 });
     }
     sCards = rg.shuffle(cards);
-    say("kp_pairs");
+    sAsk();
     return;
   }
   const short = (w: any) => { const b = bare(w); return b.indexOf(" ") < 0 && b.length <= 7; };
@@ -188,6 +236,7 @@ function sNext() {
   const others = rg.shuffle(WORDS.filter((w: any) => w.id !== sTarget.id && w.c === sTarget.c)).slice(0, n - 1);
   sChoices = rg.shuffle([sTarget].concat(others));
   sShake = sChoices.map(() => 0);
+  sTapped = [];
   if (sKind === "build") {
     sBuilt = "";
     const letters = bare(sTarget).toUpperCase().split("");
@@ -197,10 +246,20 @@ function sNext() {
 }
 
 function sAsk() {
-  if (sKind === "pick") say("kp_where_" + sTarget.id);
-  else if (sKind === "recall") say("kp_what");
-  else if (sKind === "build") say(["kp_build", sTarget.id]);
-  else say("kp_pairs");
+  if (sKind === "pick") {
+    setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.", label(sTarget));
+    // the sentence, then the word alone: the word is the one to learn
+    say(["kp_where_" + sTarget.id, sTarget.id]);
+  } else if (sKind === "recall") {
+    setCard(txt("kp_what"), "Mikä tämä on? Napauta oikeaa sanaa. 🔊 sanoo sanan ääneen.");
+    say("kp_what");
+  } else if (sKind === "build") {
+    setCard(txt("kp_build") + "  " + bare(sTarget).toUpperCase(), "Kokoa sana kirjaimista oikeassa järjestyksessä (" + fiWord(sTarget) + ").", bare(sTarget).toUpperCase());
+    say(["kp_build", sTarget.id]);
+  } else {
+    setCard(txt("kp_pairs"), hard ? "Käännä kortteja: yhdistä kuva ja sana." : "Käännä kaksi korttia. Etsi samat kuvat.");
+    say("kp_pairs");
+  }
 }
 
 function sWin() {
@@ -216,15 +275,16 @@ function sPick(i: number) {
   const w = sChoices[i];
   if (w.id === sTarget.id) {
     grade(w.id, sMistakes === 0);
-    say([w.id, praise()]);
+    feedback(true, [w.id, sKind === "pick" ? "correct" : praise()]);
     sWin();
   } else {
     sMistakes++;
     sShake[i] = t;
+    sTapped.push(i);
     rg.sound("wrong");
     rg.vibrate(50);
     // name what was tapped, then ask again
-    say([w.id, sKind === "pick" ? "kp_where_" + sTarget.id : "try_again"]);
+    feedback(false, [w.id, sKind === "pick" ? "kp_where_" + sTarget.id : "try_again"]);
   }
 }
 
@@ -245,10 +305,12 @@ function sCard(i: number) {
       rg.sound("coin");
       burst(width / 2, height * 0.5, 10);
       grade(c.w.id, true);
-      if (sCards.every((x) => x.done)) { say(praise()); sWin(); }
+      if (sCards.every((x) => x.done)) { feedback(true, [praise()]); sWin(); }
+      else fb = { text: "✓ " + label(c.w), ok: true, at: t };
     });
   } else {
     sMistakes++;
+    fb = { text: "✗ " + label(a.w) + " ≠ " + label(c.w), ok: false, at: t };
     later(1.1, () => { a.open = false; c.open = false; });
   }
 }
@@ -264,12 +326,13 @@ function sLetter(i: number) {
     rg.sound("pop", { pitch: 1 + sBuilt.length * 0.08 });
     if (sBuilt.length === bare(sTarget).length) {
       grade(sTarget.id, sMistakes === 0);
-      say([sTarget.id, praise()]);
+      feedback(true, [sTarget.id, praise()]);
       sWin();
     }
   } else {
     l.at = t;
     sMistakes++;
+    fb.text = "✗ " + (lang === "es" ? "No es " : "Not ") + l.ch;
     rg.sound("wrong");
     rg.vibrate(40);
   }
@@ -282,15 +345,15 @@ function Sanat() {
       <div className="speak" id="ask" onClick={() => sAsk()}>🔊</div>
     </div>
   );
+  const top = [head, Card()];
   if (sKind === "memory") {
     return (
       <div className="screen">
-        {head}
-        <div className="hint">👂 + 👆 = 👯</div>
+        {top}
         <div className={hard ? "cards c4" : "cards c3"}>
           {sCards.map((c, i) => (
             <div className={(c.done ? "mcard done" : c.open ? "mcard open" : "mcard") + (hard ? " sm" : "")} id={"mc" + i} onClick={() => sCard(i)}>
-              {c.open || c.done ? (c.text ? <div className="mtext">{label(c.w)}</div> : <div className={hard ? "memo sm" : "memo"}>{c.w.e}</div>) : <div className="mback">?</div>}
+              {c.open || c.done ? (c.text ? <div className="mtext">{label(c.w)}</div> : <div className="mpic"><div className={hard ? "memo sm" : "memo"}>{c.w.e}</div><div className="mlabel">{label(c.w)}</div></div>) : <div className="mback">?</div>}
             </div>
           ))}
         </div>
@@ -303,7 +366,7 @@ function Sanat() {
     for (let i = 0; i < w.length; i++) slots.push(<div className={i < sBuilt.length ? "slot full" : "slot"}>{i < sBuilt.length ? w.charAt(i) : ""}</div>);
     return (
       <div className="screen">
-        {head}
+        {top}
         <div className="bigpic" id="pic" onClick={() => say(sTarget.id)} style={{ marginTop: Math.sin(t * 2.2) * 5 }}>{sTarget.e}</div>
         <div className="slots">{slots}</div>
         <div className="letters">
@@ -318,7 +381,7 @@ function Sanat() {
   if (sKind === "recall") {
     return (
       <div className="screen">
-        {head}
+        {top}
         <div className="bigpic" id="pic" style={{ marginTop: Math.sin(t * 2.2) * 5 }}>{sTarget.e}</div>
         <div className="rlist">
           {sChoices.map((w, i) => {
@@ -337,7 +400,7 @@ function Sanat() {
   }
   return (
     <div className="screen">
-      {head}
+      {top}
       <div className={sChoices.length > 3 ? "picks p4" : "picks p3"}>
         {sChoices.map((w, i) => {
           const ok = sSolved >= 0 && w.id === sTarget.id;
@@ -345,7 +408,9 @@ function Sanat() {
           return (
             <div className={(ok ? "pcard ok" : "pcard") + (sChoices.length > 3 ? "" : " w3")} id={"pc" + i} onClick={() => sPick(i)} style={{ marginLeft: 8 + dx, marginRight: 8 - dx }}>
               <div className="pemo">{w.e}</div>
-              {ok ? <div className="plabel">{label(w)}</div> : null}
+              {ok ? <div className="plabel ok">{label(w)}</div> : null}
+              {ok ? <div className="pright">{txt("correct")}</div> : null}
+              {!ok && sTapped.indexOf(i) >= 0 ? <div className="plabel bad">{label(w)}</div> : null}
             </div>
           );
         })}
@@ -359,7 +424,7 @@ function Sanat() {
 type Item = { o: string; c: string; x: number; y: number; done: boolean; at: number; fly: number; px: number; py: number };
 type Zone = { id: string; x: number; y: number; w: number; h: number };
 const E_ROUND = 5;
-const SCENE_TOP = 112;
+const SCENE_TOP = 184;
 let items: Item[] = [];
 let eTarget = 0;
 let ePlace = "";
@@ -376,14 +441,14 @@ function startEtsi() {
   rg.music("calm", { volume: 0.3 });
   eLayout();
   eNext();
-  say(hard ? ["kp_tidy", "kp_put_" + items[eTarget].c + "_" + items[eTarget].o, "kp_" + ePlace] : ["kp_keys", "kp_find_" + items[eTarget].c + "_" + items[eTarget].o], { queue: false });
+  eAsk();
 }
 
 // spots on the floor and the shelf; in the 8 v room the right side holds the bed, box and basket
 function eLayout() {
   const spots: number[][] = hard
-    ? [[16, 200], [86, 200], [16, 262], [86, 262], [16, 320], [86, 320], [140, 320]]
-    : [[30, 96], [110, 96], [190, 96], [270, 96], [20, 196], [100, 214], [190, 196], [270, 214], [30, 300], [120, 314], [210, 300]];
+    ? [[16, 146], [86, 146], [16, 204], [86, 204], [16, 260], [86, 260], [140, 260]]
+    : [[30, 46], [110, 46], [190, 46], [270, 46], [20, 146], [100, 164], [190, 146], [270, 164], [30, 244], [120, 258], [210, 244]];
   const sp = rg.shuffle(spots).slice(0, hard ? 7 : 9);
   items = [];
   const combos: string[] = [];
@@ -400,10 +465,10 @@ function eLayout() {
 
 function zones(): Zone[] {
   return [
-    { id: "in_box", x: 196, y: 100, w: 70, h: 64 },
-    { id: "in_basket", x: 276, y: 100, w: 70, h: 64 },
-    { id: "on_bed", x: 196, y: 196, w: 150, h: 46 },
-    { id: "under_bed", x: 196, y: 262, w: 150, h: 50 },
+    { id: "in_box", x: 196, y: 50, w: 70, h: 64 },
+    { id: "in_basket", x: 276, y: 50, w: 70, h: 64 },
+    { id: "on_bed", x: 196, y: 146, w: 150, h: 46 },
+    { id: "under_bed", x: 196, y: 212, w: 150, h: 50 },
   ];
 }
 
@@ -424,23 +489,37 @@ function eNext() {
   if (hard) ePlace = rg.pick(PLACES).id;
 }
 
+// "the red key" / "la llave roja", and in Finnish "punainen avain"
+function np(it: Item) {
+  const c = color(it.c), w = word(it.o);
+  let g = "m";
+  for (const o of OBJECTS) if (o.id === it.o) g = o.g;
+  return lang === "en" ? c.en + " " + w.en : w.es + " " + (g === "f" ? c.esf : c.es);
+}
+function npFi(it: Item) { return color(it.c).fi + " " + word(it.o).fi; }
+function placeFi(id: string) { for (const p of PLACES) if (p.id === id) return p.fi; return ""; }
 function eAsk() {
   const it = items[eTarget];
-  if (hard) say(["kp_put_" + it.c + "_" + it.o, "kp_" + ePlace]);
-  else say("kp_find_" + it.c + "_" + it.o);
+  if (hard) {
+    setCard(txt("kp_put_" + it.c + "_" + it.o) + " " + txt("kp_" + ePlace), "Napauta " + npFi(it) + ", sitten " + placeFi(ePlace), np(it));
+    say(["kp_put_" + it.c + "_" + it.o, "kp_" + ePlace]);
+  } else {
+    setCard(txt("kp_find_" + it.c + "_" + it.o), "Etsi ja napauta: " + npFi(it), np(it));
+    say("kp_find_" + it.c + "_" + it.o);
+  }
 }
 
 function eWin() {
   eDone = t;
   if (eMistakes === 0) stars++;
   rg.sound(eMistakes === 0 ? "star" : "coin");
-  say(praise());
+  feedback(true, [praise()]);
   later(1.5, () => {
     eTask++;
     if (eTask >= E_ROUND) {
       eOpen = t;
       rg.sound("win");
-      say(hard ? "you_did_it" : "kp_open");
+      feedback(true, [hard ? "you_did_it" : "kp_open"]);
       rg.celebrate(width / 2, height * 0.6, { big: true, sound: false });
       later(3.2, () => { mode = "etsi"; finish(stars, E_ROUND); });
     } else { eNext(); eAsk(); }
@@ -455,6 +534,7 @@ function eTap(i: number) {
     eSel = i;
     it.at = 0;
     rg.sound("pop");
+    fb = { text: "👆 " + np(it) + " → ?", ok: true, at: t };
     return;
   }
   if (i === eTarget) {
@@ -473,6 +553,7 @@ function eMiss(i: number) {
   rg.sound("wrong");
   rg.vibrate(50);
   say(["try_again"]);
+  fb = { text: "✗ " + np(items[i]) + " — " + txt("try_again"), ok: false, at: t };
   later(1.0, () => eAsk());
 }
 
@@ -486,6 +567,7 @@ function eZone(z: Zone) {
     rg.sound("wrong");
     rg.vibrate(50);
     say(["try_again"]);
+    fb = { text: "✗ " + txt("kp_" + z.id) + " — " + txt("try_again"), ok: false, at: t };
     later(1.0, () => eAsk());
     return;
   }
@@ -562,26 +644,26 @@ function Etsi() {
   const out: any[] = [];
   if (hard) {
     // the bed, the box and the basket
-    out.push(<div className="eshelf" style={{ left: 190, top: 162, width: 162 }} />);
-    out.push(<div className="ebox" style={{ left: 200, top: 116 }}><div className="eboxlbl">📦</div></div>);
-    out.push(<div className="ebasket" style={{ left: 280, top: 116 }}><div className="eboxlbl">🧺</div></div>);
-    out.push(<div className="mattress" style={{ left: 196, top: 236 }} />);
-    out.push(<div className="pillow" style={{ left: 204, top: 226 }} />);
-    out.push(<div className="headboard" style={{ left: 190, top: 206 }} />);
-    out.push(<div className="bedleg" style={{ left: 200, top: 254 }} />);
-    out.push(<div className="bedleg" style={{ left: 334, top: 254 }} />);
+    out.push(<div className="eshelf" style={{ left: 190, top: 112, width: 162 }} />);
+    out.push(<div className="ebox" style={{ left: 200, top: 66 }}><div className="eboxlbl">📦</div></div>);
+    out.push(<div className="ebasket" style={{ left: 280, top: 66 }}><div className="eboxlbl">🧺</div></div>);
+    out.push(<div className="mattress" style={{ left: 196, top: 186 }} />);
+    out.push(<div className="pillow" style={{ left: 204, top: 176 }} />);
+    out.push(<div className="headboard" style={{ left: 190, top: 156 }} />);
+    out.push(<div className="bedleg" style={{ left: 200, top: 204 }} />);
+    out.push(<div className="bedleg" style={{ left: 334, top: 204 }} />);
     for (const z of zones()) {
       out.push(<div className={eSel >= 0 ? "zone hot" : "zone"} id={"z-" + z.id} onClick={() => eZone(z)} style={{ left: z.x, top: z.y, width: z.w, height: z.h }} />);
     }
   } else {
-    out.push(<div className="eshelf" style={{ left: 16, top: 150, width: 328 }} />);
+    out.push(<div className="eshelf" style={{ left: 16, top: 100, width: 328 }} />);
   }
   items.forEach((it, i) => {
     let x = it.x, y = it.y, sc = 1, op = 1;
     if (it.done && it.fly >= 0) {
       const k = rg.ease.inOut(Math.min(1, (t - it.fly) / 0.7));
       if (hard) { x = rg.lerp(it.x, it.px, k); y = rg.lerp(it.y, it.py, k); sc = 1 - 0.25 * k; }
-      else { x = rg.lerp(it.x, 150, k); y = rg.lerp(it.y, 392, k); sc = 1 - 0.6 * k; op = 1 - k; }
+      else { x = rg.lerp(it.x, 150, k); y = rg.lerp(it.y, 322, k); sc = 1 - 0.6 * k; op = 1 - k; }
     }
     if (!hard && it.done && t - it.fly > 0.7) return;
     const dx = shakeX(it.at);
@@ -597,6 +679,7 @@ function Etsi() {
         {Dots(eTask, E_ROUND)}
         <div className="speak" id="ask" onClick={() => eAsk()}>🔊</div>
       </div>
+      <div className="slim">{Card(true)}</div>
       <div className="room" style={{ top: SCENE_TOP }}>
         <div className="wall" />
         <div className="floor" />
@@ -620,6 +703,7 @@ let cMistakes = 0;
 let cHappy = -1;
 let cArrive = 0;
 let cSaid = "";
+let cText = "";
 
 function startCafe() {
   mode = "kahvila";
@@ -649,16 +733,33 @@ function cAsk(hello: boolean) {
   const a: string[] = hello ? ["hello"] : [];
   if (cOrder.length === 1) a.push("kp_order" + cOrder[0].n + "_" + cOrder[0].id);
   else { a.push("kp_like2"); a.push("kp_q" + cOrder[0].n + "_" + cOrder[0].id); a.push("kp_and"); a.push("kp_q" + cOrder[1].n + "_" + cOrder[1].id); a.push("please"); }
+  cText = a.filter((x) => x !== "hello").map((x) => txt(x)).join(" ").replace(/ please$/, ", please.").replace(/ por favor$/, ", por favor.");
   say(a);
 }
 
 function count(id: string) { return tray.filter((x) => x === id).length; }
 
+// a tap on the menu: the right thing goes on the tray at once (and the order is
+// served when it is complete); a wrong one or one too many gets a hint instead
 function cAdd(id: string) {
   if (cHappy >= 0 || t < cArrive) return;
+  let want = 0;
+  for (const o of cOrder) if (o.id === id) want = o.n;
+  if (want === 0 || count(id) >= want) {
+    cMistakes++;
+    cHint = true;
+    rg.sound("wrong");
+    rg.vibrate(40);
+    const why = want === 0 ? "kp_not_this" : "kp_too_many";
+    fb = { text: "✗ " + label(word(id)) + " — " + txt(why), ok: false, at: t };
+    say([id, why]);
+    return;
+  }
+  tray.push(id);
   rg.sound("pop", { pitch: 1 + tray.length * 0.06 });
+  if (cOrder.every((o) => count(o.id) === o.n)) { cServe(); return; }
+  fb = { text: "✓ " + word(id).e + " " + label(word(id)), ok: true, at: t };
   say(id);
-  if (tray.length < 8) tray.push(id);
 }
 function cRemove(i: number) {
   if (cHappy >= 0) return;
@@ -677,6 +778,7 @@ function cServe() {
     if (cMistakes === 0) stars++;
     for (const o of cOrder) grade(o.id, cMistakes === 0);
     rg.sound(cMistakes === 0 ? "star" : "coin");
+    fb = { text: "✓ " + txt("kp_here") + " " + txt("thank_you"), ok: true, at: t };
     say(["kp_here", "thank_you", "kp_yummy"]);
     rg.celebrate(width / 2, 150, { sound: false });
     later(3.4, () => {
@@ -691,7 +793,7 @@ function cServe() {
   rg.sound("wrong");
   rg.vibrate(40);
   cSaid = extra ? "kp_not_this" : over ? "kp_too_many" : "kp_more";
-  say([cSaid]);
+  feedback(false, [cSaid]);
   later(1.6, () => cAsk(false));
 }
 
@@ -703,12 +805,13 @@ function Kahvila() {
   const bob = Math.sin(t * 3) * 3;
   const bubble = [];
   if (here && !happy) {
+    bubble.push(<div className="btext">{cText}</div>);
     if (cHint || (!hard && cMistakes > 0)) {
       for (const o of cOrder) {
         const n = []; for (let k = 0; k < o.n; k++) n.push(<div className="bemo">{word(o.id).e}</div>);
         bubble.push(<div className="brow"><div className="bnum">{o.n}</div>{n}</div>);
       }
-    } else bubble.push(<div className="bemo">💬</div>);
+    }
   }
   return (
     <div className="screen cafe">
@@ -724,12 +827,12 @@ function Kahvila() {
       </div>
       <div className="counter">
         <div className="tray" id="tray">
-          {tray.length === 0 ? <div className="trayhint">🍽️</div> : tray.map((id, i) => <div className="titem" id={"tr" + i} onClick={() => cRemove(i)}>{word(id).e}</div>)}
+          {tray.length === 0 ? <div className="trayhelp">Napauta ruokia tarjottimelle 👇</div> : tray.map((id, i) => <div className="titem" id={"tr" + i} onClick={() => cRemove(i)}>{word(id).e}</div>)}
         </div>
-        <div className={tray.length ? "serve" : "serve off"} id="serve" onClick={() => cServe()}>🛎️</div>
       </div>
+      <div className="cafefi">Kuuntele tai lue tilaus ja napauta oikeat ruoat.</div>
       <div className="menu">
-        {MENU.map((m) => <div className="mitem" id={"m-" + m.id} onClick={() => cAdd(m.id)}>{word(m.id).e}</div>)}
+        {MENU.map((m) => <div className="mitem" id={"m-" + m.id} onClick={() => cAdd(m.id)}><div className="miemo">{word(m.id).e}</div></div>)}
       </div>
     </div>
   );
@@ -764,7 +867,7 @@ function tChoose(i: number) {
   chosen = i;
   const c = scene.choices[i];
   rg.sound("pop");
-  say("kp_" + c.id);
+  feedback(true, ["kp_" + c.id]);
   later(1.9, () => goScene(c.next));
 }
 
@@ -789,6 +892,7 @@ function Tarina() {
       </div>
       <div className={night ? "line night" : "line"}>{scene[lang]}</div>
       {showFi ? <div className={night ? "finn night" : "finn"}>{scene.fi}</div> : null}
+      <div className={night ? "thelp night" : "thelp"}>{scene.choices ? "Valitse kuva: mitä tapahtuu seuraavaksi?" : scene.next ? "Paina ▶ jatkaaksesi. 🇫🇮 näyttää suomeksi." : "Tarina loppui!"}</div>
       {scene.choices ? (
         <div className="tchoices">
           {scene.choices.map((c: any, i: number) => (
@@ -827,6 +931,7 @@ function Menu() {
   return (
     <div className="screen">
       <div className="title" style={{ marginTop: 34 + bob }}>Kielipelit</div>
+      <div className="mhelp">Valitse kieli, taso ja peli</div>
       <div className="flags">
         <div className={lang === "en" ? "flag on" : "flag"} id="en" onClick={() => setLang("en")}>
           <div className="femo">🇬🇧</div><div className="fname">English</div>
@@ -846,7 +951,8 @@ function Menu() {
             <div className="gcard" id={"g-" + g.id} onClick={() => start(g.id)} style={{ backgroundColor: g.color, marginTop: 12 + Math.sin(t * 2 + i) * 2 }}>
               <div className="gemo">{g.e}</div>
               <div className="gname">{g.name}</div>
-              <div className="gsub">{b ? "⭐ " + b : g.sub}</div>
+              <div className="gsub">{g.sub}</div>
+              {b ? <div className="gsub">{"⭐ " + b}</div> : null}
             </div>
           );
         })}
@@ -916,6 +1022,7 @@ function view() {
   return (
     <div className="root">
       {body}
+      {mode !== "menu" && mode !== "done" ? Feedback() : null}
       {sparks.map((s) => <div className="spark" style={{ left: s.x, top: s.y, opacity: String(1 - s.t / 1.2), backgroundColor: s.c }} />)}
     </div>
   );

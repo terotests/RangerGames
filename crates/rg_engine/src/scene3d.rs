@@ -8,7 +8,7 @@
 //! ```text
 //! rg.three("scene",  { background: "#87ceeb" | ["#top", "#bottom"], fog: [near, far], fogColor,
 //!                      ground: { y, color } })            // an endless floor at height y
-//! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov })
+//! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star",
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
@@ -17,7 +17,13 @@
 //! rg.three("remove", { id })
 //! rg.three("clear")
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
+//! rg.three("planet", { id, x, y, z, r, spin, tilt, glowing, remove,  // a globe in the scene, in
+//!                      regions, ocean, land, colors, bands, … })      // perspective (globe.rs's options)
+//! rg.three("space",  { sun: [x, y, z], stars })   // the light of the planets; a sky of `stars` stars
 //! ```
+//!
+//! Planets are drawn after the sky (and stars), far ones first, and before
+//! the shapes, so a ship flying near a planet stays in front of it.
 //!
 //! Faces are sorted far to near (painter's algorithm) and the ones facing
 //! away are skipped, so solid convex shapes look right; a big flat floor is
@@ -223,11 +229,42 @@ pub struct Scene {
     ground: Option<(f64, V3)>,
     cam: V3,
     look: V3,
+    /// the camera's up (default world up): a ship can roll over
+    up: V3,
     fov: f64,
     /// polygons drawn in the last frame
     pub drawn: usize,
     /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
     pub globe: Option<crate::globe::Globe>,
+    planets: Vec<Planet>,
+    sun: Option<V3>,
+    stars: Vec<(V3, f64)>,
+}
+
+/// A globe placed in the scene (rg.three("planet", …)).
+struct Planet {
+    id: String,
+    globe: crate::globe::Globe,
+    pos: V3,
+    r: f64,
+    spin: f64,
+    tilt: f64,
+    glowing: bool,
+}
+
+impl Planet {
+    /// The world directions of the globe's own x, y and z: its north pole is
+    /// world up (tilted by `tilt` round z), and it turns by `spin` round its pole.
+    fn axes(&self) -> [V3; 3] {
+        let (ss, cs) = self.spin.sin_cos();
+        let (st, ct) = self.tilt.sin_cos();
+        // untilted: own z (north) = world y; own x, y in the world's x-z plane
+        let x0 = [cs, 0.0, -ss];
+        let y0 = [-ss, 0.0, -cs];
+        let z0 = [0.0, 1.0, 0.0];
+        let tilt = |v: V3| -> V3 { [v[0] * ct - v[1] * st, v[0] * st + v[1] * ct, v[2]] };
+        [tilt(x0), tilt(y0), tilt(z0)]
+    }
 }
 
 struct Poly {
@@ -253,9 +290,13 @@ impl Scene {
             ground: None,
             cam: [0.0, 4.0, 8.0],
             look: [0.0, 0.0, 0.0],
+            up: [0.0, 1.0, 0.0],
             fov: 50.0,
             drawn: 0,
             globe: None,
+            planets: Vec::new(),
+            sun: None,
+            stars: Vec::new(),
         };
         s.default_lights();
         s
@@ -310,6 +351,14 @@ impl Scene {
                 if let Json::Arr(v) = a.get("lookAt") {
                     if v.len() >= 3 {
                         self.look = [v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)];
+                    }
+                }
+                if let Json::Arr(v) = a.get("up") {
+                    if v.len() >= 3 {
+                        let up = norm([v[0].as_num(0.0), v[1].as_num(1.0), v[2].as_num(0.0)]);
+                        if dot(up, up) > 0.5 {
+                            self.up = up;
+                        }
                     }
                 }
                 self.fov = a.get("fov").as_num(self.fov);
@@ -369,6 +418,57 @@ impl Scene {
                 let id = a.get("id").as_str();
                 self.objs.retain(|x| x.id != id);
             }
+            "planet" => {
+                self.active = true;
+                let id = a.get("id").as_str();
+                if a.get("remove").as_bool() {
+                    self.planets.retain(|p| p.id != id);
+                    return;
+                }
+                let i = match self.planets.iter().position(|p| p.id == id) {
+                    Some(i) => i,
+                    None => {
+                        let mut g = crate::globe::Globe::new();
+                        // planets: no map grid, no borders, no glow unless asked for
+                        g.command(&rg_core::json::parse(r#"{"grid":false,"border":false,"glow":false,"night":0.85}"#));
+                        self.planets.push(Planet { id: id.clone(), globe: g, pos: [0.0; 3], r: 1.0, spin: 0.0, tilt: 0.0, glowing: false });
+                        self.planets.len() - 1
+                    }
+                };
+                let p = &mut self.planets[i];
+                p.pos = get3(a, ["x", "y", "z"], p.pos);
+                p.r = a.get("r").as_num(p.r);
+                p.spin = a.get("spin").as_num(p.spin);
+                p.tilt = a.get("tilt").as_num(p.tilt);
+                if let Json::Bool(v) = a.get("glowing") {
+                    p.glowing = v;
+                }
+                p.globe.command(a);
+            }
+            "space" => {
+                self.active = true;
+                if let Json::Arr(v) = a.get("sun") {
+                    if v.len() >= 3 {
+                        self.sun = Some([v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)]);
+                    }
+                }
+                let n = a.get("stars");
+                if !n.is_null() {
+                    let n = n.as_num(0.0).max(0.0) as usize;
+                    let mut seed: u32 = 7;
+                    let mut rnd = || {
+                        seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
+                        (seed >> 8) as f64 / 16777216.0
+                    };
+                    self.stars = (0..n).map(|_| {
+                        let z = rnd() * 2.0 - 1.0;
+                        let t = rnd() * std::f64::consts::TAU;
+                        let s = (1.0 - z * z).sqrt();
+                        let b = rnd();
+                        ([s * t.cos(), z, s * t.sin()], b * b)
+                    }).collect();
+                }
+            }
             "globe" => {
                 self.active = true;
                 self.globe.get_or_insert_with(crate::globe::Globe::new).command(a);
@@ -421,13 +521,57 @@ impl Scene {
             g.render(out, w, h);
         }
         let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, [0.0, 1.0, 0.0]));
+        let mut r = norm(cross(f, self.up));
         if dot(r, r) < 0.5 {
-            r = [1.0, 0.0, 0.0];
+            r = norm(cross(f, [1.0, 0.0, 0.0]));
+            if dot(r, r) < 0.5 {
+                r = [1.0, 0.0, 0.0];
+            }
         }
         let u = cross(r, f);
         let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
         let near = 0.05;
+        if !self.stars.is_empty() {
+            // tiny squares, in three brightnesses, each as one path
+            let mut groups: [(Vec<f32>, Vec<f32>); 3] = [(Vec::new(), Vec::new()), (Vec::new(), Vec::new()), (Vec::new(), Vec::new())];
+            for (d, b) in self.stars.iter() {
+                let z = dot(*d, f);
+                if z < 0.05 {
+                    continue;
+                }
+                let x = w / 2.0 + dot(*d, r) / z * focal;
+                let y = h / 2.0 - dot(*d, u) / z * focal;
+                if x < 0.0 || y < 0.0 || x > w || y > h {
+                    continue;
+                }
+                let k = if *b > 0.6 { 2 } else if *b > 0.2 { 1 } else { 0 };
+                let s = (0.6 + 0.5 * k as f64) as f32;
+                let (x, y) = (x as f32, y as f32);
+                let g = &mut groups[k];
+                g.0.extend_from_slice(&[x - s, y - s, x + s, y - s, x + s, y + s, x - s, y + s]);
+                g.1.push(g.0.len() as f32);
+            }
+            for (k, g) in groups.iter().enumerate() {
+                if !g.1.is_empty() {
+                    let c = [[0.55, 0.6, 0.75], [0.8, 0.82, 0.9], [1.0, 1.0, 1.0]][k];
+                    out.rings(6, c, 1.0, 0.0, &g.0, &g.1);
+                }
+            }
+        }
+        if !self.planets.is_empty() {
+            let cam3 = crate::globe::Cam3 { eye: self.cam, right: r, up: u, fwd: f, focal, w, h, near: near * 0.2 };
+            let mut order: Vec<(f64, usize)> = self.planets.iter().enumerate().map(|(i, p)| {
+                let d = sub(p.pos, self.cam);
+                (dot(d, d).sqrt() - p.r, i)
+            }).collect();
+            order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+            let sun = self.sun;
+            for (_, i) in order {
+                let p = &mut self.planets[i];
+                let place = crate::globe::Place3 { centre: p.pos, radius: p.r, axes: p.axes() };
+                p.globe.render_3d(out, &cam3, &place, sun, p.glowing);
+            }
+        }
         let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);

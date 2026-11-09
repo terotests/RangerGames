@@ -44,6 +44,8 @@ if [[ -d "$GAMES/_voice" ]]; then
   (cd "$GAMES" && find _voice -name '*.wav' | while read -r f; do mkdir -p "../web/games/$(dirname "$f")"; mv "$f" "../web/games/$f"; done)
 fi
 ./target/release/rg_cli pack "$GAMES" "$OUT/games.rgpk"
+# the real sizes for the loading screen's percentage (host.js)
+echo "{\"rg_web.wasm\": $(stat -c %s "$OUT/rg_web.wasm"), \"games.rgpk\": $(stat -c %s "$OUT/games.rgpk")}" > "$OUT/sizes.json"
 # the games' list for the playground (playground.html): every game.json not hidden
 node -e '
 const fs = require("fs"), path = require("path");

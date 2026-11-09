@@ -46,7 +46,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 
 | Peli | Mitä |
 | --- | --- |
-| `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Ohjaus: pidä sormea vasemmalla/oikealla puolella (tai nuolinäppäimet). |
+| `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Pienille sopiva: kolme sydäntä, putoamisesta pelastuspilvi, reunat ovat seiniä. Ohjaus: pupu hyppää sormen kohdalle, napautus riittää (tai nuolinäppäimet). |
 | `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella tai puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa). |
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
@@ -56,6 +56,13 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `kopteri` – **Kopterilento** | Maantietoa helikopterilla. Tampere ylhäältä: etsi Näsinneula, tuomiokirkko, rautatieasema, Tammerkoski … (kotien paikat eivät ole mukana). Maapallo: ensin mantereet (jokaisella oma väri ja muoto tehtäväkortissa, joten lukutaitoa ei tarvita), sitten tutut maat, lisää maita ja vaikeat maat. Pallo pyörii kopterin alla, löydöstä pisteitä (nopeasta enemmän), ja hetken päästä nuoli näyttää suunnan (❓ heti). Ohjaus: pidä sormea sinne, minne haluat lentää (tai nuolinäppäimet), ➕/➖ zoomaa. Maiden rajat: Natural Earth (public domain), `tools/kopteri/build.py`. |
 | `vuodenajat` – **Vuodenajat** | Suomen eläinten vuosi yhdessä maisemassa (metsänreuna ja järvi pohjaan asti): talvi- ja kesäturkit (jänis, kärppä, riekko), talvipesät (karhu, siili, mäyrä, sammakko, orava), ruokavarastot (orava, närhi), muuttolinnut, onkiminen veneestä kesällä ja pilkkiminen talvella (made kutee jään alla). Ohjeet puhutaan, joten lukutaitoa ei tarvita. Kuvat ovat omia piirroksia (`tools/vuodenajat/art.js` → `render.js`), kalat Onkipelistä; puheet `tools/vuodenajat/voice.js` → `voice/fi.json`. |
 | `muutto` – **Muuttolintu** | Vuodenajat ja aurinko muuttolinnun silmin. Valitse laji (laulujoutsen ⇄ Tanska, kurki ⇄ Etiopia, haarapääsky ⇄ Etelä-Afrikka, lapintiira ⇄ Etelämanner) ja lennä keväällä Suomeen pesimään, ruoki poikaset ja lennä syksyllä takaisin. Vuosi kulkee nopeasti lentäessä: maapallolla lumi sulaa ja tulee, kevään vihreä ja syksyn ruska kulkevat leveyspiirejä pitkin, ja valaistus on keskipäivä linnun kohdalla, joten talven puoleinen napa on pimeässä. Pieni ikkuna näyttää maapallon kiertämässä aurinkoa akseli aina samaan suuntaan kallellaan (napauta: aurinko selitetään ääneen). Pisteet näyttävät lajin oikean reitin, ruoka matkalla antaa voimia, lumessa tulee kylmä. Ohjaus kuin Kopterilennossa. `tools/muutto/build.py`. |
+| `vipu` – **Vipuvaaka** | Tiedepeli: vaaka tasapainotetaan punnuksilla (lisää tai siirrä) ja kaatamalla vettä ämpäriin. Opitaan vipuvarsi, vääntö = paino × etäisyys: nuolet näyttävät kummankin puolen väännön ja laskut kirjoitetaan auki. |
+| `lamppu` – **Lamppulabra** | Sähköoppia: valitse paristo (1,5 V, 4,5 V, 9 V) ja vastus (1–100 Ω, oikeat värikoodit). Mitä pienempi vastus, sitä kirkkaammin lamppu palaa; yli 9 W:lla lamppu poksahtaa ja muuttuu mustaksi. Ohmin laki I = U / (R + 6 Ω) näkyy mittarissa. Löydettävänä yövalo, kirkas valo ja "melkein poksahti". |
+| `peilit` – **Valopeilit** | Valo-oppia peileillä: valo ohjataan kukalle, aurinkopaneelille, kissalle, liskolle tai pyykille (mutta ei pöllölle) heijastuslain avulla. Peilit kääntyvät 22,5° askelin, puolipeili jakaa säteen, ja valitun peilin tulo- ja heijastuskulma näytetään. Tasojen ratkeavuus ja vähin peilimäärä tarkistetaan `node tools/peilit/solve.ts`:llä (CI ajaa sen). |
+| `magneetti` – **Magneettipaja** | Fysiikkapeli: magneetin punainen tai sininen napa vetää rautaa ja terästä, hylkii tai vetää toisia magneetteja ja kuljettaa kuulan esteiden läpi. Opitaan vetovoima, hylkiminen ja mitkä aineet ovat magneettisia. Oma 2D-fysiikkamoottori pelin kansiossa (`lib/fysiikka.ts`). |
+| `lampolabra` – **Lämpölabra** | Sulata jää: jääpalikat (jää, lumi, ikijää, kuivajää) ja niihin jäätyneet aarteet. Lämmittimiä on yhdeksän, ja jokaisella on oma tehonsa (tulitikku 50 W … retkikeitin 2500 W); kämmen jäätyy, jos sillä lämmittää liian kauan. Sulava jää halkeaa ja romahtaa pelin omalla 2D-fysiikalla (`games/lampolabra/lib/physics.ts`, laatikot, kitka, pinot). Opitaan lämpötila, olomuodot ja lämmön siirtyminen (johtuminen, kuljettuminen, säteily). |
+| `vesiputket` – **Vesiputket** | Vesi- ja hiekkasimulaatio: kaiva tunneleita, rakenna putkia ja kaada hiekkaa, niin vesi tai hiekka menee perille (kukat, nuotio, ankan allas, hiekkalaatikko). Säiliössä on rajallisesti vettä. Kuusi tasoa ja vapaa leikki. |
+| `painovoima` – **Painovoimalento** | Avaruuslento 3D:nä Auringon, Merkuriuksen, Venuksen, Maan, Kuun, Marsin ja Jupiterin välillä. Lähellä taivaankappale vetää rakettia puoleensa omalla painovoimallaan (oikea pintapainovoima, putoaminen vähän nopeutettuna; Kuussa leijutaan, Jupiterissa tarvitaan ⚡-tehoja), ja pinnalta raketti pomppaa kuin kumipallo. Käy jokaisella. Planeetat ovat moottorin globe (`rg.three("planet", …)`): sama kuin Muuttolinnun maapallo, mutta paikallaan 3D-näkymässä perspektiivissä ja Auringon valaisemana; ne ovat paljon todellista isompia ja lähempänä toisiaan. Ohjaus: vasen puoli ohjaa (tai nuolet), 🔥 työntää, ⚡ tehot, 🛑 jarru. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
@@ -151,8 +158,15 @@ Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
 `rate`, `accent` (painollisen tavun sävelnousu), `breathiness`, `drift`,
 `roughness`, `tension`, `vibrato` (senttiä), samat kuin CHIMERA-sovelluksen
 säätimet. Suomen äänteiden kestot tulevat `rg_voice`:sta (CHIMERAn englannin
-Klatt-säännöt lyhentävät painottomat vokaalit liikaa), ja kysymykset laskevat
-kuten suomessa. CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
+Klatt-säännöt lyhentävät painottomat vokaalit liikaa). `rg_voice/src/prosody.rs`
+muokkaa CHIMERAn suunnitelmaa suomeksi ennen renderöintiä: klusiilit p/t/k ilman
+englannin aspiraatiota, a/ä/o/u/ö suomen vokaalilaaduiksi (CHIMERAn kalibroitujen
+vokaalien sekoituksina, formantit mitattu), k:n ja h:n viereiset lyhyet vokaalit
+eivät huku, ja sävelkulku on suomalainen: jokaisen sanan ensitavu nousee ja
+laskee, aksentit porrastuvat alaspäin, lause loppuu laskuun (myös kysymykset),
+huutolause on isompi ja pilkku jättää äänen ylös. Mittaukset:
+`cargo run --release -p rg_voice --example fi_lab -- vowels | pitch "Hyvä!" | seg "Kuka."`.
+CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
 hila ja kalibrointi riippuvat näytetaajuudesta); klipit ovat 24 kHz 16-bittisiä
 WAVeja, jotka web-host ja Androidin `Sound.java` purkavat itse.
 
@@ -169,7 +183,7 @@ Nämä kannattaa korjata myös Rangeriin ja EVG:hen.
 
 ## Aineistot
 
-- Maiden rajat (Kopterilento, Muuttolintu): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
+- Maiden rajat (Kopterilento, Muuttolintu, Painovoimalento): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
 - Tampereen kartta (Kotiin, Kopterilento): © OpenStreetMap-tekijät (ODbL), Tampereen kaupunki / Maanmittauslaitos (CC BY 4.0), Tampere Taxi Driverin aineiston kautta.
 
 ## Lisenssi

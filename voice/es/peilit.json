@@ -1,0 +1,20 @@
+{
+ "_comment": "Valopeilit (games/peilit): the same ids as voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "peli_peilit": "Espejos de luz",
+  "peilit_pollo": "¡Uy! El búho se despertó.",
+  "peilit_tip1": "Gira el dedo alrededor del espejo para girarlo. Lleva la luz a la flor.",
+  "peilit_tip2": "Pon un espejo en la luz. El gato quiere una siesta al sol.",
+  "peilit_tip3": "Dos espejos llevan la luz alrededor de la piedra hasta el girasol.",
+  "peilit_tip4": "El espejo también se puede inclinar. Lleva la luz al panel solar.",
+  "peilit_tip5": "Un espejo semitransparente divide la luz en dos. Ilumina las dos flores.",
+  "peilit_tip6": "El búho duerme de día. ¡No lo despiertes! Calienta al lagarto.",
+  "peilit_tip7": "Los espejos atornillados no giran. Ilumina al gato y seca la ropa.",
+  "peilit_tip8": "Dos luces. Cada una necesita su propio camino.",
+  "peilit_tip9": "La luz cruza el agua, pero no se pueden poner espejos en ella.",
+  "peilit_tip10": "Dos espejos semitransparentes y tres flores.",
+  "peilit_tip11": "Muchos búhos. Busca un camino seguro.",
+  "peilit_tip12": "Todos quieren luz, menos el búho."
+ }
+}

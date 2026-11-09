@@ -1,5 +1,4 @@
 ;;; English words of the games' clips, from CMUdict (github.com/cmusphinx/cmudict, BSD licence, see voice/en/CMUDICT-LICENSE).
-;;; rg_voice en-dict cmudict.dict voice/en adds the missing ones; a word can also be written here by hand.
 a AH0
 acorns EY1 K AO0 R N Z
 africa AE1 F R AH0 K AA0
@@ -628,7 +627,6 @@ zee Z IY1
 zero Z IH1 R OW0
 zoo Z UW1
 cafe K AH0 F EY1
-;;; Finnish place names and rarer words, written by hand
 nasinneula N AE1 S IH0 N N EY2 UW0 L AH0
 hameenpuisto HH AE1 M EY0 N P UW2 IH0 S T OW0
 nasinpuisto N AE1 S IH0 N P UW2 IH0 S T OW0
@@ -799,3 +797,80 @@ stalemate S T EY1 L M EY2 T
 starts S T AA1 R T S
 white's W AY1 T S
 wins W IH1 N Z
+bar B AA1 R
+behind B IH0 HH AY1 N D
+board B AO1 R D
+both B OW1 TH
+colour K AH1 L ER0
+different D IH1 F ER0 AH0 N T
+each IY1 CH
+every EH1 V ER0 IY0
+fixed F IH1 K S T
+force F AO1 R S
+glass G L AE1 S
+goal G OW1 L
+gold G OW1 L D
+iron AY1 ER0 N
+lower L OW1 ER0
+magnet M AE1 G N AH0 T
+magnet's M AE1 G N AH0 T S
+magnets M AE1 G N AH0 T S
+master M AE1 S T ER0
+nails N EY1 L Z
+other AH1 DH ER0
+plastic P L AE1 S T IH0 K
+pole P OW1 L
+poles P OW1 L Z
+pull P UH1 L
+pulls P UH1 L Z
+push P UH1 SH
+pushes P UH1 SH AH0 Z
+screen S K R IY1 N
+steel S T IY1 L
+stick S T IH1 K
+sticks S T IH1 K S
+tasks T AE1 S K S
+touching T AH1 CH IH0 NG
+without W IH0 TH AW1 T
+wood W UH1 D
+before B IH0 F AO1 R
+changed CH EY1 N JH D
+counts K AW1 N T S
+diamond D AY1 M AH0 N D
+die D AY1
+ding D IH1 NG
+empty EH1 M P T IY0
+euros Y UW1 R OW2 Z
+fine F AY1 N
+free F R IY1
+guard G AA1 R D
+hands HH AE1 N D Z
+hundred HH AH1 N D R AH0 D
+jail JH EY1 L
+leaving L IY1 V IH0 NG
+luck L AH1 K
+money M AH1 N IY0
+nokia N OW1 K IY0 AH0
+pay P EY1
+police P AH0 L IY1 S
+robber R AA1 B ER0
+roll R OW1 L
+rolling R OW1 L IH0 NG
+sausage S AO1 S AH0 JH
+spot S P AA1 T
+stop S T AA1 P
+tackle T AE1 K AH0 L
+team T IY1 M
+thousand TH AW1 Z AH0 N D
+token T OW1 K AH0 N
+tram T R AE1 M
+barkov B AA1 R K AO0 F
+kummola K UH1 M OW0 L AA0
+areena AA1 R EY0 N AA0
+kanada K AA1 N AA0 D AA0
+raipe R AY1 P EY0
+sarkanniemi S AE1 R K AA0 N IY0 EH0 M IY0
+ilves IH1 L V EH0 S
+tappara T AA1 P AA0 R AA0
+ilves's IH1 L V EH0 S IH0 Z
+tappara's T AA1 P AA0 R AA0 Z
