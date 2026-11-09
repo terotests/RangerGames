@@ -1,0 +1,1 @@
+{ "name": "Korkeasaari", "description": "Suunnista Korkeasaaren eläintarhassa eläinten luo ja vastaa kysymyksiin. Kartta OpenStreetMapista, GPS toimii ilman nettiä.", "icon": "🐆", "color": "#2a9d8f", "players": "1", "width": 360, "order": 11 }
