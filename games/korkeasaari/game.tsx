@@ -8,7 +8,7 @@
 
 import { MAP } from "lib/mapdata";
 import { RIGS } from "lib/rigs";
-import { ANIMALS, FOODS, HOMES, Animal } from "lib/animals";
+import { ANIMALS, FOODS, HOMES, WORLD, WORLD_MAP, Animal } from "lib/animals";
 
 // ---- geography ----
 const toX = (lon: number) => (lon - MAP.lon0) * MAP.kx;
@@ -207,6 +207,9 @@ function makeQuestions(a: Animal): Q[] {
   const homesWrong = rg.shuffle(Object.keys(HOMES).filter((k) => a.home.indexOf(k) < 0)).slice(0, 2);
   // which animal is this: the names as text, one under another
   const kuka = choiceQ("name", "Mikä eläin tämä on?", ["ks_mika_elain"], a.id, others([a.id], 2));
+  // where in the world: three continents on the world map (a farm animal gets the name question)
+  const worldWrong = rg.shuffle(Object.keys(WORLD).filter((k) => a.world.indexOf(k) < 0)).slice(0, 2);
+  const first = a.world.length ? choiceQ("world", "Missä päin maailmaa " + a.name.toLowerCase() + " asuu?", ["ks_" + a.id + "_maailma"], a.world[0], worldWrong) : kuka;
   const syo = choiceQ("food", "Mitä " + a.name.toLowerCase() + " syö?", ["ks_" + a.id + "_syo"], a.eats[0], foodsWrong);
   const asuu = choiceQ("home", "Missä " + a.name.toLowerCase() + " asuu luonnossa?", ["ks_" + a.id + "_asuu"], a.home[0], homesWrong);
   // bigger: an animal at least twice as heavy, or half as heavy
@@ -214,9 +217,9 @@ function makeQuestions(a: Animal): Q[] {
   const big = pair.kg > a.kg ? pair.id : a.id;
   const isompi = choiceQ("animal", "Kumpi on isompi?", ["ks_kumpi_isompi"], big, [big === a.id ? pair.id : a.id]);
   if (level === "eskari") {
-    out.push(kuka, syo, asuu);
+    out.push(first, syo, asuu);
   } else {
-    out.push(syo, asuu, isompi);
+    out.push(first, syo, isompi);
     const f: Q = { kind: "fact", text: a.fact, clip: ["ks_" + a.id + "_fakta", "ks_totta_vai"], opts: [true, false], answer: a.factTrue ? 0 : 1, tries: 0, done: false };
     out.push(f);
   }
@@ -246,7 +249,7 @@ function answer(i: number) {
     rg.sound("coin");
     rg.celebrate(width / 2, height * 0.62, {});
     const next = qi + 1 < qs.length ? qs[qi + 1].clip : [];
-    const said = q.kind === "name" ? ["ks_" + q.opts[i]] : [];
+    const said = q.kind === "name" ? ["ks_" + q.opts[i]] : q.kind === "world" ? ["ks_mt_" + q.opts[i]] : [];
     rg.say(said.concat([q.kind === "fact" ? (q.answer === 0 ? "ks_totta" : "ks_ei_totta") : rg.pick(PRAISE)]).concat(next));
     advanceAt = t + 1.4;
   } else {
@@ -735,6 +738,7 @@ function questionView(q: Q, top: number) {
   const opts: any[] = [];
   const n = q.opts.length;
   const W = n === 2 ? 150 : 104, H = q.kind === "animal" ? 118 : 104;
+  if (q.kind === "world") return worldView(q, top);
   q.opts.forEach((o: any, i: number) => {
     const isWrong = !!wrong[i];
     const isRight = q.done && i === q.answer;
@@ -772,6 +776,54 @@ function questionView(q: Q, top: number) {
       <div style={{ width: 44, height: 40, fontSize: 26, alignItems: "center" }}>🔊</div>
     </div>
     <div style={{ flexDirection: q.kind === "name" ? "column" : "row", marginTop: q.kind === "name" ? 6 : 14, alignItems: "center" }}>{opts}</div>
+  </div>;
+}
+
+// the world map: a pin on each of the three continents to choose from; when
+// answered, the animal shows where it lives
+function worldView(q: Q, top: number) {
+  const a = byId[target];
+  const M = WORLD_MAP;
+  const W = width - 16, H = Math.round(W * M.h / M.w);
+  const mx = (lon: number) => 8 + (lon - M.lon0) / (M.lon1 - M.lon0) * W;
+  const my = (lat: number) => (M.lat0 - lat) / (M.lat0 - M.lat1) * H;
+  const dx = shake > 0 ? Math.sin(shake * 60) * 6 : 0;
+  const pins: any[] = [];
+  q.opts.forEach((o: any, i: number) => {
+    const c = WORLD[o];
+    const isWrong = !!wrong[i];
+    const isRight = q.done && i === q.answer;
+    const B = isRight ? 50 : 44;
+    const X = mx(c.lon) + (isWrong && shake > 0 ? dx : 0), Y = my(c.lat);
+    pins.push(<div style={{ position: "absolute", left: X - B / 2, top: Y - B / 2, width: B, height: B, borderRadius: B / 2,
+      backgroundColor: isWrong ? "#adb5bd" : "#ffffff", borderWidth: 4, borderColor: isRight ? "#2a9d8f" : c.color, opacity: isWrong ? 0.6 : 1,
+      alignItems: "center", justifyContent: "center", shadowColor: "rgba(0,0,0,0.35)", shadowOffsetY: 3, shadowRadius: 2 }} onClick={() => answer(i)}>
+      <div style={{ fontSize: 22 }}>{isRight ? "✅" : isWrong ? "✖️" : "📍"}</div>
+    </div>);
+    if (level === "koulu" || isRight) pins.push(<div style={{ position: "absolute", left: X - 60, top: Y + B / 2, width: 120, alignItems: "center" }}>
+      <div style={{ fontSize: 12, fontWeight: "700", color: "#1d3557", backgroundColor: "rgba(255,255,255,0.8)", borderRadius: 6, paddingLeft: 4, paddingRight: 4 }}>{c.name}</div>
+    </div>);
+  });
+  if (q.done) {
+    const X = mx(a.at[0]), Y = my(a.at[1]);
+    const k = 1 + 0.15 * Math.sin(t * 6);
+    pins.push(<div style={{ position: "absolute", left: X - 22, top: Y - 22, width: 44, height: 44, borderRadius: 22, backgroundColor: a.color,
+      borderWidth: 3, borderColor: "#ffffff", alignItems: "center", justifyContent: "center", transform: "scale(" + k.toFixed(2) + ")" }}>
+      <img src={rigPng(a.id)} style={{ width: 40, height: 40 }} />
+    </div>);
+  }
+  const showText = level === "koulu";
+  return <div style={{ position: "absolute", left: 0, top: top, width: width, alignItems: "center" }}>
+    <div style={{ width: width - 24, height: showText ? 62 : 52, borderRadius: 20, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center",
+      shadowColor: "rgba(0,0,0,0.2)", shadowOffsetY: 3, shadowRadius: 0 }} onClick={() => rg.say(q.clip)}>
+      <div style={{ width: 48, height: 40, marginLeft: 8, fontSize: 30, alignItems: "center" }}>🌍</div>
+      <div style={{ width: width - 24 - 56 - 48, fontSize: 17, color: "#1d3557", fontWeight: "700" }}>{showText ? q.text : ""}</div>
+      <div style={{ width: 44, height: 40, fontSize: 26, alignItems: "center" }}>🔊</div>
+    </div>
+    <div style={{ width: width, height: H + 30, marginTop: 10 }}>
+      <img src={rg.asset("kuvat/maailma.png")} style={{ position: "absolute", left: 8, top: 0, width: W, height: H, borderRadius: 12 }} />
+      {pins}
+    </div>
   </div>;
 }
 

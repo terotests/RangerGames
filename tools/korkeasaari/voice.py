@@ -26,7 +26,9 @@ GENERAL = {
 FOODS = {"liha": "Lihaa.", "kala": "Kalaa.", "kasvit": "Kasveja.", "marjat": "Marjoja.", "hyonteiset": "Hyönteisiä.", "hiiret": "Hiiriä.", "bambu": "Bambua."}
 HOMES = {"vuoret": "Vuorilla.", "metsa": "Metsässä.", "aavikko": "Aavikolla.", "tundra": "Kylmällä tundralla.", "aro": "Ruohoarolla.", "joki": "Joen rannalla.", "maatila": "Maatilalla."}
 
+WORLD = {"eurooppa": "Euroopassa.", "aasia": "Aasiassa.", "afrikka": "Afrikassa.", "pamerikka": "Pohjois-Amerikassa.", "eamerikka": "Etelä-Amerikassa.", "australia": "Australiassa."}
 clips = dict(GENERAL)
+for k, v in WORLD.items(): clips["ks_mt_" + k] = v
 for k, v in FOODS.items(): clips["ks_ruoka_" + k] = v
 for k, v in HOMES.items(): clips["ks_koti_" + k] = v
 for m in re.finditer(r'\{ id: "(\w+)", name: "([^"]+)", gen: "([^"]+)".*?fact: "([^"]+)"', src, re.S):
@@ -38,6 +40,7 @@ for m in re.finditer(r'\{ id: "(\w+)", name: "([^"]+)", gen: "([^"]+)".*?fact: "
     clips["ks_%s_syo" % aid] = "Mitä %s syö?" % l
     clips["ks_%s_asuu" % aid] = "Missä %s asuu luonnossa?" % l
     clips["ks_%s_kuka" % aid] = "Mikä näistä on %s?" % l
+    clips["ks_%s_maailma" % aid] = "Missä päin maailmaa %s asuu?" % l
     clips["ks_%s_fakta" % aid] = fact
 
 path = os.path.join(ROOT, "voice", "fi.json")
