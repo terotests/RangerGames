@@ -19,16 +19,16 @@ type Phase = "spring" | "wait" | "autumn";
 
 // the route points run from the wintering place to Finland [lon, lat]
 const SPECIES = [
-  { id: "joutsen", name: "Laulujoutsen", winter: "DNK", wname: "Tanska", wlon: 9.5, wlat: 56, start: 92, leave: 293,
+  { id: "joutsen", name: "Laulujoutsen", winter: "DNK", wname: "Tanska", wlon: 9.5, wlat: 56, start: 70, leave: 293,
     food: "🌿", foodAt: "land", color: "#48cae4", stars: 1,
     route: [[9.5, 56], [12.5, 55.6], [15.5, 56.5], [18, 58.5], [21, 60.2], [24, 61.5], [26, 63]] },
-  { id: "kurki", name: "Kurki", winter: "ETH", wname: "Etiopia", wlon: 39, wlat: 9, start: 70, leave: 253,
+  { id: "kurki", name: "Kurki", winter: "ETH", wname: "Etiopia", wlon: 39, wlat: 9, start: 40, leave: 253,
     food: "🐸", foodAt: "land", color: "#8d99ae", stars: 2,
     route: [[39, 9], [34, 15], [31.5, 24], [30, 31], [26, 37], [22, 42.5], [20.5, 47.5], [20.5, 52], [23.5, 57], [26, 63]] },
-  { id: "paasky", name: "Haarapääsky", winter: "ZAF", wname: "Etelä-Afrikka", wlon: 25, wlat: -29, start: 62, leave: 244,
+  { id: "paasky", name: "Haarapääsky", winter: "ZAF", wname: "Etelä-Afrikka", wlon: 25, wlat: -29, start: 30, leave: 244,
     food: "🦟", foodAt: "land", color: "#3a0ca3", stars: 3,
     route: [[25, -29], [27, -15], [23, -2], [17, 9], [14, 20], [12, 30], [12.5, 38], [12, 45], [17, 51], [22, 57], [26, 63]] },
-  { id: "tiira", name: "Lapintiira", winter: "ATA", wname: "Etelämanner", wlon: -10, wlat: -71, start: 50, leave: 222,
+  { id: "tiira", name: "Lapintiira", winter: "ATA", wname: "Etelämanner", wlon: -10, wlat: -71, start: 15, leave: 222,
     food: "🐟", foodAt: "sea", color: "#e63946", stars: 4,
     route: [[-10, -69], [0, -55], [8, -38], [5, -20], [-2, -5], [-16, 8], [-19, 20], [-13, 33], [-10, 44], [-3, 49], [4, 56], [12, 57.5], [19, 59], [21, 62], [24, 64]] },
 ];
@@ -36,8 +36,22 @@ const FIN = { id: "FIN", lon: 26, lat: 63 };
 const MONTHS = ["Tammikuu", "Helmikuu", "Maaliskuu", "Huhtikuu", "Toukokuu", "Kesäkuu", "Heinäkuu", "Elokuu", "Syyskuu", "Lokakuu", "Marraskuu", "Joulukuu"];
 const MDAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const ZOOMS = [1, 1.6, 2.6];
-const SPEED = 12;               // degrees a second, full of energy
+const SPEED = 7;                // degrees a second, full of energy
 const YEAR_RATE = 3;            // days a second while flying
+const HOUR = 9;                 // the local time under the bird: the sun stands (12 - HOUR) × 15° east
+// mountains [lon, lat, size]: size 2 and up have snow on top all year
+const PEAKS = [
+  [21.3, 69.3, 1], [20.8, 68.9, 0.9], [24.1, 68.1, 0.9], [27.4, 68.4, 0.8], [29.8, 63.1, 0.6],   // Lapland fells, Koli
+  [7, 60, 1.3], [8, 61.6, 1.5], [6.6, 62.3, 1.3], [13, 63.4, 1.2], [16.5, 67.4, 1.3], [18.6, 68.4, 1.4],   // the Scandinavian mountains
+  [-5, 57, 0.8], [-19, 64.6, 1.4], [0.5, 42.7, 1.6], [7.5, 46, 2.5], [10.5, 46.5, 2.2], [13, 47.1, 2],
+  [13.5, 42.4, 1.1], [21, 42, 1.2], [22.5, 48.8, 1.1], [25, 45.5, 1.2], [43, 43.2, 2.3], [44.3, 39.7, 2.2],
+  [-7.5, 31.2, 1.8], [-4.5, 33, 1.4], [5.5, 23.3, 1.4], [18.5, 21, 1.5], [34, 28.5, 1], [44, 15, 1.4],
+  [38.5, 10.5, 1.6], [39.5, 12.5, 1.5], [9.2, 4.2, 1.6], [29.9, 0.4, 2.2], [37.3, -0.15, 2.2], [37.35, -3.07, 2.6],
+  [29.3, -29.3, 1.5], [47, -19, 1.2], [59.5, 60, 1], [59, 64, 1], [72.5, 38.5, 2.5], [80, 42, 2.3],
+  [80, 30.5, 2.8], [84, 28.6, 3], [86.9, 28, 3], [90, 28, 2.8], [138.7, 35.4, 2.2], [148.3, -36.5, 1.3], [170, -43.6, 2.2],
+  [-151, 63, 2.6], [-120, 52, 1.8], [-114, 49, 2], [-106, 39.5, 2.2], [-78.5, -1, 2.5], [-77.5, -9, 2.6],
+  [-68, -16, 2.8], [-70, -33, 3], [-72, -45, 2.2], [-85, -78, 2], [160, -77, 2],
+];
 const WAIT_RATE = 14;           // days a second while waiting for spring
 const HINT_AFTER = 15;
 const TILT = 23.44;
@@ -127,7 +141,8 @@ function setupGlobe() {
   rg.three("scene", { background: ["#061229", "#132a52"] });
   rg.three("globe", {
     regions: REGIONS, scale: 10, colors, ocean: "#2f7fc8", land: SUMMER, glow: "#7cc4ff", grid: "#ffffff",
-    border: false, shade: 0.22, night: 0.7, visible: true,
+    border: false, shade: 0.22, night: 0.72, visible: true,
+    cell: 10, peaks: PEAKS, peakSize: 1.4, peakSnow: SNOW,
   });
   updateBands();
 }
@@ -690,7 +705,7 @@ function birdArt(id: string, S: number, flap: number) {
 // ---- view -------------------------------------------------------------------
 
 function drawGlobe() {
-  const args: any = { lon: bird.lon, lat: bird.lat, r: globeR(), x: width / 2, y: birdY(), sun: [bird.lon, declination(dayOfYear())] };
+  const args: any = { lon: bird.lon, lat: bird.lat, r: globeR(), x: width / 2, y: birdY(), sun: [bird.lon + (12 - HOUR) * 15, declination(dayOfYear())] };
   if (hinted && arriveClock < 0 && phase !== "wait") {
     const on = Math.floor(t * 3) % 2 === 0;
     const c: any = {};
@@ -836,7 +851,7 @@ function Orbit() {
       {box(orbit, "none", "rgba(255,255,255,0.35)", 1)}
       {behind ? earth : sun}
       {behind ? sun : earth}
-      <div className="month" style={{ width: W }}>{seasonIcon(s, bird.lat, d) + " " + MONTHS[monthOf(d)]}</div>
+      <div className="month" style={{ width: W }}>{seasonIcon(s, bird.lat, d) + " " + MONTHS[monthOf(d)] + "  🕘"}</div>
     </div>
   );
 }
