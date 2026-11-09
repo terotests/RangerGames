@@ -815,6 +815,12 @@
   "sk_lahetti": "Lähetti",
   "sk_torni": "Torni",
   "sk_kuningatar": "Kuningatar",
-  "sk_kuningas": "Kuningas"
+  "sk_kuningas": "Kuningas",
+  "vv_tasapaino": "Vaaka on tasapainossa!",
+  "vv_lisaa": "Lisää punnus niin, että vaaka on tasapainossa.",
+  "vv_siirra": "Siirrä punnusta, kunnes vaaka on tasapainossa.",
+  "vv_kaada": "Kaada vettä ämpäriin, kunnes vaaka on tasapainossa.",
+  "vv_kauemmas": "Mitä kauempana punnus on, sitä enemmän se vääntää.",
+  "vv_vapaa": "Kokeile vapaasti!"
  }
 }
