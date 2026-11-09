@@ -44,6 +44,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `tampere` – **Liikenneretki** | Tampereen keskusta (2,4 × 1,4 km) ylhäältä: kävele äidin tai isän luota, koulusta tai päiväkodista puistoon, kouluun, kotiin tai nähtävyydelle. Kadun yli vain suojatietä: valoissa odotetaan vihreää, muualla varotaan autoja, pyörätiellä pyöräilijöitä. Ratikalla (linjat 1 ja 3) voi matkustaa pysäkiltä toiselle. Kartta Tampere Taxi Driverin aineistosta (OSM + Tampereen kaupunki), `tools/tampere/build_map.py`. Ohjaus: pidä sormea siellä, minne haluat kävellä (tai nuolinäppäimet). |
 | `navi` – **Kotiin** | Lapsen kävelynavigaattori: puhelimen GPS näyttää paikan Tampereen kartalla, iso nuoli ja reittiviiva ohjaavat isän, äidin, koulun tai päiväkodin luo, värinä ennen käännöstä ja juhlat perillä. Toimii ilman nettiä: kartta (kuvatiilet) ja kävelyverkko tulevat pelin mukana (`tools/navi/build.py` Tampere Taxi Driverin kartasta), reitti lasketaan puhelimessa. Kotien paikat asetetaan puhelimessa (pidä ⚙️ painettuna) tai git-ignoroidussa `games/navi/places.local.js`:ssä, ei koskaan repoon. |
 | `luut` – **Kenen luut?** | Oikea valokuva eläimen pääkallosta tai luurangosta ja neljä eläintä vaihtoehdoiksi (eläinten kuvat ja nimet, nimi sanotaan ääneen). 44 eläintä, 109 luukuvaa. Kierroksen alussa väärät vaihtoehdot ovat eri eläinryhmistä, lopussa samasta (kissa vai koira), mutta toistensa näköisiä (kissa/leijona/tiikeri, koira/susi/kettu …) ei koskaan näytetä yhdessä. Kaikki kuvat Wikimedia Commonsista (CC0 / public domain / CC BY / CC BY-SA): tekijä ja lisenssi näkyvät kuvan alla ja pelin Kuvat-sivulla, lista `games/luut/CREDITS.md`. Kuvat haetaan `tools/luut/fetch_commons.py`:llä ja rakennetaan `tools/luut/build.py`:llä (valinnat `tools/luut/pick.json`). |
+| `kopteri` – **Kopterilento** | Maantietoa helikopterilla. Tampere ylhäältä (Liikenneretken kartta): etsi Näsinneula, tuomiokirkko, rautatieasema, Tammerkoski … (kotien paikat eivät ole mukana). Maapallo: ensin mantereet (jokaisella oma väri ja muoto tehtäväkortissa, joten lukutaitoa ei tarvita), sitten tutut maat, lisää maita ja vaikeat maat. Pallo pyörii kopterin alla, löydöstä pisteitä (nopeasta enemmän), ja hetken päästä nuoli näyttää suunnan (❓ heti). Ohjaus: pidä sormea sinne, minne haluat lentää (tai nuolinäppäimet), ➕/➖ zoomaa. Maiden rajat: Natural Earth (public domain), `tools/kopteri/build.py`. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
@@ -107,7 +108,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
 | `rg.vibrate(ms \| [kuvio])` | värinä |
 | `rg.save(avain, arvo)`, `rg.load(avain, oletus)` | tallennus (`/save/<peli>.json` → localStorage / Android) |
-| `rg.three(op, args)` | 3D-kerros (three.js): `scene camera light add set remove clear` |
+| `rg.three(op, args)` | 3D-kerros (three.js): `scene camera light add set remove clear`; `globe` piirtää karttapallon (maiden ääriviivat ortografisena pallona, leikkaus horisontissa Rustissa, ks. `crates/rg_engine/src/globe.rs`) |
 | `rg.random()`, `rg.range()`, `rg.pick()`, `rg.shuffle()` | siemenellinen satunnaisuus (sama kaikilla alustoilla kuin rg_core:n `Rng`) |
 | `rg.ease.*`, `rg.lerp`, `rg.clamp`, `rg.hit(a, b)` | apufunktiot |
 | `rg.launch(id)`, `rg.exit()` | pelistä toiseen / valikkoon |
@@ -151,6 +152,11 @@ WAVeja, jotka web-host ja Androidin `Sound.java` purkavat itse.
 Lisäksi `rg_engine` antaa tekstiajoille periytyvän fonttikoon ennen layoutia
 (EVG mittasi leveyttä hakevan laatikon tekstin oletuskoolla 14 px).
 Nämä kannattaa korjata myös Rangeriin ja EVG:hen.
+
+## Aineistot
+
+- Maiden rajat (Kopterilento): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
+- Tampereen kartta (Liikenneretki, Kotiin, Kopterilento): © OpenStreetMap-tekijät (ODbL), Tampereen kaupunki / Maanmittauslaitos (CC BY 4.0), Tampere Taxi Driverin aineiston kautta.
 
 ## Lisenssi
 

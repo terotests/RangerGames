@@ -16,6 +16,7 @@
 //! rg.three("set",    { id, x, y, z, rx, ry, rz, sx, sy, sz, color, visible })
 //! rg.three("remove", { id })
 //! rg.three("clear")
+//! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
 //! ```
 //!
 //! Faces are sorted far to near (painter's algorithm) and the ones facing
@@ -225,6 +226,8 @@ pub struct Scene {
     fov: f64,
     /// polygons drawn in the last frame
     pub drawn: usize,
+    /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
+    pub globe: Option<crate::globe::Globe>,
 }
 
 struct Poly {
@@ -252,6 +255,7 @@ impl Scene {
             look: [0.0, 0.0, 0.0],
             fov: 50.0,
             drawn: 0,
+            globe: None,
         };
         s.default_lights();
         s
@@ -365,6 +369,10 @@ impl Scene {
                 let id = a.get("id").as_str();
                 self.objs.retain(|x| x.id != id);
             }
+            "globe" => {
+                self.active = true;
+                self.globe.get_or_insert_with(crate::globe::Globe::new).command(a);
+            }
             _ => {}
         }
         if op == "scene" || op == "camera" || op == "light" {
@@ -408,6 +416,9 @@ impl Scene {
         }
         if let Some((top, bottom)) = self.sky {
             out.raw(0, 0.0, 0.0, w, h, top, Some(bottom), &[]);
+        }
+        if let Some(g) = self.globe.as_mut() {
+            g.render(out, w, h);
         }
         let f = norm(sub(self.look, self.cam));
         let mut r = norm(cross(f, [0.0, 1.0, 0.0]));

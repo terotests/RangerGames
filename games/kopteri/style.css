@@ -1,0 +1,75 @@
+.screen { width: 100%; height: 100%; overflow: hidden; }
+.screen.town { background-color: #d4d2bc; }
+.screen.sky { background-color: #8ecae6; }
+.tile { position: absolute; }
+.star { position: absolute; background-color: #ffffff; border-radius: 2px; opacity: 0.7; }
+
+/* menu */
+.menu { width: 100%; height: 100%; align-items: center; flex-direction: column; }
+.title { font-size: 64px; }
+.logo { font-size: 34px; font-weight: 700; color: #ffffff; margin-bottom: 10px; }
+.mlist { width: 100%; flex-direction: column; align-items: center; }
+.mtile { width: 320px; height: 84px; margin-top: 10px; border-radius: 22px; flex-direction: row; align-items: center;
+  padding-left: 12px; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 4px; }
+.micon { font-size: 44px; width: 64px; align-items: center; justify-content: center; }
+.mtext { flex-direction: column; margin-left: 8px; width: 230px; }
+.mname { font-size: 22px; font-weight: 700; color: #ffffff; }
+.msub { font-size: 13px; color: #ffffff; opacity: 0.9; }
+.mstars { font-size: 14px; color: #ffffff; margin-top: 2px; }
+
+/* the helicopter (drawn nose up in a 120 x 120 box) */
+.heli { position: absolute; }
+.hshadow { position: absolute; width: 52px; height: 68px; border-radius: 26px; background-color: rgba(0,0,0,0.25); }
+.boom { position: absolute; left: 56px; top: 62px; width: 8px; height: 46px; background-color: #e63946; border-radius: 4px; }
+.fin { position: absolute; left: 50px; top: 100px; width: 20px; height: 7px; background-color: #c1121f; border-radius: 3px; }
+.trotor { position: absolute; left: 62px; top: 96px; width: 4px; height: 18px; background-color: #3d405b; border-radius: 2px; }
+.skid { position: absolute; top: 34px; width: 5px; height: 52px; background-color: #3d405b; border-radius: 3px; }
+.cabin { position: absolute; left: 42px; top: 30px; width: 36px; height: 48px; border-radius: 18px; background-color: #e63946;
+  border-width: 2px; border-color: #9d0208; }
+.glass { position: absolute; left: 47px; top: 33px; width: 26px; height: 18px; border-radius: 12px; background-color: #a8dadc;
+  border-width: 2px; border-color: #ffffff; }
+.disc { position: absolute; background-color: rgba(255,255,255,0.18); }
+.rotor { position: absolute; }
+.hub { position: absolute; width: 12px; height: 12px; border-radius: 6px; background-color: #ffd166; border-width: 2px; border-color: #3d405b; }
+
+/* places in Tampere */
+.pin { position: absolute; width: 44px; height: 44px; border-radius: 22px; background-color: #ffffff; font-size: 26px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: #3d405b; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.pin.goal { background-color: #ffd166; border-color: #e76f51; border-width: 3px; }
+.ring { position: absolute; width: 68px; height: 68px; border-radius: 34px; border-width: 4px; border-color: #ffd166; }
+.arrow { position: absolute; width: 44px; height: 44px; }
+
+/* the task card (the top-right 48 px stay free for the close button) */
+.card { position: absolute; left: 8px; top: 8px; height: 62px; border-radius: 18px; background-color: rgba(255,255,255,0.94);
+  flex-direction: row; align-items: center; padding-left: 6px; shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 3px; }
+.pic { width: 64px; height: 56px; border-radius: 12px; background-color: #e9f5ff; align-items: center; justify-content: center; }
+.picicon { font-size: 38px; }
+.cardtext { flex-direction: column; margin-left: 8px; }
+.find { font-size: 12px; color: #6c757d; font-weight: 700; }
+.tname { font-size: 19px; font-weight: 700; color: #2b2d42; }
+.dots { flex-direction: row; margin-top: 3px; }
+.dot { width: 9px; height: 9px; border-radius: 5px; background-color: #ced4da; margin-right: 4px; }
+.dot.on { background-color: #2a9d8f; }
+.dot.now { background-color: #ffd166; border-width: 1px; border-color: #e76f51; }
+
+/* hud */
+.score { position: absolute; left: 12px; top: 78px; font-size: 18px; font-weight: 700; color: #2b2d42; background-color: rgba(255,255,255,0.85);
+  padding: 4px; padding-left: 12px; padding-right: 12px; border-radius: 16px; }
+.gain { position: absolute; width: 120px; align-items: center; font-size: 30px; font-weight: 700; color: #ffd166; }
+.under { position: absolute; align-items: center; }
+.underin { font-size: 15px; font-weight: 700; color: #ffffff; background-color: rgba(20,30,60,0.55); padding: 3px; padding-left: 10px; padding-right: 10px; border-radius: 12px; }
+.btn { position: absolute; width: 52px; height: 52px; border-radius: 26px; background-color: rgba(255,255,255,0.9); font-size: 26px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: #3d405b; }
+
+/* round done */
+.overlay { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(10,20,50,0.45); }
+.donebox { width: 280px; border-radius: 26px; background-color: #ffffff; align-items: center; flex-direction: column; padding: 18px; }
+.donebig { font-size: 56px; }
+.donetitle { font-size: 26px; font-weight: 700; color: #2b2d42; }
+.donestars { font-size: 36px; margin-top: 6px; }
+.donescore { font-size: 30px; font-weight: 700; color: #e76f51; margin-top: 4px; }
+.record { font-size: 18px; font-weight: 700; color: #2a9d8f; margin-top: 4px; }
+.record.dim { color: #8d99ae; }
+.row { flex-direction: row; margin-top: 14px; }
+.go { width: 84px; height: 64px; border-radius: 22px; background-color: #ffd166; font-size: 34px; align-items: center; justify-content: center; margin-left: 8px; margin-right: 8px; }
+.go.alt { background-color: #a8dadc; }

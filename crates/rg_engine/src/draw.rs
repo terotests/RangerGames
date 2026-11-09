@@ -188,6 +188,26 @@ impl DrawStream {
         self.emit(6, 0.0, 0.0, 0.0, 0.0, rgb, None, pts, ends);
     }
 
+    /// A filled (`kind` 6) or stroked (7) path of several rings, with an
+    /// opacity and, for a stroke, a line width.
+    pub fn rings(&mut self, kind: u32, rgb: [f64; 3], alpha: f64, width: f64, pts: &[f32], ends: &[f32]) {
+        if pts.is_empty() {
+            return;
+        }
+        let mut extra: Vec<f32> = Vec::with_capacity(pts.len() + ends.len() + 2);
+        extra.push(pts.len() as f32);
+        extra.extend_from_slice(pts);
+        extra.push(ends.len() as f32);
+        extra.extend_from_slice(ends);
+        self.nums.extend_from_slice(&[
+            kind as f32, 0.0, 0.0, 0.0, 0.0,
+            (rgb[0] * 255.0) as f32, (rgb[1] * 255.0) as f32, (rgb[2] * 255.0) as f32, alpha as f32,
+            0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+        ]);
+        self.nums.extend_from_slice(&extra);
+        self.count += 1;
+    }
+
     fn emit(&mut self, kind: u32, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], far: Option<[f64; 3]>, pts: &[f32], ends: &[f32]) {
         let mut flags = 0u32;
         let mut extra: Vec<f32> = Vec::new();
