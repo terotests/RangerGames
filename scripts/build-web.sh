@@ -18,4 +18,12 @@ if command -v wasm-opt >/dev/null 2>&1 && [[ "$PROFILE" == release ]]; then
   wasm-opt -O2 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
 fi
 ./target/release/rg_cli pack games "$OUT/games.rgpk"
+# the font and three.js beside the page, so the Android app works offline
+# (best effort: without a network the page falls back to Google Fonts / the CDN)
+mkdir -p "$OUT/fonts" "$OUT/vendor"
+curl -sSfL -o "$OUT/fonts/Fredoka.ttf" "https://github.com/google/fonts/raw/main/ofl/fredoka/Fredoka%5Bwdth,wght%5D.ttf" \
+  && curl -sSfL -o "$OUT/fonts/OFL.txt" "https://github.com/google/fonts/raw/main/ofl/fredoka/OFL.txt" \
+  || echo "note: Fredoka not downloaded (offline?)"
+curl -sSfL -o "$OUT/vendor/three.min.js" "https://unpkg.com/three@0.149.0/build/three.min.js" \
+  || echo "note: three.js not downloaded (offline?)"
 echo "dist/web: $(du -sh "$OUT" | cut -f1)  (serve it: npx serve dist/web, or python3 -m http.server -d dist/web)"

@@ -183,6 +183,7 @@
       case "persist": try { localStorage.setItem("rg:" + name, typeof args === "string" ? args : JSON.stringify(args)); } catch (e) { } break;
       case "title": document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView(); break;
       case "three": this.three.command(name, args); break;
+      case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;
       default: break;
     }
   };

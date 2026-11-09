@@ -31,11 +31,18 @@
     var self = this;
     if (this.loading) return;
     this.loading = true;
-    var s = document.createElement("script");
-    s.src = global.RG_THREE_URL || THREE_URL;
-    s.onload = function () { self.init(); };
-    s.onerror = function () { console.warn("three.js could not be loaded: the 3D layer is off"); };
-    document.head.appendChild(s);
+    // the copy the build put beside the page (offline, Android), else the CDN
+    var urls = ["vendor/three.min.js", global.RG_THREE_URL || THREE_URL];
+    var tryNext = function () {
+      var url = urls.shift();
+      if (!url) { console.warn("three.js could not be loaded: the 3D layer is off"); return; }
+      var s = document.createElement("script");
+      s.src = url;
+      s.onload = function () { self.init(); };
+      s.onerror = tryNext;
+      document.head.appendChild(s);
+    };
+    tryNext();
   };
 
   Three3D.prototype.init = function () {

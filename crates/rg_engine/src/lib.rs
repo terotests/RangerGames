@@ -320,6 +320,7 @@ impl Engine {
             member("saved", self.saved.clone()),
             member("games", self.games_json()),
             member("seed", Json::Num(self.seed as f64)),
+            member("launcher", Json::Bool(info.id == self.launcher)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());
@@ -424,9 +425,7 @@ impl Engine {
                 let reply = json::parse(&text);
                 self.take_commands(&reply.get("cmds"));
                 let tree = reply.get("tree");
-                let mut draw = std::mem::replace(&mut self.draw, DrawStream::new());
-                self.ui.render(&tree, &mut draw);
-                self.draw = draw;
+                self.ui.render(&tree, &mut self.draw);
                 self.launch_pending();
                 Ok(())
             }
@@ -458,17 +457,12 @@ impl Engine {
              {{\"t\":\"div\",\"s\":{{\"font-size\":\"13px\",\"color\":\"#b9a7c9\",\"margin-top\":\"16px\"}},\"c\":[\"Tap to go back\"]}}]}}",
             quote(&msg)
         ));
-        let saved_css = std::mem::replace(&mut self.ui, Ui::new());
-        let mut ui = saved_css;
+        // a plain sheet: the game's own may be what is broken
         let mut plain = Ui::new();
-        plain.width = ui.width;
-        plain.height = ui.height;
+        plain.width = self.ui.width;
+        plain.height = self.ui.height;
         self.draw.clear();
-        let mut draw = std::mem::replace(&mut self.draw, DrawStream::new());
-        plain.render(&tree, &mut draw);
-        self.draw = draw;
-        ui.last_commands = plain.last_commands;
-        self.ui = ui;
+        plain.render(&tree, &mut self.draw);
     }
 
     /// Takes the frame's commands for the platform.

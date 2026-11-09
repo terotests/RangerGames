@@ -1,0 +1,40 @@
+.screen { width: 100%; height: 100%; overflow: hidden; }
+.sky { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.star { position: absolute; background-color: #ffffff; border-radius: 4px; }
+.hill { position: absolute; border-radius: 200px; }
+.far { left: -60px; width: 480px; height: 300px; background-color: #8fd694; opacity: 0.6; }
+.near { left: -120px; width: 600px; height: 300px; background-color: #5bbf6a; }
+
+.plat { position: absolute; width: 74px; height: 22px; }
+.cloud { position: absolute; background-color: #ffffff; }
+.cloud.grey { background-color: #c9ced6; }
+.cloud.pink { background-color: #ffd6e8; }
+.base { left: 0px; top: 6px; width: 74px; height: 16px; border-radius: 10px; }
+.bump1 { left: 10px; top: 0px; width: 26px; height: 20px; border-radius: 13px; }
+.bump2 { left: 32px; top: -4px; width: 30px; height: 24px; border-radius: 15px; }
+.spring { position: absolute; left: 29px; width: 16px; background-color: #ffd166; border-width: 2px; border-color: #e09f3e; border-radius: 3px; }
+
+.carrot { position: absolute; width: 14px; height: 34px; }
+.leaf { position: absolute; left: 3px; top: 0px; width: 8px; height: 10px; background-color: #3fb950; border-radius: 4px; }
+.root { position: absolute; left: 0px; top: 8px; width: 14px; height: 24px; background-color: #ff8c1a; border-radius: 7px; }
+
+.puff { position: absolute; width: 10px; height: 10px; border-radius: 5px; }
+
+.bunny { position: absolute; }
+.ear { position: absolute; top: 0px; width: 9px; height: 24px; background-color: #ffffff; border-radius: 5px; border-width: 1px; border-color: #d8d8e8; }
+.ear-in { position: absolute; left: 2px; top: 4px; width: 4px; height: 14px; background-color: #ffb3c7; border-radius: 2px; }
+.body { position: absolute; left: 0px; bottom: 4px; background-color: #ffffff; border-radius: 14px; border-width: 1px; border-color: #d8d8e8; }
+.eye { position: absolute; top: 9px; width: 6px; height: 7px; background-color: #2b2d42; border-radius: 3px; }
+.cheek { position: absolute; top: 17px; width: 8px; height: 5px; background-color: #ffc2d1; border-radius: 3px; }
+.nose { position: absolute; top: 14px; width: 4px; height: 4px; background-color: #ff6f91; border-radius: 2px; }
+.foot { position: absolute; bottom: 0px; width: 10px; height: 7px; background-color: #ffffff; border-radius: 4px; border-width: 1px; border-color: #d8d8e8; }
+
+.hud { position: absolute; left: 0px; top: 12px; width: 100%; flex-direction: row; justify-content: space-between; padding-left: 12px; padding-right: 12px; }
+.pill { background-color: rgba(255, 255, 255, 0.85); color: #2b2d42; font-size: 20px; font-weight: 700; padding: 6px; padding-left: 14px; padding-right: 14px; border-radius: 20px; }
+
+.overlay { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(20, 30, 60, 0.35); }
+.big { font-size: 46px; font-weight: 700; color: #ffffff; shadow-color: rgba(0,0,0,0.3); }
+.hint { font-size: 16px; color: #ffffff; margin-top: 12px; }
+.go { margin-top: 28px; font-size: 22px; font-weight: 700; color: #2b2d42; background-color: #ffd166; padding: 14px; padding-left: 24px; padding-right: 24px; border-radius: 28px; }
+.result { font-size: 30px; font-weight: 700; color: #ffffff; margin-top: 10px; }
+.record { font-size: 22px; font-weight: 700; color: #ffd166; margin-top: 12px; }

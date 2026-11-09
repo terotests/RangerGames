@@ -1,0 +1,89 @@
+# Tests the engine and the games, builds the web version and the Android
+# APK, and publishes the web version on GitHub Pages from main.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-wasip1
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+            .deps
+          key: ${{ runner.os }}-rg-${{ hashFiles('scripts/setup.sh', 'Cargo.lock') }}
+      - name: Dependencies (Ranger with EVG, ComponentEngine)
+        run: bash scripts/setup.sh
+      - name: Unit tests
+        run: cargo test -p rg_core -p rg_engine
+      - name: rg_core stays in Ranger's Rust subset (JavaScript, C++, Go, Python)
+        run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
+      - name: Every game runs headless
+        run: cargo run --release -p rg_cli -- test games 600
+      - name: Web build
+        run: bash scripts/build-web.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: dist/web
+
+  android:
+    needs: engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: dist/web
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: APK
+        run: bash scripts/build-android.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: RangerGames-apk
+          path: android/app/build/outputs/apk/release/*.apk
+
+  pages:
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    needs: engine
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: dist/web
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/web
+      - id: deploy
+        uses: actions/deploy-pages@v4

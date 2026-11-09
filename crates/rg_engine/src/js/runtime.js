@@ -25,6 +25,7 @@ var __saved = {};
 var __game = "";
 var __dir = "/";
 var __games = [];
+var __launcher = false;
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
 var __downTarget = {};
 
@@ -49,7 +50,9 @@ var rg = {
   },
   load: function (key, fallback) { return Object.prototype.hasOwnProperty.call(__saved, key) ? __saved[key] : fallback; },
   launch: function (id) { __cmds.push(["launch", String(id), null]); },
-  exit: function () { __cmds.push(["launch", "", null]); },
+  exit: function () { if (__launcher) rg.quit(); else __cmds.push(["launch", "", null]); },
+  // closes the app (Android); the web page stays
+  quit: function () { __cmds.push(["quit", "", null]); },
   title: function (t) { __cmds.push(["title", String(t), null]); },
   // the 3D layer (three.js on the web): rg.three("add", { id, shape, … })
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
@@ -57,8 +60,9 @@ var rg = {
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
   games: function () { return __games; },
   // seeded random numbers, the same on every platform
-  seed: function (n) { __seed = (n | 0) % 2147483648; if (__seed < 0) __seed += 2147483648; },
-  random: function () { __seed = (__seed * 1103515245 + 12345) % 2147483648; return __seed / 2147483648; },
+  // (rg_core's Rng: Park and Miller's minimal standard generator)
+  seed: function (n) { __seed = Math.floor(n) % 2147483647; if (__seed < 0) __seed += 2147483647; if (__seed === 0) __seed = 1; },
+  random: function () { __seed = (__seed * 48271) % 2147483647; return __seed / 2147483647; },
   range: function (lo, hi) { return lo + Math.floor(rg.random() * (hi - lo + 1)); },
   pick: function (arr) { return arr[Math.floor(rg.random() * arr.length)]; },
   shuffle: function (arr) {
@@ -187,6 +191,7 @@ function __start(arg) {
   __dir = a.dir;
   __saved = a.saved || {};
   __games = a.games || [];
+  __launcher = !!a.launcher;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

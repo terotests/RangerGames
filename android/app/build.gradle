@@ -1,0 +1,42 @@
+// The Android app: a full-screen WebView over the web build (dist/web,
+// copied into assets/web by scripts/build-android.sh), served from
+// https://appassets.androidplatform.net so that fetch() and WebAssembly work.
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "fi.rangergames"
+    compileSdk 34
+
+    defaultConfig {
+        applicationId "fi.rangergames"
+        // Android 7.0: phones from 2016 on; the WebView needs WebAssembly (Chrome 57+)
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName "0.1.0"
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // signed with the debug key so the APK installs as it is; use your own key for a store
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    // the engine is already compressed best by gzip in the APK; keep wasm as is
+    androidResources {
+        noCompress "wasm", "rgpk"
+    }
+}
+
+dependencies {
+    implementation "androidx.webkit:webkit:1.11.0"
+}
