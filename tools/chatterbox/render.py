@@ -67,10 +67,21 @@ def main():
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
     device = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
     model = ChatterboxMultilingualTTS.from_pretrained(device=device)
+    # the library lets every take run to 1000 speech tokens (~40 s): a take that doesn't stop
+    # then costs minutes. Cap it by the text's length (25 tokens a second, 2.5× the expected time)
+    limit = [1000]
+    t3_inference = model.t3.inference
+
+    def capped(*a, **k):
+        k["max_new_tokens"] = min(k.get("max_new_tokens", 1000), limit[0])
+        return t3_inference(*a, **k)
+
+    model.t3.inference = capped
     t_all = time.time()
     for n, (lang, cid, text) in enumerate(todo):
         os.makedirs(os.path.join(OUT, lang), exist_ok=True)
         want = len(text) * PACE.get(lang, 0.07)
+        limit[0] = int(25 * (2.5 * want + 2.0)) + 25
         best = None
         t0 = time.time()
         for attempt in range(3):
