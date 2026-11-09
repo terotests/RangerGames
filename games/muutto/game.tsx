@@ -515,7 +515,7 @@ function afterArrival() {
   if (phase === "autumn") { finish(); return; }
   if (temp(bird.lat, dayOfYear()) <= 1.5) {
     phase = "wait";
-    rg.say("m_lunta_suomessa");
+    rg.say("m_lunta_suomessa", { queue: true });   // after the arrival clip, not over it
     return;
   }
   toNest();
@@ -526,7 +526,7 @@ function finish() {
   flying = false;
   const n = starsNow();
   if (n > best[sp.id]) { best[sp.id] = n; rg.save("best_" + sp.id, n); }
-  rg.say("m_valmis");
+  rg.say("m_valmis", { queue: true });   // "Perillä! Kun Suomessa on talvi…" first
   rg.celebrate(width / 2, height / 2, { big: true });
   rg.three("globe", { visible: false });
 }
@@ -583,7 +583,7 @@ function toNest() {
   nest.from = day;
   nest.to = Math.max(sp.leave, day + 40);
   rg.three("globe", { visible: false });
-  rg.say("m_pesa");
+  rg.say("m_pesa", { queue: true });   // after "Perillä Suomessa!" / "Kevät tuli"
 }
 
 function tickNest(dt: number) {
