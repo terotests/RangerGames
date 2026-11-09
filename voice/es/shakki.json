@@ -1,0 +1,28 @@
+{
+ "_comment": "Shakki (games/shakki): the chess game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "sk_valkoisen_vuoro": "Turno de las blancas.",
+  "sk_mustan_vuoro": "Turno de las negras.",
+  "sk_sinun_vuorosi": "Empiezas tú. Mueve una pieza blanca.",
+  "sk_puhelin_aloittaa": "Empieza el teléfono.",
+  "sk_shakki": "¡Jaque!",
+  "sk_matti_valkoinen": "¡Jaque mate! ¡Ganan las blancas!",
+  "sk_matti_musta": "¡Jaque mate! ¡Ganan las negras!",
+  "sk_matti_voitit": "¡Jaque mate! ¡Ganaste!",
+  "sk_matti_puhelin": "Jaque mate. Esta vez ganó el teléfono.",
+  "sk_patti": "¡Rey ahogado! Nadie gana. Tablas.",
+  "sk_tasapeli": "Tablas.",
+  "sk_toisto": "La misma posición tres veces. Tablas.",
+  "sk_korotus": "¡El peón llegó! Elige una pieza nueva.",
+  "sk_linnoitus": "¡Enroque!",
+  "sk_ohesta": "¡Captura al paso!",
+  "sk_kuningas_vaarassa": "¡Tu rey está en peligro! Protege al rey.",
+  "sk_sotilas": "Peón",
+  "sk_ratsu": "Caballo",
+  "sk_lahetti": "Alfil",
+  "sk_torni": "Torre",
+  "sk_kuningatar": "Dama",
+  "sk_kuningas": "Rey"
+ }
+}
