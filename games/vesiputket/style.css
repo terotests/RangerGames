@@ -1,51 +1,50 @@
-.screen { width: 100%; height: 100%; }
-.menu { width: 100%; height: 100%; background-color: #dff3ff; align-items: center; padding-top: 40px; }
-.title { font-size: 36px; font-weight: 700; color: #1d3f8f; }
-.subtitle { font-size: 17px; color: #3a5a8c; margin-top: 4px; margin-bottom: 18px; }
-.item { width: 320px; flex-direction: row; align-items: center; background-color: #ffffff; border-radius: 16px; padding: 10px; margin-top: 8px; shadow-color: rgba(29, 63, 143, 0.18); shadow-offset-y: 3px; shadow-radius: 6px; }
-.item.sandbox { background-color: #fff3c4; }
-.itemIcon { font-size: 30px; width: 44px; text-align: center; }
-.itemNum { width: 40px; height: 40px; border-radius: 20px; background-color: #3a86ff; color: #ffffff; font-size: 20px; font-weight: 700; align-items: center; justify-content: center; margin-right: 4px; }
-.itemText { margin-left: 10px; }
-.itemName { font-size: 19px; font-weight: 700; color: #22304a; }
-.itemSub { font-size: 13px; color: #5a6b85; margin-top: 2px; }
-.itemStars { font-size: 16px; color: #f4a300; margin-top: 2px; }
+.screen { width: 100%; height: 100%; overflow: hidden; background: linear-gradient(180deg, #8ecae6, #cdeefd); }
+.menu { align-items: center; background: linear-gradient(180deg, #1d4e89, #3a86ff); }
+.title { font-size: 36px; font-weight: 700; color: #ffffff; }
+.lead { font-size: 16px; color: #e3f2fd; margin-top: 4px; margin-bottom: 10px; }
+.levels { width: 330px; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+.lv { width: 98px; height: 92px; margin: 5px; border-radius: 18px; background-color: #ffffff; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.3); shadow-offset-y: 4px; }
+.lv.free { background-color: #ffd166; }
+.lvicon { font-size: 34px; }
+.lvname { font-size: 12px; font-weight: 700; color: #1d3557; margin-top: 2px; text-align: center; }
+.lvstar { position: absolute; right: 6px; top: 4px; font-size: 16px; }
 
-.hud { position: absolute; left: 0px; top: 0px; width: 100%; height: 56px; background-color: rgba(255, 255, 255, 0.88); padding-left: 10px; padding-right: 48px; padding-top: 5px; }
-.hudTitle { font-size: 16px; font-weight: 700; color: #1d3f8f; }
-.hudGoal { font-size: 12px; color: #33415c; margin-top: 2px; }
-.meter { position: absolute; left: 220px; top: 8px; width: 120px; height: 10px; border-radius: 5px; background-color: #d0dcef; overflow: hidden; }
-.meterFill { height: 10px; background-color: #2ec4b6; border-radius: 5px; }
+.field { position: absolute; border-radius: 6px; background: linear-gradient(180deg, #a8dcf5, #e4f6ff); }
+.cell { position: absolute; }
+.grass { position: absolute; height: 3px; background-color: #52b788; }
+.foam { position: absolute; height: 2px; background-color: rgba(255,255,255,0.7); }
+.ghost { position: absolute; border-width: 1px; border-color: rgba(255,255,255,0.9); background-color: rgba(255,255,255,0.25); }
+.emoji { position: absolute; text-align: center; }
+.steam { position: absolute; background-color: rgba(255,255,255,0.8); }
 
-.bar { position: absolute; left: 0px; top: 644px; width: 100%; height: 76px; flex-direction: row; align-items: center; justify-content: center; }
-.tool { width: 52px; height: 62px; margin-left: 2px; margin-right: 2px; border-radius: 14px; background-color: rgba(255, 255, 255, 0.12); align-items: center; justify-content: center; }
-.tool.on { background-color: #ffd166; }
-.toolIcon { font-size: 26px; }
-.toolName { font-size: 11px; color: #ffffff; margin-top: 2px; }
-.toolName.on { color: #3d405b; }
-.left { font-size: 15px; font-weight: 700; color: #ffd166; margin-left: 4px; margin-right: 6px; }
+.head { position: absolute; left: 8px; top: 6px; width: 300px; height: 44px; flex-direction: row; align-items: center; }
+.hname { font-size: 17px; font-weight: 700; color: #1d3557; }
+.goal { flex-direction: row; align-items: center; margin-left: 8px; }
+.gicon { font-size: 22px; }
+.gbar { width: 70px; height: 12px; border-radius: 6px; background-color: rgba(29,53,87,0.2); margin-left: 4px; }
+.gfill { height: 12px; border-radius: 6px; background-color: #2a9d8f; }
 
-.target { position: absolute; height: 3px; background-color: #e63946; border-radius: 2px; }
-.target.ok { background-color: #2ec4b6; }
-.band { position: absolute; background-color: rgba(46, 196, 182, 0.18); }
-.valve { position: absolute; width: 34px; height: 34px; border-radius: 17px; background-color: #e63946; align-items: center; justify-content: center; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0, 0, 0, 0.25); shadow-offset-y: 2px; shadow-radius: 4px; }
-.valve.open { background-color: #2ec4b6; }
-.handle { width: 22px; height: 6px; border-radius: 3px; background-color: #ffffff; }
-.pipeHit { position: absolute; border-radius: 8px; border-width: 2px; border-color: rgba(125, 133, 151, 0.35); }
-.turn { position: absolute; left: -8px; top: -8px; width: 20px; height: 20px; border-radius: 10px; background-color: #ffd166; color: #3d405b; font-size: 14px; font-weight: 700; align-items: center; justify-content: center; }
-.tap { position: absolute; width: 40px; height: 40px; border-radius: 12px; background-color: rgba(255, 255, 255, 0.7); align-items: center; justify-content: center; border-width: 3px; border-color: #e63946; }
-.tap.on { border-color: #2ec4b6; }
-.tapIcon { font-size: 24px; }
-.gauge { position: absolute; width: 140px; height: 22px; border-radius: 11px; background-color: #d0dcef; overflow: hidden; }
-.gaugeFill { position: absolute; left: 0px; top: 0px; height: 22px; background-color: #ffb703; }
-.gaugeText { position: absolute; left: 0px; top: 3px; width: 140px; text-align: center; font-size: 13px; font-weight: 700; color: #3d405b; }
-.ghost { position: absolute; border-radius: 4px; background-color: #9c6644; }
+.tank { position: absolute; width: 10px; height: 40px; border-radius: 4px; background-color: rgba(29,53,87,0.25); }
+.tankfill { position: absolute; left: 0px; width: 10px; border-radius: 4px; }
 
-.win { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(20, 30, 60, 0.35); }
-.winBox { width: 290px; background-color: #ffffff; border-radius: 22px; padding: 18px; align-items: center; }
-.winTitle { font-size: 32px; font-weight: 700; color: #1d3f8f; }
-.winStars { font-size: 34px; color: #f4a300; margin-top: 4px; }
-.winLearn { font-size: 16px; color: #33415c; margin-top: 10px; text-align: center; }
-.row { flex-direction: row; margin-top: 16px; }
-.btn { font-size: 18px; font-weight: 700; color: #3d405b; background-color: #e9ecef; padding: 12px; padding-left: 18px; padding-right: 18px; border-radius: 22px; margin-left: 6px; margin-right: 6px; }
-.btn.go { background-color: #ffd166; }
+.bar { position: absolute; left: 0px; width: 100%; flex-direction: row; justify-content: center; align-items: center; }
+.tool { width: 46px; height: 56px; margin: 2px; border-radius: 14px; background-color: rgba(255,255,255,0.8); align-items: center; justify-content: center;
+  border-width: 3px; border-color: rgba(255,255,255,0); }
+.tool.on { border-color: #e76f51; background-color: #ffffff; }
+.tool.tap { background-color: #3a86ff; }
+.tool.tap.open { background-color: #06d6a0; }
+.ticon { font-size: 24px; }
+.tcount { font-size: 10px; font-weight: 700; color: #1d3557; }
+.tcount.w { color: #ffffff; }
+
+.msg { position: absolute; left: 20px; width: 320px; padding: 8px; border-radius: 12px; background-color: rgba(29,53,87,0.85);
+  font-size: 15px; color: #ffffff; text-align: center; }
+.card { position: absolute; left: 40px; width: 280px; padding: 16px; border-radius: 22px; background-color: #ffffff; align-items: center;
+  shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 6px; }
+.big { font-size: 46px; }
+.ctext { font-size: 20px; font-weight: 700; color: #1d3557; margin-top: 4px; text-align: center; }
+.btn { width: 220px; height: 48px; border-radius: 24px; margin-top: 10px; background-color: #2a9d8f; align-items: center; justify-content: center; }
+.btn.grey { background-color: #6c757d; }
+.btn.blue { background-color: #3a86ff; }
+.btext { font-size: 18px; font-weight: 700; color: #ffffff; }

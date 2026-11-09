@@ -1,0 +1,51 @@
+.screen { width: 100%; height: 100%; }
+.menu { width: 100%; height: 100%; background-color: #dff3ff; align-items: center; padding-top: 40px; }
+.title { font-size: 36px; font-weight: 700; color: #1d3f8f; }
+.subtitle { font-size: 17px; color: #3a5a8c; margin-top: 4px; margin-bottom: 18px; }
+.item { width: 320px; flex-direction: row; align-items: center; background-color: #ffffff; border-radius: 16px; padding: 10px; margin-top: 8px; shadow-color: rgba(29, 63, 143, 0.18); shadow-offset-y: 3px; shadow-radius: 6px; }
+.item.sandbox { background-color: #fff3c4; }
+.itemIcon { font-size: 30px; width: 44px; text-align: center; }
+.itemNum { width: 40px; height: 40px; border-radius: 20px; background-color: #3a86ff; color: #ffffff; font-size: 20px; font-weight: 700; align-items: center; justify-content: center; margin-right: 4px; }
+.itemText { margin-left: 10px; }
+.itemName { font-size: 19px; font-weight: 700; color: #22304a; }
+.itemSub { font-size: 13px; color: #5a6b85; margin-top: 2px; }
+.itemStars { font-size: 16px; color: #f4a300; margin-top: 2px; }
+
+.hud { position: absolute; left: 0px; top: 0px; width: 100%; height: 56px; background-color: rgba(255, 255, 255, 0.88); padding-left: 10px; padding-right: 48px; padding-top: 5px; }
+.hudTitle { font-size: 16px; font-weight: 700; color: #1d3f8f; }
+.hudGoal { font-size: 12px; color: #33415c; margin-top: 2px; }
+.meter { position: absolute; left: 220px; top: 8px; width: 120px; height: 10px; border-radius: 5px; background-color: #d0dcef; overflow: hidden; }
+.meterFill { height: 10px; background-color: #2ec4b6; border-radius: 5px; }
+
+.bar { position: absolute; left: 0px; top: 644px; width: 100%; height: 76px; flex-direction: row; align-items: center; justify-content: center; }
+.tool { width: 52px; height: 62px; margin-left: 2px; margin-right: 2px; border-radius: 14px; background-color: rgba(255, 255, 255, 0.12); align-items: center; justify-content: center; }
+.tool.on { background-color: #ffd166; }
+.toolIcon { font-size: 26px; }
+.toolName { font-size: 11px; color: #ffffff; margin-top: 2px; }
+.toolName.on { color: #3d405b; }
+.left { font-size: 15px; font-weight: 700; color: #ffd166; margin-left: 4px; margin-right: 6px; }
+
+.target { position: absolute; height: 3px; background-color: #e63946; border-radius: 2px; }
+.target.ok { background-color: #2ec4b6; }
+.band { position: absolute; background-color: rgba(46, 196, 182, 0.18); }
+.valve { position: absolute; width: 34px; height: 34px; border-radius: 17px; background-color: #e63946; align-items: center; justify-content: center; border-width: 3px; border-color: #ffffff; shadow-color: rgba(0, 0, 0, 0.25); shadow-offset-y: 2px; shadow-radius: 4px; }
+.valve.open { background-color: #2ec4b6; }
+.handle { width: 22px; height: 6px; border-radius: 3px; background-color: #ffffff; }
+.pipeHit { position: absolute; border-radius: 8px; border-width: 2px; border-color: rgba(125, 133, 151, 0.35); }
+.turn { position: absolute; left: -8px; top: -8px; width: 20px; height: 20px; border-radius: 10px; background-color: #ffd166; color: #3d405b; font-size: 14px; font-weight: 700; align-items: center; justify-content: center; }
+.tap { position: absolute; width: 40px; height: 40px; border-radius: 12px; background-color: rgba(255, 255, 255, 0.7); align-items: center; justify-content: center; border-width: 3px; border-color: #e63946; }
+.tap.on { border-color: #2ec4b6; }
+.tapIcon { font-size: 24px; }
+.gauge { position: absolute; width: 140px; height: 22px; border-radius: 11px; background-color: #d0dcef; overflow: hidden; }
+.gaugeFill { position: absolute; left: 0px; top: 0px; height: 22px; background-color: #ffb703; }
+.gaugeText { position: absolute; left: 0px; top: 3px; width: 140px; text-align: center; font-size: 13px; font-weight: 700; color: #3d405b; }
+.ghost { position: absolute; border-radius: 4px; background-color: #9c6644; }
+
+.win { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(20, 30, 60, 0.35); }
+.winBox { width: 290px; background-color: #ffffff; border-radius: 22px; padding: 18px; align-items: center; }
+.winTitle { font-size: 32px; font-weight: 700; color: #1d3f8f; }
+.winStars { font-size: 34px; color: #f4a300; margin-top: 4px; }
+.winLearn { font-size: 16px; color: #33415c; margin-top: 10px; text-align: center; }
+.row { flex-direction: row; margin-top: 16px; }
+.btn { font-size: 18px; font-weight: 700; color: #3d405b; background-color: #e9ecef; padding: 12px; padding-left: 18px; padding-right: 18px; border-radius: 22px; margin-left: 6px; margin-right: 6px; }
+.btn.go { background-color: #ffd166; }

@@ -28,3 +28,4 @@
 .stick { position: absolute; background-color: rgba(255, 255, 255, 0.1); border-width: 2px; border-color: rgba(255, 255, 255, 0.4); }
 .knob { position: absolute; width: 36px; height: 36px; border-radius: 18px; background-color: rgba(255, 255, 255, 0.6); }
 .edge.seen { border-color: #ffd166; }
+.hold { position: absolute; width: 60px; height: 60px; border-radius: 30px; font-size: 28px; align-items: center; justify-content: center; background-color: rgba(255, 183, 3, 0.25); border-width: 2px; border-color: rgba(255, 209, 102, 0.7); }
