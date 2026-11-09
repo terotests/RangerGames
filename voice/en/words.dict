@@ -799,3 +799,39 @@ stalemate S T EY1 L M EY2 T
 starts S T AA1 R T S
 white's W AY1 T S
 wins W IH1 N Z
+bar B AA1 R
+behind B IH0 HH AY1 N D
+board B AO1 R D
+both B OW1 TH
+colour K AH1 L ER0
+different D IH1 F ER0 AH0 N T
+each IY1 CH
+every EH1 V ER0 IY0
+fixed F IH1 K S T
+force F AO1 R S
+glass G L AE1 S
+goal G OW1 L
+gold G OW1 L D
+iron AY1 ER0 N
+lower L OW1 ER0
+magnet M AE1 G N AH0 T
+magnet's M AE1 G N AH0 T S
+magnets M AE1 G N AH0 T S
+master M AE1 S T ER0
+nails N EY1 L Z
+other AH1 DH ER0
+plastic P L AE1 S T IH0 K
+pole P OW1 L
+poles P OW1 L Z
+pull P UH1 L
+pulls P UH1 L Z
+push P UH1 SH
+pushes P UH1 SH AH0 Z
+screen S K R IY1 N
+steel S T IY1 L
+stick S T IH1 K
+sticks S T IH1 K S
+tasks T AE1 S K S
+touching T AH1 CH IH0 NG
+without W IH0 TH AW1 T
+wood W UH1 D
