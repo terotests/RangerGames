@@ -27,7 +27,14 @@ FOODS = {"liha": "Lihaa.", "kala": "Kalaa.", "kasvit": "Kasveja.", "marjat": "Ma
 HOMES = {"vuoret": "Vuorilla.", "metsa": "Metsässä.", "aavikko": "Aavikolla.", "tundra": "Kylmällä tundralla.", "aro": "Ruohoarolla.", "joki": "Joen rannalla.", "maatila": "Maatilalla."}
 
 WORLD = {"eurooppa": "Euroopassa.", "aasia": "Aasiassa.", "afrikka": "Afrikassa.", "pamerikka": "Pohjois-Amerikassa.", "eamerikka": "Etelä-Amerikassa.", "australia": "Australiassa."}
+OPTS = {"liike_kavelee": "Kävelee.", "liike_ui": "Ui.", "liike_lentaa": "Lentää.", "liike_hyppii": "Hyppii.", "liike_kiipeaa": "Kiipeilee.",
+        "jalki_tassu": "Tassu.", "jalki_sorkka": "Sorkka.", "jalki_kavio": "Kavio.", "jalki_lintu": "Linnun jalka.", "jalki_kasi": "Käsi.",
+        "uni_puu": "Puussa.", "uni_kolo": "Kolossa maan alla.", "uni_kallio": "Kallioilla.", "uni_maa": "Maassa heinikossa.",
+        "peite_turkki": "Turkki.", "peite_hoyhenet": "Höyhenet.", "peite_suomut": "Suomut.", "peite_kuori": "Kuori.",
+        "aika_paiva": "Päivällä.", "aika_yo": "Yöllä.", "aika_hamara": "Aamulla ja illalla hämärässä.",
+        "koko_isompi": "Isompi kuin minä.", "koko_pienempi": "Pienempi kuin minä."}
 clips = dict(GENERAL)
+for k, v in OPTS.items(): clips["ks_" + k] = v
 for k, v in WORLD.items(): clips["ks_mt_" + k] = v
 for k, v in FOODS.items(): clips["ks_ruoka_" + k] = v
 for k, v in HOMES.items(): clips["ks_koti_" + k] = v
@@ -41,6 +48,12 @@ for m in re.finditer(r'\{ id: "(\w+)", name: "([^"]+)", gen: "([^"]+)".*?fact: "
     clips["ks_%s_asuu" % aid] = "Missä %s asuu luonnossa?" % l
     clips["ks_%s_kuka" % aid] = "Mikä näistä on %s?" % l
     clips["ks_%s_maailma" % aid] = "Missä päin maailmaa %s asuu?" % l
+    clips["ks_%s_liike" % aid] = "Miten %s liikkuu?" % l
+    clips["ks_%s_jalki" % aid] = "Millaisen jäljen %s jättää?" % l
+    clips["ks_%s_uni" % aid] = "Missä %s nukkuu?" % l
+    clips["ks_%s_peite" % aid] = "Mikä peittää %s kehoa?" % gen
+    clips["ks_%s_aika" % aid] = "Milloin %s on liikkeellä?" % l
+    clips["ks_%s_koko" % aid] = "Onko %s isompi vai pienempi kuin sinä?" % l
     clips["ks_%s_fakta" % aid] = fact
 
 path = os.path.join(ROOT, "voice", "fi.json")

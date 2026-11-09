@@ -8,7 +8,7 @@
 
 import { MAP } from "lib/mapdata";
 import { RIGS } from "lib/rigs";
-import { ANIMALS, FOODS, HOMES, WORLD, WORLD_MAP, Animal } from "lib/animals";
+import { ANIMALS, FOODS, HOMES, WORLD, WORLD_MAP, MOVES, PRINTS, SLEEPS, COVERS, ACTIVE, CHILD_KG, Animal } from "lib/animals";
 
 // ---- geography ----
 const toX = (lon: number) => (lon - MAP.lon0) * MAP.kx;
@@ -216,10 +216,27 @@ function makeQuestions(a: Animal): Q[] {
   const pair = rg.shuffle(ANIMALS.filter((b) => b.id !== a.id && (b.kg >= a.kg * 2 || b.kg * 2 <= a.kg)))[0];
   const big = pair.kg > a.kg ? pair.id : a.id;
   const isompi = choiceQ("animal", "Kumpi on isompi?", ["ks_kumpi_isompi"], big, [big === a.id ? pair.id : a.id]);
+  // picture questions that suit this animal (an empty field: not for it)
+  const l = a.name.toLowerCase();
+  const pick3 = (table: any, right: string[]) => rg.shuffle(Object.keys(table).filter((k) => right.indexOf(k) < 0)).slice(0, 2);
+  const pool: Q[] = [syo, asuu];
+  pool.push(choiceQ("move", "Miten " + l + " liikkuu?", ["ks_" + a.id + "_liike"], a.move[0], pick3(MOVES, a.move)));
+  if (a.print) pool.push(choiceQ("print", "Millaisen jäljen " + l + " jättää?", ["ks_" + a.id + "_jalki"], a.print, pick3(PRINTS, [a.print])));
+  pool.push(choiceQ("sleep", "Missä " + l + " nukkuu?", ["ks_" + a.id + "_uni"], a.sleep[0], pick3(SLEEPS, a.sleep)));
+  pool.push(choiceQ("cover", "Mikä peittää " + a.gen + " kehoa?", ["ks_" + a.id + "_peite"], a.cover, pick3(COVERS, [a.cover])));
+  if (a.active.length) pool.push(choiceQ("active", "Milloin " + l + " on liikkeellä?", ["ks_" + a.id + "_aika"], a.active[0], pick3(ACTIVE, a.active)));
+  // bigger or smaller than the child: only when it is clear
+  if (a.kg <= CHILD_KG * 0.6 || a.kg >= CHILD_KG * 2) {
+    const sz = choiceQ("size", "Onko " + l + " isompi vai pienempi kuin sinä?", ["ks_" + a.id + "_koko"], a.kg > CHILD_KG ? "isompi" : "pienempi", [a.kg > CHILD_KG ? "pienempi" : "isompi"]);
+    sz.opts = ["pienempi", "isompi"]; sz.answer = a.kg > CHILD_KG ? 1 : 0;
+    pool.push(sz);
+  }
+  const picked = rg.shuffle(pool).slice(0, 3);
   if (level === "eskari") {
-    out.push(first, syo, asuu);
+    out.push(first);
+    for (const q of picked) out.push(q);
   } else {
-    out.push(first, syo, isompi);
+    out.push(first, picked[0], picked[1], isompi);
     const f: Q = { kind: "fact", text: a.fact, clip: ["ks_" + a.id + "_fakta", "ks_totta_vai"], opts: [true, false], answer: a.factTrue ? 0 : 1, tries: 0, done: false };
     out.push(f);
   }
@@ -237,6 +254,11 @@ function startVisit() {
   rg.celebrate(width / 2, height * 0.3, { big: true });
 }
 
+// the clip of an answer, said when the child taps it
+const OPT_CLIP: any = { name: "ks_", world: "ks_mt_", food: "ks_ruoka_", home: "ks_koti_", move: "ks_liike_", print: "ks_jalki_",
+  sleep: "ks_uni_", cover: "ks_peite_", active: "ks_aika_", size: "ks_koko_" };
+function optClip(q: Q, i: number): string[] { return OPT_CLIP[q.kind] ? [OPT_CLIP[q.kind] + q.opts[i]] : []; }
+
 const PRAISE = ["oikein", "hienoa", "hyva", "mahtavaa", "loistavaa", "jee"];
 
 function answer(i: number) {
@@ -249,7 +271,7 @@ function answer(i: number) {
     rg.sound("coin");
     rg.celebrate(width / 2, height * 0.62, {});
     const next = qi + 1 < qs.length ? qs[qi + 1].clip : [];
-    const said = q.kind === "name" ? ["ks_" + q.opts[i]] : q.kind === "world" ? ["ks_mt_" + q.opts[i]] : [];
+    const said = optClip(q, i);
     rg.say(said.concat([q.kind === "fact" ? (q.answer === 0 ? "ks_totta" : "ks_ei_totta") : rg.pick(PRAISE)]).concat(next));
     advanceAt = t + 1.4;
   } else {
@@ -257,7 +279,7 @@ function answer(i: number) {
     shake = 0.4;
     rg.sound("hit");
     rg.vibrate(80);
-    rg.say(q.kind === "fact" ? ["hups", "kokeile_toista"] : q.kind === "name" ? ["ks_" + q.opts[i], "yrita_uudelleen"] : ["yrita_uudelleen"]);
+    rg.say(q.kind === "fact" ? ["hups", "kokeile_toista"] : optClip(q, i).concat(["yrita_uudelleen"]));
   }
 }
 let advanceAt = -1;
@@ -733,6 +755,8 @@ function viewVisit() {
   return <div style={{ position: "absolute", left: 0, top: 0, width: width, height: height, backgroundColor: "#fefae0" }}>{parts}</div>;
 }
 
+const QICON: any = { food: "🍽️", home: "🗺️", fact: "🤔", move: "🏃", print: "👣", sleep: "😴", cover: "✋", active: "🕐", size: "📏" };
+
 function questionView(q: Q, top: number) {
   const dx = shake > 0 ? Math.sin(shake * 60) * 6 : 0;
   const opts: any[] = [];
@@ -756,6 +780,21 @@ function questionView(q: Q, top: number) {
     if (q.kind === "animal") inner = <img src={rigPng(o)} style={{ width: H - 14, height: H - 14 }} />;
     else if (q.kind === "food") inner = [<div style={{ fontSize: 50 }}>{FOODS[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{FOODS[o].name}</div> : null];
     else if (q.kind === "home") inner = [<div style={{ fontSize: 50 }}>{HOMES[o].icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{HOMES[o].name}</div> : null];
+    else if (q.kind === "move" || q.kind === "sleep" || q.kind === "active") {
+      const e = (q.kind === "move" ? MOVES : q.kind === "sleep" ? SLEEPS : ACTIVE)[o];
+      inner = [<div style={{ fontSize: 50 }}>{e.icon}</div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{e.name}</div> : null];
+    } else if (q.kind === "print" || q.kind === "cover") {
+      inner = [<img src={rg.asset("kuvat/" + (q.kind === "print" ? "jalki_" : "peite_") + o + ".png")} style={{ width: 64, height: 64 }} />,
+        level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{(q.kind === "print" ? PRINTS : COVERS)[o]}</div> : null];
+    } else if (q.kind === "size") {
+      // the animal beside a child, at their sizes
+      const a = byId[target];
+      const big = o === "isompi";
+      inner = [<div style={{ flexDirection: "row", alignItems: "flex-end", height: 84 }}>
+        <div style={{ fontSize: big ? 30 : 60 }}>🧒</div>
+        <img src={rigPng(a.id)} style={{ width: big ? 84 : 40, height: big ? 84 : 40 }} />
+      </div>, level === "koulu" ? <div style={{ fontSize: 13, color: "#444" }}>{big ? "Isompi kuin minä" : "Pienempi kuin minä"}</div> : null];
+    }
     else inner = [<div style={{ fontSize: 50 }}>{o ? "👍" : "👎"}</div>, <div style={{ fontSize: 15, color: "#444", fontWeight: "700" }}>{o ? "Totta" : "Ei totta"}</div>];
     opts.push(<div style={{ width: W, height: H, marginLeft: 5, marginRight: 5, borderRadius: 24, alignItems: "center", justifyContent: "center",
       backgroundColor: isRight ? "#b7efc5" : isWrong ? "#e9ecef" : "#ffffff", opacity: isWrong ? 0.45 : 1,
@@ -771,7 +810,7 @@ function questionView(q: Q, top: number) {
     <div style={{ width: width - 24, height: showText ? 76 : 56, borderRadius: 20, backgroundColor: "#ffffff", flexDirection: "row", alignItems: "center",
       shadowColor: "rgba(0,0,0,0.2)", shadowOffsetY: 3, shadowRadius: 0 }}
       onClick={() => rg.say(q.clip)}>
-      <div style={{ width: 48, height: 40, marginLeft: 8, fontSize: 30, alignItems: "center" }}>{q.kind === "food" ? "🍽️" : q.kind === "home" ? "🗺️" : q.kind === "fact" ? "🤔" : q.opts.length === 2 ? "⚖️" : "❓"}</div>
+      <div style={{ width: 48, height: 40, marginLeft: 8, fontSize: 30, alignItems: "center" }}>{QICON[q.kind] || (q.opts.length === 2 ? "⚖️" : "❓")}</div>
       <div style={{ width: width - 24 - 56 - 48, fontSize: 17, color: "#1d3557", fontWeight: "700" }}>{showText ? q.text : ""}</div>
       <div style={{ width: 44, height: 40, fontSize: 26, alignItems: "center" }}>🔊</div>
     </div>
