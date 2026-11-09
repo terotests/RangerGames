@@ -1,0 +1,32 @@
+{
+ "_comment": "Kanada-malja (games/kanadamalja): the board game's clips; the Finnish ones and the place names (said in Finnish in every language) are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "km_vuoro_ilves": "Ilves's turn.",
+  "km_vuoro_tappara": "Tappara's turn.",
+  "km_valitse": "Choose where to go.",
+  "km_avaa": "Open the token? Pay one hundred euros, or try your luck with the die.",
+  "km_tyhja": "An empty token.",
+  "km_malja": "You found the Kanada Cup! Take it to Nokia Areena!",
+  "km_makkara": "A black sausage! It gets you out of jail.",
+  "km_makkara_voitto": "A black sausage! Now it counts too. Take it to Nokia Areena before the cup!",
+  "km_kummola": "Kummola! You get three hundred euros.",
+  "km_raipe": "Raipe! You get six hundred euros.",
+  "km_barkov": "Barkov! You get one thousand euros!",
+  "km_tupla": "Everything is double in Sarkanniemi!",
+  "km_rosvo": "Oh no! A robber took all your money.",
+  "km_poliisi": "The police take you to jail.",
+  "km_putka": "Get out with a fine, a black sausage, or by rolling five or six.",
+  "km_vapaa": "You are free!",
+  "km_makkara_vapaa": "The guard got the sausage. You are free!",
+  "km_ratikka": "Ding ding! The tram is leaving.",
+  "km_laiva": "The boat is leaving.",
+  "km_ratikka_valitse": "Choose a stop.",
+  "km_voitti_ilves": "Ilves wins! The Kanada Cup is at Nokia Areena!",
+  "km_voitti_tappara": "Tappara wins! The Kanada Cup is at Nokia Areena!",
+  "km_valitse_joukkue": "Which team are you, Ilves or Tappara?",
+  "km_ohje": "Roll the die and choose where to go. On a big spot you can open the token. Find the Kanada Cup and be the first to take it to Nokia Areena.",
+  "km_timantti": "A diamond! You get five hundred euros.",
+  "km_taklaus": "Tackle! The cup changed hands!"
+ }
+}

@@ -11,6 +11,12 @@ on:
 permissions:
   contents: read
 
+# a newer push to the same branch (or PR) cancels the older run, so the
+# runners build only the latest commit and Pages publishes it sooner
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   engine:
     runs-on: ubuntu-latest
