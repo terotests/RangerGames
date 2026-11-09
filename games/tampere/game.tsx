@@ -36,7 +36,10 @@ let startPlace: Place | null = null;
 let goal: Place | null = null;
 let goalChoices: Place[] = [];
 let goalPhoto: any = null;       // {f, by, lic} of the goal, shown when picking it and on arrival
-let peekUntil = 0;               // the goal's photo is shown on top until this time
+let peekUntil = 0;               // a photo (peekPh, peekTitle) is shown on top until this time
+let peekPh: any = null;
+let peekTitle = "";
+const seen: any = {};            // places passed on the way this time (points once each)
 function photosOf(p: Place | null): any[] { return p && PHOTOS[p.id] ? PHOTOS[p.id] : []; }
 let kid = { x: 0, z: 0, face: 0, step: 0, moving: false, safeX: 0, safeZ: 0, tx: 0, tz: 0 };
 let cam = { x: 0, z: 0 };
@@ -196,7 +199,20 @@ function setupMap() {
       if (typeof own === "string") places[i].name = own;
       else if (h && typeof h.name === "string" && (rg.lang === "fi" || (places[i].id !== "koti" && places[i].id !== "isa"))) places[i].name = h.name;
     }
-  } catch (e) { }
+    // the family's own photos (never in git): export const ALBUM = [{ lat, lon, title, file }]
+    // with the files in album.local.d/ beside this file
+    const al = m && m.ALBUM;
+    if (al) for (let i = 0; i < al.length; i++) {
+      const a = al[i];
+      if (typeof a.lat !== "number") continue;
+      const x = lonToX(a.lon), z = latToZ(a.lat);
+      if (x < MAP.X0 + 10 || x > MAP.X0 + MAP.W - 10 || z < MAP.Z0 + 10 || z > MAP.Z0 + MAP.H - 10) continue;
+      const q = nearestWalk(x, z);
+      const id = "album:" + i;
+      places.push({ id, name: a.title || rg.t("Kuvan paikka", "Photo spot", "Lugar de la foto"), kind: "photo", x: q.x, z: q.z, icon: "📷" });
+      PHOTOS[id] = [{ f: "album.local.d/" + a.file, by: "", lic: "" }];
+    }
+  } catch (e) { console.log("places.local: " + e); }
   for (let i = 0; i < MAP.roads.length; i++) {
     const r = MAP.roads[i];
     roadLines.push(makeLine(r.p));
@@ -365,7 +381,9 @@ function makeGoalChoices() {
   const park = pickNear("park", 1);
   const stop = pickNear("stop", 1);
   const sight = pickNear("sight", 1);
-  goalChoices = out.concat(park, stop, sight);
+  const photo = pickNear("photo", 1);
+  const spot = pickNear("spot", 1);
+  goalChoices = out.concat(park, stop, sight, spot, photo);
 }
 
 function chooseGoal(p: Place) {
@@ -374,6 +392,7 @@ function chooseGoal(p: Place) {
   const ph = photosOf(p);
   goalPhoto = ph.length ? ph[Math.floor(Math.random() * ph.length)] : null;
   peekUntil = goalPhoto ? t + 5 : 0;
+  peekPh = goalPhoto; peekTitle = rg.t("Etsi tämä: ", "Find this: ", "Busca esto: ") + p.name;
   hearts = 3;
   roundPoints = 0;
   riding = -1; ridingKey = -1;
@@ -451,6 +470,22 @@ function addPoints(n: number, why: string) {
   say("+" + n + " " + why, "good", 2.5);
 }
 
+// passing a park, a sight, a familiar spot or a photo spot on the way: points
+// once each, and its photo if there is one
+function discover() {
+  for (let i = 0; i < places.length; i++) {
+    const p = places[i];
+    if (seen[p.id] || (goal && goal.id === p.id)) continue;
+    if (p.kind !== "park" && p.kind !== "sight" && p.kind !== "spot" && p.kind !== "photo") continue;
+    if (Math.abs(p.x - kid.x) > 16 || Math.abs(p.z - kid.z) > 16 || Math.hypot(p.x - kid.x, p.z - kid.z) > 14) continue;
+    seen[p.id] = true;
+    addPoints(10, rg.t("Löysit: ", "You found: ", "Encontraste: ") + p.name);
+    rg.celebrate(width / 2, height / 2, { count: 12 });
+    const ph = photosOf(p);
+    if (ph.length) { peekPh = ph[0]; peekTitle = p.icon + " " + p.name; peekUntil = t + 5; }
+  }
+}
+
 function mistake(text: string) {
   if (hurt > 0 || gps) return;
   hearts--;
@@ -460,9 +495,9 @@ function mistake(text: string) {
   kid.x = kid.safeX; kid.z = kid.safeZ;
   walking = false;
   if (hearts <= 0) {
-    say(rg.t("Harjoitellaan vielä! Aloitetaan alusta.", "Let's practise more! Back to the start.", "¡Practiquemos más! Volvemos al principio."), "bad", 4);
+    // the game never ends: the hearts fill up again and the walk goes on
+    say(rg.t("Ole tarkkana! Sydämet täyttyvät taas, jatketaan.", "Be careful! Your hearts fill up again, let's go on.", "¡Ten cuidado! Tus corazones se llenan de nuevo, sigamos."), "bad", 4);
     hearts = 3;
-    if (startPlace) placeKid(startPlace);
   } else {
     say(text, "bad", 3.5);
   }
@@ -1330,9 +1365,11 @@ function tick(dt: number, input: any) {
       const d0 = Math.min(Math.hypot(kid.x - c[0], kid.z - c[1]), Math.hypot(kid.x - c[2], kid.z - c[3]));
       if (d0 < 10 && msgClock <= 0) say(c[4] >= 0 ? rg.t("Suojatie valoilla: odota vihreää ukkoa!", "Crossing with lights: wait for the green man!", "Paso con semáforo: ¡espera al muñeco verde!") + " 🚦" : rg.t("Suojatie: pysähdy ja katso molempiin suuntiin!", "Zebra crossing: stop and look both ways!", "Paso de cebra: ¡para y mira a ambos lados!") + " 👀", "info", 4);
     }
+    discover();
     if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 15) win();
   } else if (mode === "play" && !showMap) {
     if (hurt <= 0.8) moveKid(dt, input);
+    discover();
     if (goal && Math.hypot(goal.x - kid.x, goal.z - kid.z) < 12 && (goal.kind !== "stop" || true)) win();
   }
   if (mode === "ride" && riding >= 0 && riding < trams.length) {
@@ -1576,16 +1613,16 @@ function skipRide() {
 function Hud() {
   const out: any[] = [];
   const hs = hearts >= 3 ? "❤️❤️❤️" : hearts === 2 ? "❤️❤️🤍" : "❤️🤍🤍";
-  if (goalPhoto && t < peekUntil) out.push(
+  if (peekPh && t < peekUntil) out.push(
     <div className="peek" onClick={() => { peekUntil = 0; }}>
-      <div className="peektitle">{rg.t("Etsi tämä: ", "Find this: ", "Busca esto: ") + (goal ? goal.name : "")}</div>
-      <img className="peekimg" src={rg.asset(goalPhoto.f)} />
-      <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + goalPhoto.by + ", " + goalPhoto.lic + " (Wikimedia Commons)"}</div>
+      <div className="peektitle">{peekTitle}</div>
+      <img className="peekimg" src={rg.asset(peekPh.f)} />
+      {peekPh.by ? <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + peekPh.by + ", " + peekPh.lic + " (Wikimedia Commons)"}</div> : null}
     </div>
   );
   out.push(
     <div className="hud">
-      <div className="row"><div className="pill goalpill" onClick={() => { if (goalPhoto && peekUntil < t) peekUntil = t + 5; else { peekUntil = 0; showMap = true; } rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "") + (plan && plan.stage === 0 ? " · 🚏 " + plan.board.name : plan && plan.stage === 1 ? " · 🚪 " + plan.alight.name : "")}</div></div>
+      <div className="row"><div className="pill goalpill" onClick={() => { if (goalPhoto && peekUntil < t) { peekPh = goalPhoto; peekTitle = rg.t("Etsi tämä: ", "Find this: ", "Busca esto: ") + (goal ? goal.name : ""); peekUntil = t + 5; } else { peekUntil = 0; showMap = true; } rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "") + (plan && plan.stage === 0 ? " · 🚏 " + plan.board.name : plan && plan.stage === 1 ? " · 🚪 " + plan.alight.name : "")}</div></div>
       <div className="row"><div className="pill hp">{hs + " " + points}</div></div>
     </div>
   );
@@ -1702,7 +1739,7 @@ function GoalView() {
   for (let i = 0; i < goalChoices.length; i++) {
     const g = goalChoices[i];
     const d = Math.round(Math.hypot(g.x - kid.x, g.z - kid.z) / 10) * 10;
-    const kind = g.id === "koti" ? rg.t("Äidin luo", "To mum", "A casa de mamá") : g.id === "isa" ? rg.t("Isän luo", "To dad", "A casa de papá") : g.kind === "park" ? rg.t("Puistoon", "To the park", "Al parque") : g.kind === "stop" ? rg.t("Ratikkapysäkille", "To the tram stop", "A la parada de tranvía") : g.kind === "sight" ? rg.t("Katsomaan", "Sightseeing", "De visita") : g.kind === "school" ? rg.t("Kouluun", "To school", "Al colegio") : g.kind === "daycare" ? rg.t("Päiväkotiin", "To daycare", "A la guardería") : rg.t("Kylään", "Visiting", "De visita");
+    const kind = g.id === "koti" ? rg.t("Äidin luo", "To mum", "A casa de mamá") : g.id === "isa" ? rg.t("Isän luo", "To dad", "A casa de papá") : g.kind === "park" ? rg.t("Puistoon", "To the park", "Al parque") : g.kind === "stop" ? rg.t("Ratikkapysäkille", "To the tram stop", "A la parada de tranvía") : g.kind === "sight" ? rg.t("Katsomaan", "Sightseeing", "De visita") : g.kind === "school" ? rg.t("Kouluun", "To school", "Al colegio") : g.kind === "daycare" ? rg.t("Päiväkotiin", "To daycare", "A la guardería") : g.kind === "photo" ? rg.t("Kuvan paikkaan", "To the photo spot", "Al lugar de la foto") : g.kind === "spot" ? rg.t("Tuttuun paikkaan", "To a familiar place", "A un lugar conocido") : rg.t("Kylään", "Visiting", "De visita");
     cards.push(
       <div className="card small" onClick={() => chooseGoal(g)}>
         {photosOf(g).length ? <div className="cthumb"><img className="cthumbimg" src={rg.asset(photosOf(g)[0].f)} /></div> : <div className="cicon">{g.icon}</div>}
@@ -1767,7 +1804,7 @@ function WinView() {
     <div className="winwrap">
       <div className="wincard" style={{ transform: "scale(" + rg.ease.back(Math.min(1, modeClock * 2)) + ")" }}>
         {goalPhoto ? <img className="winimg" src={rg.asset(goalPhoto.f)} /> : <div className="wicon">{goal ? goal.icon : "🎉"}</div>}
-        {goalPhoto ? <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + goalPhoto.by + ", " + goalPhoto.lic}</div> : null}
+        {goalPhoto && goalPhoto.by ? <div className="photoby">{rg.t("Kuva: ", "Photo: ", "Foto: ") + goalPhoto.by + ", " + goalPhoto.lic}</div> : null}
         <div className="wtitle">{rg.t("Perillä!", "You made it!", "¡Llegaste!") + " 🎉"}</div>
         <div className="wtext">{goal ? (goal.id === "koti" ? rg.t("Äiti on iloinen, kun tulit!", "Mum is happy you came!", "¡Mamá está contenta de que vinieras!") : goal.id === "isa" ? rg.t("Isä on iloinen, kun tulit!", "Dad is happy you came!", "¡Papá está contento de que vinieras!") : rg.t("Löysit: ", "You found: ", "Encontraste: ") + goal.name) : ""}</div>
         <div className="wstars">{stars}</div>
