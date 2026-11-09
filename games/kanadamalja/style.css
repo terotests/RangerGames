@@ -55,7 +55,7 @@
 .dtext { font-size: 16px; color: #2b2d42; margin-top: 8px; text-align: center; }
 .bigpuck { width: 96px; height: 96px; margin-top: 8px; }
 .revbox { width: 260px; align-items: center; justify-content: center; margin-top: 6px; }
-.bigdice { margin-top: 14px; margin-bottom: 8px; }
+.bigdice { height: 120px; }
 
 /* menu */
 .menu { background-color: #1d3557; align-items: center; }
@@ -85,3 +85,16 @@
 .winpawn { width: 90px; height: 90px; margin-top: 10px; }
 .wintitle { font-size: 40px; font-weight: 700; color: #ffffff; margin-top: 10px; }
 .winsub { font-size: 18px; color: #ffffff; width: 300px; text-align: center; margin-top: 8px; margin-bottom: 20px; }
+
+/* the 3D die */
+.diewrap { position: absolute; }
+.die3 { position: absolute; }
+.dieshadow { position: absolute; background-color: #000000; }
+.dietip { position: absolute; width: 180px; height: 30px; border-radius: 15px; background-color: rgba(20,36,61,0.85); color: #ffffff;
+  font-size: 15px; font-weight: 700; align-items: center; justify-content: center; }
+
+/* zoom and the start choice */
+.zoombtn { position: absolute; width: 44px; height: 44px; border-radius: 22px; background-color: rgba(20,36,61,0.8);
+  border-width: 2px; border-color: #ffffff; font-size: 22px; align-items: center; justify-content: center; }
+.startbar { position: absolute; flex-direction: row; justify-content: center; }
+.btn.sbtn { font-size: 16px; padding-left: 12px; padding-right: 12px; }
