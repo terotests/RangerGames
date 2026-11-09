@@ -27,7 +27,7 @@ if [[ "${RG_PUBLIC:-}" == 1 ]]; then
   GAMES=dist/games-public
   rm -rf "$GAMES"; mkdir -p "$GAMES"
   for d in games/*/; do
-    case "$(basename "$d")" in kolmarden) continue;; esac
+    case "$(basename "$d")" in kolmarden|tampere) continue;; esac
     cp -r "$d" "$GAMES/"
   done
   find "$GAMES" \( -name '*.local.*' -o -name perhe \) -prune -exec rm -rf {} +
