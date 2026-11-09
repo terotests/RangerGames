@@ -9,6 +9,7 @@ Kuvat on otettu web-versiosta (360 × 720) komennolla `node tools/shot.js`, ja n
 | <img src="../docs/screenshots/launcher.png" width="160"> | **Valikko** | `launcher` | Kaikki pelit ruutuina. Napauta peliä, ja se käynnistyy. |
 | <img src="../docs/screenshots/pupu.png" width="160"> | **Pupu hyppii** | `pupu` | Pupu hyppii pilveltä toiselle ja kerää porkkanoita. Ohjataan pitämällä sormea vasemmalla tai oikealla puolella. |
 | <img src="../docs/screenshots/ristinolla.png" width="160"> | **Ristinolla** | `ristinolla` | Ristinollaa puhelinta tai kaveria vastaan. |
+| <img src="../docs/screenshots/shakki.png" width="160"> | **Shakki** | `shakki` | Shakkia kahdestaan tai puhelinta vastaan (helppo, keskitaso, vaikea). Kaikki säännöt: linnoitus, ohestalyönti, korotus, shakki, matti, patti ja tasapelit. Napautettu nappula näyttää siirtonsa ja sanoo nimensä, 💡 antaa vihjeen ja ↶ perii siirron. Kesken jäänyt peli jatkuu. Nappulat piirretty itse (`tools/shakki/pieces.js`). |
 | <img src="../docs/screenshots/laskupeli.png" width="160"> | **Laskupeli** | `laskupeli` | Lasketaan hedelmiä: plussaa ja miinusta, tehtävät luetaan ääneen. |
 | <img src="../docs/screenshots/nappikisa.png" width="160"> | **Nappikisa** | `nappikisa` | Kaksinpeli: puhelin on pelaajien välissä, ja se voittaa, joka napauttaa ensin, kun valo vaihtuu. |
 | <img src="../docs/screenshots/aakkoset.png" width="160"> | **Aakkoset** | `aakkoset` | Eskari: alkukirjaimet ja kirjainten etsintä. 2. luokka: tavut ja oikea kirjoitusasu. |

@@ -87,6 +87,7 @@ carries K AE1 R IY0 Z
 carrot K AE1 R AH0 T
 carrots K AE1 R AH0 T S
 cars K AA1 R Z
+castling K AE1 S AH0 L IH0 NG
 cat K AE1 T
 catch K AE1 CH
 cathedral K AH0 TH IY1 D R AH0 L
@@ -404,6 +405,7 @@ pakistan P AE1 K IH0 S T AE2 N
 panda P AE1 N D AH0
 park P AA1 R K
 part P AA1 R T
+passant P AE0 S AA1 N T
 pee P IY1
 penguin P EH1 NG G W AH0 N
 perch P ER1 CH
@@ -779,3 +781,21 @@ umlaut UH1 M L AW2 T
 cloven K L OW1 V AH0 N
 whooper HH UW1 P ER0
 brr B ER1
+bishop B IH1 SH AH0 P
+black's B L AE1 K S
+check CH EH1 K
+checkmate CH EH1 K M EY2 T
+danger D EY1 N JH ER0
+king K IH1 NG
+knight N AY1 T
+nobody N OW1 B AA2 D IY2
+pawn P AO1 N
+position P AH0 Z IH1 SH AH0 N
+protect P R AH0 T EH1 K T
+queen K W IY1 N
+rook R UH1 K
+same S EY1 M
+stalemate S T EY1 L M EY2 T
+starts S T AA1 R T S
+white's W AY1 T S
+wins W IH1 N Z

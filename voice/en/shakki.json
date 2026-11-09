@@ -1,0 +1,28 @@
+{
+ "_comment": "Shakki (games/shakki): the chess game's clips; the Finnish ones are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "sk_valkoisen_vuoro": "White's turn.",
+  "sk_mustan_vuoro": "Black's turn.",
+  "sk_sinun_vuorosi": "You start. Move a white piece.",
+  "sk_puhelin_aloittaa": "The phone starts.",
+  "sk_shakki": "Check!",
+  "sk_matti_valkoinen": "Checkmate! White wins!",
+  "sk_matti_musta": "Checkmate! Black wins!",
+  "sk_matti_voitit": "Checkmate! You won!",
+  "sk_matti_puhelin": "Checkmate. The phone won this time.",
+  "sk_patti": "Stalemate! Nobody wins. It's a draw.",
+  "sk_tasapeli": "It's a draw.",
+  "sk_toisto": "The same position three times. It's a draw.",
+  "sk_korotus": "The pawn made it! Choose a new piece.",
+  "sk_linnoitus": "Castling!",
+  "sk_ohesta": "En passant!",
+  "sk_kuningas_vaarassa": "Your king is in danger! Protect the king.",
+  "sk_sotilas": "Pawn",
+  "sk_ratsu": "Knight",
+  "sk_lahetti": "Bishop",
+  "sk_torni": "Rook",
+  "sk_kuningatar": "Queen",
+  "sk_kuningas": "King"
+ }
+}
