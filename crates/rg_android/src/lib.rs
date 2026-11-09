@@ -164,6 +164,18 @@ pub extern "system" fn Java_fi_rangergames_Engine_key(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_sensor(
+    mut env: JNIEnv,
+    _c: JClass,
+    name: JString,
+    data: JString,
+) {
+    let name = text(&mut env, &name);
+    let data = text(&mut env, &data);
+    with(|e| e.sensor(&name, &data));
+}
+
+#[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_frame(
     _env: JNIEnv,
     _c: JClass,

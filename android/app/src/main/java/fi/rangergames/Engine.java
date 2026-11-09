@@ -29,6 +29,9 @@ final class Engine {
 
     static native void key(boolean down, String key);
 
+    /** A sensor reading: "location" or "heading" (or "error") and its JSON. */
+    static native void sensor(String name, String json);
+
     static native int frame(double dtMs);
 
     static native float[] draw();

@@ -244,6 +244,18 @@ impl Engine {
         }
     }
 
+    /// A phone sensor's reading for the game: `name` is `location` (data
+    /// `{lat, lon, accuracy, speed, bearing, altitude, time}`, accuracy in
+    /// metres, bearing in degrees from north or -1) or `heading` (`{deg}`,
+    /// where the top of the phone points, degrees from north), or `error`
+    /// (`{sensor, reason}`). The game asks for one with `rg.sensor(name, true)`
+    /// and gets it in `onLocation(fix)` / `onHeading(deg)` / `onSensor(name, data)`.
+    pub fn sensor(&mut self, name: &str, data: &str) {
+        let mut e = rg_core::input::event("sensor", name, 0, 0.0, 0.0);
+        e.target = data.to_string();
+        self.input.push(e);
+    }
+
     fn games_json(&self) -> Json {
         let mut items = Vec::new();
         for g in self.games() {
@@ -259,6 +271,8 @@ impl Engine {
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();
+        // the last game's sensors off (GPS uses the battery)
+        self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
         self.error = String::new();
         self.script = None;

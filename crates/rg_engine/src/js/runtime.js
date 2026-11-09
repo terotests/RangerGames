@@ -60,6 +60,11 @@ var rg = {
   exit: function () { if (__launcher) rg.quit(); else __cmds.push(["launch", "", null]); },
   // closes the app (Android); the web page stays
   quit: function () { __cmds.push(["quit", "", null]); },
+  // a phone sensor on or off: "location" (GPS; the game gets onLocation(fix)
+  // with { lat, lon, accuracy, speed, bearing, altitude, time }) or
+  // "heading" (the compass; onHeading(deg), 0 = the phone's top points north).
+  // Failures come as onSensor("error", { sensor, reason }).
+  sensor: function (name, on) { __cmds.push(["sensor", String(name), on !== false]); },
   title: function (t) { __cmds.push(["title", String(t), null]); },
   // the 3D layer (three.js on the web): rg.three("add", { id, shape, … })
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
@@ -191,6 +196,13 @@ function __frame(arg) {
     var info = { x: e.x, y: e.y, id: e.id, pointer: e.pointer };
     if (e.type === "keydown") { if (typeof onKeyDown === "function") onKeyDown(e.key, __input); }
     else if (e.type === "keyup") { if (typeof onKeyUp === "function") onKeyUp(e.key, __input); }
+    else if (e.type === "sensor") {
+      var data = null;
+      try { data = JSON.parse(e.id || "null"); } catch (err) { data = null; }
+      if (e.key === "location" && typeof onLocation === "function") onLocation(data);
+      else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
+      else if (typeof onSensor === "function") onSensor(e.key, data);
+    }
     else if (e.type === "back") { if (typeof onBack === "function") { onBack(); } else { rg.exit(); } }
     else if (e.type === "pointerdown") {
       __downTarget[e.pointer] = e.id;

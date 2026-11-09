@@ -4,6 +4,7 @@ package fi.rangergames;
 import android.app.Activity;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.graphics.Canvas;
 import android.os.Build;
 import android.os.Bundle;
@@ -37,6 +38,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private SurfaceView view;
     private Painter painter;
     private final Sound sound = new Sound();
+    private Sensors sensors;
     private SharedPreferences saves;
     private Thread thread;
     private volatile boolean running;
@@ -54,6 +56,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         density = getResources().getDisplayMetrics().density;
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         painter = new Painter(getAssets());
+        sensors = new Sensors(this, input);
         view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         view.setOnTouchListener(new View.OnTouchListener() {
@@ -114,6 +117,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         paused = false;
         sound.start();
         sound.setPaused(false);
+        sensors.resume();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
+        if (code == Sensors.PERMISSION_REQUEST) {
+            sensors.permissionResult(results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED);
+        }
     }
 
     @Override
@@ -122,6 +133,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         paused = true;
         sound.setPaused(true);
         sound.stop();
+        sensors.pause();
     }
 
     @Override
@@ -202,7 +214,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             }
             Object in;
             while ((in = input.poll()) != null) {
-                if (in instanceof String) {
+                if (in instanceof String[]) {
+                    String[] sv = (String[]) in;
+                    Engine.sensor(sv[0], sv[1]);
+                } else if (in instanceof String) {
                     // the Back button is one key down, as the web host sends it
                     Engine.key(true, (String) in);
                     afterCall();
@@ -273,6 +288,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "music": sound.music(name, opts); break;
             case "stop": sound.stopMusic(); break;
             case "vibrate": vibrate(args); break;
+            case "sensor": sensors.set(name, !Boolean.FALSE.equals(args)); break;
             case "persist":
                 saves.edit().putString(name, args instanceof String ? (String) args : String.valueOf(args)).apply();
                 break;
