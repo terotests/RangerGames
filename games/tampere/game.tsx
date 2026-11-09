@@ -1,5 +1,5 @@
 // Tampereen liikenneretki: a child walks through the centre of Tampere to a
-// goal (mum's home on Tampellan esplanadi, school, day care, a park, a tram
+// goal (mum's or dad's home, school, day care, a park, a tram
 // stop, a sight). Streets are crossed only on zebra crossings: wait for the
 // green man at the lights, look out for cars at the other crossings and for
 // bikes on the cycle paths. The tram (lines 1 and 3) can be ridden from stop
@@ -156,14 +156,16 @@ function bucketKey(x: number, z: number) { return Math.floor(x / 40) + ":" + Mat
 
 function setupMap() {
   places = MAP.places;
-  // exact homes from places.local.js beside this file (git-ignored, so
-  // addresses never go to GitHub): export const PLACES = { koti: { lat, lon }, isa: { lat, lon } }
+  // real homes, school and day care from places.local.js beside this file
+  // (git-ignored, so they never go to GitHub):
+  // export const PLACES = { koti: { lat, lon }, koulu: { lat, lon, name }, ... }
   try {
     const m = __cerxesImport("places.local");
     const lp = m && m.PLACES;
     for (let i = 0; i < places.length; i++) {
       const h = lp && lp[places[i].id];
-      if (h && typeof h.lat === "number") { places[i].x = lonToX(h.lon); places[i].z = latToZ(h.lat); }
+      if (h && typeof h.lat === "number") { const q = nearestWalk(lonToX(h.lon), latToZ(h.lat)); places[i].x = q.x; places[i].z = q.z; }
+      if (h && typeof h.name === "string") places[i].name = h.name;
     }
   } catch (e) { }
   for (let i = 0; i < MAP.roads.length; i++) {
@@ -1406,7 +1408,7 @@ function StartView() {
   const cards: any[] = [];
   for (let i = 0; i < homes.length; i++) {
     const h = homes[i];
-    const sub = h.id === "koti" ? "Tampella" : h.id === "isa" ? "Tammela" : "";
+    const sub = "";
     cards.push(
       <div className="card" onClick={() => chooseStart(h)}>
         <div className="cicon">{h.icon}</div>
