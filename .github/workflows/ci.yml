@@ -36,6 +36,8 @@ jobs:
         run: cargo test -p rg_core -p rg_engine -p rg_voice
       - name: rg_core stays in Ranger's Rust subset (JavaScript, C++, Go, Python)
         run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
+      - name: Valopeilit levels are solvable with their trays
+        run: node tools/peilit/solve.ts
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
       - name: Web build (public games only, for GitHub Pages)
