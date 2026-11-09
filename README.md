@@ -56,6 +56,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `kopteri` – **Kopterilento** | Maantietoa helikopterilla. Tampere ylhäältä: etsi Näsinneula, tuomiokirkko, rautatieasema, Tammerkoski … (kotien paikat eivät ole mukana). Maapallo: ensin mantereet (jokaisella oma väri ja muoto tehtäväkortissa, joten lukutaitoa ei tarvita), sitten tutut maat, lisää maita ja vaikeat maat. Pallo pyörii kopterin alla, löydöstä pisteitä (nopeasta enemmän), ja hetken päästä nuoli näyttää suunnan (❓ heti). Ohjaus: pidä sormea sinne, minne haluat lentää (tai nuolinäppäimet), ➕/➖ zoomaa. Maiden rajat: Natural Earth (public domain), `tools/kopteri/build.py`. |
 | `vuodenajat` – **Vuodenajat** | Suomen eläinten vuosi yhdessä maisemassa (metsänreuna ja järvi pohjaan asti): talvi- ja kesäturkit (jänis, kärppä, riekko), talvipesät (karhu, siili, mäyrä, sammakko, orava), ruokavarastot (orava, närhi), muuttolinnut, onkiminen veneestä kesällä ja pilkkiminen talvella (made kutee jään alla). Ohjeet puhutaan, joten lukutaitoa ei tarvita. Kuvat ovat omia piirroksia (`tools/vuodenajat/art.js` → `render.js`), kalat Onkipelistä; puheet `tools/vuodenajat/voice.js` → `voice/fi.json`. |
 | `muutto` – **Muuttolintu** | Vuodenajat ja aurinko muuttolinnun silmin. Valitse laji (laulujoutsen ⇄ Tanska, kurki ⇄ Etiopia, haarapääsky ⇄ Etelä-Afrikka, lapintiira ⇄ Etelämanner) ja lennä keväällä Suomeen pesimään, ruoki poikaset ja lennä syksyllä takaisin. Vuosi kulkee nopeasti lentäessä: maapallolla lumi sulaa ja tulee, kevään vihreä ja syksyn ruska kulkevat leveyspiirejä pitkin, ja valaistus on keskipäivä linnun kohdalla, joten talven puoleinen napa on pimeässä. Pieni ikkuna näyttää maapallon kiertämässä aurinkoa akseli aina samaan suuntaan kallellaan (napauta: aurinko selitetään ääneen). Pisteet näyttävät lajin oikean reitin, ruoka matkalla antaa voimia, lumessa tulee kylmä. Ohjaus kuin Kopterilennossa. `tools/muutto/build.py`. |
+| `painovoima` – **Painovoimalento** | Avaruuslento 3D:nä Auringon, Merkuriuksen, Venuksen, Maan, Kuun, Marsin ja Jupiterin välillä. Lähellä taivaankappale vetää rakettia puoleensa omalla painovoimallaan (oikea pintapainovoima, putoaminen vähän nopeutettuna; Kuussa leijutaan, Jupiterissa tarvitaan ⚡-tehoja), ja pinnalta raketti pomppaa kuin kumipallo. Käy jokaisella. Planeetat ovat moottorin globe (`rg.three("planet", …)`): sama kuin Muuttolinnun maapallo, mutta paikallaan 3D-näkymässä perspektiivissä ja Auringon valaisemana; ne ovat paljon todellista isompia ja lähempänä toisiaan. Ohjaus: vasen puoli ohjaa (tai nuolet), 🔥 työntää, ⚡ tehot, 🛑 jarru. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
@@ -169,7 +170,7 @@ Nämä kannattaa korjata myös Rangeriin ja EVG:hen.
 
 ## Aineistot
 
-- Maiden rajat (Kopterilento, Muuttolintu): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
+- Maiden rajat (Kopterilento, Muuttolintu, Painovoimalento): [Natural Earth](https://www.naturalearthdata.com/) 1:110m, public domain.
 - Tampereen kartta (Kotiin, Kopterilento): © OpenStreetMap-tekijät (ODbL), Tampereen kaupunki / Maanmittauslaitos (CC BY 4.0), Tampere Taxi Driverin aineiston kautta.
 
 ## Lisenssi

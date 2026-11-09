@@ -438,7 +438,9 @@ impl Globe {
     }
 
     /// Mountains as cones: their faces lit by the sun, their shadows on the ground.
-    fn render_peaks(&self, out: &mut DrawStream, toward: V3, view: &dyn Fn(&V3) -> V3, px: &dyn Fn(f64, f64) -> [f32; 2]) {
+    /// `vis`: whether a peak at this point of the unit sphere faces the viewer;
+    /// `pt`: a point on or above the unit sphere on the screen (None: behind the eye).
+    fn render_peaks(&self, out: &mut DrawStream, vis: &dyn Fn(&V3) -> bool, pt: &dyn Fn(&V3) -> Option<[f32; 2]>) {
         if self.peaks.is_empty() {
             return;
         }
@@ -448,7 +450,7 @@ impl Globe {
         let mut shadow: Vec<f32> = Vec::new();
         let mut sends: Vec<f32> = Vec::new();
         for &(c, size) in self.peaks.iter() {
-            if dot(c, toward) < 0.08 {
+            if !vis(&c) {
                 continue;
             }
             // the local frame: east, north, up
@@ -458,14 +460,20 @@ impl Globe {
             let north = [-up[2] * east[1], up[2] * east[0], up[0] * east[1] - up[1] * east[0]];
             let r = self.peak_size.to_radians() * (0.7 + 0.3 * size);
             let height = r * (0.9 + 0.35 * size);
+            let behind = std::cell::Cell::new(false);
             let at = |de: f64, dn: f64, du: f64| -> [f32; 2] {
                 let p = [
                     up[0] * (1.0 + du) + east[0] * de + north[0] * dn,
                     up[1] * (1.0 + du) + east[1] * de + north[1] * dn,
                     up[2] * (1.0 + du) + east[2] * de + north[2] * dn,
                 ];
-                let v = view(&p);
-                px(v[0], v[1])
+                match pt(&p) {
+                    Some(q) => q,
+                    None => {
+                        behind.set(true);
+                        [0.0, 0.0]
+                    }
+                }
             };
             // the sun in the local frame
             let sl = self.sun.map(|s| [dot(s, east), dot(s, north), dot(s, up)]);
@@ -490,8 +498,10 @@ impl Globe {
                     let tip = at(dx * len, dy * len, 0.0);
                     let a = at(-dy * r, dx * r, 0.0);
                     let b = at(dy * r, -dx * r, 0.0);
-                    shadow.extend_from_slice(&[a[0], a[1], tip[0], tip[1], b[0], b[1]]);
-                    sends.push(shadow.len() as f32);
+                    if !behind.get() {
+                        shadow.extend_from_slice(&[a[0], a[1], tip[0], tip[1], b[0], b[1]]);
+                        sends.push(shadow.len() as f32);
+                    }
                 }
             }
             let lat = up[2].clamp(-1.0, 1.0).asin().to_degrees();
@@ -499,6 +509,7 @@ impl Globe {
             let snowy = size >= 2.0 || close(ground, self.peak_snow);
             let apex = at(0.0, 0.0, height);
             let cap = 0.45;
+            let first = faces.len();
             for i in 0..N {
                 let a0 = i as f64 / N as f64 * std::f64::consts::TAU;
                 let a1 = (i + 1) as f64 / N as f64 * std::f64::consts::TAU;
@@ -515,6 +526,9 @@ impl Globe {
                 let sh = |c: V3| [(c[0] * k).min(1.0), (c[1] * k).min(1.0), (c[2] * k).min(1.0)];
                 faces.push((sh(low), vec![p0[0], p0[1], p1[0], p1[1], q1[0], q1[1], q0[0], q0[1]]));
                 faces.push((sh(top), vec![q0[0], q0[1], q1[0], q1[1], apex[0], apex[1]]));
+            }
+            if behind.get() {
+                faces.truncate(first);
             }
         }
         if !shadow.is_empty() {
@@ -677,7 +691,10 @@ impl Globe {
         if let Some(b) = self.border {
             out.rings(7, b, 0.85, self.border_width, &bpts, &bends);
         }
-        self.render_peaks(out, toward, &view, &px);
+        self.render_peaks(out, &|c: &V3| dot(*c, toward) >= 0.08, &|p: &V3| {
+            let v = view(p);
+            Some(px(v[0], v[1]))
+        });
         if let Some(sun) = self.sun {
             // a soft terminator: a few caps round the point opposite the sun, and a glow under it
             let anti = [-sun[0], -sun[1], -sun[2]];
@@ -705,6 +722,379 @@ impl Globe {
             c.push(c[0]);
             c.push(c[1]);
             out.rings(7, rc, 0.6, 2.0, &c, &[c.len() as f32]);
+        }
+    }
+}
+
+/// A perspective camera for globes placed in the 3D scene (planets): where
+/// the eye is, its right, up and forward axes, and the screen.
+pub struct Cam3 {
+    pub eye: V3,
+    pub right: V3,
+    pub up: V3,
+    pub fwd: V3,
+    pub focal: f64,
+    pub w: f64,
+    pub h: f64,
+    pub near: f64,
+}
+
+impl Cam3 {
+    fn view(&self, p: V3) -> V3 {
+        let d = [p[0] - self.eye[0], p[1] - self.eye[1], p[2] - self.eye[2]];
+        [dot(d, self.right), dot(d, self.up), dot(d, self.fwd)]
+    }
+    fn screen(&self, v: V3) -> [f32; 2] {
+        [(self.w / 2.0 + v[0] / v[2] * self.focal) as f32, (self.h / 2.0 - v[1] / v[2] * self.focal) as f32]
+    }
+}
+
+/// Where a globe stands in the scene: its centre, radius and the world
+/// directions of its own x, y and z (z: the north pole).
+pub struct Place3 {
+    pub centre: V3,
+    pub radius: f64,
+    pub axes: [V3; 3],
+}
+
+impl Place3 {
+    /// A point of the globe's own frame (the unit sphere is the surface) in the world.
+    fn world(&self, p: &V3) -> V3 {
+        let a = &self.axes;
+        let r = self.radius;
+        [
+            self.centre[0] + r * (a[0][0] * p[0] + a[1][0] * p[1] + a[2][0] * p[2]),
+            self.centre[1] + r * (a[0][1] * p[0] + a[1][1] * p[1] + a[2][1] * p[2]),
+            self.centre[2] + r * (a[0][2] * p[0] + a[1][2] * p[1] + a[2][2] * p[2]),
+        ]
+    }
+    /// A world direction in the globe's own frame.
+    fn local(&self, d: V3) -> V3 {
+        [dot(d, self.axes[0]), dot(d, self.axes[1]), dot(d, self.axes[2])]
+    }
+}
+
+/// The part of the unit sphere the eye sees: the cap round `e` (towards the
+/// eye) down to the horizon at `dot(p, e) = c0`, with `x`, `y` across it.
+struct Cap {
+    e: V3,
+    c0: f64,
+    s0: f64,
+    x: V3,
+    y: V3,
+}
+
+impl Cap {
+    fn new(e: V3, c0: f64) -> Cap {
+        let helper = if e[2].abs() < 0.9 { [0.0, 0.0, 1.0] } else { [1.0, 0.0, 0.0] };
+        let cr = |a: V3, b: V3| -> V3 { [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]] };
+        let x = cr(e, helper);
+        let l = dot(x, x).sqrt();
+        let x = [x[0] / l, x[1] / l, x[2] / l];
+        let y = cr(e, x);
+        Cap { e, c0, s0: (1.0 - c0 * c0).max(0.0).sqrt(), x, y }
+    }
+    /// The point of the horizon at angle `a`.
+    fn rim(&self, a: f64) -> V3 {
+        let (s, c) = a.sin_cos();
+        let k = self.s0;
+        [
+            self.c0 * self.e[0] + k * (c * self.x[0] + s * self.y[0]),
+            self.c0 * self.e[1] + k * (c * self.x[1] + s * self.y[1]),
+            self.c0 * self.e[2] + k * (c * self.x[2] + s * self.y[2]),
+        ]
+    }
+    fn angle(&self, p: V3) -> f64 { dot(p, self.y).atan2(dot(p, self.x)) }
+    /// One ring of the unit sphere cut to the cap: where it goes round the
+    /// back, it follows the horizon instead (as `clip_ring` does for the flat globe).
+    fn clip(&self, ring: &[V3]) -> Vec<V3> {
+        let n = ring.len();
+        let mut out: Vec<V3> = Vec::with_capacity(n + 8);
+        let side = |p: &V3| dot(*p, self.e) - self.c0;
+        if ring.iter().all(|p| side(p) < 0.0) {
+            return out;
+        }
+        let arc = |out: &mut Vec<V3>, from: f64, to: f64| {
+            let mut d = to - from;
+            while d > std::f64::consts::PI { d -= std::f64::consts::TAU; }
+            while d < -std::f64::consts::PI { d += std::f64::consts::TAU; }
+            let steps = (d.abs() / 0.08).ceil() as usize;
+            for s in 1..steps {
+                out.push(self.rim(from + d * s as f64 / steps as f64));
+            }
+        };
+        let mut exit: Option<f64> = None;
+        let mut first_entry: Option<f64> = None;
+        for i in 0..n {
+            let a = ring[i];
+            let b = ring[(i + 1) % n];
+            let (sa, sb) = (side(&a), side(&b));
+            if sa >= 0.0 {
+                out.push(a);
+            }
+            if (sa >= 0.0) != (sb >= 0.0) {
+                let t = sa / (sa - sb);
+                let p = [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+                let ang = self.angle(p);
+                if sa >= 0.0 {
+                    out.push(self.rim(ang));
+                    exit = Some(ang);
+                } else {
+                    if let Some(e) = exit.take() {
+                        arc(&mut out, e, ang);
+                    } else if first_entry.is_none() {
+                        first_entry = Some(ang);
+                    }
+                    out.push(self.rim(ang));
+                }
+            }
+        }
+        if let (Some(e), Some(f)) = (exit, first_entry) {
+            arc(&mut out, e, f);
+        }
+        out
+    }
+    /// The whole horizon as a ring.
+    fn horizon(&self, n: usize) -> Vec<V3> {
+        (0..n).map(|i| self.rim(i as f64 / n as f64 * std::f64::consts::TAU)).collect()
+    }
+}
+
+/// A ring of world points on the screen: cut at the camera's near plane,
+/// then projected (appended to `out`; false when nothing is left).
+fn project_world(cam: &Cam3, ring: &[V3], out: &mut Vec<f32>) -> bool {
+    let vs: Vec<V3> = ring.iter().map(|p| cam.view(*p)).collect();
+    let n = vs.len();
+    if n < 3 || vs.iter().all(|v| v[2] < cam.near) {
+        return false;
+    }
+    let start = out.len();
+    let near = cam.near;
+    for i in 0..n {
+        let a = vs[i];
+        let b = vs[(i + 1) % n];
+        if a[2] >= near {
+            let q = cam.screen(a);
+            out.push(q[0]);
+            out.push(q[1]);
+        }
+        if (a[2] >= near) != (b[2] >= near) {
+            let t = (near - a[2]) / (b[2] - a[2]);
+            let q = cam.screen([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, near]);
+            out.push(q[0]);
+            out.push(q[1]);
+        }
+    }
+    if out.len() - start < 6 {
+        out.truncate(start);
+        return false;
+    }
+    true
+}
+
+fn off_screen(pts: &[f32], w: f64, h: f64) -> bool {
+    let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+    for k in (0..pts.len()).step_by(2) {
+        x0 = x0.min(pts[k]);
+        x1 = x1.max(pts[k]);
+        y0 = y0.min(pts[k + 1]);
+        y1 = y1.max(pts[k + 1]);
+    }
+    x1 < 0.0 || y1 < 0.0 || x0 > w as f32 || y0 > h as f32
+}
+
+impl Globe {
+    /// Draws the globe as a ball in the 3D scene, in perspective: `place`
+    /// says where, `sun` is the world position of the light (None: the
+    /// globe's own `sun`), and `glowing` makes it a light itself (a star:
+    /// no shading, no night). The rest (regions, bands, peaks, colours) is
+    /// the same as for the flat globe.
+    pub fn render_3d(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, sun: Option<V3>, glowing: bool) {
+        self.drawn = 0;
+        if !self.visible {
+            return;
+        }
+        let to_eye = [cam.eye[0] - place.centre[0], cam.eye[1] - place.centre[1], cam.eye[2] - place.centre[2]];
+        let dist = dot(to_eye, to_eye).sqrt();
+        if dist <= place.radius * 1.0001 {
+            return;
+        }
+        let e = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);
+        let cap = Cap::new(e, place.radius / dist);
+        let (w, h) = (cam.w, cam.h);
+        // the light in the globe's own frame
+        let sun_local = if glowing {
+            None
+        } else {
+            match sun {
+                Some(s) => {
+                    let d = [s[0] - place.centre[0], s[1] - place.centre[1], s[2] - place.centre[2]];
+                    let l = dot(d, d).sqrt().max(1e-9);
+                    Some(place.local([d[0] / l, d[1] / l, d[2] / l]))
+                }
+                None => self.sun,
+            }
+        };
+        let fill = |out: &mut DrawStream, ring: &[V3], rgb: V3, alpha: f64| {
+            let world: Vec<V3> = ring.iter().map(|p| place.world(p)).collect();
+            let mut pts: Vec<f32> = Vec::new();
+            if project_world(cam, &world, &mut pts) && !off_screen(&pts, w, h) {
+                out.rings(6, rgb, alpha, 0.0, &pts, &[pts.len() as f32]);
+            }
+        };
+
+        // the air round it: horizons of a slightly bigger ball
+        if let Some(g) = self.glow {
+            let layers: &[(f64, f64)] = if glowing { &[(1.5, 0.08), (1.22, 0.14), (1.08, 0.3)] } else { &[(1.07, 0.18), (1.035, 0.3)] };
+            for &(k, a) in layers.iter() {
+                let rr = place.radius * k;
+                if dist <= rr * 1.001 {
+                    continue;
+                }
+                let gc = Cap::new(e, rr / dist);
+                let ring: Vec<V3> = gc.horizon(96).iter().map(|p| [p[0] * k, p[1] * k, p[2] * k]).collect();
+                fill(out, &ring, g, a);
+            }
+        }
+        if let Some(o) = self.ocean {
+            fill(out, &cap.horizon(128), o, 1.0);
+        }
+
+        // the land: parts in the order given (later ones over earlier ones, so a
+        // crater can lie on a sea), neighbours of one colour as one path
+        let seen = cap.c0.clamp(-1.0, 1.0).acos();
+        let mut pts: Vec<f32> = Vec::new();
+        let mut ends: Vec<f32> = Vec::new();
+        let mut cur: Option<V3> = None;
+        let mut bpts: Vec<f32> = Vec::new();
+        let mut bends: Vec<f32> = Vec::new();
+        let flush = |out: &mut DrawStream, c: Option<V3>, pts: &mut Vec<f32>, ends: &mut Vec<f32>| {
+            if let Some(c) = c {
+                if !ends.is_empty() {
+                    out.rings(6, c, 1.0, 0.0, pts, ends);
+                }
+            }
+            pts.clear();
+            ends.clear();
+        };
+        let shade_of = |part: &Part, base: V3| -> V3 {
+            let k = match sun_local {
+                Some(s) => {
+                    let lit = dot(part.mid, s).max(0.0).powf(0.7);
+                    0.5 + 0.5 * (lit * 8.0).round() / 8.0
+                }
+                None => 1.0,
+            };
+            [base[0] * k, base[1] * k, base[2] * k]
+        };
+        let rings_of = |part: &Part, into: &mut Vec<f32>, ends: &mut Vec<f32>| -> bool {
+            let ang = dot(part.mid, cap.e).clamp(-1.0, 1.0).acos();
+            let reach = part.reach.clamp(-1.0, 1.0).acos();
+            if ang - reach > seen + 0.01 {
+                return false;
+            }
+            let start = into.len();
+            let mut any = false;
+            for ring in part.rings.iter() {
+                let cut = cap.clip(ring);
+                if cut.len() < 3 {
+                    continue;
+                }
+                let world: Vec<V3> = cut.iter().map(|p| place.world(p)).collect();
+                let at = into.len();
+                if project_world(cam, &world, into) {
+                    ends.push(into.len() as f32);
+                    any = true;
+                } else {
+                    into.truncate(at);
+                }
+            }
+            if any && off_screen(&into[start..], w, h) {
+                into.truncate(start);
+                while let Some(&last) = ends.last() {
+                    if last as usize > start { ends.pop(); } else { break; }
+                }
+                return false;
+            }
+            any
+        };
+        for reg in self.regions.iter() {
+            let own = matches!(self.colors.get(&reg.id), Some(Some(_)));
+            let use_bands = !own && !reg.banded.is_empty();
+            let base = self.fill_of(reg);
+            let parts: Vec<&Part> = if use_bands {
+                reg.banded.iter().collect()
+            } else if !reg.cells.is_empty() && sun_local.is_some() {
+                reg.cells.iter().collect()
+            } else {
+                vec![&reg.whole]
+            };
+            let mut drew = false;
+            for part in parts {
+                let c0 = match part.band {
+                    Some(b) => self.bands[b].2,
+                    None => base,
+                };
+                let c = shade_of(part, c0);
+                if let Some(old) = cur {
+                    if !close(old, c) || ends.len() >= 64 {
+                        flush(out, cur, &mut pts, &mut ends);
+                    }
+                }
+                cur = Some(c);
+                if rings_of(part, &mut pts, &mut ends) {
+                    drew = true;
+                }
+            }
+            if drew {
+                self.drawn += 1;
+                if self.border.is_some() {
+                    rings_of(&reg.whole, &mut bpts, &mut bends);
+                }
+            }
+        }
+        flush(out, cur, &mut pts, &mut ends);
+        if let Some(b) = self.border {
+            if !bends.is_empty() {
+                out.rings(7, b, 0.85, self.border_width, &bpts, &bends);
+            }
+        }
+        // mountains
+        let saved = self.sun;
+        self.sun = sun_local;
+        let c_vis = cap.c0 + 0.02;
+        self.render_peaks(out, &|c: &V3| dot(*c, cap.e) >= c_vis, &|p: &V3| {
+            let v = cam.view(place.world(p));
+            if v[2] < cam.near { None } else { Some(cam.screen(v)) }
+        });
+        self.sun = saved;
+        // night and day
+        if let Some(s) = sun_local {
+            let anti = [-s[0], -s[1], -s[2]];
+            let dark = [0.0, 0.01, 0.04];
+            let n = self.night.clamp(0.0, 1.0);
+            let step = 1.0 - (1.0 - n).powf(1.0 / 5.0);
+            for deg in [89.5, 87.0, 84.0, 80.0, 75.0] {
+                let ring = cap.clip(&cap_ring(anti, deg, 96));
+                if ring.len() >= 3 {
+                    fill(out, &ring, dark, step);
+                }
+            }
+            for deg in [80.0, 66.0, 52.0, 38.0, 24.0] {
+                let ring = cap.clip(&cap_ring(s, deg, 96));
+                if ring.len() >= 3 {
+                    fill(out, &ring, [1.0, 0.97, 0.82], 0.025);
+                }
+            }
+        }
+        if let Some(rc) = self.rim {
+            let world: Vec<V3> = cap.horizon(128).iter().map(|p| place.world(p)).collect();
+            let mut pts: Vec<f32> = Vec::new();
+            if project_world(cam, &world, &mut pts) {
+                pts.push(pts[0]);
+                pts.push(pts[1]);
+                out.rings(7, rc, 0.6, 2.0, &pts, &[pts.len() as f32]);
+            }
         }
     }
 }
@@ -839,6 +1229,41 @@ mod tests {
 
     fn square(lon: f64, lat: f64) -> String {
         format!("[{},{},{},{},{},{},{},{}]", lon - 5.0, lat - 5.0, lon + 5.0, lat - 5.0, lon + 5.0, lat + 5.0, lon - 5.0, lat + 5.0)
+    }
+
+    fn cam_at(eye: V3, fwd: V3) -> Cam3 {
+        // up is world z unless looking along it
+        let up0 = if fwd[2].abs() > 0.9 { [0.0, 1.0, 0.0] } else { [0.0, 0.0, 1.0] };
+        let r = [fwd[1] * up0[2] - fwd[2] * up0[1], fwd[2] * up0[0] - fwd[0] * up0[2], fwd[0] * up0[1] - fwd[1] * up0[0]];
+        let l = dot(r, r).sqrt();
+        let r = [r[0] / l, r[1] / l, r[2] / l];
+        let u = [r[1] * fwd[2] - r[2] * fwd[1], r[2] * fwd[0] - r[0] * fwd[2], r[0] * fwd[1] - r[1] * fwd[0]];
+        Cam3 { eye, right: r, up: u, fwd, focal: 300.0, w: 400.0, h: 400.0, near: 0.01 }
+    }
+
+    #[test]
+    fn a_planet_in_perspective() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r#"{{"regions":[["A","x",{}],["B","x",{}]],"grid":false,"glow":false,"border":false}}"#, square(0.0, 0.0), square(180.0, 0.0)));
+        g.command(&a);
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        // from afar, facing A
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false);
+        assert_eq!(g.drawn, 1);
+        // looking away: nothing
+        let before = out.count;
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false);
+        assert_eq!(g.drawn, 0);
+        assert_eq!(out.count, before);
+        // just above A, looking down and looking along the ground: A is under the eye
+        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false);
+        assert_eq!(g.drawn, 1);
+        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, None, false);
+        assert_eq!(g.drawn, 1);
+        // from the far side, B
+        g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false);
+        assert_eq!(g.drawn, 1);
     }
 
     #[test]
