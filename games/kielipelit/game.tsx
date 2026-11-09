@@ -63,8 +63,9 @@ function say(ids: any, opts?: any) {
 const TEXTS: any = { en: clipTexts("en"), es: clipTexts("es") };
 function txt(id: string) { const T = TEXTS[lang]; return T.game[id] || T.common[id] || ""; }
 // the task card: the sentence in the chosen language, and in Finnish what to do
-let card = { text: "", fi: "" };
-function setCard(text: string, fi: string) { card = { text: text, fi: fi }; }
+let card = { text: "", fi: "", bold: "" };
+// bold: the words of the text to show in bold (the word being learnt)
+function setCard(text: string, fi: string, bold?: string) { card = { text: text, fi: fi, bold: bold || "" }; }
 // feedback: ✓ or ✗ with what was said, shown for a moment
 let fb = { text: "", ok: true, at: -9 };
 function feedback(ok: boolean, ids: string[]) {
@@ -74,10 +75,27 @@ function feedback(ok: boolean, ids: string[]) {
 function Card(small?: boolean) {
   return (
     <div className="task" id="task" onClick={() => repeat()}>
-      <div className={small ? "ttext s" : "ttext"}>{card.text}</div>
+      <div className="twords">{Words(card.text, card.bold, small)}</div>
       <div className="tfi">{card.fi}</div>
     </div>
   );
+}
+// the text as one box per word, so that the learnt word can be bold and coloured
+function Words(text: string, bold: string, small?: boolean) {
+  const bw = bold.toLowerCase().split(" ").filter((x) => !!x);
+  const ws = text.split(" ").filter((x) => !!x);
+  // where the bold words start in the text (ignoring punctuation and case)
+  const clean = (x: string) => x.toLowerCase().replace(/[¿?¡!.,:]/g, "");
+  let at = -1;
+  for (let i = 0; bw.length && i + bw.length <= ws.length; i++) {
+    let ok = true;
+    for (let k = 0; k < bw.length; k++) if (clean(ws[i + k]) !== clean(bw[k])) ok = false;
+    if (ok) { at = i; break; }
+  }
+  return ws.map((w, i) => {
+    const b = at >= 0 && i >= at && i < at + bw.length;
+    return <div className={(small ? "tw s" : "tw") + (b ? " b" : "")}>{w}</div>;
+  });
 }
 function Feedback() {
   const age = t - fb.at;
@@ -176,6 +194,7 @@ let sTask = 0;
 let sTarget: any = WORDS[0];
 let sChoices: any[] = [];
 let sShake: number[] = [];
+let sTapped: number[] = [];      // the wrong pictures tapped: their words are shown
 let sSolved = -1;
 let sMistakes = 0;
 let sRecent: string[] = [];
@@ -217,6 +236,7 @@ function sNext() {
   const others = rg.shuffle(WORDS.filter((w: any) => w.id !== sTarget.id && w.c === sTarget.c)).slice(0, n - 1);
   sChoices = rg.shuffle([sTarget].concat(others));
   sShake = sChoices.map(() => 0);
+  sTapped = [];
   if (sKind === "build") {
     sBuilt = "";
     const letters = bare(sTarget).toUpperCase().split("");
@@ -227,13 +247,14 @@ function sNext() {
 
 function sAsk() {
   if (sKind === "pick") {
-    setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.");
-    say("kp_where_" + sTarget.id);
+    setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.", label(sTarget));
+    // the sentence, then the word alone: the word is the one to learn
+    say(["kp_where_" + sTarget.id, sTarget.id]);
   } else if (sKind === "recall") {
     setCard(txt("kp_what"), "Mikä tämä on? Napauta oikeaa sanaa. 🔊 sanoo sanan ääneen.");
     say("kp_what");
   } else if (sKind === "build") {
-    setCard(txt("kp_build") + "  " + bare(sTarget).toUpperCase(), "Kokoa sana kirjaimista oikeassa järjestyksessä (" + fiWord(sTarget) + ").");
+    setCard(txt("kp_build") + "  " + bare(sTarget).toUpperCase(), "Kokoa sana kirjaimista oikeassa järjestyksessä (" + fiWord(sTarget) + ").", bare(sTarget).toUpperCase());
     say(["kp_build", sTarget.id]);
   } else {
     setCard(txt("kp_pairs"), hard ? "Käännä kortteja: yhdistä kuva ja sana." : "Käännä kaksi korttia. Etsi samat kuvat.");
@@ -254,11 +275,12 @@ function sPick(i: number) {
   const w = sChoices[i];
   if (w.id === sTarget.id) {
     grade(w.id, sMistakes === 0);
-    feedback(true, [w.id, praise()]);
+    feedback(true, [w.id, sKind === "pick" ? "correct" : praise()]);
     sWin();
   } else {
     sMistakes++;
     sShake[i] = t;
+    sTapped.push(i);
     rg.sound("wrong");
     rg.vibrate(50);
     // name what was tapped, then ask again
@@ -386,7 +408,9 @@ function Sanat() {
           return (
             <div className={(ok ? "pcard ok" : "pcard") + (sChoices.length > 3 ? "" : " w3")} id={"pc" + i} onClick={() => sPick(i)} style={{ marginLeft: 8 + dx, marginRight: 8 - dx }}>
               <div className="pemo">{w.e}</div>
-              <div className={ok ? "plabel ok" : "plabel"}>{label(w)}</div>
+              {ok ? <div className="plabel ok">{label(w)}</div> : null}
+              {ok ? <div className="pright">{txt("correct")}</div> : null}
+              {!ok && sTapped.indexOf(i) >= 0 ? <div className="plabel bad">{label(w)}</div> : null}
             </div>
           );
         })}
@@ -477,10 +501,10 @@ function placeFi(id: string) { for (const p of PLACES) if (p.id === id) return p
 function eAsk() {
   const it = items[eTarget];
   if (hard) {
-    setCard(txt("kp_put_" + it.c + "_" + it.o) + " " + txt("kp_" + ePlace), "Napauta " + npFi(it) + ", sitten " + placeFi(ePlace));
+    setCard(txt("kp_put_" + it.c + "_" + it.o) + " " + txt("kp_" + ePlace), "Napauta " + npFi(it) + ", sitten " + placeFi(ePlace), np(it));
     say(["kp_put_" + it.c + "_" + it.o, "kp_" + ePlace]);
   } else {
-    setCard(txt("kp_find_" + it.c + "_" + it.o), "Etsi ja napauta: " + npFi(it));
+    setCard(txt("kp_find_" + it.c + "_" + it.o), "Etsi ja napauta: " + npFi(it), np(it));
     say("kp_find_" + it.c + "_" + it.o);
   }
 }
@@ -715,12 +739,27 @@ function cAsk(hello: boolean) {
 
 function count(id: string) { return tray.filter((x) => x === id).length; }
 
+// a tap on the menu: the right thing goes on the tray at once (and the order is
+// served when it is complete); a wrong one or one too many gets a hint instead
 function cAdd(id: string) {
   if (cHappy >= 0 || t < cArrive) return;
+  let want = 0;
+  for (const o of cOrder) if (o.id === id) want = o.n;
+  if (want === 0 || count(id) >= want) {
+    cMistakes++;
+    cHint = true;
+    rg.sound("wrong");
+    rg.vibrate(40);
+    const why = want === 0 ? "kp_not_this" : "kp_too_many";
+    fb = { text: "✗ " + label(word(id)) + " — " + txt(why), ok: false, at: t };
+    say([id, why]);
+    return;
+  }
+  tray.push(id);
   rg.sound("pop", { pitch: 1 + tray.length * 0.06 });
+  if (cOrder.every((o) => count(o.id) === o.n)) { cServe(); return; }
+  fb = { text: "✓ " + word(id).e + " " + label(word(id)), ok: true, at: t };
   say(id);
-  fb = { text: word(id).e + " " + label(word(id)), ok: true, at: t };
-  if (tray.length < 8) tray.push(id);
 }
 function cRemove(i: number) {
   if (cHappy >= 0) return;
@@ -739,7 +778,8 @@ function cServe() {
     if (cMistakes === 0) stars++;
     for (const o of cOrder) grade(o.id, cMistakes === 0);
     rg.sound(cMistakes === 0 ? "star" : "coin");
-    feedback(true, ["kp_here", "thank_you", "kp_yummy"]);
+    fb = { text: "✓ " + txt("kp_here") + " " + txt("thank_you"), ok: true, at: t };
+    say(["kp_here", "thank_you", "kp_yummy"]);
     rg.celebrate(width / 2, 150, { sound: false });
     later(3.4, () => {
       cTask++;
@@ -789,11 +829,10 @@ function Kahvila() {
         <div className="tray" id="tray">
           {tray.length === 0 ? <div className="trayhelp">Napauta ruokia tarjottimelle 👇</div> : tray.map((id, i) => <div className="titem" id={"tr" + i} onClick={() => cRemove(i)}>{word(id).e}</div>)}
         </div>
-        <div className={tray.length ? "serve" : "serve off"} id="serve" onClick={() => cServe()}>🛎️</div>
       </div>
-      <div className="cafefi">Kuuntele tai lue tilaus, kokoa se ja paina 🛎️. Napauta tarjottimelta pois väärät.</div>
+      <div className="cafefi">Kuuntele tai lue tilaus ja napauta oikeat ruoat.</div>
       <div className="menu">
-        {MENU.map((m) => <div className="mitem" id={"m-" + m.id} onClick={() => cAdd(m.id)}><div className="miemo">{word(m.id).e}</div><div className="milabel">{bare(word(m.id))}</div></div>)}
+        {MENU.map((m) => <div className="mitem" id={"m-" + m.id} onClick={() => cAdd(m.id)}><div className="miemo">{word(m.id).e}</div></div>)}
       </div>
     </div>
   );
