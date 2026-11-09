@@ -1,18 +1,25 @@
 // Pupu hyppii: a bunny bounces up from cloud to cloud. Hold the left or
 // right side of the screen (or the arrow keys) to steer; the bunny jumps by
 // itself. Carrots are points, a spring throws you high, a grey cloud breaks
-// after one bounce, and a cloud that sways moves under you. Fall off the
-// bottom and the round ends.
+// after one bounce, and a cloud that sways moves under you.
+// Made for small children: the bunny is slow and stops when you let go, the
+// screen edges are walls, clouds are wide and close together, and a fall
+// only costs a heart: a rescue cloud catches the bunny. The round ends when
+// all hearts are gone; every 500 points gives a heart back.
 
 type Kind = "cloud" | "move" | "crumble" | "spring";
 type Platform = { x: number; y: number; w: number; kind: Kind; vx: number; broken: number; carrot: boolean; got: number; bounce: number };
 type Puff = { x: number; y: number; t: number; c: string };
 type Mode = "title" | "play" | "over";
 
-const GRAVITY = 1500;
-const JUMP = -720;
-const SPRING = -1250;
-const PW = 74;
+// same jump height as before (about 170 px) but floatier, so there is time to steer
+const GRAVITY = 1050;
+const JUMP = -600;
+const SPRING = -1000;
+const PW = 96;
+const SPEED = 175;      // steering speed, px/s
+const LIVES = 3;
+const MAX_LIVES = 5;
 
 let mode: Mode = "title";
 let t = 0;
@@ -26,6 +33,9 @@ let carrots = 0;
 let climbed = 0;
 let best = 0;
 let newBest = false;
+let lives = LIVES;
+let nextLife = 500;     // score that gives a heart back
+let safe = 0;          // seconds left of the rescue blink
 let stars: { x: number; y: number; s: number }[] = [];
 
 function init() {
@@ -44,6 +54,9 @@ function reset() {
   carrots = 0;
   climbed = 0;
   newBest = false;
+  lives = LIVES;
+  nextLife = 500;
+  safe = 0;
   // a long first cloud, so the first jumps cannot miss
   const first = makePlatform(20, height - 60, "cloud");
   first.w = width - 40;
@@ -53,20 +66,22 @@ function reset() {
 }
 
 function makePlatform(x: number, y: number, kind: Kind): Platform {
-  return { x, y, w: PW, kind, vx: kind === "move" ? (rg.random() < 0.5 ? -60 : 60) : 0, broken: 0, carrot: false, got: 0, bounce: 0 };
+  return { x, y, w: PW, kind, vx: kind === "move" ? (rg.random() < 0.5 ? -40 : 40) : 0, broken: 0, carrot: false, got: 0, bounce: 0 };
 }
 
 // clouds up to a screen above the camera; harder the higher it goes
 function fill() {
   while (top > cam - height) {
-    const level = Math.min(1, -top / 12000);
-    const gap = 62 + rg.random() * (40 + level * 50);
+    // the first ~2000 px are plain clouds; tricky ones come slowly after that
+    const level = Math.max(0, Math.min(1, (-top - 2000) / 25000));
+    const gap = 52 + rg.random() * (30 + level * 45);
     top -= gap;
     const r = rg.random();
     let kind: Kind = "cloud";
-    if (r < 0.10 + level * 0.15) kind = "move";
-    else if (r < 0.18 + level * 0.22) kind = "crumble";
-    else if (r < 0.24 + level * 0.24) kind = "spring";
+    if (-top < 1200) kind = r < 0.12 ? "spring" : "cloud";
+    else if (r < 0.06 + level * 0.12) kind = "move";
+    else if (r < 0.10 + level * 0.18) kind = "crumble";
+    else if (r < 0.18 + level * 0.18) kind = "spring";
     const p = makePlatform(8 + rg.random() * (width - PW - 16), top, kind);
     p.carrot = kind !== "crumble" && rg.random() < 0.28;
     plats.push(p);
@@ -99,14 +114,17 @@ function tick(dt: number) {
 
   const d = steer();
   if (d !== 0) P.face = d;
-  P.vx += (d * 260 - P.vx) * Math.min(1, dt * 10);
+  // eases in, and stops quickly when the finger is lifted
+  P.vx += (d * SPEED - P.vx) * Math.min(1, dt * (d === 0 ? 14 : 8));
   P.vy += GRAVITY * dt;
   P.x += P.vx * dt;
   const oldY = P.y;
   P.y += P.vy * dt;
   P.squash = Math.max(0, P.squash - dt * 4);
-  if (P.x < -30) P.x = width;
-  if (P.x > width) P.x = -30;
+  safe = Math.max(0, safe - dt);
+  // the edges are walls: the bunny never vanishes off one side
+  if (P.x < 0) { P.x = 0; P.vx = 0; }
+  if (P.x > width - 32) { P.x = width - 32; P.vx = 0; }
 
   for (const p of plats) {
     if (p.kind === "move") {
@@ -117,7 +135,7 @@ function tick(dt: number) {
     p.bounce = Math.max(0, p.bounce - dt * 3);
     // landing: falling, feet crossing the cloud's top this frame
     const feet = P.x + 16;
-    if (P.vy > 0 && oldY <= p.y && P.y >= p.y && feet > p.x - 6 && feet < p.x + p.w + 6) {
+    if (P.vy > 0 && oldY <= p.y && P.y >= p.y && feet > p.x - 14 && feet < p.x + p.w + 14) {
       P.y = p.y;
       P.squash = 1;
       p.bounce = 1;
@@ -134,7 +152,7 @@ function tick(dt: number) {
       else puff(feet, p.y, "#ffffff");
     }
     // a carrot sits above its cloud
-    if (p.carrot && !p.got && Math.abs(P.x + 16 - (p.x + p.w / 2)) < 26 && Math.abs(P.y - 20 - (p.y - 30)) < 30) {
+    if (p.carrot && !p.got && Math.abs(P.x + 16 - (p.x + p.w / 2)) < 32 && Math.abs(P.y - 20 - (p.y - 30)) < 36) {
       p.got = t;
       carrots++;
       rg.celebrate(p.x + p.w / 2, p.y - 30 - cam, { count: 8, sound: false });
@@ -149,7 +167,14 @@ function tick(dt: number) {
   plats = plats.filter((p) => p.y < cam + height + 60 && p.broken < 1);
   fill();
 
+  if (score() >= nextLife) {
+    nextLife += 500;
+    if (lives < MAX_LIVES) { lives++; rg.sound("coin", { pitch: 1.4 }); rg.celebrate(width - 120, 30, { count: 10, sound: false }); }
+  }
+
   if (P.y > cam + height + 50) {
+    lives--;
+    if (lives > 0) { rescue(); return; }
     mode = "over";
     modeClock = 0;
     const s = score();
@@ -158,6 +183,25 @@ function tick(dt: number) {
     rg.vibrate([80, 60, 200]);
     rg.say(newBest ? "uusi_ennatys" : "voi_ei");
   }
+}
+
+// a wide cloud appears at the bottom of the screen and catches the bunny
+function rescue() {
+  const y = cam + height - 70;
+  const c = makePlatform(20, y, "cloud");
+  c.w = width - 40;
+  c.bounce = 1;
+  plats.push(c);
+  P.x = width / 2 - 16;
+  P.y = y;
+  P.vx = 0;
+  P.vy = JUMP;
+  P.squash = 1;
+  safe = 1.5;
+  puff(width / 2, y, "#ffffff");
+  rg.sound("whoosh");
+  rg.vibrate(60);
+  rg.say(lives === 1 ? "ei_haittaa" : "hups");
 }
 
 function startGame() {
@@ -240,7 +284,7 @@ function Bunny() {
   const y = P.y - cam;
   const eyeX = P.face > 0 ? bw - 12 : 6;
   return (
-    <div className="bunny" style={{ left: P.x + 16 - bw / 2, top: y - bh - 18, width: bw, height: bh + 18 }}>
+    <div className="bunny" style={{ opacity: safe > 0 && Math.floor(t * 8) % 2 === 0 ? 0.4 : 1, left: P.x + 16 - bw / 2, top: y - bh - 18, width: bw, height: bh + 18 }}>
       <div className="ear" style={{ left: bw / 2 - 11, transform: "rotate(" + (-12 - s * 10) + "deg)" }}><div className="ear-in" /></div>
       <div className="ear" style={{ left: bw / 2 + 2, transform: "rotate(" + (12 + s * 10) + "deg)" }}><div className="ear-in" /></div>
       <div className="body" style={{ width: bw, height: bh }}>
@@ -254,11 +298,18 @@ function Bunny() {
   );
 }
 
+function hearts() {
+  let h = "";
+  for (let i = 0; i < lives; i++) h += "❤️";
+  return h;
+}
+
 function Hud() {
   return (
     <div className="hud">
       <div className="pill">⭐ {score()}</div>
       <div className="pill">🥕 {carrots}</div>
+      <div className="pill">{hearts()}</div>
     </div>
   );
 }

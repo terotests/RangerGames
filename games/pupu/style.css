@@ -5,14 +5,14 @@
 .far { left: -60px; width: 480px; height: 300px; background-color: #8fd694; opacity: 0.6; }
 .near { left: -120px; width: 600px; height: 300px; background-color: #5bbf6a; }
 
-.plat { position: absolute; width: 74px; height: 22px; }
+.plat { position: absolute; width: 96px; height: 22px; }
 .cloud { position: absolute; background-color: #ffffff; }
 .cloud.grey { background-color: #c9ced6; }
 .cloud.pink { background-color: #ffd6e8; }
-.base { left: 0px; top: 6px; width: 74px; height: 16px; border-radius: 10px; }
+.base { left: 0px; top: 6px; width: 96px; height: 16px; border-radius: 10px; }
 .bump1 { left: 10px; top: 0px; width: 26px; height: 20px; border-radius: 13px; }
-.bump2 { left: 32px; top: -4px; width: 30px; height: 24px; border-radius: 15px; }
-.spring { position: absolute; left: 29px; width: 16px; background-color: #ffd166; border-width: 2px; border-color: #e09f3e; border-radius: 3px; }
+.bump2 { left: 40px; top: -4px; width: 30px; height: 24px; border-radius: 15px; }
+.spring { position: absolute; left: 40px; width: 16px; background-color: #ffd166; border-width: 2px; border-color: #e09f3e; border-radius: 3px; }
 
 .carrot { position: absolute; width: 14px; height: 34px; }
 .leaf { position: absolute; left: 3px; top: 0px; width: 8px; height: 10px; background-color: #3fb950; border-radius: 4px; }
