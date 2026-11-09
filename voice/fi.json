@@ -380,6 +380,8 @@
   "ks_tervetuloa": "Tervetuloa Korkeasaareen!",
   "ks_valitse": "Valitse eläin, jonka luo mennään.",
   "ks_napauta": "Napauta karttaa, niin kävelet sinne.",
+  "ks_vaara": "Tämä ei ollut oikea eläin.",
+  "ks_napauta_elain": "Napauta kartalta eläintä, jonka luo haluat mennä.",
   "ks_lahella": "Olet jo lähellä!",
   "ks_tarra": "Sait tarran!",
   "ks_kaikki": "Löysit kaikki eläimet! Olet oikea eläintenhoitaja!",
