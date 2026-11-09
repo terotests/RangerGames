@@ -162,8 +162,8 @@ export const KAHVILA: any = {
   more: { en: "More, please!", es: "¡Más, por favor!" },
   too_many: { en: "That's too many!", es: "¡Son demasiados!" },
   not_this: { en: "I didn't order that.", es: "Eso no lo he pedido." },
-  welcome: { en: "Welcome to the café!", es: "¡Bienvenidos a la cafetería!" },
-  closed: { en: "The café is closed. Good job!", es: "La cafetería está cerrada. ¡Buen trabajo!" },
+  welcome: { en: "Welcome to the cafe!", es: "¡Bienvenidos a la cafetería!" },
+  closed: { en: "The cafe is closed. Good job!", es: "La cafetería está cerrada. ¡Buen trabajo!" },
 };
 
 // Tarina (story): Pip's day. A scene is a line said aloud with a picture;

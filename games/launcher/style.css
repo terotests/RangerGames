@@ -12,3 +12,7 @@
 .icon { font-size: 52px; }
 .name { font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 4px; }
 .players { font-size: 12px; color: #ffffff; opacity: 0.85; margin-top: 2px; }
+.flags { flex-direction: row; margin-top: 10px; }
+.flag { width: 58px; height: 44px; margin-left: 6px; margin-right: 6px; border-radius: 12px; align-items: center; justify-content: center; background-color: rgba(255, 255, 255, 0.08); opacity: 0.55; }
+.flag.on { background-color: rgba(255, 255, 255, 0.28); border-width: 3px; border-color: #ffd166; opacity: 1; }
+.flagicon { font-size: 30px; }

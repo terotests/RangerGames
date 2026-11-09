@@ -1,7 +1,7 @@
 // The game menu: every game under /games as a tile. A tap starts it; the
 // Back button (Esc on a keyboard) in a game comes back here.
 
-type Game = { id: string; name: string; description: string; icon: string; color: string; players: string };
+type Game = { id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any };
 type Bubble = { x: number; y: number; r: number; v: number; c: string };
 
 const COLORS = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f78c6b", "#c77dff"];
@@ -42,7 +42,33 @@ function open(id: string) {
 }
 
 function players(p: string) {
-  return p === "2" ? "2 pelaajaa" : p === "1-2" ? "1–2 pelaajaa" : "1 pelaaja";
+  return p === "2" ? rg.t("2 pelaajaa", "2 players", "2 jugadores")
+    : p === "1-2" ? rg.t("1–2 pelaajaa", "1–2 players", "1–2 jugadores")
+    : rg.t("1 pelaaja", "1 player", "1 jugador");
+}
+
+// the game's name in the chosen language (game.json "i18n"), Finnish otherwise
+function nameOf(g: Game) {
+  const tr = g.i18n && g.i18n[rg.lang];
+  return tr && tr.name ? tr.name : g.name;
+}
+
+// The flags: a tap changes the language of every game, text and speech.
+function chooseLang(l: string) {
+  if (l === rg.lang) return;
+  rg.setLang(l);
+  rg.sound("pop");
+  rg.vibrate(15);
+  rg.say("hei");
+}
+
+function Flag(l: string) {
+  const on = rg.lang === l;
+  return (
+    <div className={on ? "flag on" : "flag"} id={"lang-" + l} onClick={() => chooseLang(l)}>
+      <div className="flagicon">{rg.flags[l]}</div>
+    </div>
+  );
 }
 
 function Tile(g: Game, i: number) {
@@ -52,7 +78,7 @@ function Tile(g: Game, i: number) {
     <div className="tile" id={"g-" + g.id} onClick={() => open(g.id)}
       style={{ backgroundColor: g.color, marginTop: bob, transform: down ? "scale(0.94)" : "none" }}>
       <div className="icon">{g.icon}</div>
-      <div className="name">{g.name}</div>
+      <div className="name">{nameOf(g)}</div>
       <div className="players">{players(g.players)}</div>
     </div>
   );
@@ -64,7 +90,8 @@ function view() {
       {bubbles.map((b) => <div className="bubble" style={{ left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, backgroundColor: b.c }} />)}
       <div className="header">
         <div className="logo">RangerGames</div>
-        <div className="sub">Valitse peli!</div>
+        <div className="sub">{rg.t("Valitse peli!", "Choose a game!", "¡Elige un juego!")}</div>
+        <div className="flags">{rg.langs.map((l) => Flag(l))}</div>
       </div>
       <div className="grid">{games.map((g, i) => Tile(g, i))}</div>
     </div>
