@@ -57,6 +57,9 @@ pub struct GameInfo {
     pub hidden: bool,
     /// names in other languages: { "en": { "name", "description" }, "es": … }
     pub i18n: Json,
+    /// whether the game talks unless the player turns it off (`"speech": false`
+    /// in game.json: quiet unless turned on in the launcher's settings)
+    pub speech: bool,
 }
 
 impl GameInfo {
@@ -84,6 +87,7 @@ impl GameInfo {
             order: j.get("order").as_num(100.0),
             hidden: j.get("hidden").as_bool(),
             i18n: j.get("i18n"),
+            speech: !matches!(j.get("speech"), Json::Bool(false)),
         }
     }
 
@@ -96,6 +100,7 @@ impl GameInfo {
             member("color", Json::Str(self.color.clone())),
             member("players", Json::Str(self.players.clone())),
             member("i18n", self.i18n.clone()),
+            member("speech", Json::Bool(self.speech)),
         ])
     }
 }
@@ -382,6 +387,7 @@ impl Engine {
             member("voices", self.voices_json()),
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
+            member("speech", Json::Bool(info.speech)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());

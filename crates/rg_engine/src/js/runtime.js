@@ -27,6 +27,8 @@ var __dir = "/";
 var __games = [];
 var __voices = {};        // lang -> { clip id: true } (the clips of the other languages than Finnish)
 var __launcher = false;
+var __speech = true;      // whether this game talks by default (game.json "speech")
+var __speechSet = {};     // the player's choices: game id -> true/false (settings "speech")
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
 var __downTarget = {};
 var __fx = [];            // celebration particles, drawn above the game
@@ -66,6 +68,7 @@ var rg = {
   // lang }. rg.say([]) or rg.stopSay() is quiet.
   say: function (ids, opts) {
     var list = [], a = Array.isArray(ids) ? ids : [ids];
+    if (a.length && !rg.speechOn()) return;
     var lang = (opts && opts.lang) || rg.lang || "fi";
     for (var i = 0; i < a.length; i++) {
       if (a[i] === undefined || a[i] === null || a[i] === "") continue;
@@ -91,6 +94,20 @@ var rg = {
     return !!(v && v[id]);
   },
   stopSay: function () { rg.say([]); },
+  // Whether game `id` (this game when left out) talks: the player's choice in
+  // the launcher's settings, else the game's default (game.json "speech",
+  // true when missing). rg.setSpeech(id, on) keeps the choice for that game.
+  speechOn: function (id) {
+    id = id || __game;
+    if (__speechSet[id] === true || __speechSet[id] === false) return __speechSet[id];
+    if (id === __game) return __speech;
+    for (var i = 0; i < __games.length; i++) if (__games[i].id === id) return __games[i].speech !== false;
+    return true;
+  },
+  setSpeech: function (id, on) {
+    __speechSet[String(id)] = !!on;
+    __cmds.push(["setting", "speech", __speechSet]);
+  },
   // the clip id of a number (0–20), a letter ("Ä" → "kirjain_ae", "Ñ" →
   // "kirjain_enye") or a word ("Ratón" → "sana_raton"), in any language
   sayId: {
@@ -369,6 +386,8 @@ function __overlay() {
 function __settings(st) {
   st = st || {};
   rg.lang = rg.langs.indexOf(st.lang) >= 0 ? st.lang : "fi";
+  __speechSet = {};
+  if (st.speech && typeof st.speech === "object") for (var k in st.speech) __speechSet[k] = !!st.speech[k];
 }
 
 function __start(arg) {
@@ -384,6 +403,7 @@ function __start(arg) {
   var vs = a.voices || {};
   for (var vl in vs) { var m = {}; for (var vi = 0; vi < vs[vl].length; vi++) m[vs[vl][vi]] = true; __voices[vl] = m; }
   __launcher = !!a.launcher;
+  __speech = a.speech !== false;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

@@ -127,6 +127,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `onClick`, `onPointerDown`, `onPointerUp` JSX-elementeissä | napautukset (EVG:n osumatesti) |
 | `rg.sound(nimi, {volume, pitch})` | efektit `jump coin click tick pop hit lose win whoosh star wrong note`, tai äänitiedosto pelin kansiosta |
 | `rg.say(id \| [id, …], {queue, volume})`, `rg.stopSay()` | suomenkielinen puhe: valmiit klipit `voice/fi.json`:sta, lista sanotaan peräkkäin (`rg.say(["valitse", "punainen"])`). `rg.sayId.number(7)`, `rg.sayId.letter("Ä")`, `rg.sayId.word("Pöllö")` antavat klipin id:n |
+| `rg.speechOn(id?)`, `rg.setSpeech(id, on)` | puhuuko peli: pelaajan valinta käynnistimen ⚙️-asetuksista, muuten `game.json`:n `"speech"` (oletus `true`; `false` = hiljainen, ellei puhetta laiteta päälle). Kun puhe on pois, `rg.say` ei sano mitään |
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
 | `rg.vibrate(ms \| [kuvio])` | värinä |
 | `rg.save(avain, arvo)`, `rg.load(avain, oletus)` | tallennus (`/save/<peli>.json` → localStorage / Android) |
