@@ -61,6 +61,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `peilit` – **Valopeilit** | Valo-oppia peileillä: valo ohjataan kukalle, aurinkopaneelille, kissalle, liskolle tai pyykille (mutta ei pöllölle) heijastuslain avulla. Peilit kääntyvät 22,5° askelin, puolipeili jakaa säteen, ja valitun peilin tulo- ja heijastuskulma näytetään. Tasojen ratkeavuus ja vähin peilimäärä tarkistetaan `node tools/peilit/solve.ts`:llä (CI ajaa sen). |
 | `magneetti` – **Magneettipaja** | Fysiikkapeli: magneetin punainen tai sininen napa vetää rautaa ja terästä, hylkii tai vetää toisia magneetteja ja kuljettaa kuulan esteiden läpi. Opitaan vetovoima, hylkiminen ja mitkä aineet ovat magneettisia. Oma 2D-fysiikkamoottori pelin kansiossa (`lib/fysiikka.ts`). |
 | `lampolabra` – **Lämpölabra** | Sulata jää: jääpalikat (jää, lumi, ikijää, kuivajää) ja niihin jäätyneet aarteet. Lämmittimiä on yhdeksän, ja jokaisella on oma tehonsa (tulitikku 50 W … retkikeitin 2500 W); kämmen jäätyy, jos sillä lämmittää liian kauan. Sulava jää halkeaa ja romahtaa pelin omalla 2D-fysiikalla (`games/lampolabra/lib/physics.ts`, laatikot, kitka, pinot). Opitaan lämpötila, olomuodot ja lämmön siirtyminen (johtuminen, kuljettuminen, säteily). |
+| `vesiputket` – **Vesiputket** | Vesi- ja hiekkasimulaatio: kaiva tunneleita, rakenna putkia ja kaada hiekkaa, niin vesi tai hiekka menee perille (kukat, nuotio, ankan allas, hiekkalaatikko). Säiliössä on rajallisesti vettä. Kuusi tasoa ja vapaa leikki. |
 | `painovoima` – **Painovoimalento** | Avaruuslento 3D:nä Auringon, Merkuriuksen, Venuksen, Maan, Kuun, Marsin ja Jupiterin välillä. Lähellä taivaankappale vetää rakettia puoleensa omalla painovoimallaan (oikea pintapainovoima, putoaminen vähän nopeutettuna; Kuussa leijutaan, Jupiterissa tarvitaan ⚡-tehoja), ja pinnalta raketti pomppaa kuin kumipallo. Käy jokaisella. Planeetat ovat moottorin globe (`rg.three("planet", …)`): sama kuin Muuttolinnun maapallo, mutta paikallaan 3D-näkymässä perspektiivissä ja Auringon valaisemana; ne ovat paljon todellista isompia ja lähempänä toisiaan. Ohjaus: vasen puoli ohjaa (tai nuolet), 🔥 työntää, ⚡ tehot, 🛑 jarru. |
 | `launcher` | Pelivalikko. |
 
@@ -157,8 +158,15 @@ Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
 `rate`, `accent` (painollisen tavun sävelnousu), `breathiness`, `drift`,
 `roughness`, `tension`, `vibrato` (senttiä), samat kuin CHIMERA-sovelluksen
 säätimet. Suomen äänteiden kestot tulevat `rg_voice`:sta (CHIMERAn englannin
-Klatt-säännöt lyhentävät painottomat vokaalit liikaa), ja kysymykset laskevat
-kuten suomessa. CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
+Klatt-säännöt lyhentävät painottomat vokaalit liikaa). `rg_voice/src/prosody.rs`
+muokkaa CHIMERAn suunnitelmaa suomeksi ennen renderöintiä: klusiilit p/t/k ilman
+englannin aspiraatiota, a/ä/o/u/ö suomen vokaalilaaduiksi (CHIMERAn kalibroitujen
+vokaalien sekoituksina, formantit mitattu), k:n ja h:n viereiset lyhyet vokaalit
+eivät huku, ja sävelkulku on suomalainen: jokaisen sanan ensitavu nousee ja
+laskee, aksentit porrastuvat alaspäin, lause loppuu laskuun (myös kysymykset),
+huutolause on isompi ja pilkku jättää äänen ylös. Mittaukset:
+`cargo run --release -p rg_voice --example fi_lab -- vowels | pitch "Hyvä!" | seg "Kuka."`.
+CHIMERA renderöi 48 kHz:llä kuten omassa CLI:ssään (ilmatien
 hila ja kalibrointi riippuvat näytetaajuudesta); klipit ovat 24 kHz 16-bittisiä
 WAVeja, jotka web-host ja Androidin `Sound.java` purkavat itse.
 

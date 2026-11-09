@@ -53,7 +53,12 @@
 .blabel { font-size: 13px; font-weight: 700; color: #1c7ed6; text-align: center; align-items: center; }
 .handle { height: 10px; border-width: 2px; border-color: #6c757d; border-radius: 10px; }
 .jug { width: 34px; height: 26px; border-radius: 8px; background-color: #ced4da; border-width: 2px; border-color: #868e96; }
-.stream { width: 6px; border-radius: 3px; background-color: #4dabf7; }
+.stream { width: 10px; border-radius: 4px; background-color: rgba(77,171,247,0.85); }
+.pipe { width: 10px; background-color: #adb5bd; border-width: 1px; border-color: #6c757d; }
+.pipe.h { height: 10px; border-radius: 4px; }
+.spout { width: 14px; height: 14px; border-radius: 3px; background-color: #ced4da; border-width: 1px; border-color: #6c757d; }
+.valve { width: 26px; height: 8px; border-radius: 4px; background-color: #e63946; }
+.taphit { border-radius: 16px; }
 .drop { width: 6px; height: 9px; border-radius: 3px; background-color: #4dabf7; }
 
 .tray { height: 76px; border-radius: 18px; background-color: rgba(255,255,255,0.55); border-width: 2px; border-color: rgba(42,157,143,0.35); }

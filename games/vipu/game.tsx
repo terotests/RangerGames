@@ -371,6 +371,29 @@ function ItemView(b: Box) {
   return out;
 }
 
+// the tap above the bucket: press it (or Pour) and water runs while you hold
+function Tap(b: Box) {
+  const out: any[] = [];
+  const cx = b.x + b.w / 2;
+  const ty = Math.max(70, b.y - 74);
+  const on = pouring > 0;
+  out.push(<div className="abs pipe" style={{ left: cx + 12, top: ty - 30, height: 34 }} />);
+  out.push(<div className="abs pipe h" style={{ left: cx - 8, top: ty, width: 38 }} />);
+  out.push(<div className="abs spout" style={{ left: cx - 8, top: ty + 6 }} />);
+  out.push(<div className="abs valve" style={{ left: cx + 4, top: ty - 16, transform: on ? "rotate(90deg)" : "rotate(0deg)" }} />);
+  if (on) {
+    const top = ty + 18, bottom = b.y + 6 + (b.h - 8) * (1 - b.it.water / b.it.cap);
+    out.push(<div className="abs stream" style={{ left: cx - 5, top: top, height: Math.max(4, bottom - top) }} />);
+    for (let k = 0; k < 3; k++) {
+      const f = (t * 3 + k / 3) % 1;
+      out.push(<div className="abs drop" style={{ left: cx - 7 + (k - 1) * 5, top: top + f * Math.max(4, bottom - top - 6), opacity: 0.9 }} />);
+    }
+  }
+  // a big touch area over the whole tap
+  out.push(<div className="abs taphit" id="tap" onPointerDown={() => press(1)} style={{ left: cx - 30, top: ty - 34, width: 70, height: 62 }} />);
+  return out;
+}
+
 function Scene() {
   const boxes = layout();
   const out: any[] = [];
@@ -395,10 +418,7 @@ function Scene() {
   }
   // pouring
   const bucket = boxes.find((b) => b.it.kind === "b");
-  if (bucket && pouring > 0) {
-    out.push(<div className="abs jug" style={{ left: bucket.x + 18, top: bucket.y - 62, transform: "rotate(-35deg)" }} />);
-    out.push(<div className="abs stream" style={{ left: bucket.x + 20, top: bucket.y - 40, height: 44 }} />);
-  }
+  if (bucket && !solved && bucket.it !== drag) out.push(Tap(bucket));
   if (bucket && pouring < 0 && bucket.it.water > 0) {
     for (let k = 0; k < 3; k++) {
       const f = (t * 2 + k / 3) % 1;
@@ -414,8 +434,8 @@ function Controls() {
   const y = height - 58;
   const btns: any[] = [];
   if (bucket) {
-    btns.push(<div className={pouring > 0 ? "btn pour on" : "btn pour"} id="pour" onPointerDown={() => press(1)}>💧 {rg.t("Kaada", "Pour", "Echar")}</div>);
-    btns.push(<div className={pouring < 0 ? "btn drain on" : "btn drain"} id="drain" onPointerDown={() => press(-1)}>🚰 {rg.t("Valuta", "Drain", "Vaciar")}</div>);
+    btns.push(<div className={pouring > 0 ? "btn pour on" : "btn pour"} id="pour" onPointerDown={() => press(1)}>🚰 {rg.t("Hana", "Tap", "Grifo")}</div>);
+    btns.push(<div className={pouring < 0 ? "btn drain on" : "btn drain"} id="drain" onPointerDown={() => press(-1)}>⬇️ {rg.t("Valuta", "Drain", "Vaciar")}</div>);
   }
   btns.push(<div className="btn small" id="hint" onClick={() => { showHint = !showHint; rg.sound("click"); if (showHint) speak("vv_kauemmas"); }}>💡</div>);
   btns.push(<div className="btn small" id="reset" onClick={() => startLevel(level)}>↺</div>);

@@ -70,9 +70,6 @@ const ROW1: Tool[] = ["match", "candle", "wood", "stove", "palm"];
 const ROW2: Tool[] = ["dryer", "lens", "salt"];
 
 const LEVELS: Level[] = [
-  { id: "kuutio", name: "Jääkuutio", en: "Ice cube", es: "Cubo de hielo", blocks: [
-    { x: 0, b: 0, w: 110, h: 96, k: "ice", t: "🐟" },
-  ] },
   { id: "torni", name: "Jäätorni", en: "Ice tower", es: "Torre de hielo", blocks: [
     { x: 0, b: 0, w: 120, h: 28, k: "ice" },
     { x: -42, b: 28, w: 30, h: 62, k: "ice" }, { x: 42, b: 28, w: 30, h: 62, k: "ice" },
@@ -80,6 +77,14 @@ const LEVELS: Level[] = [
     { x: 0, b: 90, w: 132, h: 24, k: "ice" },
     { x: 0, b: 114, w: 64, h: 54, k: "ice", t: "🐧" },
     { x: 0, b: 168, w: 32, h: 30, k: "snow" },
+  ] },
+  { id: "pyramidi", name: "Jääpyramidi", en: "Ice pyramid", es: "Pirámide de hielo", blocks: [
+    { x: -84, b: 0, w: 40, h: 30, k: "ice" }, { x: -42, b: 0, w: 40, h: 30, k: "blue", t: "🐚" }, { x: 0, b: 0, w: 40, h: 30, k: "ice" },
+    { x: 42, b: 0, w: 40, h: 30, k: "blue" }, { x: 84, b: 0, w: 40, h: 30, k: "ice", t: "🦀" },
+    { x: -63, b: 30, w: 40, h: 30, k: "snow" }, { x: -21, b: 30, w: 40, h: 30, k: "ice" }, { x: 21, b: 30, w: 40, h: 30, k: "ice", t: "🐠" }, { x: 63, b: 30, w: 40, h: 30, k: "snow" },
+    { x: -42, b: 60, w: 40, h: 30, k: "blue" }, { x: 0, b: 60, w: 40, h: 30, k: "snow" }, { x: 42, b: 60, w: 40, h: 30, k: "blue" },
+    { x: -21, b: 90, w: 40, h: 30, k: "ice" }, { x: 21, b: 90, w: 40, h: 30, k: "ice" },
+    { x: 0, b: 120, w: 40, h: 34, k: "blue", t: "👑" },
   ] },
   { id: "linna", name: "Lumilinna", en: "Snow castle", es: "Castillo de nieve", blocks: [
     { x: -72, b: 0, w: 44, h: 40, k: "snow" }, { x: -72, b: 40, w: 44, h: 40, k: "snow" }, { x: -72, b: 80, w: 44, h: 36, k: "snow" },
@@ -89,10 +94,22 @@ const LEVELS: Level[] = [
     { x: -84, b: 116, w: 16, h: 16, k: "snow" }, { x: -60, b: 116, w: 16, h: 16, k: "snow" },
     { x: 60, b: 116, w: 16, h: 16, k: "snow" }, { x: 84, b: 116, w: 16, h: 16, k: "snow" },
   ] },
-  { id: "jaavuori", name: "Ikijäävuori", en: "Glacier", es: "Glaciar", blocks: [
-    { x: -64, b: 0, w: 62, h: 46, k: "blue" }, { x: 0, b: 0, w: 62, h: 46, k: "blue", t: "🐚" }, { x: 64, b: 0, w: 62, h: 46, k: "blue" },
-    { x: -32, b: 46, w: 62, h: 46, k: "blue" }, { x: 32, b: 46, w: 62, h: 46, k: "blue" },
-    { x: 0, b: 92, w: 62, h: 46, k: "blue", t: "💎" },
+  { id: "iglu", name: "Iglu", en: "Igloo", es: "Iglú", blocks: [
+    { x: -84, b: 0, w: 34, h: 28, k: "snow" }, { x: -84, b: 28, w: 34, h: 28, k: "snow" }, { x: -84, b: 56, w: 34, h: 28, k: "snow" },
+    { x: 84, b: 0, w: 34, h: 28, k: "snow" }, { x: 84, b: 28, w: 34, h: 28, k: "snow" }, { x: 84, b: 56, w: 34, h: 28, k: "snow" },
+    { x: -30, b: 0, w: 56, h: 44, k: "blue", t: "🐧" }, { x: 30, b: 0, w: 56, h: 44, k: "ice", t: "🐟" },
+    { x: 0, b: 44, w: 70, h: 38, k: "dry" },
+    { x: 0, b: 84, w: 204, h: 18, k: "ice" },
+    { x: -50, b: 102, w: 60, h: 26, k: "snow" }, { x: 50, b: 102, w: 60, h: 26, k: "snow" },
+    { x: 0, b: 102, w: 36, h: 30, k: "ice", t: "🧣" },
+    { x: 0, b: 132, w: 120, h: 16, k: "snow" }, { x: 0, b: 148, w: 50, h: 22, k: "snow" },
+  ] },
+  { id: "dominot", name: "Jäädominot", en: "Ice dominoes", es: "Dominó de hielo", blocks: [
+    { x: -140, b: 0, w: 20, h: 22, k: "snow" }, { x: -136, b: 22, w: 12, h: 76, k: "ice" },
+    { x: -104, b: 0, w: 12, h: 80, k: "ice" }, { x: -74, b: 0, w: 12, h: 84, k: "blue" }, { x: -44, b: 0, w: 12, h: 88, k: "ice" },
+    { x: -14, b: 0, w: 12, h: 92, k: "blue" }, { x: 16, b: 0, w: 12, h: 96, k: "ice" },
+    { x: 60, b: 0, w: 56, h: 40, k: "ice", t: "🐸" }, { x: 60, b: 40, w: 40, h: 34, k: "snow", t: "🍒" },
+    { x: 118, b: 0, w: 34, h: 70, k: "blue", t: "🦔" },
   ] },
   { id: "kuivajaa", name: "Kuivajää", en: "Dry ice", es: "Hielo seco", blocks: [
     { x: 0, b: 0, w: 84, h: 70, k: "ice", t: "🦖" },
@@ -105,6 +122,16 @@ const LEVELS: Level[] = [
     { x: 0, b: 0, w: 52, h: 40, k: "ice", t: "🍓" },
     { x: 0, b: 92, w: 226, h: 22, k: "blue" },
     { x: -54, b: 114, w: 40, h: 40, k: "snow" }, { x: 0, b: 114, w: 46, h: 46, k: "ice", t: "🐻" }, { x: 54, b: 114, w: 40, h: 40, k: "snow" },
+  ] },
+  { id: "pilvenpiirtaja", name: "Pilvenpiirtäjä", en: "Skyscraper", es: "Rascacielos", blocks: [
+    { x: -60, b: 0, w: 26, h: 44, k: "blue" }, { x: 60, b: 0, w: 26, h: 44, k: "blue" }, { x: 0, b: 0, w: 52, h: 36, k: "ice", t: "🐢" },
+    { x: 0, b: 44, w: 170, h: 16, k: "ice" },
+    { x: -50, b: 60, w: 24, h: 42, k: "ice" }, { x: 50, b: 60, w: 24, h: 42, k: "ice" }, { x: 0, b: 60, w: 44, h: 34, k: "snow", t: "🦉" },
+    { x: 0, b: 102, w: 146, h: 16, k: "blue" },
+    { x: -40, b: 118, w: 22, h: 40, k: "snow" }, { x: 40, b: 118, w: 22, h: 40, k: "snow" }, { x: 0, b: 118, w: 40, h: 32, k: "dry", t: "🦕" },
+    { x: 0, b: 158, w: 120, h: 14, k: "ice" },
+    { x: -28, b: 172, w: 20, h: 34, k: "ice" }, { x: 28, b: 172, w: 20, h: 34, k: "ice" }, { x: 0, b: 172, w: 30, h: 30, k: "blue", t: "💎" },
+    { x: 0, b: 206, w: 90, h: 14, k: "snow" },
   ] },
   { id: "leikki", name: "Vapaa leikki", en: "Free play", es: "Juego libre", blocks: [] },
 ];
@@ -1097,7 +1124,7 @@ function Menu() {
   const bob = Math.sin(t * 2) * 4;
   return (
     <div className="screen menu">
-      <div className="mtitle" style={{ marginTop: 56 + bob }}>🧊 {rg.t("Lämpölabra", "Heat Lab", "Laboratorio de calor")}</div>
+      <div className="mtitle" style={{ marginTop: 40 + bob }}>🧊 {rg.t("Lämpölabra", "Heat Lab", "Laboratorio de calor")}</div>
       <div className="msub">{rg.t("Sulata jää ja vapauta jäätyneet aarteet!", "Melt the ice and free the frozen treasures!", "¡Derrite el hielo y libera los tesoros congelados!")}</div>
       <div className="levels">
         {LEVELS.map((L, i) => (

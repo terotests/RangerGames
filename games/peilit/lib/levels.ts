@@ -3,7 +3,7 @@
 // `hint`: one solution [x, y, kind, m], both checked by tools/peilit/solve.ts.
 export const LEVELS: any[] = [
   { name: { fi: "Käännä peiliä", en: "Turn the mirror", es: "Gira el espejo" },
-    tip: { fi: "Napauta peiliä, niin se kääntyy. Ohjaa valo kukalle.", en: "Tap the mirror to turn it. Guide the light to the flower.", es: "Toca el espejo para girarlo. Lleva la luz a la flor." },
+    tip: { fi: "Pyöritä sormella peilin ympäri, niin se kääntyy. Ohjaa valo kukalle.", en: "Circle the mirror with your finger to turn it. Guide the light to the flower.", es: "Gira el dedo alrededor del espejo para girarlo. Lleva la luz a la flor." },
     map: [
       ".......",
       "0...a..",
