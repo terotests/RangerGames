@@ -127,6 +127,14 @@ pub unsafe extern "C" fn rg_key(down: i32, p: *const u8, n: usize) {
     with(|e| e.key(down != 0, &key));
 }
 
+/// A sensor reading (`Engine::sensor`): the name, then its JSON.
+#[no_mangle]
+pub unsafe extern "C" fn rg_sensor(np: *const u8, nn: usize, dp: *const u8, dn: usize) {
+    let name = text(np, nn);
+    let data = text(dp, dn);
+    with(|e| e.sensor(&name, &data));
+}
+
 #[no_mangle]
 pub extern "C" fn rg_frame(dt_ms: f64) -> i32 {
     with(|e| {

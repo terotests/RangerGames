@@ -15,6 +15,8 @@ import android.graphics.Typeface;
 import android.os.Build;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * Paints the engine's draw stream (crates/rg_engine/src/draw.rs) on an
@@ -35,7 +37,18 @@ final class Painter {
     private final Rect src = new Rect();
     private final float[] radii = new float[8];
     private final HashMap<String, Typeface> fonts = new HashMap<>();
-    private final HashMap<String, Bitmap> images = new HashMap<>();
+    /** decoded images, the least recently drawn dropped past IMAGE_BUDGET bytes (map tiles add up) */
+    private static final long IMAGE_BUDGET = 48L * 1024 * 1024;
+    private long imageBytes;
+    private final LinkedHashMap<String, Bitmap> images = new LinkedHashMap<String, Bitmap>(64, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Bitmap> eldest) {
+            if (imageBytes <= IMAGE_BUDGET || size() <= 24) return false;
+            Bitmap b = eldest.getValue();
+            if (b != null) imageBytes -= b.getByteCount();
+            return true;
+        }
+    };
     private final Paint.FontMetrics fm = new Paint.FontMetrics();
 
     Painter(AssetManager assets) {
@@ -90,6 +103,7 @@ final class Painter {
         Bitmap b = null;
         byte[] bytes = s.startsWith("/") ? Engine.read(s) : null;
         if (bytes != null) b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+        if (b != null) imageBytes += b.getByteCount();
         images.put(s, b);
         return b;
     }

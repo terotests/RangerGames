@@ -173,6 +173,53 @@
     }
   };
 
+  // the phone's GPS and compass for rg.sensor (geolocation needs https or localhost)
+  Host.prototype.sendSensor = function (name, data) {
+    if (!this.x.rg_sensor) return;
+    var a = this.put(name), b = this.put(JSON.stringify(data));
+    this.x.rg_sensor(a[0], a[1], b[0], b[1]);
+    this.free(a); this.free(b);
+  };
+  Host.prototype.sensor = function (name, on) {
+    var self = this;
+    if (name === "location" || name === "*") {
+      if (on && this.geoWatch === undefined) {
+        if (!navigator.geolocation) { this.sendSensor("error", { sensor: "location", reason: "unavailable" }); }
+        else {
+          this.geoWatch = navigator.geolocation.watchPosition(function (p) {
+            var c = p.coords;
+            self.sendSensor("location", { lat: c.latitude, lon: c.longitude, accuracy: c.accuracy || 50,
+              speed: c.speed == null ? -1 : c.speed, bearing: c.heading == null || isNaN(c.heading) ? -1 : c.heading,
+              altitude: c.altitude || 0, time: p.timestamp });
+          }, function (err) {
+            self.sendSensor("error", { sensor: "location", reason: err.code === 1 ? "permission" : "unavailable" });
+          }, { enableHighAccuracy: true, maximumAge: 2000, timeout: 30000 });
+        }
+      } else if (!on && this.geoWatch !== undefined) {
+        navigator.geolocation.clearWatch(this.geoWatch);
+        this.geoWatch = undefined;
+      }
+    }
+    if (name === "heading" || name === "*") {
+      if (on && !this.onOrient) {
+        this.onOrient = function (e) {
+          var deg = e.webkitCompassHeading != null ? e.webkitCompassHeading : (e.absolute && e.alpha != null ? 360 - e.alpha : null);
+          if (deg == null) return;
+          var t = Date.now();
+          if (self.lastHeadingAt && t - self.lastHeadingAt < 80) return;
+          self.lastHeadingAt = t;
+          self.sendSensor("heading", { deg: deg });
+        };
+        global.addEventListener("deviceorientationabsolute", this.onOrient);
+        global.addEventListener("deviceorientation", this.onOrient);
+      } else if (!on && this.onOrient) {
+        global.removeEventListener("deviceorientationabsolute", this.onOrient);
+        global.removeEventListener("deviceorientation", this.onOrient);
+        this.onOrient = null;
+      }
+    }
+  };
+
   Host.prototype.command = function (kind, name, args) {
     switch (kind) {
       case "sound": this.audio.play(name, args); break;
@@ -182,6 +229,7 @@
       case "persist": try { localStorage.setItem("rg:" + name, typeof args === "string" ? args : JSON.stringify(args)); } catch (e) { } break;
       case "title": document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView(); break;
       case "three": this.three.command(name, args); break;
+      case "sensor": this.sensor(name, args !== false); break;
       case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;
       default: break;
     }
@@ -197,7 +245,7 @@
     img.onload = function () { self.images.set(src, img); };
     img.onerror = function () { console.warn("image " + src + " did not load"); };
     if (bytes) {
-      var type = /\.svg$/i.test(src) ? "image/svg+xml" : /\.jpe?g$/i.test(src) ? "image/jpeg" : "image/png";
+      var type = /\.svg$/i.test(src) ? "image/svg+xml" : /\.jpe?g$/i.test(src) ? "image/jpeg" : /\.webp$/i.test(src) ? "image/webp" : "image/png";
       img.src = URL.createObjectURL(new Blob([bytes], { type: type }));
     } else {
       img.src = src;

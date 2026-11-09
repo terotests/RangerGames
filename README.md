@@ -41,6 +41,7 @@ ohut alusta-host, retained UI EVG:llä, TSX-pelit), ei sen koodi 1:1.
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
 | `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
 | `tampere` – **Liikenneretki** | Tampereen keskusta (2,4 × 1,4 km) ylhäältä: kävele äidin tai isän luota, koulusta tai päiväkodista puistoon, kouluun, kotiin tai nähtävyydelle. Kadun yli vain suojatietä: valoissa odotetaan vihreää, muualla varotaan autoja, pyörätiellä pyöräilijöitä. Ratikalla (linjat 1 ja 3) voi matkustaa pysäkiltä toiselle. Kartta Tampere Taxi Driverin aineistosta (OSM + Tampereen kaupunki), `tools/tampere/build_map.py`. Ohjaus: pidä sormea siellä, minne haluat kävellä (tai nuolinäppäimet). |
+| `navi` – **Kotiin** | Lapsen kävelynavigaattori: puhelimen GPS näyttää paikan Tampereen kartalla, iso nuoli ja reittiviiva ohjaavat isän, äidin, koulun tai päiväkodin luo, värinä ennen käännöstä ja juhlat perillä. Toimii ilman nettiä: kartta (kuvatiilet) ja kävelyverkko tulevat pelin mukana (`tools/navi/build.py` Tampere Taxi Driverin kartasta), reitti lasketaan puhelimessa. Kotien paikat asetetaan puhelimessa (pidä ⚙️ painettuna) tai git-ignoroidussa `games/navi/places.local.js`:ssä, ei koskaan repoon. |
 | `launcher` | Pelivalikko. |
 
 ## Aloitus
