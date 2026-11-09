@@ -583,8 +583,8 @@ function Quiz() {
   return (
     <div className="overlay">
       <div className="qcard">
-        <div className="qtitle">Lukittu ovi!</div>
-        <div className="qhint">Laske, niin ovi aukeaa</div>
+        <div className="qtitle">{rg.t("Lukittu ovi!", "Locked door!", "¡Puerta cerrada!")}</div>
+        <div className="qhint">{rg.t("Laske, niin ovi aukeaa", "Solve it and the door opens", "Resuelve y la puerta se abre")}</div>
         <div className="qsum">{quiz.a + " " + quiz.op + " " + quiz.b + " = ?"}</div>
         <div className="choices">
           {quiz.options.map((o, i) => (
@@ -601,12 +601,12 @@ function Title() {
   return (
     <div className="overlay dark">
       <div className="ticon" style={{ marginTop: bob }}>👻</div>
-      <div className="big">Haamujahti</div>
-      <div className="hint">Ammu haamut tähdillä ★</div>
-      <div className="hint">Avaa ovet laskemalla ja etsi vihreä tähtiovi</div>
-      <div className="hint">Viimeisessä kerroksessa odottaa Mörkö!</div>
-      <div className="go">Napauta ja aloita!</div>
-      {best > 0 ? <div className="hint">Ennätys: ⭐ {best}</div> : null}
+      <div className="big">{rg.t("Haamujahti", "Ghost Hunt", "Caza de fantasmas")}</div>
+      <div className="hint">{rg.t("Ammu haamut tähdillä", "Shoot the ghosts with stars", "Dispara estrellas a los fantasmas")} ★</div>
+      <div className="hint">{rg.t("Avaa ovet laskemalla ja etsi vihreä tähtiovi", "Open doors with sums and find the green star door", "Abre puertas con cuentas y busca la puerta verde de la estrella")}</div>
+      <div className="hint">{rg.t("Viimeisessä kerroksessa odottaa Mörkö!", "The Monster waits on the last floor!", "¡El Monstruo espera en el último piso!")}</div>
+      <div className="go">{rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")}</div>
+      {best > 0 ? <div className="hint">{rg.t("Ennätys", "Record", "Récord")}: ⭐ {best}</div> : null}
     </div>
   );
 }
@@ -614,10 +614,10 @@ function Title() {
 function Floor() {
   return (
     <div className="overlay dark">
-      <div className="big">Kerros {level + 1} läpi!</div>
+      <div className="big">{rg.t("Kerros " + (level + 1) + " läpi!", "Floor " + (level + 1) + " done!", "¡Piso " + (level + 1) + " superado!")}</div>
       <div className="result">⭐ {stars}</div>
-      {level + 1 === LEVELS.length - 1 ? <div className="hint">Seuraavassa kerroksessa on Mörkö…</div> : null}
-      {modeClock > 0.8 ? <div className="go">Napauta: seuraava kerros</div> : null}
+      {level + 1 === LEVELS.length - 1 ? <div className="hint">{rg.t("Seuraavassa kerroksessa on Mörkö…", "The Monster is on the next floor…", "El Monstruo está en el siguiente piso…")}</div> : null}
+      {modeClock > 0.8 ? <div className="go">{rg.t("Napauta: seuraava kerros", "Tap: next floor", "Toca: siguiente piso")}</div> : null}
     </div>
   );
 }
@@ -625,9 +625,9 @@ function Floor() {
 function Over() {
   return (
     <div className="overlay dark">
-      <div className="big">Hups!</div>
-      <div className="hint">Haamut saivat sinut kiinni</div>
-      {modeClock > 0.8 ? <div className="go">Napauta ja yritä uudestaan</div> : null}
+      <div className="big">{rg.t("Hups!", "Oops!", "¡Uy!")}</div>
+      <div className="hint">{rg.t("Haamut saivat sinut kiinni", "The ghosts caught you", "Los fantasmas te atraparon")}</div>
+      {modeClock > 0.8 ? <div className="go">{rg.t("Napauta ja yritä uudestaan", "Tap to try again", "Toca para intentarlo otra vez")}</div> : null}
     </div>
   );
 }
@@ -636,10 +636,10 @@ function Won() {
   return (
     <div className="overlay dark">
       <div className="ticon">🏆</div>
-      <div className="big">Voitit Mörön!</div>
+      <div className="big">{rg.t("Voitit Mörön!", "You beat the Monster!", "¡Venciste al Monstruo!")}</div>
       <div className="result">⭐ {stars}</div>
-      {stars >= best ? <div className="record">Uusi ennätys! 🎉</div> : <div className="hint">Ennätys: ⭐ {best}</div>}
-      {modeClock > 1.2 ? <div className="go">Napauta</div> : null}
+      {stars >= best ? <div className="record">{rg.t("Uusi ennätys!", "New record!", "¡Nuevo récord!")} 🎉</div> : <div className="hint">{rg.t("Ennätys", "Record", "Récord")}: ⭐ {best}</div>}
+      {modeClock > 1.2 ? <div className="go">{rg.t("Napauta", "Tap", "Toca")}</div> : null}
     </div>
   );
 }

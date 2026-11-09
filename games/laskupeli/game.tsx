@@ -7,9 +7,9 @@ type Level = { name: string; max: number; minus: boolean; color: string };
 type Spark = { x: number; y: number; vx: number; vy: number; t: number; c: string };
 
 const LEVELS: Level[] = [
-  { name: "Plussa 1–5", max: 5, minus: false, color: "#06d6a0" },
-  { name: "Plussa 1–10", max: 10, minus: false, color: "#118ab2" },
-  { name: "Miinus", max: 10, minus: true, color: "#ef476f" },
+  { name: rg.t("Plussa 1–5", "Plus 1–5", "Sumas 1–5"), max: 5, minus: false, color: "#06d6a0" },
+  { name: rg.t("Plussa 1–10", "Plus 1–10", "Sumas 1–10"), max: 10, minus: false, color: "#118ab2" },
+  { name: rg.t("Miinus", "Minus", "Restas"), max: 10, minus: true, color: "#ef476f" },
 ];
 const FRUIT = ["🍎", "🍐", "🍓", "🍊", "🍌", "🍇", "🥕", "🐟"];
 const SPARK = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#ffffff"];
@@ -165,7 +165,7 @@ function Menu() {
   const bob = Math.sin(t * 2.5) * 6;
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 50 + bob }}>Laskupeli</div>
+      <div className="title" style={{ marginTop: 50 + bob }}>{rg.t("Laskupeli", "Counting", "Contar")}</div>
       <div className="lead">🍎 + 🍎🍎 = ?</div>
       {LEVELS.map((L, i) => (
         <div className="level" id={"lv" + i} onClick={() => startLevel(i)} style={{ backgroundColor: L.color }}>
@@ -173,7 +173,7 @@ function Menu() {
           <div className="lvbest">{best[i] > 0 ? "⭐ " + best[i] + "/" + ROUND : ""}</div>
         </div>
       ))}
-      <div className="level back" id="exit" onClick={() => rg.exit()}><div className="lvname">← Valikkoon</div></div>
+      <div className="level back" id="exit" onClick={() => rg.exit()}><div className="lvname">{rg.t("← Valikkoon", "← Menu", "← Menú")}</div></div>
     </div>
   );
 }
@@ -183,11 +183,11 @@ function Done() {
   for (let i = 0; i < ROUND; i++) stars.push(<div className={i < right ? "bigstar" : "bigstar off"}>⭐</div>);
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? "Mahtavaa!" : right >= 5 ? "Hienoa!" : "Hyvä yritys!"}</div>
+      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? rg.t("Mahtavaa!", "Awesome!", "¡Fantástico!") : right >= 5 ? rg.t("Hienoa!", "Great!", "¡Genial!") : rg.t("Hyvä yritys!", "Good try!", "¡Buen intento!")}</div>
       <div className="stars">{stars}</div>
-      <div className="lead">{right} / {ROUND} oikein heti</div>
-      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">Uudestaan!</div></div>
-      <div className="level back" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">← Takaisin</div></div>
+      <div className="lead">{right} / {ROUND} {rg.t("oikein heti", "right first time", "a la primera")}</div>
+      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div></div>
+      <div className="level back" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
 }

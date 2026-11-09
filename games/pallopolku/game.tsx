@@ -221,18 +221,18 @@ function view() {
       ) : null}
       {mode === "title" ? (
         <div className="overlay">
-          <div className="big">Pallopolku</div>
+          <div className="big">{rg.t("Pallopolku", "Ball Run", "Camino de la pelota")}</div>
           <div className="hintrow"><div className="hintbox">👈</div><div className="hintbox">👆</div><div className="hintbox">👉</div></div>
-          <div className="go">Napauta ja aloita!</div>
-          {best > 0 ? <div className="hint">Ennätys: ⭐ {best}</div> : null}
+          <div className="go">{rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")}</div>
+          {best > 0 ? <div className="hint">{rg.t("Ennätys", "Record", "Récord")}: ⭐ {best}</div> : null}
         </div>
       ) : null}
       {mode === "over" ? (
         <div className="overlay">
-          <div className="big">Hienosti!</div>
+          <div className="big">{rg.t("Hienosti!", "Well done!", "¡Muy bien!")}</div>
           <div className="result">⭐ {stars}</div>
-          <div className="hint">Ennätys: ⭐ {best}</div>
-          {clock > 1 ? <div className="go">Uudestaan!</div> : null}
+          <div className="hint">{rg.t("Ennätys", "Record", "Récord")}: ⭐ {best}</div>
+          {clock > 1 ? <div className="go">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div> : null}
         </div>
       ) : null}
     </div>

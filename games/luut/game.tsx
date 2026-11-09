@@ -19,9 +19,9 @@ type Q = { a: number; pic: Pic; opts: number[] };
 
 const ROUND = 10;
 const LEVELS = [
-  { name: "Kallot", sub: "Kenen pääkallo?", icon: "💀", color: "#7b5e3b", kinds: ["kallo"] },
-  { name: "Luurangot", sub: "Kenen luuranko?", icon: "🦴", color: "#457b9d", kinds: ["luuranko"] },
-  { name: "Sekaisin", sub: "Kalloja ja luurankoja", icon: "🔍", color: "#2a9d8f", kinds: ["kallo", "luuranko"] },
+  { name: rg.t("Kallot", "Skulls", "Cráneos"), sub: rg.t("Kenen pääkallo?", "Whose skull?", "¿De quién es el cráneo?"), icon: "💀", color: "#7b5e3b", kinds: ["kallo"] },
+  { name: rg.t("Luurangot", "Skeletons", "Esqueletos"), sub: rg.t("Kenen luuranko?", "Whose skeleton?", "¿De quién es el esqueleto?"), icon: "🦴", color: "#457b9d", kinds: ["luuranko"] },
+  { name: rg.t("Sekaisin", "Mixed", "Mezclados"), sub: rg.t("Kalloja ja luurankoja", "Skulls and skeletons", "Cráneos y esqueletos"), icon: "🔍", color: "#2a9d8f", kinds: ["kallo", "luuranko"] },
 ];
 const PRAISE = ["hyva", "hienoa", "mahtavaa", "oikein", "loistavaa", "jee", "taitava", "osaat"];
 const PER_PAGE = 6;
@@ -41,6 +41,54 @@ let page = 0;
 let praiseN = 0;
 
 const A: Animal[] = ANIMALS as any;
+// the animals' names in English and Spanish (the clips say them by the Finnish id)
+const NAMES: any = {
+  "Delfiini": ["Dolphin", "Delfín"],
+  "Dinosaurus": ["Dinosaur", "Dinosaurio"],
+  "Gorilla": ["Gorilla", "Gorila"],
+  "Hai": ["Shark", "Tiburón"],
+  "Hevonen": ["Horse", "Caballo"],
+  "Hirvi": ["Moose", "Alce"],
+  "Hylje": ["Seal", "Foca"],
+  "Ihminen": ["Human", "Humano"],
+  "Kala": ["Fish", "Pez"],
+  "Kameli": ["Camel", "Camello"],
+  "Kana": ["Hen", "Gallina"],
+  "Kani": ["Rabbit", "Conejo"],
+  "Karhu": ["Bear", "Oso"],
+  "Kenguru": ["Kangaroo", "Canguro"],
+  "Kettu": ["Fox", "Zorro"],
+  "Kilpikonna": ["Turtle", "Tortuga"],
+  "Kirahvi": ["Giraffe", "Jirafa"],
+  "Kissa": ["Cat", "Gato"],
+  "Koira": ["Dog", "Perro"],
+  "Krokotiili": ["Crocodile", "Cocodrilo"],
+  "Käärme": ["Snake", "Serpiente"],
+  "Lammas": ["Sheep", "Oveja"],
+  "Lehmä": ["Cow", "Vaca"],
+  "Leijona": ["Lion", "León"],
+  "Lepakko": ["Bat", "Murciélago"],
+  "Majava": ["Beaver", "Castor"],
+  "Mursu": ["Walrus", "Morsa"],
+  "Norsu": ["Elephant", "Elefante"],
+  "Orava": ["Squirrel", "Ardilla"],
+  "Peura": ["Deer", "Ciervo"],
+  "Pingviini": ["Penguin", "Pingüino"],
+  "Pöllö": ["Owl", "Búho"],
+  "Rotta": ["Rat", "Rata"],
+  "Sammakko": ["Frog", "Rana"],
+  "Sarvikuono": ["Rhino", "Rinoceronte"],
+  "Seepra": ["Zebra", "Cebra"],
+  "Siili": ["Hedgehog", "Erizo"],
+  "Sika": ["Pig", "Cerdo"],
+  "Simpanssi": ["Chimpanzee", "Chimpancé"],
+  "Strutsi": ["Ostrich", "Avestruz"],
+  "Susi": ["Wolf", "Lobo"],
+  "Tiikeri": ["Tiger", "Tigre"],
+  "Valas": ["Whale", "Ballena"],
+  "Virtahepo": ["Hippo", "Hipopótamo"]
+};
+function nm(i: number) { const n = NAMES[A[i].name]; return n ? rg.t(A[i].name, n[0], n[1]) : A[i].name; }
 
 function init() {
   best = rg.load("best", [0, 0, 0]);
@@ -162,7 +210,7 @@ function Play() {
   return (
     <div className="screen">
       {Progress()}
-      <div className="ask" id="ask" onClick={() => ask()}>🔊 {q.pic.k === "kallo" ? "Kenen pääkallo?" : "Kenen luuranko?"}</div>
+      <div className="ask" id="ask" onClick={() => ask()}>🔊 {q.pic.k === "kallo" ? rg.t("Kenen pääkallo?", "Whose skull?", "¿De quién es el cráneo?") : rg.t("Kenen luuranko?", "Whose skeleton?", "¿De quién es el esqueleto?")}</div>
       <div className="photo" style={{ width: pw + 12, height: ph + 12 }} onClick={() => ask()}>
         <img className="photoimg" src={rg.asset(q.pic.f)} style={{ width: pw, height: ph }} />
       </div>
@@ -178,7 +226,7 @@ function Play() {
               <div className="optpic" style={{ opacity: no ? 0.3 : 1 }}>
                 {A[i].alive ? <img className="optimg" src={rg.asset(A[i].alive)} /> : <div className="optemoji">{A[i].emoji}</div>}
               </div>
-              <div className="optname">{no ? "✕ " + A[i].name : A[i].name}</div>
+              <div className="optname">{no ? "✕ " + nm(i) : nm(i)}</div>
             </div>
           );
         })}
@@ -191,7 +239,7 @@ function Menu() {
   const bob = Math.sin(t * 2.5) * 6;
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 46 + bob }}>Kenen luut?</div>
+      <div className="title" style={{ marginTop: 46 + bob }}>{rg.t("Kenen luut?", "Whose bones?", "¿De quién son los huesos?")}</div>
       <div className="lead">💀 🦴 🦊 🐘 🦉</div>
       {LEVELS.map((L, i) => (
         <div className="level" id={"lv" + i} onClick={() => startLevel(i)} style={{ backgroundColor: L.color }}>
@@ -200,8 +248,8 @@ function Menu() {
           <div className="lvbest">{best[i] > 0 ? "⭐ " + best[i] + "/" + ROUND : ""}</div>
         </div>
       ))}
-      <div className="small" id="credits" onClick={() => { mode = "credits"; page = 0; rg.sound("click"); }}><div className="lvname">📷 Kuvat</div></div>
-      <div className="small back" id="exit" onClick={() => rg.exit()}><div className="lvname">← Valikkoon</div></div>
+      <div className="small" id="credits" onClick={() => { mode = "credits"; page = 0; rg.sound("click"); }}><div className="lvname">📷 {rg.t("Kuvat", "Photos", "Fotos")}</div></div>
+      <div className="small back" id="exit" onClick={() => rg.exit()}><div className="lvname">{rg.t("← Valikkoon", "← Menu", "← Menú")}</div></div>
     </div>
   );
 }
@@ -211,8 +259,8 @@ function Credits() {
   const rows = (CREDITS as any[]).slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
   return (
     <div className="screen">
-      <div className="ctitle">📷 Kuvien tekijät</div>
-      <div className="cnote">Kaikki kuvat Wikimedia Commonsista, vapailla lisensseillä (CC tai vapaa käyttö).</div>
+      <div className="ctitle">📷 {rg.t("Kuvien tekijät", "Photo credits", "Autores de las fotos")}</div>
+      <div className="cnote">{rg.t("Kaikki kuvat Wikimedia Commonsista, vapailla lisensseillä (CC tai vapaa käyttö).", "All photos from Wikimedia Commons under free licences (CC or public domain).", "Todas las fotos son de Wikimedia Commons con licencias libres (CC o dominio público).")}</div>
       {rows.map((c) => (
         <div className="crow">
           <div className="cwhat">{c.what}</div>
@@ -225,7 +273,7 @@ function Credits() {
         <div className="pnum">{page + 1} / {pages}</div>
         <div className={page < pages - 1 ? "pbtn" : "pbtnoff"} id="next" onClick={() => { if (page < pages - 1) { page++; rg.sound("click"); } }}>▶</div>
       </div>
-      <div className="small back" id="cback" onClick={() => toMenu()}><div className="lvname">← Takaisin</div></div>
+      <div className="small back" id="cback" onClick={() => toMenu()}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
 }
@@ -235,11 +283,11 @@ function Done() {
   for (let i = 0; i < ROUND; i++) stars.push(<div className={i < right ? "bigstar" : "bigstaroff"}>⭐</div>);
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? "Mahtavaa!" : right >= 5 ? "Hienoa!" : "Hyvä yritys!"}</div>
+      <div className="title" style={{ marginTop: 80 }}>{right >= 8 ? rg.t("Mahtavaa!", "Awesome!", "¡Fantástico!") : right >= 5 ? rg.t("Hienoa!", "Great!", "¡Genial!") : rg.t("Hyvä yritys!", "Good try!", "¡Buen intento!")}</div>
       <div className="stars">{stars}</div>
-      <div className="lead">{right} / {ROUND} heti oikein</div>
-      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">Uudestaan!</div></div>
-      <div className="small back" id="menu" onClick={() => toMenu()}><div className="lvname">← Takaisin</div></div>
+      <div className="lead">{right} / {ROUND} {rg.t("heti oikein", "right first time", "a la primera")}</div>
+      <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div></div>
+      <div className="small back" id="menu" onClick={() => toMenu()}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
 }
