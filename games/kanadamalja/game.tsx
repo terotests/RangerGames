@@ -54,6 +54,8 @@ let dests: Dest[] = [];
 let moving: { path: number[]; i: number; u: number; kind: string } = { path: [], i: 0, u: 0, kind: "" };
 let reveal: { token: string; clock: number; text: string; place: number; luck: boolean } = { token: "", clock: 0, text: "", place: 0, luck: false };
 let luckFailed = false;
+let saidOpen = 0;               // times the token question was said this game
+let saidChoose = 0;             // times "choose where to go" was said this game (said twice, then the text is enough)
 let aiClock = 0;
 let winner = -1;
 let winClock = 0;
@@ -78,7 +80,7 @@ function newGame(aiTeam: string) {
   tokens = [];
   let k = 0;
   for (let i = 0; i < PLACES.length; i++) tokens.push(i === ARENA || i === SORI || STARTS.indexOf(i) >= 0 ? "" : bag[k++] || "tyhja");
-  maljaFound = false; cur = 0; winner = -1;
+  maljaFound = false; cur = 0; winner = -1; saidChoose = 0; saidOpen = 0;
   rg.sound("click");
   startTurn();
 }
@@ -275,7 +277,8 @@ function Die3() {
 function rolled() {
   const p = P();
   rg.sound("pop", { pitch: 0.8 + dice * 0.1 });
-  if (rollFor !== "move" || P().ai) rg.say(rg.sayId.number(dice));
+  // a move's number is said for the player (the phone's own moves are quiet)
+  if (rollFor !== "move") rg.say(rg.sayId.number(dice));
   if (rollFor === "luck") {
     if (dice >= 4) { openToken(placeOf(p.node), true); }
     else {
@@ -312,9 +315,9 @@ function rolled() {
       msg = rg.t("Lähellä oli! Areenalle jäi vielä " + (left - dice) + " askelta. Mene lähemmäs ja yritä uudelleen.", "So close! " + (left - dice) + " more steps to the arena. Get closer and try again.", "¡Casi! Faltan " + (left - dice) + " pasos hasta el estadio. Acércate y vuelve a intentarlo.");
       say.push("km_lahella");
       rg.sound("wrong");
-    } else say.push("km_valitse");
-  } else say.push("km_valitse");
-  if (!p.ai) rg.say(say);
+    } else if (saidChoose++ < 2) say.push("km_valitse");
+  } else if (saidChoose++ < 2) say.push("km_valitse");
+  if (!p.ai) rg.say(say.length === 1 ? say[0] : say);
 }
 
 // every node `steps` steps away along the paths, and every place on the way
@@ -427,10 +430,10 @@ function arrive() {
     if (tokens[pl]) {
       phase = "ask"; aiClock = 0;
       msg = rg.t(PLACES[pl].name + ": avataanko nappi?", PLACES[pl].name + ": open the token?", PLACES[pl].name + ": ¿abrir la ficha?");
-      rg.say(["km_p_" + PLACES[pl].id, "km_avaa"]);
+      // the long question (pay or try your luck) twice a game, then the place's name and the text
+      rg.say(saidOpen++ < 2 ? ["km_p_" + PLACES[pl].id, "km_avaa"] : "km_p_" + PLACES[pl].id);
       return;
     }
-    rg.say("km_p_" + PLACES[pl].id);
   }
   endTurn();
 }
