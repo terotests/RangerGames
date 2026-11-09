@@ -21,6 +21,7 @@
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
 pub mod draw;
+pub mod globe;
 pub mod scene3d;
 pub mod script;
 pub mod ui;
