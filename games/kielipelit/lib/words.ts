@@ -197,3 +197,52 @@ export const STORY: any[] = [
   { id: "s5", bg: "#2c3e78", pic: ["🌙", "🐶", "💤"], en: "Now Pip is tired. Good night, Pip!", es: "Ahora Pip está cansado. ¡Buenas noches, Pip!", fi: "Nyt Pip on väsynyt. Hyvää yötä, Pip!", next: "end" },
   { id: "end", bg: "#2c3e78", pic: ["⭐", "🐶", "⭐"], en: "The end.", es: "Fin.", fi: "Loppu.", next: "" },
 ];
+
+// every clip text of one language: { common: {id: text}, game: {id: text} }
+// (tools/kielipelit/gen-voice.js writes them as voice lists; the game shows them as captions)
+export function clipTexts(lang) {
+  const fill = (t, w) => t.split("{w}").join(w);
+  const word = (id) => { for (const w of WORDS) if (w.id === id) return w; return null; };
+  const color = (id) => { for (const c of COLORS) if (c.id === id) return c; return null; };
+  const common = {}, game = {};
+  for (const w of WORDS) common[w.id] = w[lang];
+  for (const c of COLORS) common[c.id] = c[lang];
+  const nums = lang === "en" ? NUMBERS_EN : NUMBERS_ES;
+  // the numbers n0–n20 are in voice/<lang>/games.json (the existing games' list)
+  for (const p of PHRASES) common[p.id] = p[lang];
+
+  // Sanat
+  for (const w of WORDS) game["kp_where_" + w.id] = fill(SANAT.where[lang], w[lang]);
+  game.kp_what = SANAT.what[lang];
+  game.kp_pairs = SANAT.pairs[lang];
+  game.kp_build = SANAT.build[lang];
+  // Etsi: "the red key" / "la llave roja"
+  for (const o of OBJECTS) {
+    for (const cid of FIND_COLORS) {
+      const c = color(cid), w = word(o.id);
+      const np = lang === "en" ? c.en + " " + w.en : w.es + " " + (o.g === "f" ? c.esf : c.es);
+      game["kp_find_" + cid + "_" + o.id] = fill(ETSI.find[lang], np);
+      game["kp_put_" + cid + "_" + o.id] = fill(ETSI.put[lang], np);
+    }
+  }
+  for (const p of PLACES) game["kp_" + p.id] = p[lang];
+  game.kp_open = ETSI.open[lang];
+  game.kp_keys = ETSI.keys[lang];
+  game.kp_tidy = ETSI.tidy[lang];
+  // Kahvila
+  for (const m of MENU) {
+    for (let n = 1; n <= CAFE_MAX; n++) {
+      const np = n === 1 ? m[lang + "1"] : nums[n] + " " + m[lang];
+      game["kp_q" + n + "_" + m.id] = np;
+      game["kp_order" + n + "_" + m.id] = fill(KAHVILA.like[lang], np);
+    }
+  }
+  for (const k of ["like2", "and", "here", "yummy", "more", "too_many", "not_this", "welcome", "closed"]) game["kp_" + k] = KAHVILA[k][lang];
+  // Tarina
+  for (const s of STORY) {
+    game["kp_" + s.id] = s[lang];
+    for (const c of s.choices || []) game["kp_" + c.id] = c[lang];
+  }
+
+  return { common: common, game: game };
+}
