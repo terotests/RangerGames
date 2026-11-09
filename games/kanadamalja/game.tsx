@@ -17,7 +17,7 @@ import { BOARD } from "lib/board";
 
 type Team = "ilves" | "tappara";
 type Player = { team: Team; node: number; money: number; malja: boolean; makkara: number; winMakkara: boolean; jail: boolean; ai: boolean; started: boolean };
-type Phase = "menu" | "pick" | "rules" | "start" | "turn" | "rolling" | "choose" | "moving" | "ask" | "reveal" | "tram" | "jail" | "win";
+type Phase = "menu" | "pick" | "rules" | "start" | "info" | "turn" | "rolling" | "choose" | "moving" | "ask" | "reveal" | "tram" | "jail" | "win";
 type Dest = { node: number; path: number[]; price: number; kind: string };
 
 const PLACES: any[] = BOARD.places;
@@ -60,6 +60,7 @@ let aiClock = 0;
 let winner = -1;
 let winClock = 0;
 let pulse = 0;
+let hold = 0;                  // "info": a message shown a while before the turn ends
 // the camera over the board: centre (board units) and scale (pixels a unit)
 let cam = { x: 180, y: 270, k: 1, set: false };
 let overview = false;          // 🔍: the whole board
@@ -303,7 +304,20 @@ function rolled() {
   dests = walkDests(p.node, dice);
   phase = "choose"; aiClock = 0;
   msg = rg.t("Sait " + dice + ". Valitse, minne siirryt.", "You got " + dice + ". Choose where to go.", "Sacaste " + dice + ". Elige adónde ir.");
-  if (!p.ai) rg.say(saidChoose++ < 2 ? [rg.sayId.number(dice), "km_valitse"] : rg.sayId.number(dice));
+  const say: string[] = [rg.sayId.number(dice)];
+  if (p.malja || p.winMakkara) {
+    // carrying the cup: say clearly whether the arena can be reached now
+    const left = distFrom(ARENA)[p.node];
+    if (dests.some((d) => d.node === ARENA)) {
+      msg = rg.t("Sait " + dice + ". Nokia Areena on ulottuvilla: napauta tähteä ja voita!", "You got " + dice + ". Nokia Areena is in reach: tap the star and win!", "Sacaste " + dice + ". El Nokia Areena está al alcance: ¡toca la estrella y gana!");
+      say.push("km_areena_ulottuvilla");
+    } else if (left - dice <= 3) {
+      msg = rg.t("Lähellä oli! Areenalle jäi vielä " + (left - dice) + " askelta. Mene lähemmäs ja yritä uudelleen.", "So close! " + (left - dice) + " more steps to the arena. Get closer and try again.", "¡Casi! Faltan " + (left - dice) + " pasos hasta el estadio. Acércate y vuelve a intentarlo.");
+      say.push("km_lahella");
+      rg.sound("wrong");
+    } else if (saidChoose++ < 2) say.push("km_valitse");
+  } else if (saidChoose++ < 2) say.push("km_valitse");
+  if (!p.ai) rg.say(say.length === 1 ? say[0] : say);
 }
 
 // every node `steps` steps away along the paths, and every place on the way
@@ -402,6 +416,16 @@ function arrive() {
   }
   const pl = placeOf(p.node);
   if (pl === ARENA && (p.malja || p.winMakkara)) { win(); return; }
+  if (pl === ARENA) {
+    const o = players[1 - cur];
+    if (o.malja) msg = rg.t("Nokia Areena, mutta malja on " + (o.team === "ilves" ? "Ilveksellä" : "Tapparalla") + ". Taklaa se itsellesi!", "Nokia Areena, but " + teamName(o.team) + " has the cup. Tackle it off them!", "Nokia Areena, pero " + teamName(o.team) + " tiene la copa. ¡Quítasela con un placaje!");
+    else if (p.makkara > 0 && maljaFound) msg = rg.t("Nokia Areena. Makkara löytyi ennen maljaa, joten se ei kelpaa. Etsi uusi makkara!", "Nokia Areena. Your sausage was found before the cup, so it does not count. Find a new one!", "Nokia Areena. Tu morcilla se encontró antes de la copa, así que no vale. ¡Busca otra!");
+    else msg = rg.t("Nokia Areena. Etsi ensin Kanada-malja ja tuo se tänne!", "Nokia Areena. Find the Kanada Cup first and bring it here!", "Nokia Areena. ¡Primero encuentra la Copa Kanada y tráela aquí!");
+    rg.say(o.malja ? "km_areena_malja_toisella" : "km_areena_ilman");
+    hold = 2.2;
+    phase = "info"; aiClock = 0;
+    return;
+  }
   if (pl >= 0) {
     if (tokens[pl]) {
       phase = "ask"; aiClock = 0;
@@ -618,6 +642,7 @@ function tick(dt: number, input: any) {
     }
   }
   if (phase === "reveal") reveal.clock += dt;
+  if (phase === "info") { hold -= dt; if (hold <= 0) endTurn(); }
   if (phase === "win") winClock += dt;
   if (players.length) camStep(dt);
   if (players.length && P().ai && (phase === "start" || phase === "turn" || phase === "choose" || phase === "tram" || phase === "ask" || phase === "jail" || phase === "reveal")) {
@@ -743,6 +768,13 @@ function Board() {
     const r = (placeOf(rr[0]) >= 0 ? 15 : 7.5) * k * s;
     out.push(<div className={rr[2] === 0 ? "dest" : "dest ride"} style={{ left: sx(n[0]) - r, top: sy(n[1]) - r, width: r * 2, height: r * 2, borderRadius: r }} />);
     if (rr[1] > 0) out.push(<div className="fare" style={{ left: sx(n[0]) - 22, top: sy(n[1]) - 15 * k - 20 }}>{(rr[2] === 2 ? "⛴ " : "🚋 ") + rr[1] + " €"}</div>);
+  }
+  // the cup carrier can reach the arena: a cup bounces above it
+  const P0 = P();
+  if ((P0.malja || P0.winMakkara) && dests.some((d) => d.node === ARENA)) {
+    const ax = sx(PLACES[ARENA].x), ay = sy(PLACES[ARENA].y);
+    const cs = 34 * Math.min(1.6, k);
+    out.push(<img className="pawn" src={rg.asset("img/malja.png")} style={{ left: ax - cs / 2, top: ay - cs * 1.6 - Math.abs(Math.sin(t * 5)) * 10, width: cs, height: cs }} />);
   }
   const ts = 20 * k;
   for (let i = 0; i < PLACES.length; i++) {
