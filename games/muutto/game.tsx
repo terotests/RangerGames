@@ -551,7 +551,6 @@ function tickFoods() {
       energy = Math.min(1, energy + 0.3);
       eaten++;
       rg.sound("pop");
-      if (eaten % 3 === 1) rg.say("m_namia");
       continue;
     }
     if (dist > 40 || temp(f.lat, d) < 2) foods.splice(i, 1);

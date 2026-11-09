@@ -62,7 +62,6 @@ def voice():
         "m_kylma_kevat": "Brr, täällä on vielä talvi! Kevät ei ole vielä tullut.",
         "m_kylma_syksy": "Brr, talvi tuli! Lennä nopeasti etelään!",
         "m_nalka": "Lintu on nälkäinen. Syö ruokaa matkalla!",
-        "m_namia": "Nam!",
         "m_valmis": "Hienoa! Lensit koko vuoden ympäri.",
         "m_aurinko": "Kello on yhdeksän aamulla. Kesällä aurinko on silloin jo korkealla, ja vuorten varjot ovat lyhyitä. Talvella aurinko on matalalla ja varjot ovat pitkiä.",
         "m_kesa_suomi": "Suomessa on nyt kesä. Aurinko paistaa yölläkin.",
