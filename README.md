@@ -155,6 +155,16 @@ cargo run --release -p rg_voice -- say "Hyvä, osaat!" koe.wav female 215 0.9   
 cargo run --release -p rg_voice -- ipa "Käänny vasemmalle."                    # näytä ääntämys
 ```
 
+**Neuroverkkoäänet.** Lopulliset klipit renderöi Chatterbox Multilingual
+(Resemble AI, MIT) Macilla: `tools/chatterbox/render.py` (suomi, englanti,
+espanja; noin minuutti klippiä kohden, joten se ajetaan erikseen tunteja ja
+jatkaa siitä mihin jäi). Valmiit klipit ovat `.deps/voice-clips/chatterbox/<kieli>/`
+(ei repossa), ja `rg_voice build` käyttää niitä aina, kun klipin teksti vastaa
+listaa. Puuttuvat suomen klipit sanoo Piper (`fi_FI-harri-medium`, CC0;
+`"engine": "piper"` `voice/fi.json`:ssa, `scripts/setup-piper.sh` asentaa sen
+`.deps/piper`iin), englannin `en_US-ljspeech-medium` ja espanjan
+`es_ES-davefx-medium`; Piperin puuttuessa CHIMERA.
+
 Uusi klippi = rivi `voice/fi.json`:iin (`"id": "teksti"`, tai
 `{ "text": …, "rate": 0.8, "f0": 240, "body": "child" }`). Äänen asetukset (`voice` tai klippikohtaisesti): `body`, `f0`,
 `rate`, `accent` (painollisen tavun sävelnousu), `breathiness`, `drift`,

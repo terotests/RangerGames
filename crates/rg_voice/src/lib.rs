@@ -10,6 +10,7 @@
 
 pub mod es;
 pub mod fi;
+pub mod piper;
 pub mod prosody;
 
 use chimera::anatomy::human::{BODY_CHILD, BODY_FEMALE, BODY_MALE, HumanBody};
@@ -493,6 +494,11 @@ fn halve(x: &[f32]) -> Vec<f32> {
 
 /// Silence trimmed (40 ms kept before, 80 ms after), peak to 0.9, 5 ms fades.
 fn finish(x: &[f32]) -> Vec<f32> {
+    finish_at(x, FS_CLIP)
+}
+
+/// [`finish`] for samples at `rate` (Hz).
+pub fn finish_at(x: &[f32], rate: u32) -> Vec<f32> {
     let peak = x.iter().fold(0f32, |m, s| m.max(s.abs()));
     if peak <= 0.0 {
         return Vec::new();
@@ -500,7 +506,7 @@ fn finish(x: &[f32]) -> Vec<f32> {
     let gate = peak * 0.02;
     let first = x.iter().position(|s| s.abs() > gate).unwrap_or(0);
     let last = x.iter().rposition(|s| s.abs() > gate).unwrap_or(x.len() - 1);
-    let fs = FS_CLIP as usize;
+    let fs = rate as usize;
     let a = first.saturating_sub(fs * 40 / 1000);
     let b = (last + fs * 80 / 1000).min(x.len());
     let g = 0.9 / peak;
