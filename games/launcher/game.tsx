@@ -1,7 +1,8 @@
 // The game menu: every game under /games as a tile. A tap starts it; the
-// Back button (Esc on a keyboard) in a game comes back here.
+// Back button (Esc on a keyboard) in a game comes back here. ⚙️ turns to the
+// settings: a tap on a tile then turns that game's speech on or off.
 
-type Game = { id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any };
+type Game = { id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean };
 type Bubble = { x: number; y: number; r: number; v: number; c: string };
 
 const COLORS = ["#ffd166", "#ef476f", "#06d6a0", "#118ab2", "#f78c6b", "#c77dff"];
@@ -11,6 +12,7 @@ let t = 0;
 let pressed = "";
 let leaving = "";
 let leaveClock = 0;
+let settings = false;          // ⚙️: tiles turn speech on and off instead of starting the game
 
 function init() {
   games = rg.games();
@@ -32,13 +34,30 @@ function tick(dt: number) {
 }
 
 function open(id: string) {
+  if (settings) { toggleSpeech(id); return; }
   if (leaving) return;
   pressed = id;
   leaving = id;
   leaveClock = 0;
   rg.sound("click");
   rg.vibrate(15);
-  rg.say("peli_" + id);  // the game's name aloud (a clip in voice/fi.json, if there is one)
+  if (rg.speechOn(id)) rg.say("peli_" + id);  // the game's name aloud (a clip in voice/fi.json, if there is one)
+}
+
+function toggleSpeech(id: string) {
+  const on = !rg.speechOn(id);
+  rg.setSpeech(id, on);
+  rg.sound(on ? "pop" : "tick");
+  rg.vibrate(15);
+  if (on) rg.say("peli_" + id);
+}
+
+function Gear() {
+  return (
+    <div className={settings ? "flag on" : "flag"} id="settings" onClick={() => { settings = !settings; rg.sound("click"); rg.vibrate(15); }}>
+      <div className="flagicon">{settings ? "✓" : "⚙️"}</div>
+    </div>
+  );
 }
 
 function players(p: string) {
@@ -76,10 +95,10 @@ function Tile(g: Game, i: number) {
   const down = pressed === g.id && leaving !== "";
   return (
     <div className="tile" id={"g-" + g.id} onClick={() => open(g.id)}
-      style={{ backgroundColor: g.color, marginTop: bob, transform: down ? "scale(0.94)" : "none" }}>
+      style={{ backgroundColor: g.color, marginTop: bob, transform: down ? "scale(0.94)" : "none", opacity: settings && !rg.speechOn(g.id) ? 0.55 : 1 }}>
       <div className="icon">{g.icon}</div>
       <div className="name">{nameOf(g)}</div>
-      <div className="players">{players(g.players)}</div>
+      <div className="players">{settings ? (rg.speechOn(g.id) ? rg.t("🔊 Puhe päällä", "🔊 Speech on", "🔊 Voz activada") : rg.t("🔇 Ei puhetta", "🔇 No speech", "🔇 Sin voz")) : players(g.players)}</div>
     </div>
   );
 }
@@ -90,8 +109,8 @@ function view() {
       {bubbles.map((b) => <div className="bubble" style={{ left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, backgroundColor: b.c }} />)}
       <div className="header">
         <div className="logo">RangerGames</div>
-        <div className="sub">{rg.t("Valitse peli!", "Choose a game!", "¡Elige un juego!")}</div>
-        <div className="flags">{rg.langs.map((l) => Flag(l))}</div>
+        <div className="sub">{settings ? rg.t("Napauta peliä: puhe päälle tai pois", "Tap a game: speech on or off", "Toca un juego: voz sí o no") : rg.t("Valitse peli!", "Choose a game!", "¡Elige un juego!")}</div>
+        <div className="flags">{rg.langs.map((l) => Flag(l))}{Gear()}</div>
       </div>
       <div className="grid">{games.map((g, i) => Tile(g, i))}</div>
     </div>
