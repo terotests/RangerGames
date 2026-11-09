@@ -9,6 +9,7 @@
 // Coordinates are metres, x east and z south, as in Tampere Taxi Driver.
 
 import { MAP, WALK } from "lib/mapdata";
+import { PHOTOS } from "lib/photos";
 
 type Car = { road: number; s: number; v: number; len: number; wid: number; color: string; bus: boolean; honk: number; wait: number };
 type Bike = { path: number; s: number; dir: number; v: number; color: string; ring: number; stop: number };
@@ -34,6 +35,9 @@ let homes: Place[] = [];
 let startPlace: Place | null = null;
 let goal: Place | null = null;
 let goalChoices: Place[] = [];
+let goalPhoto: any = null;       // {f, by, lic} of the goal, shown when picking it and on arrival
+let peekUntil = 0;               // the goal's photo is shown on top until this time
+function photosOf(p: Place | null): any[] { return p && PHOTOS[p.id] ? PHOTOS[p.id] : []; }
 let kid = { x: 0, z: 0, face: 0, step: 0, moving: false, safeX: 0, safeZ: 0, tx: 0, tz: 0 };
 let cam = { x: 0, z: 0 };
 let hearts = 3;
@@ -340,6 +344,9 @@ function makeGoalChoices() {
 function chooseGoal(p: Place) {
   rg.sound("coin");
   goal = p;
+  const ph = photosOf(p);
+  goalPhoto = ph.length ? ph[Math.floor(Math.random() * ph.length)] : null;
+  peekUntil = goalPhoto ? t + 5 : 0;
   hearts = 3;
   roundPoints = 0;
   mode = "play";
@@ -1326,9 +1333,16 @@ function Arrow() {
 function Hud() {
   const out: any[] = [];
   const hs = hearts >= 3 ? "❤️❤️❤️" : hearts === 2 ? "❤️❤️🤍" : "❤️🤍🤍";
+  if (goalPhoto && t < peekUntil) out.push(
+    <div className="peek" onClick={() => { peekUntil = 0; }}>
+      <div className="peektitle">{"Etsi tämä: " + (goal ? goal.name : "")}</div>
+      <img className="peekimg" src={rg.asset(goalPhoto.f)} />
+      <div className="photoby">{"Kuva: " + goalPhoto.by + ", " + goalPhoto.lic + " (Wikimedia Commons)"}</div>
+    </div>
+  );
   out.push(
     <div className="hud">
-      <div className="row"><div className="pill goalpill" onClick={() => { showMap = true; rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "")}</div></div>
+      <div className="row"><div className="pill goalpill" onClick={() => { if (goalPhoto && peekUntil < t) peekUntil = t + 5; else { peekUntil = 0; showMap = true; } rg.sound("click"); }}>{(goal ? goal.icon + " " + goal.name : "")}</div></div>
       <div className="row"><div className="pill hp">{hs + " " + points}</div></div>
     </div>
   );
@@ -1417,7 +1431,7 @@ function StartView() {
         </div>
       </div>
       <div className="score">{"⭐ " + total + " pistettä · " + found + " retkeä"}</div>
-      <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki"}</div>
+      <div className="credit">{"Kartta: © OpenStreetMap-tekijät, Tampereen kaupunki · Kuvat: Wikimedia Commons"}</div>
     </div>
   );
 }
@@ -1430,7 +1444,7 @@ function GoalView() {
     const kind = g.id === "koti" ? "Äidin luo" : g.id === "isa" ? "Isän luo" : g.kind === "park" ? "Puistoon" : g.kind === "stop" ? "Ratikkapysäkille" : g.kind === "sight" ? "Katsomaan" : g.kind === "school" ? "Kouluun" : g.kind === "daycare" ? "Päiväkotiin" : "Kylään";
     cards.push(
       <div className="card small" onClick={() => chooseGoal(g)}>
-        <div className="cicon">{g.icon}</div>
+        {photosOf(g).length ? <div className="cthumb"><img className="cthumbimg" src={rg.asset(photosOf(g)[0].f)} /></div> : <div className="cicon">{g.icon}</div>}
         <div className="ctext">
           <div className="csub">{kind}</div>
           <div className="cname">{g.name}</div>
@@ -1466,7 +1480,8 @@ function WinView() {
   return (
     <div className="winwrap">
       <div className="wincard" style={{ transform: "scale(" + rg.ease.back(Math.min(1, modeClock * 2)) + ")" }}>
-        <div className="wicon">{goal ? goal.icon : "🎉"}</div>
+        {goalPhoto ? <img className="winimg" src={rg.asset(goalPhoto.f)} /> : <div className="wicon">{goal ? goal.icon : "🎉"}</div>}
+        {goalPhoto ? <div className="photoby">{"Kuva: " + goalPhoto.by + ", " + goalPhoto.lic}</div> : null}
         <div className="wtitle">{"Perillä! 🎉"}</div>
         <div className="wtext">{goal ? (goal.id === "koti" ? "Äiti on iloinen, kun tulit!" : goal.id === "isa" ? "Isä on iloinen, kun tulit!" : "Löysit: " + goal.name) : ""}</div>
         <div className="wstars">{stars}</div>
