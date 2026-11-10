@@ -24,6 +24,7 @@ import { REGIONS } from "lib/world";
 
 type Body = {
   id: string; name: string; icon: string;
+  dot?: string;        // drawn as a coloured disc instead of the icon (no old emoji for it)
   pos: number[]; r: number;
   g: number;           // the real surface gravity, m/s²
   pull: number;        // the game's surface gravity, units/s²
@@ -41,11 +42,11 @@ const FALL = 0.62;
 const BODIES: Body[] = [
   { id: "sun", name: rg.t("Aurinko", "Sun", "Sol"), icon: "☀️", pos: [0, 0, 0], r: 520, g: 274, pull: 34, soi: 2.9, bounce: 1.15, spin: 0.01, tilt: 0.1 },
   { id: "mercury", name: rg.t("Merkurius", "Mercury", "Mercurio"), icon: "🌑", pos: [1700, -100, -900], r: 42, g: 3.7, pull: 3.7 * FALL, soi: 4, bounce: 0.8, spin: 0.01, tilt: 0 },
-  { id: "venus", name: rg.t("Venus", "Venus", "Venus"), icon: "🟡", pos: [2900, 100, 1400], r: 95, g: 8.9, pull: 8.9 * FALL, soi: 3.6, bounce: 0.8, spin: -0.005, tilt: 0.05, sky: "#8a6b2e" },
+  { id: "venus", name: rg.t("Venus", "Venus", "Venus"), icon: "", dot: "#e9c46a", pos: [2900, 100, 1400], r: 95, g: 8.9, pull: 8.9 * FALL, soi: 3.6, bounce: 0.8, spin: -0.005, tilt: 0.05, sky: "#8a6b2e" },
   { id: "earth", name: rg.t("Maa", "Earth", "Tierra"), icon: "🌍", pos: [4500, 0, 0], r: 100, g: 9.8, pull: 9.8 * FALL, soi: 4, bounce: 0.8, spin: 0.02, turn: 2.6, tilt: 0.41, sky: "#4a90d9" },
   { id: "moon", name: rg.t("Kuu", "Moon", "Luna"), icon: "🌕", pos: [4150, 120, -560], r: 40, g: 1.62, pull: 1.62 * FALL, soi: 4, bounce: 0.8, spin: 0.01, tilt: 0.03 },
   { id: "mars", name: rg.t("Mars", "Mars", "Marte"), icon: "🔴", pos: [6000, -200, 1800], r: 60, g: 3.7, pull: 3.7 * FALL, soi: 4, bounce: 0.8, spin: 0.03, tilt: 0.44, sky: "#b5765a" },
-  { id: "jupiter", name: rg.t("Jupiter", "Jupiter", "Júpiter"), icon: "🟠", pos: [8800, 400, -2600], r: 340, g: 24.8, pull: 24.8 * FALL, soi: 3.2, bounce: 0.8, spin: 0.05, tilt: 0.05 },
+  { id: "jupiter", name: rg.t("Jupiter", "Jupiter", "Júpiter"), icon: "", dot: "#e07a3c", pos: [8800, 400, -2600], r: 340, g: 24.8, pull: 24.8 * FALL, soi: 3.2, bounce: 0.8, spin: 0.05, tilt: 0.05 },
 ];
 const SHIP_R = 0.9;
 const THRUST = 22;
@@ -322,6 +323,14 @@ function hex(h: string) { return [parseInt(h.slice(1, 3), 16), parseInt(h.slice(
 
 function say(text: string) { message = text; messageClock = 3.2; }
 
+// Venus and Jupiter have no emoji old enough for the phone's font (the
+// coloured circles are Unicode 12, Android 9 has Emoji 11): a drawn disc.
+function Ico(b: Body, size: number) {
+  if (!b.dot) return b.icon;
+  return <div style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: b.dot, borderWidth: 1, borderColor: "rgba(0,0,0,0.35)" }} />;
+}
+function lead(b: Body): string { return b.icon ? b.icon + " " : ""; }
+
 // seen from far away (the side view of a fall) the rocket is drawn bigger
 let shipScale = 1;
 
@@ -473,7 +482,7 @@ function startAuto(b: Body) {
   auto = { b, from: pos, to, f0: fwd, t: 0 };
   vel = [0, 0, 0];
   rg.sound("click");
-  say("🚀 " + rg.t("Pikalento", "Quick flight", "Vuelo rápido") + ": " + b.icon + " " + b.name);
+  say("🚀 " + rg.t("Pikalento", "Quick flight", "Vuelo rápido") + ": " + lead(b) + b.name);
 }
 
 let autoSpeed = 0;
@@ -546,7 +555,7 @@ function startFall(b: Body) {
   fall = { b, side, bounced: false, t: 0 };
   stick = null;
   rg.vibrate(25);
-  say(b.icon + " " + b.name + " " + rg.t("vetää sinua!", "pulls you in!", "¡te atrae!"));
+  say(lead(b) + b.name + " " + rg.t("vetää sinua!", "pulls you in!", "¡te atrae!"));
 }
 
 function step(dt: number, c: any) {
@@ -632,7 +641,7 @@ function land(b: Body) {
     rg.celebrate(width / 2, height * 0.35, { big: true });
     if (bounces < best || best === 0) { best = bounces; rg.save("best", best); }
   } else {
-    say(b.icon + " " + b.name + " " + rg.t("käyty!", "visited!", "¡visitado!") + " " + n + "/" + BODIES.length);
+    say(lead(b) + b.name + " " + rg.t("käyty!", "visited!", "¡visitado!") + " " + n + "/" + BODIES.length);
   }
 }
 
@@ -763,7 +772,7 @@ function markers() {
       if (y < 120 || y > height - 60) continue;
       out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>{b.name + " · " + km(s.d)}</div>);
     } else {
-      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: s.x - 16, top: s.y - 16 }}>{b.icon}</div>);
+      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: s.x - 16, top: s.y - 16 }}>{Ico(b, 18)}</div>);
     }
   }
   return out;
@@ -788,11 +797,11 @@ function view() {
     );
   }
   const speed = auto ? autoSpeed : len(vel);
-  const badges = BODIES.map((b) => <div className={visited[b.id] ? "badge on" : "badge"}>{b.icon}</div>);
+  const badges = BODIES.map((b) => <div className={visited[b.id] ? "badge on" : "badge"}>{Ico(b, 15)}</div>);
   const pull = near ? nearAcc / FALL : 0;
   const info = near
     ? <div className="pill col">
-        <div className="pname">{near.icon} {near.name} · {fmt(near.g)} m/s²</div>
+        <div className="pname">{lead(near) + near.name + " · " + fmt(near.g) + " m/s²"}</div>
         <div className="pline">{rg.t("vetää nyt", "pulling now", "atrae ahora")} {fmt(pull)} m/s² · {rg.t("korkeus", "height", "altura")} {km(Math.max(0, alt))}</div>
       </div>
     : <div className="pill col"><div className="pline">{rg.t("Avaruudessa: mikään ei vedä", "In space: nothing pulls", "En el espacio: nada te atrae")}</div></div>;

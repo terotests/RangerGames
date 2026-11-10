@@ -93,6 +93,7 @@
 .tool.plateb.on { background-color: #7a2418; border-color: #ff6b3d; }
 .tool.util { background-color: #2f4a3a; }
 .ticon { font-size: 26px; }
+.irow { flex-direction: row; align-items: center; }
 .tname { font-size: 9.5px; color: #e5edf5; margin-top: 1px; }
 .badge { position: absolute; right: 3px; top: 2px; font-size: 9px; color: #ffd166; font-weight: 700; }
 

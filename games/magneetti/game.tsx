@@ -591,13 +591,25 @@ function Sorted() {
   const yes: string[] = [], no: string[] = [];
   for (const s of L.items) {
     const k = KINDS[s.k];
-    const label = (k.emoji || (s.k === "naula" ? "📍" : s.k === "palikka" ? "🟫" : s.k === "lasi" ? "🔵" : "⚪")) + " " + rg.t(k.mat);
+    const label = (k.emoji || (s.k === "naula" ? "📍" : s.k === "palikka" ? "@" : s.k === "lasi" ? "🔵" : "⚪")) + " " + rg.t(k.mat);
     if (k.magnetic) { if (yes.indexOf(label) < 0) yes.push(label); } else if (no.indexOf(label) < 0) no.push(label);
   }
   return (
     <div className="sorted">
-      <div className="sort-col yes"><div className="sort-head">🧲 ✅</div>{yes.map((s) => <div className="sort-item">{s}</div>)}</div>
-      <div className="sort-col no"><div className="sort-head">🧲 ❌</div>{no.map((s) => <div className="sort-item">{s}</div>)}</div>
+      <div className="sort-col yes"><div className="sort-head">🧲 ✅</div>{yes.map((s) => SortItem(s))}</div>
+      <div className="sort-col no"><div className="sort-head">🧲 ❌</div>{no.map((s) => SortItem(s))}</div>
+    </div>
+  );
+}
+
+// "@" stands for a drawn wooden block: the brown square emoji (Unicode 12)
+// is newer than the old phone's font (Android 9 has Emoji 11)
+function SortItem(s: string) {
+  if (s.charAt(0) !== "@") return <div className="sort-item">{s}</div>;
+  return (
+    <div className="sort-item" style={{ flexDirection: "row", alignItems: "center" }}>
+      <div style={{ width: 15, height: 15, borderRadius: 3, backgroundColor: "#a0673a", borderWidth: 1, borderColor: "#5e3a1c", marginRight: 6 }} />
+      <div>{s.substring(2)}</div>
     </div>
   );
 }
