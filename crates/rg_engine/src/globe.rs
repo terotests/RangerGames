@@ -10,6 +10,7 @@
 //!   regions: [[id, group, [lon, lat, lon, lat, …], [ …another ring ]], …],  // once; replaces the data
 //!   scale,                       // the ring numbers are degrees × scale (default 1)
 //!   lon, lat,                    // the point of the globe facing the viewer
+//!   roll,                        // the compass bearing that points up on the screen (default 0)
 //!   r, x, y,                     // radius and centre in pixels (default: fits the view, centred)
 //!   ocean, land, border, borderWidth, grid, glow, rim,   // colours ("" or false: none)
 //!   colors: { idOrGroup: colour | null },               // fills, merged into the earlier ones
@@ -201,6 +202,8 @@ pub struct Globe {
     colors: HashMap<String, Option<V3>>,
     lon: f64,
     lat: f64,
+    /// the compass bearing that points up on the screen (0: north up)
+    roll: f64,
     r: f64,
     x: Option<f64>,
     y: Option<f64>,
@@ -250,6 +253,7 @@ impl Globe {
             colors: HashMap::new(),
             lon: 0.0,
             lat: 0.0,
+            roll: 0.0,
             r: 0.0,
             x: None,
             y: None,
@@ -342,6 +346,7 @@ impl Globe {
         }
         self.lon = a.get("lon").as_num(self.lon);
         self.lat = a.get("lat").as_num(self.lat);
+        self.roll = a.get("roll").as_num(self.roll);
         self.r = a.get("r").as_num(self.r);
         if !a.get("x").is_null() {
             self.x = Some(a.get("x").as_num(0.0));
@@ -565,8 +570,11 @@ impl Globe {
         let cy = self.y.unwrap_or(h / 2.0);
         let (slo, clo) = self.lon.to_radians().sin_cos();
         let (sla, cla) = self.lat.to_radians().sin_cos();
-        let east = [-slo, clo, 0.0];
-        let north = [-sla * clo, -sla * slo, cla];
+        let (e0, n0) = ([-slo, clo, 0.0], [-sla * clo, -sla * slo, cla]);
+        // the screen's right and up: north and east turned by the roll
+        let (sr, cr) = self.roll.to_radians().sin_cos();
+        let east = [cr * e0[0] - sr * n0[0], cr * e0[1] - sr * n0[1], cr * e0[2] - sr * n0[2]];
+        let north = [cr * n0[0] + sr * e0[0], cr * n0[1] + sr * e0[1], cr * n0[2] + sr * e0[2]];
         let toward = [cla * clo, cla * slo, sla];
         let view = |p: &V3| -> V3 { [dot(*p, east), dot(*p, north), dot(*p, toward)] };
         let px = |x: f64, y: f64| -> [f32; 2] { [(cx + x * rad) as f32, (cy - y * rad) as f32] };

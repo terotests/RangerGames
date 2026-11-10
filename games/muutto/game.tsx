@@ -62,13 +62,26 @@ const SNOW = "#f2f6fb", BARE = "#a39b6b", SPRING = "#b6e36a", SUMMER = "#5fb04a"
 const DESERT = "#e6cf96";
 const DESERTS = ["SAH", "MRT", "DZA", "LBY", "EGY", "MLI", "NER", "TCD", "SAU", "OMN", "YEM", "ARE", "QAT", "KWT", "JOR"];
 const ICE = ["ATA", "GRL"];
+// weather stations for the forecast signs: real monthly mean temperatures (°C,
+// January first, rounded climate normals) and the months with much rain
+const WX_FIN = { name: "Jyväskylä", lon: 25.7, lat: 62.2, t: [-8, -8, -4, 2, 9, 14, 17, 14, 9, 3, -2, -6], wet: [0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0] };
+const WX: any = {
+  joutsen: [{ name: rg.t("Tukholma", "Stockholm", "Estocolmo"), lon: 18.1, lat: 59.3, t: [-2, -2, 1, 6, 11, 16, 19, 18, 13, 8, 3, 0], wet: [0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 1, 0] },
+    { name: rg.t("Kööpenhamina", "Copenhagen", "Copenhague"), lon: 12.6, lat: 55.7, t: [1, 1, 3, 7, 12, 15, 18, 17, 14, 10, 5, 2], wet: [0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1] }],
+  kurki: [{ name: "Budapest", lon: 19, lat: 47.5, t: [0, 2, 7, 12, 17, 20, 22, 22, 17, 12, 6, 1], wet: [0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 0, 0] },
+    { name: "Addis Abeba", lon: 38.7, lat: 9, t: [16, 17, 19, 19, 19, 18, 17, 17, 17, 16, 16, 16], wet: [0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0] }],
+  paasky: [{ name: "Sahara", lon: 19.1, lat: 17.9, t: [21, 23, 27, 31, 34, 34, 33, 33, 32, 29, 25, 21], wet: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+    { name: "Johannesburg", lon: 28, lat: -26.2, t: [20, 20, 19, 16, 13, 10, 10, 12, 16, 18, 19, 20], wet: [1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1] }],
+  tiira: [{ name: "São Tomé", lon: 6.7, lat: 0.3, t: [27, 27, 27, 27, 26, 25, 24, 24, 25, 25, 26, 26], wet: [1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1] },
+    { name: "Weddell", lon: -26.6, lat: -75.6, t: [-5, -9, -15, -19, -22, -25, -28, -27, -25, -18, -11, -5], wet: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }],
+};
 
 let screen: Screen = "menu";
 let phase: Phase = "spring";
 let sp: any = SPECIES[0];
 let t = 0;
 let day = 60;                   // day of the year, 0 = 1 January
-let bird = { lon: 0, lat: 0, head: 0, vx: 0, vy: 0, flap: 0 };
+let bird = { lon: 0, lat: 0, roll: 0, head: 0, vx: 0, vy: 0, flap: 0 };   // roll: the bearing up on the screen
 let flying = false;
 let zoomIdx = 1;
 let energy = 1;
@@ -111,7 +124,7 @@ function init() {
   }
   rg.seed(11);
   for (let i = 0; i < 40; i++) stars.push({ x: rg.random(), y: rg.random(), s: 1 + rg.random() * 2 });
-  for (let i = 0; i < 36; i++) flakes.push({ x: rg.random(), y: rg.random(), s: 3 + rg.random() * 4, v: 30 + rg.random() * 40 });
+  for (let i = 0; i < 70; i++) flakes.push({ x: rg.random(), y: rg.random(), s: 4 + rg.random() * 4, v: 30 + rg.random() * 40 });
   rg.seed(Math.floor(Date.now() % 100000) + 1);
   rg.say("m_tervetuloa");
 }
@@ -121,7 +134,7 @@ function start(i: number) {
   rg.sound("click");
   rg.three("clear");
   day = sp.start;
-  bird.lon = sp.wlon; bird.lat = sp.wlat; bird.head = 0; bird.vx = 0; bird.vy = 0;
+  bird.lon = sp.wlon; bird.lat = sp.wlat; bird.roll = 0; bird.head = 0; bird.vx = 0; bird.vy = 0;
   energy = 1; eaten = 0; coldTime = 0;
   zoomIdx = sp.id === "joutsen" ? 2 : 1;
   foods = [];
@@ -280,16 +293,18 @@ function globeR() { return Math.min(width, height) * 0.44 * ZOOMS[zoomIdx]; }
 function birdY() { return height * 0.56; }
 
 // a point on the screen, as the engine draws the globe (orthographic, facing the bird)
-let basis = { lon: 999, lat: 999, e: [0, 0, 0], n: [0, 0, 0], v: [0, 0, 0] };
+let basis = { lon: 999, lat: 999, roll: 0, e: [0, 0, 0], n: [0, 0, 0], v: [0, 0, 0] };
 function projectV(p: number[]) {
-  if (basis.lon !== bird.lon || basis.lat !== bird.lat) {
-    const slo = Math.sin(rad(bird.lon)), clo = Math.cos(rad(bird.lon));
-    const sla = Math.sin(rad(bird.lat)), cla = Math.cos(rad(bird.lat));
-    basis = { lon: bird.lon, lat: bird.lat, e: [-slo, clo, 0], n: [-sla * clo, -sla * slo, cla], v: [cla * clo, cla * slo, sla] };
+  if (basis.lon !== bird.lon || basis.lat !== bird.lat || basis.roll !== bird.roll) {
+    const f = frame(bird.lon, bird.lat);
+    const cr = Math.cos(rad(bird.roll)), sr = Math.sin(rad(bird.roll));
+    const e = [cr * f.e[0] - sr * f.n[0], cr * f.e[1] - sr * f.n[1], cr * f.e[2] - sr * f.n[2]];
+    const n = [cr * f.n[0] + sr * f.e[0], cr * f.n[1] + sr * f.e[1], cr * f.n[2] + sr * f.e[2]];
+    basis = { lon: bird.lon, lat: bird.lat, roll: bird.roll, e, n, v: f.v };
   }
   const R = globeR();
   const z = basis.v[0] * p[0] + basis.v[1] * p[1] + basis.v[2] * p[2];
-  const x = basis.e[0] * p[0] + basis.e[1] * p[1];
+  const x = basis.e[0] * p[0] + basis.e[1] * p[1] + basis.e[2] * p[2];
   const y = basis.n[0] * p[0] + basis.n[1] * p[1] + basis.n[2] * p[2];
   return { x: width / 2 + x * R, y: birdY() - y * R, z };
 }
@@ -390,7 +405,7 @@ function onKeyDown(key: string) {
   if (key === "+" || key === "=") zoom(1);
   if (key === "-") zoom(-1);
   if (key === "h") hint();
-  if (key === "n") { const tg = target(); bird.lon = tg.lon; bird.lat = tg.lat; }   // for testing: jump there
+  if (key === "n") { const tg = target(); bird.lon = tg.lon; bird.lat = tg.lat; bird.roll = 0; }   // for testing: jump there
   if (key === "y") day += 30;                                                       // for testing: a month on
 }
 
@@ -494,10 +509,48 @@ function steer(dt: number, input: any) {
   }
   const cold = temp(bird.lat, dayOfYear()) < 0;
   const degs = SPEED * (0.45 + 0.55 * energy) * (cold ? 0.7 : 1);
-  bird.lat = rg.clamp(bird.lat - bird.vy * degs * dt, -80, 82);
-  bird.lon += bird.vx * degs * dt / Math.max(0.2, Math.cos(rad(bird.lat)));
-  if (bird.lon > 180) bird.lon -= 360;
-  if (bird.lon < -180) bird.lon += 360;
+  move(rad(degs * dt));
+}
+
+// Moves the bird along a great circle in the direction it flies on the
+// screen, so it can fly over the poles too: the screen turns with it (roll)
+// and slowly comes back to north up away from the poles.
+function move(step: number) {
+  const fr = frame(bird.lon, bird.lat);
+  const cr = Math.cos(rad(bird.roll)), sr = Math.sin(rad(bird.roll));
+  const U = [cr * fr.n[0] + sr * fr.e[0], cr * fr.n[1] + sr * fr.e[1], cr * fr.n[2] + sr * fr.e[2]];
+  const R = [cr * fr.e[0] - sr * fr.n[0], cr * fr.e[1] - sr * fr.n[1], cr * fr.e[2] - sr * fr.n[2]];
+  const d = [bird.vx * R[0] - bird.vy * U[0], bird.vx * R[1] - bird.vy * U[1], bird.vx * R[2] - bird.vy * U[2]];
+  const L = Math.hypot(d[0], d[1], d[2]);
+  const P = fr.v;
+  let Q = P, V = U;
+  if (L > 1e-6) {
+    const a = step * L, ca = Math.cos(a), sa = Math.sin(a);
+    Q = [P[0] * ca + d[0] / L * sa, P[1] * ca + d[1] / L * sa, P[2] * ca + d[2] / L * sa];
+    const q = Math.hypot(Q[0], Q[1], Q[2]);
+    Q = [Q[0] / q, Q[1] / q, Q[2] / q];
+    const k = U[0] * Q[0] + U[1] * Q[1] + U[2] * Q[2];
+    V = [U[0] - k * Q[0], U[1] - k * Q[1], U[2] - k * Q[2]];
+  }
+  bird.lat = Math.asin(rg.clamp(Q[2], -1, 1)) * 180 / Math.PI;
+  if (Math.abs(Q[0]) + Math.abs(Q[1]) > 1e-9) bird.lon = Math.atan2(Q[1], Q[0]) * 180 / Math.PI;
+  const f2 = frame(bird.lon, bird.lat);
+  let roll = Math.atan2(V[0] * f2.e[0] + V[1] * f2.e[1] + V[2] * f2.e[2], V[0] * f2.n[0] + V[1] * f2.n[1] + V[2] * f2.n[2]) * 180 / Math.PI;
+  // back towards north up, but not near a pole where north turns fast
+  const w = rg.clamp((72 - Math.abs(bird.lat)) / 15, 0, 1);
+  const dl = -roll * w * Math.min(1, step * 6);
+  bird.roll = roll + dl;
+  // the screen turned by dl: keep the bird flying the same way over the ground
+  bird.head -= dl;
+  const c = Math.cos(rad(dl)), s2 = Math.sin(rad(dl));
+  const vx = bird.vx * c + bird.vy * s2, vy = -bird.vx * s2 + bird.vy * c;
+  bird.vx = vx; bird.vy = vy;
+}
+
+function frame(lon: number, lat: number) {
+  const slo = Math.sin(rad(lon)), clo = Math.cos(rad(lon));
+  const sla = Math.sin(rad(lat)), cla = Math.cos(rad(lat));
+  return { e: [-slo, clo, 0], n: [-sla * clo, -sla * slo, cla], v: [cla * clo, cla * slo, sla] };
 }
 
 function checkArrival() {
@@ -716,7 +769,7 @@ function birdArt(id: string, S: number, flap: number) {
 // ---- view -------------------------------------------------------------------
 
 function drawGlobe() {
-  const args: any = { lon: bird.lon, lat: bird.lat, r: globeR(), x: width / 2, y: birdY(), sun: [bird.lon + (12 - HOUR) * 15, declination(dayOfYear())] };
+  const args: any = { lon: bird.lon, lat: bird.lat, roll: bird.roll, r: globeR(), x: width / 2, y: birdY(), sun: [bird.lon + (12 - HOUR) * 15, declination(dayOfYear())] };
   if (hinted && arriveClock < 0 && phase !== "wait") {
     const on = Math.floor(t * 3) % 2 === 0;
     const c: any = {};
@@ -798,7 +851,7 @@ function Arrow() {
   const nextI = phase === "autumn" ? bestI - 1 : bestI + 1;
   if (bestD < 8 && nextI >= 0 && nextI < sp.route.length) aim = sp.route[nextI];
   else if (bestD >= 8) aim = sp.route[bestI];
-  const ang = bearing(bird.lon, bird.lat, aim[0], aim[1]);
+  const ang = bearing(bird.lon, bird.lat, aim[0], aim[1]) - bird.roll;
   const R = 76 + Math.sin(t * 6) * 5;
   const a = rad(ang);
   const x = width / 2 + Math.sin(a) * R, y = birdY() - Math.cos(a) * R;
@@ -810,13 +863,57 @@ function Arrow() {
   );
 }
 
+// snow falls wherever the ground under it is snowy (not only where the bird is)
 function Snow() {
-  if (lastSeason !== "snow" || screen !== "play") return null;
+  if (screen !== "play") return null;
+  const d = dayOfYear();
+  const R = globeR();
+  projectV([1, 0, 0]);          // makes sure the screen basis is current
   const out: any[] = [];
   for (const f of flakes) {
     const y = ((f.y * height + t * f.v) % (height + 20)) - 10;
     const x = f.x * width + Math.sin(t * 1.5 + f.y * 9) * 12;
+    const gx = (x - width / 2) / R, gy = (birdY() - y) / R;
+    const r2 = gx * gx + gy * gy;
+    if (r2 >= 0.98) continue;
+    const gz = Math.sqrt(1 - r2);
+    const pz = gx * basis.e[2] + gy * basis.n[2] + gz * basis.v[2];
+    const lat = Math.asin(rg.clamp(pz, -1, 1)) * 180 / Math.PI;
+    if (temp(lat, d) >= 0) continue;
     out.push(<div className="flake" style={{ left: x, top: y, width: f.s, height: f.s, borderRadius: f.s / 2 }} />);
+  }
+  return out;
+}
+
+function wxSymbol(st: any, m: number) {
+  const T = st.t[m];
+  if (T <= 0) return "🌨️";
+  if (st.wet[m]) return "🌧️";
+  if (T >= 15) return "☀️";
+  return "⛅";
+}
+
+// floating forecast signs: in Finland, halfway and at the wintering place
+function Weather() {
+  const m = monthOf(dayOfYear());
+  const out: any[] = [];
+  const list = [WX_FIN].concat(WX[sp.id] || []);
+  let k = 0;
+  for (const st of list) {
+    k++;
+    const q = project(st.lon, st.lat);
+    if (q.z < 0.15 || q.x < -40 || q.x > width + 40 || q.y < 60 || q.y > height + 40) continue;
+    const bob = Math.sin(t * 2 + k * 1.7) * 3;
+    const T = st.t[m];
+    const txt = (T < 0 ? "−" + (-T) : (T > 0 ? "+" + T : "0")) + "°";
+    out.push(<div className="wxstem" style={{ left: q.x - 1, top: q.y - 22 + bob }} />);
+    out.push(<div className="wxdot" style={{ left: q.x - 3, top: q.y - 3 }} />);
+    out.push(
+      <div className="wx" style={{ left: q.x - 37, top: q.y - 78 + bob }}>
+        <div className="wxrow"><div className="wxsym">{wxSymbol(st, m)}</div><div className={T < 0 ? "wxt cold" : "wxt"}>{txt}</div></div>
+        <div className="wxname">{st.name}</div>
+      </div>
+    );
   }
   return out;
 }
@@ -1038,6 +1135,7 @@ function view() {
       {screen === "play" ? Goal() : null}
       {screen === "play" ? Arrow() : null}
       {screen === "play" ? Bird() : null}
+      {screen === "play" ? Weather() : null}
       {Snow()}
       {screen === "play" ? Hud() : null}
       {screen === "play" ? Card() : null}
