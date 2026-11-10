@@ -137,12 +137,10 @@ function Flag(l: string) {
 function SectionTile(x: Section, i: number) {
   const bob = Math.sin(t * 2 + i) * 2;
   const n = gamesIn(x.id).length;
-  const icons = gamesIn(x.id).slice(0, 4).map((g) => <div className="mini">{g.icon}</div>);
   return (
     <div className="stile" id={"s-" + x.id} onClick={() => openSection(x.id)} style={{ backgroundColor: x.color, marginTop: 6 + bob }}>
       <div className="sicon">{x.icon}</div>
       <div className="sname">{sectionName(x)}</div>
-      <div className="minis">{icons}</div>
       <div className="players">{n === 1 ? rg.t("1 peli", "1 game", "1 juego") : rg.t(n + " peliä", n + " games", n + " juegos")}</div>
     </div>
   );
