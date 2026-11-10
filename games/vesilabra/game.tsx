@@ -9,6 +9,8 @@
 // Levels: open a valve, turn the pipes, let a wheel open a gate, fill two
 // connected vessels to the lines, plug a hole with sand.
 
+import { TEXTS } from "lib/texts";
+
 type Mode = "menu" | "play";
 type Tool = "water" | "sand" | "wall" | "erase" | "wheel";
 type Valve = { id: string; x: number; y: number; w: number; h: number; open: boolean; tap: boolean };
@@ -64,6 +66,15 @@ let sandLeft = 0;
 let clock = 0;
 let turnsHeard: { [id: string]: number } = {};
 let gateOpen = false;
+// the spoken guide: the step being said (a clip in lib/texts.ts) and where
+// the finger points; the next step waits until it has been wanted a moment
+let step = "";
+let stepAt = 0;
+let want = "";
+let wantAt = 0;
+let pointAt: { x: number; y: number } | null = null;
+let turned = false;
+let introLen = 7;
 
 const t = (fi: string, en: string) => rg.t(fi, en, en);
 
@@ -242,6 +253,7 @@ const LEVELS: Level[] = [
       wall(184, 318, 6, 64, STONE);
       rg.sim("rect", { x: 142, y: 376, w: 42, h: 6, mat: "mesh", color: MESH });
       rg.sim("drain", { id: "pit", x: 142, y: 382, w: 42, h: 6 });
+      zone("pitz", 142, 312, 42, 64);
       wall(136, 382, 54, 4, STONE);
       vessel(236, 440, 106, FLOOR - 440);
       zone("tank", 242, 440, 94, FLOOR - 446);
@@ -309,6 +321,10 @@ function start(n: number) {
   clock = 0;
   sandLeft = 0;
   turnsHeard = {};
+  turned = false;
+  gateOpen = false;
+  pointAt = null;
+  want = "";
   rg.sim("init", { x: 0, y: 0, w: W, h: H, cell: CELL, background: ["#dff3ff", "#f7fbff"], water: "#3a86ff", deep: "#1d3f8f", sand: "#e9c46a" });
   // the edges of the play area
   wall(0, FLOOR, W, BAR, "#3d405b");
@@ -320,7 +336,125 @@ function start(n: number) {
     tool = L.tools.length ? L.tools[0] : "water";
     L.build();
   }
+  say(n < 0 ? "vl_intro_sb" : "vl_intro_" + (n + 1));
+  introLen = n === 2 ? 11 : 7;
 }
+
+// --- the spoken guide --------------------------------------------------------
+
+function text(id: string): string {
+  const v = TEXTS[id];
+  if (!v) return "";
+  return rg.lang === "en" ? v[1] : rg.lang === "es" ? v[2] : v[0];
+}
+
+function say(id: string) {
+  step = id;
+  stepAt = clock;
+  rg.say(id);
+}
+
+function valveSpot(id: string): { x: number; y: number } | null {
+  for (const v of valves) {
+    if (v.id !== id) continue;
+    const horiz = v.w >= v.h;
+    return horiz ? { x: v.x + v.w / 2, y: v.y + v.h + 21 } : { x: v.x + v.w + 21, y: v.y + v.h / 2 };
+  }
+  return null;
+}
+
+function tapSpot(): { x: number; y: number } {
+  return { x: taps[0].x, y: taps[0].y - 26 };
+}
+
+type Want = { clip: string; at: { x: number; y: number } | null };
+
+// What to do next on this level, and where.
+function guide(st: any): Want | null {
+  const intro = "vl_intro_" + (level + 1);
+  if (level === 0) {
+    const v = valves[0];
+    return v.open ? { clip: "vl_flow", at: null } : { clip: intro, at: valveSpot("v") };
+  }
+  if (level === 1) {
+    const goal: { [id: string]: number } = { a: 0, b: 0, c: 1, d: 2, e: 0 };
+    for (const p of pipes) {
+      const ok = p.shape === "I" ? p.rot % 2 === goal[p.id] % 2 : p.rot === goal[p.id];
+      if (!ok) return { clip: turned ? "vl_pipe_next" : intro, at: { x: p.x + p.size / 2, y: p.y + p.size / 2 } };
+    }
+    return { clip: "vl_pipes_ok", at: null };
+  }
+  if (level === 2) {
+    const w = st.wheels["w"];
+    const p = pipes[0];
+    if (gateOpen) return { clip: "vl_gate", at: null };
+    if (p.rot !== 0) {
+      const wrong = w && w.speed < -0.3;
+      return { clip: wrong && clock - stepAt > introLen ? "vl_wrong_way" : step === "vl_wrong_way" ? step : intro, at: { x: p.x + p.size / 2, y: p.y + p.size / 2 } };
+    }
+    return { clip: "vl_right_way", at: null };
+  }
+  if (level === 3 || level === 4) {
+    const a = level0(st, "a");
+    const b = level0(st, "b");
+    const ta = lines[0].level;
+    const tb = lines[1].level;
+    const tol = lines[0].tol;
+    const mid = valves.filter(v => v.id === "mid")[0];
+    const out = valves.filter(v => v.id === "out")[0];
+    const tp = taps[0];
+    const over = a > ta + tol + 3 || b > tb + tol + 3;
+    if (over) {
+      if (tp.on) return { clip: "vl_close_tap", at: tapSpot() };
+      return out.open ? { clip: "vl_too_much", at: null } : { clip: "vl_too_much", at: valveSpot("out") };
+    }
+    if (out.open) return { clip: "vl_close_out", at: valveSpot("out") };
+    if (level === 3) {
+      if (!mid.open) return { clip: intro, at: valveSpot("mid") };
+      if (a < ta - tol) {
+        if (!tp.on) return { clip: "vl_open_tap", at: tapSpot() };
+        if (a > ta - 30) return { clip: "vl_close_tap", at: tapSpot() };
+        return { clip: "vl_same", at: null };
+      }
+      return tp.on ? { clip: "vl_close_tap", at: tapSpot() } : null;
+    }
+    // two heights: both to the lower line, close the middle valve, then the left one higher
+    if (b < tb - tol) {
+      if (!mid.open) return { clip: intro, at: valveSpot("mid") };
+      if (!tp.on) return { clip: "vl_open_tap", at: tapSpot() };
+      return { clip: "vl_same", at: null };
+    }
+    if (mid.open) return { clip: "vl_close_mid", at: valveSpot("mid") };
+    if (a < ta - tol) {
+      if (!tp.on) return { clip: "vl_fill_left", at: tapSpot() };
+      if (a > ta - 30) return { clip: "vl_close_tap", at: tapSpot() };
+      return { clip: "vl_fill_left", at: null };
+    }
+    return tp.on ? { clip: "vl_close_tap", at: tapSpot() } : null;
+  }
+  if (level === 5) {
+    const z = st.zones["pitz"];
+    const sand = z ? z.sand : 0;
+    if (sand < 220) {
+      if (sandLeft <= 0) return { clip: "vl_no_sand", at: { x: 320, y: 682 } };
+      return { clip: sand > 20 ? "vl_more_sand" : intro, at: { x: 163, y: 300 } };
+    }
+    return { clip: "vl_sand_ok", at: null };
+  }
+  return null;
+}
+
+function stepGuide(st: any) {
+  if (level < 0 || done) { pointAt = null; return; }
+  const g = guide(st);
+  if (!g) { pointAt = null; return; }
+  pointAt = g.at;
+  if (g.clip !== want) { want = g.clip; wantAt = clock; }
+  // a new step is said once it has held for a moment, and not over the intro
+  const quiet = step.indexOf("vl_intro") === 0 ? introLen : 2.5;
+  if (want !== step && clock - wantAt > 0.7 && clock - stepAt > quiet) say(want);
+}
+
 
 function toMenu() {
   mode = "menu";
@@ -409,6 +543,7 @@ function tick(dt: number, input: any) {
     const open = w && w.angle > Math.PI * 4;
     if (open && !gateOpen) { gateOpen = true; setValve("gate", true); rg.sound("whoosh"); }
   }
+  stepGuide(st);
   if (level >= 0 && !done) {
     progress = Math.max(0, Math.min(1, LEVELS[level].progress(st)));
     hold = progress >= 1 ? hold + dt : 0;
@@ -425,6 +560,8 @@ function win() {
     rg.save("stars", stars);
   }
   rg.sound("win");
+  rg.say(["vl_win", "vl_learn_" + (level + 1)]);
+  pointAt = null;
   rg.vibrate([40, 60, 40]);
   rg.celebrate(W / 2, H / 2);
 }
@@ -438,6 +575,7 @@ function toggleValve(v: Valve) {
 function turnPipe(p: Pipe) {
   if (done) return;
   p.rot = (p.rot + 1) % 4;
+  turned = true;
   rg.sim("pipe", { id: p.id, x: p.x, y: p.y, size: p.size, shape: p.shape, rot: p.rot, color: PIPE, thick: 6 });
   rg.sound("click");
 }
@@ -527,9 +665,20 @@ function playView() {
     out.push(
       <div className="gauge" style={{ left: 196, top: 268 }}>
         <div className="gaugeFill" style={{ width: Math.round(140 * (gateOpen ? 1 : k)) }} />
-        <div className="gaugeText">{gateOpen ? t("Portti auki!", "Gate open!") : t("Portti", "Gate")}</div>
+        <div className="gaugeText">{gateOpen ? t("Portti auki!", "Gate open!") : k > 0.02 ? t("Portti nousee", "Gate rising") : t("Portti", "Gate")}</div>
       </div>
     );
+    // which way the wheel turns: green clockwise (opens the gate), red the other way
+    const sp = w ? w.speed : 0;
+    if (Math.abs(sp) > 0.3) {
+      out.push(<div className={sp > 0 ? "spin ok" : "spin bad"} style={{ left: 150, top: 196 }}>{sp > 0 ? "↻" : "↺"}</div>);
+    }
+    out.push(<div className="hintLabel" style={{ left: 150, top: 330 }}>{t("myötäpäivään ↻ = portti nousee", "clockwise ↻ = gate rises")}</div>);
+  }
+  if (pointAt && !done) {
+    const bob = Math.sin(clock * 6) * 5;
+    out.push(<div className="finger" style={{ left: pointAt.x - 16, top: pointAt.y + 14 + bob }}>👆</div>);
+    out.push(<div className="ring" style={{ left: pointAt.x - 24, top: pointAt.y - 24, opacity: 0.5 + 0.4 * Math.sin(clock * 6) }} />);
   }
   if (drawFrom) {
     // the wall being drawn
@@ -541,8 +690,9 @@ function playView() {
   out.push(
     <div className="hud">
       <div className="hudTitle">{L ? (level + 1) + ". " + t(L.name, L.en) : "🏖️ " + t("Hiekkalaatikko", "Sandbox")}</div>
-      <div className="hudGoal">{L ? t(L.goal, L.goalEn) : t("Pidä sormea ruudulla: vettä tai hiekkaa. Napauta venttiiliä.", "Hold a finger on the screen: water or sand. Tap the valve.")}</div>
-      {L ? <div className="meter"><div className="meterFill" style={{ width: Math.round(progress * 120) }} /></div> : null}
+      <div className="hudGoal">{text(step) || (L ? t(L.goal, L.goalEn) : "")}</div>
+      <div className="speak" onClick={() => say(step)}>🔊</div>
+      {L ? <div className="meter"><div className="meterFill" style={{ width: Math.round(progress * 250) }} /></div> : null}
     </div>
   );
   out.push(toolbar());
