@@ -20,7 +20,7 @@ const SECTIONS: Section[] = [
 // games whose game.json has no "section"
 const SECTION_OF: any = {
   shakki: "aly", pallosade: "aly", ristinolla: "aly",
-  lampolabra: "labra", lamppu: "labra", magneetti: "labra", peilit: "labra", vesilabra: "labra", vesiputket: "labra", vipu: "labra",
+  lampolabra: "labra", lamppu: "labra", magneetti: "labra", peilit: "labra", prisma: "labra", vesilabra: "labra", vesiputket: "labra", vipu: "labra",
   korkeasaari: "tutkimus", muutto: "tutkimus", kopteri: "tutkimus", vuodenajat: "tutkimus", luut: "tutkimus", navi: "tutkimus", kolmarden: "tutkimus", tampere: "tutkimus",
   aakkoset: "opi", laskupeli: "opi", kielipelit: "opi", kielisaari: "opi",
   haamujahti: "seikkailu", pupu: "seikkailu", pallopolku: "seikkailu", painovoima: "seikkailu", kanadamalja: "seikkailu", nappikisa: "seikkailu",

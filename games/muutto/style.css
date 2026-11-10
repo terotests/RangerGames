@@ -88,3 +88,18 @@
 .donestars { font-size: 36px; margin-top: 6px; }
 .donerow { font-size: 20px; color: #2b2d42; margin-top: 4px; }
 .row { flex-direction: row; margin-top: 14px; }
+
+/* nest building, side view */
+.mat { position: absolute; width: 40px; height: 40px; border-radius: 20px; background-color: rgba(255,255,255,0.55); font-size: 26px;
+  align-items: center; justify-content: center; border-width: 2px; border-color: rgba(255,255,255,0.9); }
+.blob { width: 26px; height: 20px; border-radius: 10px; border-width: 2px; border-color: rgba(0,0,0,0.25); }
+.blob.small { width: 18px; height: 14px; border-radius: 7px; }
+.blobhi { position: absolute; left: 5px; top: 3px; width: 8px; height: 5px; border-radius: 3px; background-color: rgba(255,255,255,0.4); }
+.prey { position: absolute; width: 44px; height: 44px; font-size: 28px; align-items: center; justify-content: center; }
+.carry { position: absolute; width: 26px; height: 26px; font-size: 20px; align-items: center; justify-content: center; }
+.espot { position: absolute; width: 3px; height: 3px; border-radius: 2px; }
+.nestspot { position: absolute; border-radius: 30px; border-width: 3px; border-color: rgba(255,255,255,0.8); background-color: rgba(255,255,255,0.15); }
+.nbar { position: absolute; width: 224px; height: 34px; flex-direction: row; align-items: center; padding-left: 6px;
+  border-radius: 17px; background-color: rgba(255,255,255,0.88); }
+.nicon { font-size: 18px; width: 22px; }
+.tname.small { font-size: 15px; }
