@@ -82,8 +82,6 @@ function removeCards(ks: number[]) {
   rg.celebrate(p[0] + CW / 2, p[1] + CH / 2, { count: 12, sound: false });
   rg.sound("coin", { pitch: 1 + Math.min(moves, 20) * 0.02 });
   rg.vibrate(15);
-  if (ks.length === 2) rg.say(["n" + cardOf(ks[0]).v, "plus", "n" + cardOf(ks[1]).v, "on", "n" + target]);
-  else rg.say("n" + target);
   let left = 0; for (const g of gone) if (!g) left++;
   if (!left) { won = true; wonClock = 0; rg.sound("win"); rg.celebrate(width / 2, PT + 100, { big: true }); rg.say("loistavaa", { queue: true }); }
 }
