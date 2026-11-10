@@ -1,0 +1,22 @@
+{
+ "_comment": "Varjopalat (games/varjo): the same ids as voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "peli_varjo": "Piezas de sombra",
+  "varjo_ohje": "Mueve las piezas sobre la sombra. Toca una pieza para girarla.",
+  "varjo_vihje": "¡Mira! Esta pieza va aquí.",
+  "varjo_kaikki": "¡Todos los dibujos están hechos! ¡Qué listo eres!",
+  "varjo_vene": "¡Un barco!",
+  "varjo_nuoli": "¡Una flecha!",
+  "varjo_talo": "¡Una casa!",
+  "varjo_kala": "¡Un pez!",
+  "varjo_jaatelo": "¡Un helado!",
+  "varjo_sydan": "¡Un corazón!",
+  "varjo_perhonen": "¡Una mariposa!",
+  "varjo_kuusi": "¡Un abeto!",
+  "varjo_kilpikonna": "¡Una tortuga!",
+  "varjo_kissa": "¡Un gato!",
+  "varjo_raketti": "¡Un cohete!",
+  "varjo_robotti": "¡Un robot!"
+ }
+}

@@ -1,0 +1,22 @@
+{
+ "_comment": "Varjopalat (games/varjo): the same ids as voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "peli_varjo": "Shadow Pieces",
+  "varjo_ohje": "Move the pieces onto the shadow. Tap a piece to turn it.",
+  "varjo_vihje": "Look! This piece fits here.",
+  "varjo_kaikki": "All the pictures are done! You are clever!",
+  "varjo_vene": "Boat!",
+  "varjo_nuoli": "An arrow!",
+  "varjo_talo": "A house!",
+  "varjo_kala": "A fish!",
+  "varjo_jaatelo": "Ice cream!",
+  "varjo_sydan": "A heart!",
+  "varjo_perhonen": "A butterfly!",
+  "varjo_kuusi": "A fir tree!",
+  "varjo_kilpikonna": "A turtle!",
+  "varjo_kissa": "A cat!",
+  "varjo_raketti": "A rocket!",
+  "varjo_robotti": "A robot!"
+ }
+}

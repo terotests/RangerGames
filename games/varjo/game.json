@@ -1,0 +1,2 @@
+{ "name": "Varjopalat", "description": "Laita palat varjon päälle: käännä ja peilaa", "icon": "🧩", "color": "#3d405b", "players": "1", "width": 360, "order": 330, "section": "aly",
+  "i18n": { "en": { "name": "Shadow Pieces", "description": "Put the pieces on the shadow: turn and mirror them" }, "es": { "name": "Piezas de sombra", "description": "Pon las piezas sobre la sombra: gíralas y refléjalas" } } }
