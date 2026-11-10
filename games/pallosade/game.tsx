@@ -6,7 +6,7 @@
 
 import { COLS, ROWS, WIN, empty, landRow, findRuns, collapse, points, phoneMove } from "lib/rules";
 
-type Phase = "menu" | "aim" | "fall" | "blink" | "over";
+type Phase = "menu" | "demo" | "aim" | "fall" | "blink" | "over";
 type Ball = { id: number; c: number; r: number; y: number; vy: number; p: number; hit: boolean };
 type Float = { x: number; y: number; t: number; text: string; p: number };
 
@@ -35,6 +35,17 @@ let phoneClock = 0;
 let overClock = 0;
 let winner = 0;
 let toldRules = false;
+let demoClock = 0;
+
+// The demo before the game: three quick scenes show a line across, up and
+// diagonally. Each scene: [fillers (yellow, already there)], [line cells],
+// the line's colour, its label. Cells are [column, row], row 0 at the bottom.
+const DEMO_SCENE = 1.9;
+const DEMO = [
+  { fill: [], line: [[2, 0], [3, 0], [4, 0], [5, 0]], p: 1, label: () => rg.t("Vaakaan ➡️", "Across ➡️", "En horizontal ➡️") },
+  { fill: [], line: [[3, 0], [3, 1], [3, 2], [3, 3]], p: 2, label: () => rg.t("Pystyyn ⬆️", "Up ⬆️", "En vertical ⬆️") },
+  { fill: [[3, 0], [4, 0], [4, 1], [5, 0], [5, 1], [5, 2]], line: [[2, 0], [3, 1], [4, 2], [5, 3]], p: 1, label: () => rg.t("Vinoon ↗️", "Diagonal ↗️", "En diagonal ↗️") },
+];
 
 function boardLeft() { return Math.floor((width - BW) / 2); }
 function ballX(c: number) { return boardLeft() + PAD + c * CELL + (CELL - BALL) / 2; }
@@ -51,6 +62,15 @@ function phoneTurn() { return vsPhone && turn === 2; }
 function start(phone: boolean) {
   vsPhone = phone; score = [0, 0, 0]; starts = 1;
   rg.sound("click");
+  phase = "demo"; demoClock = 0;
+  g = empty(); balls = []; floats = [];
+  rg.say("pp_ohje");
+  toldRules = true;
+}
+
+function endDemo() {
+  if (phase !== "demo") return;
+  rg.sound("click");
   newRound();
 }
 
@@ -62,7 +82,7 @@ function newRound() {
   aimCol = 3; phoneClock = 0;
   phase = "aim";
   const first = vsPhone ? (turn === 1 ? "sinun_vuorosi" : "minun_vuoroni") : (turn === 1 ? "pp_valkoinen_aloittaa" : "pp_keltainen_aloittaa");
-  if (!toldRules) { toldRules = true; rg.say(["pp_ohje", first]); } else rg.say(first);
+  rg.say(first, { queue: true });
 }
 
 function drop(c: number) {
@@ -162,6 +182,15 @@ function tick(dt: number) {
   if (dt > 0.05) dt = 0.05;
   for (const f of floats) f.t += dt;
   floats = floats.filter((f) => f.t < 1.4);
+  if (phase === "demo") {
+    const before = Math.floor(demoClock / DEMO_SCENE * 2);
+    demoClock += dt;
+    const now = Math.floor(demoClock / DEMO_SCENE * 2);
+    // a chime when each scene's line is complete
+    if (now !== before && now % 2 === 1) { rg.sound("note", { pitch: 1.3 + now * 0.1 }); rg.vibrate(15); }
+    if (demoClock >= DEMO_SCENE * DEMO.length + 0.3) newRound();
+    return;
+  }
   if (phase === "fall") { if (!moveBalls(dt)) settle(); }
   else if (phase === "blink") { blinkClock += dt; if (blinkClock > 0.9) pop(); }
   else if (phase === "aim" && phoneTurn()) {
@@ -197,9 +226,47 @@ function statusText() {
     if (vsPhone) return winner === 1 ? rg.t("Voitit! 🎉", "You won! 🎉", "¡Ganaste! 🎉") : rg.t("Puhelin voitti!", "The phone won!", "¡Ganó el teléfono!");
     return rg.t(who(winner) + " voitti! 🎉", who(winner) + " won! 🎉", "¡Ganó " + who(winner) + "! 🎉");
   }
+  if (phase === "demo") {
+    const k = Math.min(DEMO.length - 1, Math.floor(demoClock / DEMO_SCENE));
+    return DEMO[k].label();
+  }
   if (phase === "blink") return rg.t("Neljä suorassa!", "Four in a row!", "¡Cuatro en línea!");
   if (phoneTurn()) return rg.t("Puhelin miettii…", "The phone is thinking…", "El teléfono está pensando…");
   return rg.t("Vuoro: ", "Turn: ", "Turno: ") + who(turn);
+}
+
+// one demo scene: the line's balls drop in one by one, then blink with a
+// bar drawn through them in the line's direction
+function DemoLayer(kids: any[]) {
+  const k = Math.min(DEMO.length - 1, Math.floor(demoClock / DEMO_SCENE));
+  const sc = DEMO[k];
+  const st = demoClock - k * DEMO_SCENE;
+  for (const f of sc.fill) kids.push(<img className="ball" src={img(2, false)} style={{ left: ballX(f[0]), top: ballY(f[1]), opacity: "0.55" }} />);
+  const drop = 0.22;
+  const done = st > drop * sc.line.length + 0.1;
+  const on = Math.floor(st * 10) % 2 === 0;
+  for (let i = 0; i < sc.line.length; i++) {
+    const c = sc.line[i][0], r = sc.line[i][1];
+    const u = (st - i * drop) / drop;
+    if (u <= 0) continue;
+    const y = u >= 1 ? r : rg.lerp(ROWS, r, u * u);
+    if (done) kids.push(<div className={sc.p === 1 ? "glow gw" : "glow gy"} style={{ left: ballX(c) - 4, top: ballY(r) - 4, opacity: on ? "0.9" : "0.35" }} />);
+    kids.push(<img className="ball" src={img(sc.p, done)} style={{ left: ballX(c), top: ballY(y) }} />);
+  }
+  if (done) {
+    const a = sc.line[0], b = sc.line[sc.line.length - 1];
+    const x0 = ballX(a[0]) + BALL / 2, y0 = ballY(a[1]) + BALL / 2, x1 = ballX(b[0]) + BALL / 2, y1 = ballY(b[1]) + BALL / 2;
+    const len = Math.sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) + BALL;
+    const ang = Math.atan2(y1 - y0, x1 - x0) * 180 / Math.PI;
+    const grow = Math.min(1, (st - drop * sc.line.length - 0.1) / 0.25);
+    kids.push(<div className="dbar" style={{ left: (x0 + x1) / 2 - len * grow / 2, top: (y0 + y1) / 2 - 5, width: len * grow, transform: "rotate(" + ang + "deg)" }} />);
+  }
+  // scene dots and the skip button
+  const dots = [];
+  for (let i = 0; i < DEMO.length; i++) dots.push(<div className={i === k ? "ddot don" : "ddot"} />);
+  kids.push(<div className="ddots" style={{ left: 0, top: BT + BH + 6, width: width }}>{dots}</div>);
+  kids.push(<div className="col" id="demo" style={{ left: 0, top: AIM_Y, width: width, height: BT + BH - AIM_Y }} onClick={endDemo} />);
+  kids.push(<div className="btn back small" id="skip" style={{ left: (width - 170) / 2, top: BT + BH + 28 }} onClick={endDemo}>{rg.t("Pelaamaan ▶", "Play ▶", "Jugar ▶")}</div>);
 }
 
 function Game() {
@@ -219,6 +286,7 @@ function Game() {
     kids.push(<div className={turn === 1 ? "arrow aw" : "arrow ay"} style={{ left: ballX(aimCol) + BALL / 2 - 7, top: AIM_Y - 16 + bob }} />);
     kids.push(<img className="ball" src={img(turn, false)} style={{ left: ballX(aimCol), top: AIM_Y + (CELL - BALL) / 2 + bob }} />);
   }
+  if (phase === "demo") DemoLayer(kids);
   // the balls
   for (const b of balls) {
     const i = b.c * ROWS + b.r;
@@ -252,7 +320,7 @@ function Game() {
       </div>
     );
   }
-  if (phase !== "over") {
+  if (phase !== "over" && phase !== "demo") {
     kids.push(<div className="btn back small" id="menu" style={{ left: (width - 170) / 2, top: BT + BH + 14 }} onClick={() => { phase = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>);
   }
   return <div className="screen">{kids}</div>;
