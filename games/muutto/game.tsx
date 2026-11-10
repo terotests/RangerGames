@@ -1504,10 +1504,10 @@ function NestBars() {
   if (nest.stage !== "sit") return null;
   const y = Math.min(height - 70, nestY() + 46);
   return (
-    <div className="nbar" style={{ left: width / 2 - 90, top: y }}>
+    <div className="nbar" style={{ left: width / 2 - 112, top: y }}>
       <div className="nicon">🌡️</div>
       <div className="ebar"><div className="efill" style={{ width: Math.round(70 * nest.warm), backgroundColor: nest.warm > 0.4 ? "#f77f00" : "#4cc9f0" }} /></div>
-      <div className="nicon">🐣</div>
+      <div className="nicon" style={{ marginLeft: 8 }}>🐣</div>
       <div className="ebar"><div className="efill" style={{ width: Math.round(70 * nest.hatchP), backgroundColor: "#ffd166" }} /></div>
     </div>
   );
