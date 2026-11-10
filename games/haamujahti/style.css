@@ -1,8 +1,10 @@
-.screen { width: 100%; height: 100%; overflow: hidden; background-color: #1b1035; }
+.screen { width: 100%; height: 100%; overflow: hidden; background-color: #070512; }
 .scene { position: absolute; left: 0px; top: 0px; width: 100%; overflow: hidden; }
-.ceiling { position: absolute; left: 0px; top: 0px; width: 100%; background: linear-gradient(180deg, #120a2e, #3a2470); }
-.floor { position: absolute; left: 0px; width: 100%; background: linear-gradient(180deg, #2b1d4f, #7b5ea7); }
 .col { position: absolute; }
+.lamp { position: absolute; }
+.halo { position: absolute; }
+.lcap { position: absolute; background-color: #3a2a1a; }
+.flame { position: absolute; }
 
 .sign { position: absolute; align-items: center; justify-content: center; font-weight: 700; color: #ffffff; }
 .quest { background-color: rgba(255, 209, 102, 0.85); color: #6a3d00; }
@@ -28,8 +30,9 @@
 .wandtip { position: absolute; left: -5px; top: -14px; width: 24px; height: 24px; border-radius: 12px; background-color: #ffd166; }
 .ouch { position: absolute; left: 0px; top: 0px; width: 100%; background-color: rgba(255, 60, 90, 0.25); }
 
-.hud { position: absolute; left: 0px; top: 10px; width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: space-between; padding-left: 10px; padding-right: 10px; }
+.hud { position: absolute; left: 0px; top: 10px; width: 100%; flex-direction: row; flex-wrap: wrap; justify-content: space-between; padding-left: 10px; padding-right: 58px; }
 .pill { background-color: rgba(255, 255, 255, 0.85); color: #2b2d42; font-size: 17px; font-weight: 700; padding: 5px; padding-left: 12px; padding-right: 12px; border-radius: 18px; }
+.compass { position: absolute; left: 10px; background-color: rgba(255, 255, 255, 0.8); color: #2b2d42; font-size: 18px; font-weight: 700; padding: 4px; padding-left: 10px; padding-right: 10px; border-radius: 16px; }
 .bossbar { width: 204px; height: 14px; margin-top: 8px; margin-left: 68px; border-radius: 7px; background-color: rgba(0,0,0,0.4); padding: 2px; }
 .bosshp { height: 10px; border-radius: 5px; background-color: #f72585; }
 
