@@ -52,3 +52,7 @@
 .ddots { position: absolute; flex-direction: row; justify-content: center; height: 14px; }
 .ddot { width: 10px; height: 10px; border-radius: 5px; margin-left: 4px; margin-right: 4px; background-color: rgba(255,255,255,0.3); }
 .don { background-color: #ffd23f; }
+.bigball { width: 44px; height: 44px; }
+.lane { position: absolute; width: 36px; height: 324px; border-radius: 18px; opacity: 0.18; }
+.lw { background-color: #ffffff; }
+.ly { background-color: #ffd23f; }

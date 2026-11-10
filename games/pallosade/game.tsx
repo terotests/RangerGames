@@ -75,6 +75,7 @@ function endDemo() {
 }
 
 function newRound() {
+  resetHold();
   g = empty(); balls = []; floats = []; runs = []; blinkCells = [];
   winner = 0; combo = 0;
   turn = starts; starts = 3 - starts;
@@ -87,6 +88,7 @@ function newRound() {
 
 function drop(c: number) {
   if (phase !== "aim") return;
+  resetHold();
   const r = landRow(g, c);
   if (r < 0) { rg.sound("wrong"); return; }
   aimCol = c;
@@ -97,10 +99,52 @@ function drop(c: number) {
   phase = "fall";
 }
 
-function tap(c: number) {
-  if (phase !== "aim" || phoneTurn()) return;
-  drop(c);
+// Taking the ball: press anywhere above or on the board and the ball comes
+// to the finger; drag it over a column and let go. On release the ball
+// rolls to the top of that column for half a second before it falls, and
+// a press in that time takes it back (a tap works the same way).
+const ROLL = 0.5;
+let held = false, holdX = 0, holdY = 0;
+let rolling = false, rollClock = 0, rollFromX = 0, rollFromY = 0, rollCol = 0;
+
+function colAt(x: number) {
+  return rg.clamp(Math.floor((x - boardLeft() - PAD) / CELL), 0, COLS - 1);
 }
+
+function inGrabArea(x: number, y: number) {
+  const L = boardLeft();
+  return x >= L - 10 && x <= L + BW + 10 && y >= AIM_Y - 40 && y <= BT + BH;
+}
+
+function heldPos() {
+  const L = boardLeft();
+  return {
+    x: rg.clamp(holdX - BALL / 2, L + PAD, L + BW - PAD - BALL),
+    y: rg.clamp(holdY - BALL - 14, AIM_Y - 30, BT + BH - BALL),
+  };
+}
+
+
+function onPointerDown(x: number, y: number) {
+  if (phase !== "aim" || phoneTurn() || !inGrabArea(x, y)) return;
+  held = true; rolling = false;
+  holdX = x; holdY = y; aimCol = colAt(x);
+  rg.sound("click", { pitch: 1.4, volume: 0.6 });
+  rg.vibrate(8);
+}
+
+function onPointerUp() { if (held) release(); }
+
+function release() {
+  const from = heldPos();
+  held = false;
+  if (landRow(g, aimCol) < 0) { rg.sound("wrong"); return; }
+  rolling = true; rollClock = 0; rollCol = aimCol;
+  rollFromX = from.x; rollFromY = from.y;
+  rg.sound("tick", { pitch: 1.2, volume: 0.6 });
+}
+
+function resetHold() { held = false; rolling = false; }
 
 function moveBalls(dt: number): boolean {
   let moving = false;
@@ -177,7 +221,7 @@ function gameOver(p: number) {
   else { rg.celebrate(width / 2, BT + BH / 2, { big: true }); rg.say(vsPhone ? "voitit" : p === 1 ? "pp_valkoinen_voitti" : "pp_keltainen_voitti"); }
 }
 
-function tick(dt: number) {
+function tick(dt: number, input: any) {
   t += dt;
   if (dt > 0.05) dt = 0.05;
   for (const f of floats) f.t += dt;
@@ -193,7 +237,14 @@ function tick(dt: number) {
   }
   if (phase === "fall") { if (!moveBalls(dt)) settle(); }
   else if (phase === "blink") { blinkClock += dt; if (blinkClock > 0.9) pop(); }
-  else if (phase === "aim" && phoneTurn()) {
+  else if (phase === "aim" && held) {
+    const pt = input && input.pointer;
+    if (pt && pt.down) { holdX = pt.x; holdY = pt.y; aimCol = colAt(pt.x); }
+    else release();
+  } else if (phase === "aim" && rolling) {
+    rollClock += dt;
+    if (rollClock >= ROLL) { rolling = false; drop(rollCol); }
+  } else if (phase === "aim" && phoneTurn()) {
     phoneClock += dt;
     if (phoneClock > 0.25 && phoneClock - dt <= 0.25) aimCol = phoneMove(g, 2, rg.random, 0.75);
     if (phoneClock > 0.75) drop(aimCol);
@@ -201,7 +252,7 @@ function tick(dt: number) {
 }
 
 function onBack() {
-  if (phase === "menu") rg.exit(); else { phase = "menu"; rg.sound("click"); }
+  if (phase === "menu") rg.exit(); else { phase = "menu"; resetHold(); rg.sound("click"); }
 }
 
 function ScorePill(p: number) {
@@ -282,9 +333,28 @@ function Game() {
   kids.push(<div className="frame" style={{ left: L, top: BT, width: BW, height: BH }}>{holes}</div>);
   // the next ball, waiting above the column
   if (phase === "aim") {
-    const bob = Math.sin(t * 4) * 3;
-    kids.push(<div className={turn === 1 ? "arrow aw" : "arrow ay"} style={{ left: ballX(aimCol) + BALL / 2 - 7, top: AIM_Y - 16 + bob }} />);
-    kids.push(<img className="ball" src={img(turn, false)} style={{ left: ballX(aimCol), top: AIM_Y + (CELL - BALL) / 2 + bob }} />);
+    if (held || rolling) {
+      // the column it will fall into, and where it lands
+      const c = held ? aimCol : rollCol;
+      const r = landRow(g, c);
+      kids.push(<div className={turn === 1 ? "lane lw" : "lane ly"} style={{ left: L + PAD + c * CELL + 2, top: BT + PAD - 2 }} />);
+      if (r >= 0) kids.push(<img className="ball" src={img(turn, false)} style={{ left: ballX(c), top: ballY(r), opacity: "0.35" }} />);
+    }
+    if (held) {
+      const p = heldPos();
+      kids.push(<img className="ball bigball" src={img(turn, true)} style={{ left: p.x - 4, top: p.y - 4 }} />);
+    } else if (rolling) {
+      // half a second's roll to the top of the column, one turn round
+      const k = rg.ease.out(Math.min(1, rollClock / ROLL));
+      const to = { x: ballX(rollCol), y: AIM_Y + (CELL - BALL) / 2 };
+      const dir = to.x >= rollFromX ? 1 : -1;
+      const hop = Math.sin(k * Math.PI) * 10;
+      kids.push(<img className="ball" src={img(turn, false)} style={{ left: rg.lerp(rollFromX, to.x, k), top: rg.lerp(rollFromY, to.y, k) - hop, transform: "rotate(" + Math.round(360 * k * dir) + "deg)" }} />);
+    } else {
+      const bob = Math.sin(t * 4) * 3;
+      kids.push(<div className={turn === 1 ? "arrow aw" : "arrow ay"} style={{ left: ballX(aimCol) + BALL / 2 - 7, top: AIM_Y - 16 + bob }} />);
+      kids.push(<img className="ball" src={img(turn, false)} style={{ left: ballX(aimCol), top: AIM_Y + (CELL - BALL) / 2 + bob }} />);
+    }
   }
   if (phase === "demo") DemoLayer(kids);
   // the balls
@@ -304,24 +374,18 @@ function Game() {
     const k = f.t / 1.4;
     kids.push(<div className={f.p === 1 ? "float fw" : "float fy"} style={{ left: f.x - 70, top: f.y - 50 - k * 50, opacity: String(1 - k * k) }}>{f.text}</div>);
   }
-  // tap targets: each column from the waiting row to the bottom
-  if (phase === "aim" && !phoneTurn()) {
-    for (let c = 0; c < COLS; c++) {
-      kids.push(<div className="col" id={"col" + c} style={{ left: L + PAD + c * CELL, top: AIM_Y, height: BT + BH - AIM_Y }} onClick={() => tap(c)} />);
-    }
-  }
   if (phase === "over" && overClock > 0.8) {
     kids.push(
       <div className="panel" style={{ left: (width - 280) / 2, top: BT + 70 }}>
         <img className="panelball" src={img(winner || 1, true)} />
         <div className="ptitle">{statusText()}</div>
         <div className="btn again" id="again" onClick={() => { rg.sound("click"); newRound(); }}>{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div>
-        <div className="btn back pback" id="menu" onClick={() => { phase = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
+        <div className="btn back pback" id="menu" onClick={() => { phase = "menu"; resetHold(); rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
       </div>
     );
   }
   if (phase !== "over" && phase !== "demo") {
-    kids.push(<div className="btn back small" id="menu" style={{ left: (width - 170) / 2, top: BT + BH + 14 }} onClick={() => { phase = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>);
+    kids.push(<div className="btn back small" id="menu" style={{ left: (width - 170) / 2, top: BT + BH + 14 }} onClick={() => { phase = "menu"; resetHold(); rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>);
   }
   return <div className="screen">{kids}</div>;
 }
