@@ -48,3 +48,7 @@
 .panelball { width: 72px; height: 72px; }
 .ptitle { font-size: 26px; font-weight: 700; color: #1b2a6b; margin-top: 6px; text-align: center; }
 .pback { margin-top: 12px; width: 220px; margin-bottom: 4px; }
+.dbar { position: absolute; height: 10px; border-radius: 5px; background-color: #ff4d6d; opacity: 0.85; }
+.ddots { position: absolute; flex-direction: row; justify-content: center; height: 14px; }
+.ddot { width: 10px; height: 10px; border-radius: 5px; margin-left: 4px; margin-right: 4px; background-color: rgba(255,255,255,0.3); }
+.don { background-color: #ffd23f; }
