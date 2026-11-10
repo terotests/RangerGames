@@ -1,0 +1,2 @@
+{ "name": "Kymppiparit", "description": "Etsi kaksi korttia, jotka ovat yhteensä 10 (tai 5, 15, 20)", "icon": "🔟", "color": "#f77f00", "players": "1-2", "width": 360, "order": 305, "section": "kortit",
+  "i18n": { "en": { "name": "Pairs to Ten", "description": "Find two cards that make 10 (or 5, 15, 20)" }, "es": { "name": "Parejas de diez", "description": "Busca dos cartas que sumen 10 (o 5, 15, 20)" } } }

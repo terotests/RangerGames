@@ -1,0 +1,2 @@
+{ "name": "Reversi", "description": "Käännä kaverin nappulat omiksesi!", "icon": "⚫", "color": "#2d6a4f", "players": "1-2", "width": 360, "order": 112, "section": "aly",
+  "i18n": { "en": { "name": "Reversi", "description": "Turn your opponent's discs into yours!" }, "es": { "name": "Reversi", "description": "¡Voltea las fichas del rival!" } } }

@@ -1,0 +1,2 @@
+{ "name": "Golf-pasianssi", "description": "Siirrä kortti, joka on yhden suurempi tai pienempi", "icon": "⛳", "color": "#38b000", "players": "1", "width": 360, "order": 302, "section": "kortit",
+  "i18n": { "en": { "name": "Golf Solitaire", "description": "Play a card one higher or one lower" }, "es": { "name": "Solitario Golf", "description": "Juega una carta uno más alta o uno más baja" } } }

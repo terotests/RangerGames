@@ -1,0 +1,31 @@
+{
+ "_comment": "Älypelit ja korttipelit (reversi, pyramidi, muistipeli, kymppiparit, laatikot, suljelaatikko, golf); the Finnish clips are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "peli_reversi": "Reversi",
+  "peli_pyramidi": "Pyramid",
+  "peli_muistipeli": "Memory",
+  "peli_kymppiparit": "Pairs to ten",
+  "peli_laatikot": "Dots and boxes",
+  "peli_suljelaatikko": "Shut the box",
+  "peli_golf": "Golf solitaire",
+  "rv_ohje": "Put a disc so that the other player's discs are trapped between yours. They turn to your colour.",
+  "rv_musta_aloittaa": "Black starts.",
+  "rv_ohitus": "No moves. The turn passes.",
+  "rv_musta_voitti": "Black wins!",
+  "rv_valkoinen_voitti": "White wins!",
+  "py_ohje10": "Find two cards that make ten. A ten goes away alone.",
+  "py_ohje13": "Find two cards that make thirteen. A king goes away alone.",
+  "mp_ohje": "Turn two cards. If they are the same, you keep them and go again.",
+  "kp_ohje": "Find two cards that add up to",
+  "pl_ohje": "Draw a line between two dots. Close a box to win it and go again.",
+  "pl_kettu_voitti": "The fox wins!",
+  "pl_panda_voitti": "The panda wins!",
+  "sl_ohje": "Roll the dice. Shut numbers that add up to the roll.",
+  "sl_suljettu": "You shut the box!",
+  "sl_pelaaja1_voitti": "Player one wins!",
+  "sl_pelaaja2_voitti": "Player two wins!",
+  "sl_pelaaja2_vuoro": "Player two, your turn.",
+  "gp_ohje": "Move a card that is one higher or one lower onto the pile."
+ }
+}
