@@ -16,6 +16,9 @@
     this.canvas3d = opts.canvas3d;
     this.status = opts.status;
     this.debugEl = opts.debug;
+    // fit(): the game's size in CSS pixels and how much the page zooms it
+    // ({ w, h, zoom }); without it the game fills the window
+    this.fit = opts.fit || null;
     this.images = new Map();
     this.imageState = {};
     this.view = { scale: 1, x: 0, y: 0, w: 360, h: 640 };
@@ -147,8 +150,11 @@
   };
 
   Host.prototype.resize = function () {
-    var dpr = Math.min(global.devicePixelRatio || 1, 2);
-    var w = global.innerWidth, h = global.innerHeight;
+    var f = this.fit ? this.fit() : { w: global.innerWidth, h: global.innerHeight, zoom: 1 };
+    var w = f.w, h = f.h;
+    // a zoomed game (the desktop phone frame) draws at the zoomed resolution
+    // so it stays sharp
+    var dpr = Math.min(global.devicePixelRatio || 1, 2) * (f.zoom || 1);
     this.dpr = dpr;
     this.canvas.width = Math.round(w * dpr);
     this.canvas.height = Math.round(h * dpr);
@@ -163,7 +169,11 @@
     var self = this, c = this.canvas;
     global.addEventListener("resize", function () { self.resize(); });
     var pid = function (e) { return e.pointerType === "mouse" ? 0 : (e.pointerId % 1000) + 1; };
-    var at = function (e) { var r = c.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
+    // in the game's own pixels, also when the page zooms the canvas
+    var at = function (e) {
+      var r = c.getBoundingClientRect(), k = r.width ? c.offsetWidth / r.width : 1;
+      return [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
+    };
     var unlock = function () { self.audio.unlock(); self.audio.resumeWanted(); };
     c.addEventListener("pointerdown", function (e) {
       e.preventDefault(); unlock();
