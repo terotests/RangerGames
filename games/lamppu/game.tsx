@@ -1,8 +1,9 @@
 // Lamppulabra: a battery, a light switch, a resistor and a lamp on a light
-// circuit board. At first there is no battery and the switch is off, so the
-// lamp stays dark. Put in a battery (AA 1.5 V, flat 4.5 V or 9 V), pick a
-// resistor (real colour code, the bigger the resistance the bigger the
-// resistor) and press the switch: the smaller the resistance, the brighter
+// circuit board. At first the battery's and the resistor's places are empty
+// and the switch is off, so the lamp stays dark. Drag a battery (AA 1.5 V,
+// flat 4.5 V or 9 V) and a resistor (real colour code, the bigger the
+// resistance the bigger the resistor) from the tray into the circuit and
+// press the switch: the smaller the resistance, the brighter
 // the lamp, and right at the limit the filament melts and the lamp pops.
 //
 // The physics is Ohm's law: I = U / (R + 6 Ω), the lamp's own resistance is
@@ -43,7 +44,7 @@ const GOALS = [
 ];
 
 let bat = -1;          // index in BATS, -1 = no battery yet
-let res = 3;           // index in RESS
+let res = -1;          // index in RESS, -1 = no resistor yet
 let swOn = false;      // the light switch
 let burnt = false;
 let burnI = 0;
@@ -61,18 +62,17 @@ function init() {
 
 // ---- physics ---------------------------------------------------------------
 
-function closed(): boolean { return bat >= 0 && swOn && !burnt; }
+function closed(): boolean { return bat >= 0 && res >= 0 && swOn && !burnt; }
 function volts(): number { return bat >= 0 ? BATS[bat].v : 0; }
-function ohms(): number { return RESS[res]; }
+function ohms(): number { return res >= 0 ? RESS[res] : 0; }
 function amps(): number { return closed() ? volts() / (RL + ohms()) : 0; }
 function watts(): number { const i = amps(); return i * i * RL; }
 function bright(): number { return watts() / PFULL; }
 
 // ---- actions -----------------------------------------------------------------
 
-function pickBat(i: number) {
+function placeBat(i: number) {
   if (burnt) { rg.sound("tick"); return; }
-  if (bat === i) { removeBat(); return; }
   bat = i;
   rg.sound("pop", { pitch: 0.8 + i * 0.2 });
   rg.vibrate(15);
@@ -86,11 +86,92 @@ function removeBat() {
   changed();
 }
 
-function pickRes(i: number) {
+function placeRes(i: number) {
   if (burnt) { rg.sound("tick"); return; }
   res = i;
-  rg.sound("click");
+  rg.sound("pop", { pitch: 1.3 });
+  rg.vibrate(15);
   changed();
+}
+
+function removeRes() {
+  if (res < 0 || burnt) return;
+  res = -1;
+  rg.sound("whoosh", { pitch: 1.5 });
+  changed();
+}
+
+// ---- dragging parts between the tray and the circuit -------------------------
+//
+// A battery or a resistor is dragged from the tray at the bottom into its
+// empty place in the circuit, or from the circuit back to the tray. Its place
+// in the tray stays empty while it is in the circuit. A tap without moving
+// does the same: a part in the tray jumps into the circuit, a part in the
+// circuit jumps back.
+
+type Drag = { on: boolean; kind: string; i: number; from: string; x0: number; y0: number; x: number; y: number; moved: boolean };
+let drag: Drag = { on: false, kind: "", i: -1, from: "", x0: 0, y0: 0, x: 0, y: 0, moved: false };
+
+const TRAY_Y = BY + 368;
+const BT_W = 106, BT_H = 74;
+const RT_W = 80, RT_H = 40;
+function batTile(i: number): number[] { return [15 + i * (BT_W + 6), TRAY_Y, BT_W, BT_H]; }
+function resTile(i: number): number[] {
+  const row = i < 4 ? 0 : 1;
+  const n = row ? 3 : 4, k = row ? i - 4 : i;
+  const x0 = (360 - (n * RT_W + (n - 1) * 4)) / 2;
+  return [x0 + k * (RT_W + 4), TRAY_Y + BT_H + 6 + row * (RT_H + 4), RT_W, RT_H];
+}
+function inRect(x: number, y: number, r: number[], pad: number): boolean {
+  return x >= r[0] - pad && x <= r[0] + r[2] + pad && y >= r[1] - pad && y <= r[1] + r[3] + pad;
+}
+// the parts' places in the circuit
+const BSLOT = [BX - 40, T - 66, 80, 80];
+const RSLOT = [RX - 60, B - 22, 120, 44];
+
+function onPointerDown(x: number, y: number) {
+  if (help || burnt) return;
+  let kind = "", i = -1, from = "";
+  if (bat >= 0 && inRect(x, y, BSLOT, 4)) { kind = "bat"; i = bat; from = "circuit"; }
+  else if (res >= 0 && inRect(x, y, RSLOT, 4)) { kind = "res"; i = res; from = "circuit"; }
+  else {
+    for (let k = 0; k < BATS.length; k++) if (k !== bat && inRect(x, y, batTile(k), 2)) { kind = "bat"; i = k; from = "tray"; }
+    for (let k = 0; k < RESS.length; k++) if (k !== res && inRect(x, y, resTile(k), 2)) { kind = "res"; i = k; from = "tray"; }
+  }
+  if (i < 0) return;
+  drag = { on: true, kind: kind, i: i, from: from, x0: x, y0: y, x: x, y: y, moved: false };
+  rg.sound("click", { pitch: 1.4 });
+}
+
+function nearSlot(): boolean {
+  const r = drag.kind === "bat" ? BSLOT : RSLOT;
+  return inRect(drag.x, drag.y, r, 40);
+}
+
+function onPointerUp() {
+  if (!drag.on) return;
+  const d = drag;
+  drag = { on: false, kind: "", i: -1, from: "", x0: 0, y0: 0, x: 0, y: 0, moved: false };
+  const into = d.moved ? inRect(d.x, d.y, d.kind === "bat" ? BSLOT : RSLOT, 40) : d.from === "tray";
+  if (d.kind === "bat") {
+    if (into && d.from === "tray") placeBat(d.i);
+    else if (!into && d.from === "circuit") removeBat();
+    else if (into && d.from === "circuit") rg.sound("click");
+    else rg.sound("whoosh", { pitch: 1.3 });
+  } else {
+    if (into && d.from === "tray") placeRes(d.i);
+    else if (!into && d.from === "circuit") removeRes();
+    else if (into && d.from === "circuit") rg.sound("click");
+    else rg.sound("whoosh", { pitch: 1.5 });
+  }
+}
+
+function dragStep(input: any) {
+  if (!drag.on) return;
+  drag.x = input.pointer.x;
+  drag.y = input.pointer.y;
+  if (!drag.moved && Math.hypot(drag.x - drag.x0, drag.y - drag.y0) > 8) drag.moved = true;
+  if (!input.pointer.down) onPointerUp();
 }
 
 function toggleSwitch() {
@@ -124,8 +205,9 @@ function changed() {
   else warned = false;
 }
 
-function tick(dt: number) {
+function tick(dt: number, input: any) {
   t += dt;
+  dragStep(input);
   flow += amps() * 110 * dt;
   for (const p of puffs) { p.t += dt; p.y -= 40 * dt; p.x += p.vx * dt; }
   puffs = puffs.filter((p) => p.t < 2.2);
@@ -149,10 +231,10 @@ function tick(dt: number) {
 function onBack() { if (help) help = false; else rg.exit(); }
 
 function onKeyDown(key: string) {
-  if (key === "ArrowRight") pickRes(Math.min(RESS.length - 1, res + 1));
-  if (key === "ArrowLeft") pickRes(Math.max(0, res - 1));
-  if (key === "ArrowUp") pickBat(Math.min(BATS.length - 1, bat + 1));
-  if (key === "ArrowDown") { if (bat > 0) pickBat(bat - 1); else removeBat(); }
+  if (key === "ArrowRight") placeRes(Math.min(RESS.length - 1, res + 1));
+  if (key === "ArrowLeft") { if (res > 0) placeRes(res - 1); else removeRes(); }
+  if (key === "ArrowUp") placeBat(Math.min(BATS.length - 1, bat + 1));
+  if (key === "ArrowDown") { if (bat > 0) placeBat(bat - 1); else removeBat(); }
   if (key === " " || key === "Enter") toggleSwitch();
 }
 
@@ -215,7 +297,16 @@ function seg(a: number[], b: number[], hot: boolean) {
 function Wires() {
   const pts = loop();
   const out = [];
-  for (let k = 1; k < pts.length; k++) out.push(seg(pts[k - 1], pts[k], closed()));
+  for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k];
+    if (res < 0 && a[1] === B && b[1] === B) {
+      // no resistor: the bottom wire is open, with clips waiting for one
+      out.push(seg(a, [RX + 46, B], false));
+      out.push(seg([RX - 46, B], b, false));
+      out.push(<div className="clip open" style={{ left: RX + 41, top: B - 5 }} />);
+      out.push(<div className="clip open" style={{ left: RX - 51, top: B - 5 }} />);
+    } else out.push(seg(a, b, closed()));
+  }
   // crocodile clips on the battery terminals, or open ones waiting for a battery
   const ends = [pts[0], pts[pts.length - 1]];
   for (const e of ends) {
@@ -244,16 +335,18 @@ function Wires() {
 
 function Battery() {
   if (bat < 0) {
+    const hot = drag.on && drag.kind === "bat" && nearSlot();
     return [
-      <div className="slot" id="slot" style={{ left: BX - 30, top: T - 58 }}>
+      <div className={hot ? "slot hot" : "slot"} id="slot" style={{ left: BX - 30, top: T - 58 }}>
         <div className="slotplus">🔋</div>
         <div className="slottext">{rg.t("Ei paristoa", "No battery", "Sin pila")}</div>
       </div>,
     ];
   }
+  if (drag.on && drag.kind === "bat" && drag.from === "circuit") return [];
   const k = BATS[bat], p = batPlace(bat);
   return [
-    <img className="part" id="battery" src={img(k.img)} style={{ left: p.x, top: p.y, width: k.w, height: k.h }} onClick={() => removeBat()} />,
+    <img className="part" id="battery" src={img(k.img)} style={{ left: p.x, top: p.y, width: k.w, height: k.h }} />,
   ];
 }
 
@@ -265,6 +358,12 @@ function Switch() {
 }
 
 function Resistor() {
+  if (res < 0 || (drag.on && drag.kind === "res" && drag.from === "circuit")) {
+    const hot = drag.on && drag.kind === "res" && nearSlot();
+    return [
+      <div className={hot ? "rslot hot" : "rslot"} style={{ left: RX - 38, top: B - 13 }}><div className="slottext">{rg.t("Ei vastusta", "No resistor", "Sin resistencia")}</div></div>,
+    ];
+  }
   const s = 1.6;
   const w = RES_W[res] * s, h = RES_H[res] * s;
   return [
@@ -304,7 +403,9 @@ function Lamp() {
 function Hint() {
   if (burnt) return [];
   const bob = Math.abs(Math.sin(t * 4)) * 8;
-  if (bat < 0) return [<div className="hand" style={{ left: 86, top: 516 + bob }}>👆</div>];
+  if (drag.on) return [];
+  if (bat < 0) return [<div className="hand" style={{ left: 86, top: TRAY_Y + 46 + bob }}>👆</div>];
+  if (res < 0) return [<div className="hand" style={{ left: resTile(3)[0] + 40, top: resTile(3)[1] + 20 + bob }}>👆</div>];
   if (!swOn) return [<div className="hand" style={{ left: L + 6 + bob, top: SWY + 8 }}>👈</div>];
   return [];
 }
@@ -327,7 +428,8 @@ function Meter() {
   let status = "";
   let sc = "status";
   if (burnt) { status = rg.t("Poks! Lamppu paloi: ", "Pop! The lamp burnt out: ", "¡Pum! Se quemó: ") + fmt(burnI, 2) + " A " + rg.t("oli liikaa.", "was too much.", "fue demasiado."); sc = "status bad"; }
-  else if (bat < 0) status = rg.t("Ei paristoa, ei valoa. Valitse paristo alta.", "No battery, no light. Pick a battery below.", "Sin pila no hay luz. Elige una pila.");
+  else if (bat < 0) status = rg.t("Ei paristoa, ei valoa. Vedä paristo piiriin.", "No battery, no light. Drag a battery into the circuit.", "Sin pila no hay luz. Arrastra una pila.");
+  else if (res < 0) status = rg.t("Vedä vastus sen paikalle piirissä.", "Drag a resistor to its place in the circuit.", "Arrastra una resistencia a su sitio.");
   else if (!swOn) status = rg.t("Kytkin on pois päältä. Paina valokytkintä!", "The switch is off. Press the light switch!", "El interruptor está apagado. ¡Púlsalo!");
   else if (b < 0.05) status = rg.t("Virta on niin pieni, ettei lamppu hehku.", "So little current that the lamp doesn't glow.", "Tan poca corriente que no brilla.");
   else if (b < 0.4) status = rg.t("Lamppu palaa himmeästi.", "The lamp glows dimly.", "La bombilla brilla poco.");
@@ -353,39 +455,50 @@ function Meter() {
   );
 }
 
-function Pickers() {
-  const top = BY + 366;
+function batImg(i: number, x: number, y: number, s: number) {
+  const k = BATS[i];
+  return <img className="part" src={img(k.img)} style={{ left: x - k.w * s / 2, top: y - k.h * s / 2, width: k.w * s, height: k.h * s }} />;
+}
+function resPart(i: number, x: number, y: number, s: number) {
+  return <img className="part" src={resImg(i)} style={{ left: x - RES_W[i] * s / 2, top: y - RES_H[i] * s / 2, width: RES_W[i] * s, height: RES_H[i] * s }} />;
+}
+
+function Tray() {
   if (burnt) {
-    return <div className="buttons" style={{ top: top + 30 }}>
+    return [<div className="buttons" style={{ top: TRAY_Y + 30 }}>
       <div className="btn red" id="newlamp" onClick={() => newLamp()}>{rg.t("🔧 Uusi lamppu", "🔧 New lamp", "🔧 Bombilla nueva")}</div>
-    </div>;
+    </div>];
   }
-  return (
-    <div className="pickers" style={{ left: 8, top: top }}>
-      <div className="prow">
-        {BATS.map((k, i) => {
-          const s = k.h > 30 ? 46 / k.h : 1;
-          return <div className={i === bat ? "pick b on" : "pick b"} id={"b" + i} onClick={() => pickBat(i)}>
-            <div className="pbox"><img src={img(k.img)} style={{ width: k.w * s, height: k.h * s }} /></div>
-            <div className="plabel">{num(k.v) + " V · " + k.name}</div>
-          </div>;
-        })}
-      </div>
-      <div className="prow">
-        {RESS.map((v, i) => <div className={i === res ? "pick r on" : "pick r"} id={"r" + i} onClick={() => pickRes(i)}>
-          <div className="rbox"><img src={resImg(i)} style={{ width: RES_W[i] * 0.88, height: RES_H[i] * 0.88 }} /></div>
-          <div className="plabel">{num(v) + " Ω"}</div>
-        </div>)}
-      </div>
-    </div>
-  );
+  const out = [];
+  for (let i = 0; i < BATS.length; i++) {
+    const r = batTile(i), k = BATS[i];
+    const gone = i === bat || (drag.on && drag.kind === "bat" && drag.i === i);
+    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }} />);
+    if (!gone) out.push(batImg(i, r[0] + r[2] / 2, r[1] + 29, k.h > 30 ? 46 / k.h : 1));
+    out.push(<div className="tlabel" style={{ left: r[0], top: r[1] + r[3] - 18, width: r[2] }}><div className="tltext">{num(k.v) + " V · " + k.name}</div></div>);
+  }
+  for (let i = 0; i < RESS.length; i++) {
+    const r = resTile(i);
+    const gone = i === res || (drag.on && drag.kind === "res" && drag.i === i);
+    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }} />);
+    if (!gone) out.push(resPart(i, r[0] + r[2] / 2, r[1] + 13, 0.88));
+    out.push(<div className="tlabel" style={{ left: r[0], top: r[1] + r[3] - 16, width: r[2] }}><div className="tltext">{num(RESS[i]) + " Ω"}</div></div>);
+  }
+  return out;
+}
+
+// the part under the finger, drawn at its size in the circuit
+function Dragged() {
+  if (!drag.on) return [];
+  if (drag.kind === "bat") return [batImg(drag.i, drag.x, drag.y - 20, 1.1)];
+  return [resPart(drag.i, drag.x, drag.y - 16, 1.7)];
 }
 
 function Head() {
   return (
     <div className="head">
       <div className="tname">💡 {rg.t("Lamppulabra", "Lamp Lab", "Lab de la bombilla")}</div>
-      <div className="ttext">{rg.t("Laita paristo, valitse vastus ja paina kytkintä. Mitä pienempi vastus, sitä kirkkaampi valo!", "Put in a battery, pick a resistor and press the switch. The smaller the resistance, the brighter the light!", "Pon una pila, elige una resistencia y pulsa el interruptor. ¡Menos resistencia, más luz!")}</div>
+      <div className="ttext">{rg.t("Vedä paristo ja vastus piiriin ja paina kytkintä. Mitä pienempi vastus, sitä kirkkaampi valo!", "Drag a battery and a resistor into the circuit and press the switch. The smaller the resistance, the brighter the light!", "Arrastra una pila y una resistencia al circuito y pulsa el interruptor. ¡Menos resistencia, más luz!")}</div>
       <div className="goals">
         {GOALS.map((g, k) => <div className={found[k] ? "goal on" : "goal"}><div className="gicon">{g.icon}</div><div className={found[k] ? "gname on" : "gname"}>{g.name}</div></div>)}
         <div className="goal helpb" id="help" onClick={() => { help = !help; rg.sound("click"); }}><div className="gicon">❓</div></div>
@@ -411,7 +524,8 @@ function Help() {
     rg.t("⚡ Ohmin laki: I = U / R. Kun lampun teho nousee yli 9 W, hehkulanka sulaa ja lamppu poksahtaa.",
       "⚡ Ohm's law: I = V / R. When the lamp's power goes over 9 W, the filament melts and the lamp pops.",
       "⚡ Ley de Ohm: I = V / R. Con más de 9 W el filamento se funde y la bombilla explota."),
-    rg.t("Nyt vastus: ", "This resistor: ", "Esta resistencia: ") + bandWords(ohms()) + " = " + num(ohms()) + " Ω",
+    res >= 0 ? rg.t("Nyt vastus: ", "This resistor: ", "Esta resistencia: ") + bandWords(ohms()) + " = " + num(ohms()) + " Ω"
+      : rg.t("Ruskea–musta–musta = 10 Ω, punainen–punainen–kulta = 2,2 Ω.", "Brown–black–black = 10 Ω, red–red–gold = 2.2 Ω.", "Marrón–negro–negro = 10 Ω, rojo–rojo–oro = 2,2 Ω."),
   ];
   return (
     <div className="root menu">
@@ -429,8 +543,9 @@ function view() {
       {Head()}
       {Board()}
       {Meter()}
-      {Pickers()}
+      {Tray()}
       {Hint()}
+      {Dragged()}
     </div>
   );
 }
