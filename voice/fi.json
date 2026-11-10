@@ -1015,6 +1015,22 @@
   "prisma_fact2": "Mitä kauempana kangas on, sitä leveämmäksi värit ehtivät levitä.",
   "prisma_fact3": "Lasi taittaa valoa enemmän kuin vesi, ja ilma ei juuri ollenkaan.",
   "prisma_fact4": "Punainen, vihreä ja sininen valo yhdessä näyttävät valkoiselta.",
-  "prisma_fact5": "Prisma ei tee värejä, se vain erottelee ne. Yksivärisessä valossa on vain yksi väri."
+  "prisma_fact5": "Prisma ei tee värejä, se vain erottelee ne. Yksivärisessä valossa on vain yksi väri.",
+  "peli_varjo": "Varjopalat",
+  "varjo_ohje": "Siirrä palat varjon päälle. Napauta palaa, niin se kääntyy.",
+  "varjo_vihje": "Katso! Tähän sopii tämä pala.",
+  "varjo_kaikki": "Kaikki kuvat tehty! Olet taitava!",
+  "varjo_vene": "Vene!",
+  "varjo_nuoli": "Nuoli!",
+  "varjo_talo": "Talo!",
+  "varjo_kala": "Kala!",
+  "varjo_jaatelo": "Jäätelö!",
+  "varjo_sydan": "Sydän!",
+  "varjo_perhonen": "Perhonen!",
+  "varjo_kuusi": "Kuusi!",
+  "varjo_kilpikonna": "Kilpikonna!",
+  "varjo_kissa": "Kissa!",
+  "varjo_raketti": "Raketti!",
+  "varjo_robotti": "Robotti!"
  }
 }
