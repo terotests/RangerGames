@@ -1,0 +1,2 @@
+{ "name": "Prisma", "description": "Hajota valkoinen valo sateenkaareksi: viisi pientä tutkimusta", "icon": "🌈", "color": "#7b2cbf", "players": "1", "width": 360, "order": 145,
+  "i18n": { "en": { "name": "Prism", "description": "Split white light into a rainbow: five small investigations" }, "es": { "name": "Prisma", "description": "Separa la luz blanca en un arcoíris: cinco pequeñas investigaciones" } } }
