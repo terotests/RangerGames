@@ -5,55 +5,24 @@
 // one thin wall slice per column, laid out by EVG like any other element.
 //
 // Map tiles: # stone, P pink, T teal (walls), D a door with a sum, E the
-// exit, @ the start, g a ghost, M the Mörkö, . floor.
+// exit, . floor. The light: the wand lights what is near, lanterns light
+// their corner, and the corridors fade to dark further away.
 
 type Ghost = { x: number; y: number; hp: number; boss: boolean; hit: number; dead: number; bob: number; hurt: number };
 type Spark = { x: number; y: number; vx: number; vy: number; t: number; c: string };
-type Ray = { d: number; tile: string; side: number; u: number };
+type Ray = { d: number; tile: string; side: number; u: number; hx: number; hy: number; sx: number; sy: number };
 type Mode = "title" | "play" | "quiz" | "floor" | "over" | "won";
 
-const LEVELS: string[][] = [
-  [
-    "##########",
-    "#@..#....#",
-    "#.#.#.##.#",
-    "#.#...#g.#",
-    "#.###.#.##",
-    "#...g.#..#",
-    "###.####D#",
-    "#g.......#",
-    "#.#####..#",
-    "#..g...#E#",
-    "##########",
-  ],
-  [
-    "PPPPPPPPPPPP",
-    "P@...P.....P",
-    "P.PP.P.PPP.P",
-    "P.P..g...P.P",
-    "P.P.PPPP.PgP",
-    "P...P..D.P.P",
-    "PPP.P.PP.P.P",
-    "Pg..P..g...P",
-    "P.PPPP.PPPDP",
-    "P....g.P..EP",
-    "PPPPPPPPPPPP",
-  ],
-  [
-    "TTTTTTTTTTTTT",
-    "T@..T...g...T",
-    "T.T.T.TTTTT.T",
-    "T.T...T...T.T",
-    "T.TTTDT.g.T.T",
-    "Tg..T.....D.T",
-    "TTT.TTTTTTT.T",
-    "T.....g.....T",
-    "T.TTTTTTTDTTT",
-    "T...........T",
-    "T.....M.....T",
-    "T...........T",
-    "TTTTTTTTTTTET",
-  ],
+// The floors are mazes made when a game starts (the same maze again when you
+// retry a floor): long corridors with a few loops, the sum doors on the way
+// to the star door, lanterns here and there, and on the last floor the
+// Mörkö's hall in front of the exit.
+type LevelDef = { cw: number; ch: number; wall: string; ghosts: number; doors: number[]; loops: number; boss: boolean };
+type Lamp = { x: number; y: number; c: number[]; ph: number; r: number; g: number; b: number };
+const LEVELS: LevelDef[] = [
+  { cw: 6, ch: 7, wall: "#", ghosts: 5, doors: [0.5], loops: 3, boss: false },
+  { cw: 8, ch: 9, wall: "P", ghosts: 7, doors: [0.35, 0.7], loops: 4, boss: false },
+  { cw: 10, ch: 10, wall: "T", ghosts: 8, doors: [0.3, 0.6], loops: 5, boss: true },
 ];
 
 const FOV = 1.05;
@@ -61,6 +30,12 @@ const COLS = 72;
 const PANEL = 190;
 const MOVE = 2.3;
 const TURN = 2.2;
+// light: the wand lights the near walls, lanterns light their corner, and
+// everything fades to dark toward FAR tiles away
+const FAR = 11;
+const DARK = [7, 5, 18];
+const WARM = [255, 196, 120];
+const GREEN = [130, 255, 170];
 
 let mode: Mode = "title";
 let t = 0;
@@ -82,30 +57,185 @@ let quiz = { a: 0, b: 0, op: "+", answer: 0, options: [0, 0, 0], wrong: -1, wron
 let rays: Ray[] = [];
 let wantFire = false;
 let walkClock = 0;
+let lamps: Lamp[] = [];
+let specials: number[][] = [];
+let exitAt = { x: 0, y: 0 };
+let seeds: number[] = [1, 2, 3];
 
 function init() {
   best = rg.load("best", 0);
+  newSeeds();
   loadLevel(0);
 }
 
-function loadLevel(n: number) {
-  level = n;
-  map = LEVELS[n].map((row) => row.split(""));
-  ghosts = [];
-  sparks = [];
-  bossDown = false;
-  for (let y = 0; y < map.length; y++) {
-    for (let x = 0; x < map[y].length; x++) {
-      const c = map[y][x];
-      if (c === "@") { px = x + 0.5; py = y + 0.5; map[y][x] = "."; }
-      else if (c === "g") { ghosts.push(makeGhost(x, y, false)); map[y][x] = "."; }
-      else if (c === "M") { ghosts.push(makeGhost(x, y, true)); map[y][x] = "."; }
+// a new castle every game; the saved counter makes sure of it even where
+// Math.random starts the same on every launch
+function newSeeds() {
+  const n = rg.load("mazes", 0) + 1;
+  rg.save("mazes", n);
+  seeds = LEVELS.map((_, i) => 1 + (Math.floor(Math.random() * 1000000) + n * 7919 + i * 104729) % 2147483000);
+}
+
+// ---- the maze ----------------------------------------------------------------
+
+let rnd = 1;
+function rand(): number { rnd = (rnd * 48271) % 2147483647; return rnd / 2147483647; }
+function ri(n: number): number { return Math.floor(rand() * n); }
+
+const DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+// distances along the corridors from (sx, sy); doors and walls stop the walk
+function walk(sx: number, sy: number): { dist: number[][]; from: number[][] } {
+  const dist: number[][] = [], from: number[][] = [];
+  for (let y = 0; y < map.length; y++) { dist.push(map[y].map(() => -1)); from.push(map[y].map(() => -1)); }
+  const q = [[sx, sy]];
+  dist[sy][sx] = 0;
+  for (let i = 0; i < q.length; i++) {
+    const [x, y] = q[i];
+    for (let k = 0; k < 4; k++) {
+      const nx = x + DIRS[k][0], ny = y + DIRS[k][1];
+      if (map[ny][nx] !== "." || dist[ny][nx] >= 0) continue;
+      dist[ny][nx] = dist[y][x] + 1;
+      from[ny][nx] = k;
+      q.push([nx, ny]);
     }
   }
-  // face the first open direction
-  pa = 0;
-  if (solid(px + 1, py)) pa = Math.PI / 2;
-  if (solid(px + 1, py) && solid(px, py + 1)) pa = Math.PI;
+  return { dist, from };
+}
+
+function floorAround(x: number, y: number): number {
+  let n = 0;
+  for (const d of DIRS) if (map[y + d[1]] && map[y + d[1]][x + d[0]] === ".") n++;
+  return n;
+}
+
+function buildMaze(def: LevelDef, seed: number) {
+  rnd = seed;
+  const W = def.cw * 2 + 1, H = def.ch * 2 + 1;
+  map = [];
+  for (let y = 0; y < H; y++) { const row: string[] = []; for (let x = 0; x < W; x++) row.push(def.wall); map.push(row); }
+  // carve: a depth-first walk that likes to keep going straight (long corridors)
+  const seen: boolean[] = [];
+  for (let i = 0; i < def.cw * def.ch; i++) seen.push(false);
+  const stack = [[0, 0, -1]];
+  seen[0] = true;
+  map[1][1] = ".";
+  while (stack.length > 0) {
+    const top = stack[stack.length - 1];
+    const opts: number[] = [];
+    for (let k = 0; k < 4; k++) {
+      const nx = top[0] + DIRS[k][0], ny = top[1] + DIRS[k][1];
+      if (nx >= 0 && ny >= 0 && nx < def.cw && ny < def.ch && !seen[ny * def.cw + nx]) opts.push(k);
+    }
+    if (opts.length === 0) { stack.pop(); continue; }
+    const k = opts.indexOf(top[2]) >= 0 && rand() < 0.72 ? top[2] : opts[ri(opts.length)];
+    const nx = top[0] + DIRS[k][0], ny = top[1] + DIRS[k][1];
+    seen[ny * def.cw + nx] = true;
+    map[top[1] * 2 + 1 + DIRS[k][1]][top[0] * 2 + 1 + DIRS[k][0]] = ".";
+    map[ny * 2 + 1][nx * 2 + 1] = ".";
+    top[2] = k;
+    stack.push([nx, ny, k]);
+  }
+  let far = [1, 1];
+  if (def.boss) {
+    // the Mörkö's hall in the far corner, the star door in its outer wall
+    for (let y = H - 6; y <= H - 2; y++) for (let x = W - 6; x <= W - 2; x++) map[y][x] = ".";
+    ghostsAt.push([W - 4, H - 4, 1]);
+    far = [W - 4, H - 2];
+    exitAt = { x: W - 4, y: H - 1 };
+  } else {
+    // the star door: a wall at the farthest dead end that touches no other corridor
+    const d = walk(1, 1).dist;
+    exitAt = { x: -1, y: -1 };
+    let most = -1;
+    for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+      if (d[y][x] <= most) continue;
+      for (const k of DIRS) {
+        const ex = x + k[0], ey = y + k[1];
+        if (map[ey][ex] !== "." && floorAround(ex, ey) === 1) { most = d[y][x]; far = [x, y]; exitAt = { x: ex, y: ey }; break; }
+      }
+    }
+  }
+  map[exitAt.y][exitAt.x] = "E";
+  // the path from the start to the far end, and the sum doors on it
+  const w = walk(1, 1);
+  const path: number[][] = [];
+  for (let x = far[0], y = far[1]; !(x === 1 && y === 1);) {
+    path.unshift([x, y]);
+    const k = w.from[y][x];
+    x -= DIRS[k][0]; y -= DIRS[k][1];
+  }
+  let after = 0, sx = 1, sy = 1;
+  for (const f of def.doors) {
+    const want = Math.floor(path.length * f);
+    let put = -1;
+    for (let o = 0; o < path.length && put < 0; o++) {
+      for (const i of [want + o, want - o]) {
+        if (i <= after + 3 || i >= path.length - 2) continue;
+        const [x, y] = path[i];
+        if (floorAround(x, y) !== 2 || ghostIn(x, y)) continue;
+        map[y][x] = "D";
+        if (walk(sx, sy).dist[far[1]][far[0]] < 0) { put = i; break; }
+        map[y][x] = ".";
+      }
+    }
+    if (put < 0) continue;
+    after = put;
+    sx = path[put + 1][0]; sy = path[put + 1][1];
+  }
+  // a few loops, so not every wrong turn is a dead end; never around a door
+  const zone: number[][] = map.map((r) => r.map(() => -1));
+  let zones = 0;
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    if (map[y][x] !== "." || zone[y][x] >= 0) continue;
+    const d = walk(x, y).dist;
+    for (let yy = 0; yy < H; yy++) for (let xx = 0; xx < W; xx++) if (d[yy][xx] >= 0) zone[yy][xx] = zones;
+    zones++;
+  }
+  for (let n = 0, tries = 0; n < def.loops && tries < 300; tries++) {
+    const x = 1 + ri(W - 2), y = 1 + ri(H - 2);
+    if (map[y][x] !== def.wall) continue;
+    const across = (map[y][x - 1] === "." && map[y][x + 1] === "." && map[y - 1][x] !== "." && map[y + 1][x] !== "." && zone[y][x - 1] === zone[y][x + 1]) ||
+      (map[y - 1][x] === "." && map[y + 1][x] === "." && map[y][x - 1] !== "." && map[y][x + 1] !== "." && zone[y - 1][x] === zone[y + 1][x]);
+    if (across) { map[y][x] = "."; n++; }
+  }
+  // ghosts away from the start
+  const d0 = walk(1, 1).dist;
+  const open: number[][] = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (map[y][x] === "." && (d0[y][x] < 0 || d0[y][x] >= 6) && !ghostIn(x, y)) open.push([x, y]);
+  for (let n = 0; n < def.ghosts && open.length > 0; n++) {
+    const c = open.splice(ri(open.length), 1)[0];
+    ghostsAt.push([c[0], c[1], 0]);
+  }
+  // lanterns: by every sum door, at the star door (green), and scattered around
+  lamps = [];
+  specials = [];
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = map[y][x];
+    if (c !== "D" && c !== "E") continue;
+    specials.push([x, y]);
+    for (const d of DIRS) if (tile(x + d[0] + 0.5, y + d[1] + 0.5) === ".") { addLamp(x + d[0], y + d[1], c === "E" ? GREEN : WARM); break; }
+  }
+  for (let tries = 0; tries < 400; tries++) {
+    const x = 1 + ri(W - 2), y = 1 + ri(H - 2);
+    if (map[y][x] === "." && !lamps.some((l) => Math.abs(l.x - x - 0.5) + Math.abs(l.y - y - 0.5) < 5)) addLamp(x, y, WARM);
+  }
+}
+
+let ghostsAt: number[][] = [];
+function ghostIn(x: number, y: number): boolean { return ghostsAt.some((g) => g[0] === x && g[1] === y); }
+function addLamp(x: number, y: number, c: number[]) { lamps.push({ x: x + 0.5, y: y + 0.5, c, ph: rand() * 6, r: 0, g: 0, b: 0 }); }
+
+function loadLevel(n: number) {
+  level = n;
+  ghostsAt = [];
+  buildMaze(LEVELS[n], seeds[n]);
+  ghosts = ghostsAt.map((g) => makeGhost(g[0], g[1], g[2] === 1));
+  sparks = [];
+  bossDown = false;
+  px = 1.5; py = 1.5;
+  // face the open corridor
+  pa = solid(px + 1, py) ? Math.PI / 2 : 0;
 }
 
 function makeGhost(x: number, y: number, boss: boolean): Ghost {
@@ -134,21 +264,31 @@ function cast(angle: number): Ray {
   let tx = dx < 0 ? (px - mx) * ddx : (mx + 1 - px) * ddx;
   let ty = dy < 0 ? (py - my) * ddy : (my + 1 - py) * ddy;
   let side = 0;
-  for (let i = 0; i < 40; i++) {
+  // past FAR it is all dark, so the walk stops there
+  for (let i = 0; i < FAR * 2 + 4; i++) {
     if (tx < ty) { tx += ddx; mx += sx; side = 0; }
     else { ty += ddy; my += sy; side = 1; }
     const c = tile(mx + 0.5, my + 0.5);
     if (c !== ".") {
       const d = side === 0 ? tx - ddx : ty - ddy;
-      let u = side === 0 ? py + d * dy : px + d * dx;
+      if (d > FAR) break;
+      const hx = px + d * dx, hy = py + d * dy;
+      let u = side === 0 ? hy : hx;
       u = u - Math.floor(u);
-      return { d: Math.max(0.05, d), tile: c, side, u };
+      return { d: Math.max(0.05, d), tile: c, side, u, hx, hy, sx, sy };
     }
   }
-  return { d: 40, tile: "#", side: 0, u: 0 };
+  return { d: 99, tile: "", side: 0, u: 0, hx: 0, hy: 0, sx: 0, sy: 0 };
 }
 
+let nearLamps: Lamp[] = [];
 function castAll() {
+  nearLamps = lamps.filter((l) => Math.abs(l.x - px) < FAR + 3.5 && Math.abs(l.y - py) < FAR + 3.5);
+  // each lantern flickers a little; its light for this frame
+  for (const l of nearLamps) {
+    const p = (1.15 + Math.sin(t * 9 + l.ph) * 0.06 + Math.sin(t * 23 + l.ph * 2) * 0.04) / 255;
+    l.r = l.c[0] * p; l.g = l.c[1] * p; l.b = l.c[2] * p;
+  }
   rays = [];
   for (let i = 0; i < COLS; i++) {
     const a = pa + FOV * ((i + 0.5) / COLS - 0.5);
@@ -378,7 +518,7 @@ function start() {
 }
 
 function onPointerDown(x: number, y: number) {
-  if (mode === "title") { level = 0; stars = 0; start(); return; }
+  if (mode === "title") { level = 0; stars = 0; newSeeds(); start(); return; }
   if (mode === "floor" && modeClock > 0.8) { level += 1; start(); return; }
   if (mode === "over" && modeClock > 0.8) { start(); return; }
   if (mode === "won" && modeClock > 1.2) { mode = "title"; modeClock = 0; return; }
@@ -408,10 +548,42 @@ const WALL: { [k: string]: number[] } = {
   E: [70, 210, 120],
 };
 
-function shade(c: number[], k: number): string {
-  // toward the castle's dark violet in the distance
-  const f = [30, 20, 60];
-  return "rgb(" + Math.round(f[0] + (c[0] - f[0]) * k) + "," + Math.round(f[1] + (c[1] - f[1]) * k) + "," + Math.round(f[2] + (c[2] - f[2]) * k) + ")";
+// how near things are lit: the wand's own glow, which reaches a few tiles
+function wandLight(d: number): number {
+  return 0.06 + 1 / (1 + (d / 2.8) * (d / 2.8));
+}
+
+// the darkness of the distance: 1 near, 0 at FAR
+function fog(d: number): number {
+  const k = d / FAR;
+  return rg.clamp(1 - k * k, 0, 1);
+}
+
+// lantern light on a point; a wall face is lit only from its own side
+const LL = [0, 0, 0];
+function lampLight(x: number, y: number, r: Ray | null): number[] {
+  let lr = 0, lg = 0, lb = 0;
+  for (let i = 0; i < nearLamps.length; i++) {
+    const l = nearLamps[i];
+    const dx = l.x - x, dy = l.y - y;
+    if (dx > 3.4 || dx < -3.4 || dy > 3.4 || dy < -3.4) continue;
+    if (r && (r.side === 0 ? dx * r.sx > 0 : dy * r.sy > 0)) continue;
+    let k = 1 - Math.sqrt(dx * dx + dy * dy) / 3.4;
+    if (k <= 0) continue;
+    k = k * k;
+    lr += k * l.r; lg += k * l.g; lb += k * l.b;
+  }
+  LL[0] = lr; LL[1] = lg; LL[2] = lb;
+  return LL;
+}
+
+// a colour lit by light (r, g, b) and faded into the dark by distance
+function lit(c: number[], light: number[], d: number): string {
+  const f = fog(d);
+  const r = Math.round(DARK[0] + (Math.min(255, c[0] * light[0]) - DARK[0]) * f);
+  const g = Math.round(DARK[1] + (Math.min(255, c[1] * light[1]) - DARK[1]) * f);
+  const b = Math.round(DARK[2] + (Math.min(255, c[2] * light[2]) - DARK[2]) * f);
+  return "rgb(" + r + "," + g + "," + b + ")";
 }
 
 function Walls(vh: number) {
@@ -419,35 +591,91 @@ function Walls(vh: number) {
   const out: any[] = [];
   for (let i = 0; i < COLS; i++) {
     const r = rays[i];
-    if (!r) continue;
+    if (!r || r.tile === "") continue;
     const h = Math.min(vh * 3, (width * 0.9) / r.d);
-    let k = Math.max(0.12, 1 - r.d / 9) * (r.side === 1 ? 0.8 : 1);
+    const raw = Math.sqrt((r.hx - px) * (r.hx - px) + (r.hy - py) * (r.hy - py));
+    let k = wandLight(raw) * (r.side === 1 ? 0.8 : 1);
     // the stones' edges and the door's planks
     if (r.tile === "D" && (r.u < 0.06 || r.u > 0.94 || Math.abs(r.u - 0.5) < 0.03)) k *= 0.6;
     else if (r.tile !== "D" && r.tile !== "E" && (r.u < 0.04 || r.u > 0.96)) k *= 0.75;
     if (r.tile === "E" && level === LEVELS.length - 1 && !bossDown) k *= 0.35;
+    const ll = lampLight(r.hx, r.hy, r);
+    const e = r.side === 1 ? 0.85 : 1;
+    const light = [Math.min(1.1, k + ll[0] * e), Math.min(1.1, k * 0.96 + ll[1] * e), Math.min(1.1, k * 0.9 + ll[2] * e)];
     const c = WALL[r.tile] || WALL["#"];
-    out.push(<div className="col" style={{ left: i * cw, top: vh / 2 - h / 2, width: cw + 0.6, height: h, backgroundColor: shade(c, k) }} />);
+    out.push(<div className="col" style={{ left: i * cw, top: vh / 2 - h / 2, width: cw + 0.6, height: h, backgroundColor: lit(c, light, r.d) }} />);
   }
   return out;
+}
+
+// the ceiling and the floor in bands that darken toward the horizon
+const CEIL = [96, 64, 170];
+const FLOOR = [150, 116, 196];
+function Bands(vh: number) {
+  const out: any[] = [];
+  const half = vh / 2;
+  // a few 2-colour gradients, closer together near the horizon
+  const edges = [half, half * 0.55, half * 0.3, half * 0.18, half * 0.1, half * 0.05, 0];
+  const at = (c: number[], o: number) => {
+    const d = (width * 0.45) / Math.max(1, o);
+    const k = wandLight(d);
+    return lit(c, [k, k * 0.96, k * 0.9], d);
+  };
+  for (let i = 0; i < edges.length - 1; i++) {
+    const o1 = edges[i], o2 = edges[i + 1];
+    out.push(<div className="col" style={{ left: 0, top: half - o1, width: width, height: o1 - o2 + 1, background: "linear-gradient(180deg, " + at(CEIL, o1) + ", " + at(CEIL, o2) + ")" }} />);
+    out.push(<div className="col" style={{ left: 0, top: half + o2 - 1, width: width, height: o1 - o2 + 1, background: "linear-gradient(180deg, " + at(FLOOR, o2) + ", " + at(FLOOR, o1) + ")" }} />);
+  }
+  return out;
+}
+
+// hanging lanterns, drawn like the ghosts: behind the walls in front of them
+function Lamps(vh: number) {
+  const list: any[] = [];
+  for (const l of lamps) {
+    const s = seen(l as any);
+    if (!s || s.d > FAR || s.d < 0.35) continue;
+    const sx = width / 2 + (s.a / FOV) * width;
+    const col = rays[Math.floor(rg.clamp(sx / width * COLS, 0, COLS - 1))];
+    if (col && col.d < s.d - 0.3) continue;
+    list.push({ l, s, sx });
+  }
+  list.sort((a, b) => b.s.d - a.s.d);
+  return list.map((o) => {
+    const h = (width * 0.9) / o.s.d;
+    const size = Math.min(30, h * 0.18);
+    const f = fog(o.s.d * 0.7);
+    const glow = 0.85 + Math.sin(t * 9 + o.l.ph) * 0.08;
+    const c = o.l.c;
+    const top = vh / 2 - h * 0.36;
+    return (
+      <div className="lamp" style={{ left: o.sx - size * 1.6, top: top - size * 1.6, width: size * 3.2, height: size * 3.2, opacity: f }}>
+        <div className="halo" style={{ left: 0, top: 0, width: size * 3.2, height: size * 3.2, borderRadius: size * 1.6, backgroundColor: "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + (0.16 * glow) + ")" }} />
+        <div className="halo" style={{ left: size * 0.8, top: size * 0.8, width: size * 1.6, height: size * 1.6, borderRadius: size * 0.8, backgroundColor: "rgba(" + c[0] + "," + c[1] + "," + c[2] + "," + (0.3 * glow) + ")" }} />
+        <div className="lcap" style={{ left: size * 1.25, top: size * 0.95, width: size * 0.7, height: size * 0.22, borderRadius: size * 0.08 }} />
+        <div className="flame" style={{ left: size * 1.3, top: size * 1.15, width: size * 0.6, height: size * 0.8, borderRadius: size * 0.3, backgroundColor: "rgb(" + Math.min(255, c[0] + 30) + "," + Math.min(255, c[1] + 50) + "," + Math.min(255, c[2] + 90) + ")" }} />
+      </div>
+    );
+  });
 }
 
 // a sign on a door or the exit, seen like a ghost, behind the walls in front of it
 function Signs(vh: number) {
   const out: any[] = [];
-  for (let y = 0; y < map.length; y++) {
-    for (let x = 0; x < map[y].length; x++) {
+  for (const sp of specials) {
+    {
+      const x = sp[0], y = sp[1];
       const c = map[y][x];
       if (c !== "D" && c !== "E") continue;
       const g = { x: x + 0.5, y: y + 0.5 } as Ghost;
       const s = seen(g);
-      if (!s || s.d > 7) continue;
+      if (!s || s.d > (c === "E" ? FAR : 8)) continue;
       const sx = width / 2 + (s.a / FOV) * width;
       const col = rays[Math.floor(rg.clamp(sx / width * COLS, 0, COLS - 1))];
       if (col && col.d < s.d - 0.75) continue;
       const size = Math.min(160, (width * 0.38) / Math.max(0.3, s.d - 0.5));
       out.push(
-        <div className={c === "D" ? "sign quest" : "sign exit"} style={{ left: sx - size / 2, top: vh / 2 - size / 2, width: size, height: size, borderRadius: size / 2, fontSize: size * 0.6 }}>
+        <div className={c === "D" ? "sign quest" : "sign exit"} style={{ left: sx - size / 2, top: vh / 2 - size / 2, width: size, height: size, borderRadius: size / 2, fontSize: size * 0.6, opacity: 0.35 + 0.65 * fog(s.d * 0.8) }}>
           {c === "D" ? "?" : "★"}
         </div>
       );
@@ -458,7 +686,7 @@ function Signs(vh: number) {
 
 function GhostView(g: Ghost, vh: number) {
   const s = seen(g);
-  if (!s || s.d < 0.2) return null;
+  if (!s || s.d < 0.2 || s.d > FAR) return null;
   const sx = width / 2 + (s.a / FOV) * width;
   const col = rays[Math.floor(rg.clamp(sx / width * COLS, 0, COLS - 1))];
   if (col && col.d < s.d - 0.2) return null;
@@ -467,8 +695,13 @@ function GhostView(g: Ghost, vh: number) {
   const fade = g.dead ? 1 - g.dead : 1;
   const w = size * (g.boss ? 0.95 : 0.58);
   const top = vh / 2 - size * (g.boss ? 0.45 : 0.4) + bob;
-  if (g.boss) return Morko(sx, top, w, size, g, fade);
-  const body = g.hurt > 0 ? "#ffd6e0" : "#f7f7ff";
+  // ghosts glow a little by themselves, so they are seen in the dark too
+  const ll = lampLight(g.x, g.y, null);
+  const wl = Math.max(0.62, wandLight(s.d));
+  const glow = [wl + ll[0] * 0.5, wl + ll[1] * 0.5, wl + ll[2] * 0.5];
+  const fd = Math.min(s.d, FAR * 0.8);
+  if (g.boss) return Morko(sx, top, w, size, g, fade, lit(g.hurt > 0 ? [181, 23, 158] : [90, 24, 154], [1, 1, 1], fd));
+  const body = lit(g.hurt > 0 ? [255, 214, 224] : [247, 247, 255], glow, fd);
   return (
     <div className="ghost" style={{ left: sx - w / 2, top: top, width: w, height: size, opacity: fade * 0.95 }}>
       <div className="gbody" style={{ width: w, height: size * 0.8, borderRadius: w / 2, backgroundColor: body }} />
@@ -482,8 +715,7 @@ function GhostView(g: Ghost, vh: number) {
   );
 }
 
-function Morko(sx: number, top: number, w: number, size: number, g: Ghost, fade: number) {
-  const fur = g.hurt > 0 ? "#b5179e" : "#5a189a";
+function Morko(sx: number, top: number, w: number, size: number, g: Ghost, fade: number, fur: string) {
   const tufts: any[] = [];
   for (let i = 0; i < 7; i++) {
     const tw = w / 5;
@@ -531,9 +763,9 @@ function Scene() {
   const sway = Math.sin(walkClock * 9) * 3;
   return (
     <div className="scene" style={{ height: vh }}>
-      <div className="ceiling" style={{ height: vh / 2 }} />
-      <div className="floor" style={{ top: vh / 2, height: vh / 2 }} />
+      {Bands(vh)}
       {Walls(vh)}
+      {Lamps(vh)}
       {Signs(vh)}
       {order.map((g) => GhostView(g, vh))}
       {Sparks(vh)}
@@ -542,10 +774,19 @@ function Scene() {
       <div className="wand" style={{ left: width / 2 + 40, top: vh - 70 + sway + (shotClock < 0.15 ? 10 : 0) }}>
         <div className="wandtip" />
       </div>
+      <div className="compass" style={{ top: vh - 46 }}>{compass()}</div>
       {safe > 0 && Math.floor(safe * 8) % 2 === 0 ? <div className="ouch" style={{ height: vh }} /> : null}
       {Hud()}
     </div>
   );
+}
+
+// an arrow toward the green star door, as seen from where you look
+function compass(): string {
+  let a = Math.atan2(exitAt.y + 0.5 - py, exitAt.x + 0.5 - px) - pa;
+  a = ((a % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
+  const arrows = ["⬆️", "↗️", "➡️", "↘️", "⬇️", "↙️", "⬅️", "↖️"];
+  return arrows[(Math.round(a / (Math.PI / 4)) + 8) % 8] + "★";
 }
 
 function Hud() {
