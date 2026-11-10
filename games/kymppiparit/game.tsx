@@ -83,7 +83,6 @@ function resolve() {
     score[turn]++;
     memory[picked[0]] = memory[picked[1]] = -1;
     rg.sound("coin"); rg.vibrate(15);
-    rg.say(["n" + a.v, "plus", "n" + b.v, "on", "n" + target()]);
     rg.celebrate(gx(picked[1]) + cw() / 2, gy(picked[1]) + ch() / 2, { count: 14, sound: false });
     picked = [];
     let left = 0; for (const c of cards) if (!c.done) left++;

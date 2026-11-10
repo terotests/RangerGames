@@ -62,7 +62,6 @@ function finishRoll() {
   dice = [1 + Math.floor(rg.random() * 6), 1 + Math.floor(rg.random() * 6)];
   sel = [];
   rg.sound("hit");
-  rg.say("n" + roll());
   if (!combos(open, roll()).length) { phase = "stuck"; clock = 0; rg.sound("wrong"); return; }
   phase = "choose";
   phonePlan = phoneTurn() ? bestCombo(open, roll()) : [];
@@ -82,8 +81,6 @@ function toggle(n: number) {
   rg.sound("tick", { pitch: 1.3 });
   if (s > roll()) { shake = 0.35; rg.sound("wrong"); rg.vibrate(30); sel = []; return; }
   if (s === roll()) {
-    // the sum aloud: 5 plus 3 is 8
-    if (sel.length > 1) { const ids = []; for (let i = 0; i < sel.length; i++) { if (i) ids.push("plus"); ids.push("n" + sel[i]); } ids.push("on"); ids.push("n" + s); rg.say(ids); }
     for (const x of sel) open[x] = false;
     sel = [];
     rg.sound("coin"); rg.vibrate(15);

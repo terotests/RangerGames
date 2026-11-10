@@ -63,6 +63,9 @@ pub struct GameInfo {
     /// the launcher's section: "aly", "kortit", "labra", "tutkimus", "opi",
     /// "seikkailu" (empty: the launcher decides)
     pub section: String,
+    /// a picture for the launcher's tile, in the game's folder ("icon.png");
+    /// `icon` (an emoji) is used where there is none
+    pub image: String,
 }
 
 impl GameInfo {
@@ -92,6 +95,7 @@ impl GameInfo {
             i18n: j.get("i18n"),
             speech: !matches!(j.get("speech"), Json::Bool(false)),
             section: s("section", ""),
+            image: s("image", ""),
         }
     }
 
@@ -106,6 +110,7 @@ impl GameInfo {
             member("i18n", self.i18n.clone()),
             member("speech", Json::Bool(self.speech)),
             member("section", Json::Str(self.section.clone())),
+            member("image", Json::Str(if self.image.is_empty() { String::new() } else { format!("{}/{}", self.dir, self.image) })),
         ])
     }
 }

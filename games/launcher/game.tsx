@@ -5,7 +5,7 @@
 // SECTION_OF below. ⚙️ turns to the settings: a tap on a tile then turns
 // that game's speech on or off.
 
-type Game = { id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string };
+type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string };
 type Section = { id: string; icon: string; color: string; fi: string; en: string; es: string };
 
 const SECTIONS: Section[] = [
@@ -152,7 +152,7 @@ function Tile(g: Game, i: number) {
   return (
     <div className="tile" id={"g-" + g.id} onClick={() => open(g.id)}
       style={{ backgroundColor: g.color, marginTop: bob, transform: down ? "scale(0.94)" : "none", opacity: settings && !rg.speechOn(g.id) ? 0.55 : 1 }}>
-      <div className="icon">{g.icon}</div>
+      {g.image ? <img className="iconimg" src={g.image} /> : <div className="icon">{g.icon}</div>}
       <div className={nameOf(g).length > 11 ? "name long" : "name"}>{nameOf(g)}</div>
       <div className="players">{settings ? (rg.speechOn(g.id) ? rg.t("🔊 Puhe päällä", "🔊 Speech on", "🔊 Voz activada") : rg.t("🔇 Ei puhetta", "🔇 No speech", "🔇 Sin voz")) : players(g.players)}</div>
     </div>
