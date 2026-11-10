@@ -1,0 +1,2 @@
+{ "name": "Pisteet ja laatikot", "description": "Piirrä viivoja vuorotellen ja sulje laatikoita", "icon": "🔲", "color": "#4361ee", "players": "1-2", "width": 360, "order": 114, "section": "aly",
+  "i18n": { "en": { "name": "Dots and Boxes", "description": "Take turns drawing lines and close the boxes" }, "es": { "name": "Puntos y cajas", "description": "Dibuja líneas por turnos y cierra cajas" } } }

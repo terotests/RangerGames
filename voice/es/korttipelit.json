@@ -1,0 +1,31 @@
+{
+ "_comment": "Älypelit ja korttipelit (reversi, pyramidi, muistipeli, kymppiparit, laatikot, suljelaatikko, golf); the Finnish clips are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "peli_reversi": "Reversi",
+  "peli_pyramidi": "Pirámide",
+  "peli_muistipeli": "Memoria",
+  "peli_kymppiparit": "Parejas de diez",
+  "peli_laatikot": "Puntos y cajas",
+  "peli_suljelaatikko": "Cierra la caja",
+  "peli_golf": "Solitario golf",
+  "rv_ohje": "Pon una ficha para atrapar las fichas del otro entre las tuyas. Cambian a tu color.",
+  "rv_musta_aloittaa": "Empiezan las negras.",
+  "rv_ohitus": "No hay jugadas. Pasa el turno.",
+  "rv_musta_voitti": "¡Ganan las negras!",
+  "rv_valkoinen_voitti": "¡Ganan las blancas!",
+  "py_ohje10": "Busca dos cartas que sumen diez. El diez se va solo.",
+  "py_ohje13": "Busca dos cartas que sumen trece. El rey se va solo.",
+  "mp_ohje": "Da la vuelta a dos cartas. Si son iguales, te las quedas y juegas otra vez.",
+  "kp_ohje": "Busca dos cartas que sumen",
+  "pl_ohje": "Dibuja una línea entre dos puntos. Si cierras una caja, es tuya y juegas otra vez.",
+  "pl_kettu_voitti": "¡Gana el zorro!",
+  "pl_panda_voitti": "¡Gana el panda!",
+  "sl_ohje": "Tira los dados. Cierra números que sumen lo mismo que los dados.",
+  "sl_suljettu": "¡Caja cerrada!",
+  "sl_pelaaja1_voitti": "¡Gana el jugador uno!",
+  "sl_pelaaja2_voitti": "¡Gana el jugador dos!",
+  "sl_pelaaja2_vuoro": "Jugador dos, te toca.",
+  "gp_ohje": "Pon en el montón una carta uno más alta o uno más baja."
+ }
+}

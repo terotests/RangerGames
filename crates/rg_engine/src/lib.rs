@@ -60,6 +60,9 @@ pub struct GameInfo {
     /// whether the game talks unless the player turns it off (`"speech": false`
     /// in game.json: quiet unless turned on in the launcher's settings)
     pub speech: bool,
+    /// the launcher's section: "aly", "kortit", "labra", "tutkimus", "opi",
+    /// "seikkailu" (empty: the launcher decides)
+    pub section: String,
 }
 
 impl GameInfo {
@@ -88,6 +91,7 @@ impl GameInfo {
             hidden: j.get("hidden").as_bool(),
             i18n: j.get("i18n"),
             speech: !matches!(j.get("speech"), Json::Bool(false)),
+            section: s("section", ""),
         }
     }
 
@@ -101,6 +105,7 @@ impl GameInfo {
             member("players", Json::Str(self.players.clone())),
             member("i18n", self.i18n.clone()),
             member("speech", Json::Bool(self.speech)),
+            member("section", Json::Str(self.section.clone())),
         ])
     }
 }

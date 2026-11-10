@@ -1,0 +1,2 @@
+{ "name": "Pyramidi", "description": "Pasianssi: poista kortit pareittain, kun summa on 10 tai 13", "icon": "🔺", "color": "#9d4edd", "players": "1", "width": 360, "order": 300, "section": "kortit",
+  "i18n": { "en": { "name": "Pyramid", "description": "Solitaire: remove pairs that make 10 or 13" }, "es": { "name": "Pirámide", "description": "Solitario: quita parejas que suman 10 o 13" } } }

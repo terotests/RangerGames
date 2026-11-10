@@ -1,0 +1,2 @@
+{ "name": "Sulje laatikko", "description": "Noppapeli: heitä ja sulje numerot, joiden summa on sama", "icon": "🎲", "color": "#bc6c25", "players": "1-2", "width": 360, "order": 320, "section": "aly",
+  "i18n": { "en": { "name": "Shut the Box", "description": "Dice game: roll and shut numbers that add up" }, "es": { "name": "Cierra la caja", "description": "Dados: tira y cierra números que sumen lo mismo" } } }

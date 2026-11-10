@@ -3,16 +3,29 @@
 .header { width: 100%; padding-top: 28px; padding-bottom: 12px; align-items: center; }
 .logo { font-size: 34px; font-weight: 700; color: #ffd166; }
 .sub { font-size: 16px; color: #c9c8ff; margin-top: 4px; }
-.grid { flex-direction: row; flex-wrap: wrap; justify-content: center; padding-left: 12px; padding-right: 12px; }
+.grid { flex-direction: row; flex-wrap: wrap; justify-content: center; padding-left: 8px; padding-right: 8px; }
 .tile {
-  width: 156px; height: 150px; margin: 6px; border-radius: 22px;
+  width: 104px; height: 118px; margin: 4px; border-radius: 22px;
   align-items: center; justify-content: center;
   shadow-color: rgba(0, 0, 0, 0.35); shadow-offset-y: 4px; shadow-radius: 8px;
 }
-.icon { font-size: 52px; }
-.name { font-size: 18px; font-weight: 700; color: #ffffff; margin-top: 4px; }
-.players { font-size: 12px; color: #ffffff; opacity: 0.85; margin-top: 2px; }
+.icon { font-size: 40px; }
+.name { font-size: 14px; font-weight: 700; color: #ffffff; margin-top: 4px; }
+.long { width: 98px; text-align: center; }
+.players { font-size: 11px; color: #ffffff; opacity: 0.85; margin-top: 2px; }
 .flags { flex-direction: row; margin-top: 10px; }
 .flag { width: 58px; height: 44px; margin-left: 6px; margin-right: 6px; border-radius: 12px; align-items: center; justify-content: center; background-color: rgba(255, 255, 255, 0.08); opacity: 0.55; }
 .flag.on { background-color: rgba(255, 255, 255, 0.28); border-width: 3px; border-color: #ffd166; opacity: 1; }
 .flagicon { font-size: 30px; }
+.stile {
+  width: 156px; height: 132px; margin-left: 6px; margin-right: 6px; margin-bottom: 6px; border-radius: 22px;
+  align-items: center; justify-content: center;
+  shadow-color: rgba(0, 0, 0, 0.35); shadow-offset-y: 4px; shadow-radius: 8px;
+}
+.sicon { font-size: 40px; }
+.sname { font-size: 19px; font-weight: 700; color: #ffffff; margin-top: 2px; }
+.minis { flex-direction: row; margin-top: 2px; }
+.mini { font-size: 16px; margin-left: 1px; margin-right: 1px; }
+.shead { width: 100%; flex-direction: row; align-items: center; padding-top: 22px; padding-bottom: 10px; padding-left: 12px; padding-right: 12px; }
+.sback { width: 52px; height: 44px; border-radius: 14px; background-color: rgba(255, 255, 255, 0.14); align-items: center; justify-content: center; font-size: 26px; color: #ffffff; }
+.stitle { flex-grow: 1; margin-left: 10px; font-size: 24px; font-weight: 700; color: #ffd166; }
