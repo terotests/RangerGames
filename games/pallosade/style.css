@@ -48,3 +48,9 @@
 .panelball { width: 72px; height: 72px; }
 .ptitle { font-size: 26px; font-weight: 700; color: #1b2a6b; margin-top: 6px; text-align: center; }
 .pback { margin-top: 12px; width: 220px; margin-bottom: 4px; }
+.ititle { position: absolute; height: 34px; align-items: center; justify-content: center; font-size: 24px; font-weight: 700; color: #ffd23f; }
+.isteps { position: absolute; flex-direction: row; justify-content: center; height: 12px; }
+.istep { width: 10px; height: 10px; border-radius: 5px; margin-left: 4px; margin-right: 4px; background-color: rgba(255,255,255,0.25); }
+.ion { background-color: #ff2b2b; }
+.idone { background-color: rgba(255,255,255,0.7); }
+.ilabel { color: #ff5c5c; font-size: 24px; }

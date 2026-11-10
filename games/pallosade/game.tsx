@@ -3,10 +3,12 @@
 // pop and give their owner points; the balls above fall down, which can
 // make a new line (a combo). First to 5 points wins. With a friend on one
 // phone, or against the phone. Rules and the phone's moves: lib/rules.ts.
+// Before the first round a short intro shows one example board for each
+// line direction, with a red pen ring drawn around the winning four.
 
 import { COLS, ROWS, WIN, empty, landRow, findRuns, collapse, points, phoneMove } from "lib/rules";
 
-type Phase = "menu" | "aim" | "fall" | "blink" | "over";
+type Phase = "menu" | "intro" | "aim" | "fall" | "blink" | "over";
 type Ball = { id: number; c: number; r: number; y: number; vy: number; p: number; hit: boolean };
 type Float = { x: number; y: number; t: number; text: string; p: number };
 
@@ -35,6 +37,24 @@ let phoneClock = 0;
 let overClock = 0;
 let winner = 0;
 let toldRules = false;
+let introClock = 0;
+
+// intro: one example board per line direction. Cells are [column, row, player]
+// (row 0 = bottom); the first four are the winning line, the rest stand around.
+type Scene = { fi: string; en: string; es: string; cells: number[][] };
+const SCENES: Scene[] = [
+  { fi: "Vaakaan", en: "Across", es: "En horizontal",
+    cells: [[2, 0, 1], [3, 0, 1], [4, 0, 1], [5, 0, 1], [1, 0, 2], [6, 0, 2], [3, 1, 2], [4, 1, 2], [5, 1, 1]] },
+  { fi: "Pystyyn", en: "Up", es: "En vertical",
+    cells: [[5, 0, 2], [5, 1, 2], [5, 2, 2], [5, 3, 2], [4, 0, 1], [6, 0, 1], [4, 1, 1], [3, 0, 2], [6, 1, 2]] },
+  { fi: "Vinoon ylös", en: "Diagonally up", es: "En diagonal hacia arriba",
+    cells: [[1, 0, 1], [2, 1, 1], [3, 2, 1], [4, 3, 1], [2, 0, 2], [3, 0, 2], [3, 1, 1], [4, 0, 1], [4, 1, 2], [4, 2, 2], [5, 0, 2]] },
+  { fi: "Vinoon alas", en: "Diagonally down", es: "En diagonal hacia abajo",
+    cells: [[2, 3, 2], [3, 2, 2], [4, 1, 2], [5, 0, 2], [2, 0, 1], [2, 1, 2], [2, 2, 1], [3, 0, 1], [3, 1, 1], [4, 0, 1], [6, 0, 1], [1, 0, 2]] },
+];
+const SCENE_T = 2.8;               // seconds per example board
+const POP_T = 0.06;                // one ball appears after another
+const PEN_AT = 0.8, PEN_T = 0.7;   // when the pen starts and how long it draws
 
 function boardLeft() { return Math.floor((width - BW) / 2); }
 function ballX(c: number) { return boardLeft() + PAD + c * CELL + (CELL - BALL) / 2; }
@@ -51,6 +71,13 @@ function phoneTurn() { return vsPhone && turn === 2; }
 function start(phone: boolean) {
   vsPhone = phone; score = [0, 0, 0]; starts = 1;
   rg.sound("click");
+  phase = "intro"; introClock = 0;
+  if (!toldRules) { toldRules = true; rg.say("pp_ohje"); }
+}
+
+function endIntro() {
+  if (phase !== "intro") return;
+  rg.sound("click");
   newRound();
 }
 
@@ -62,7 +89,7 @@ function newRound() {
   aimCol = 3; phoneClock = 0;
   phase = "aim";
   const first = vsPhone ? (turn === 1 ? "sinun_vuorosi" : "minun_vuoroni") : (turn === 1 ? "pp_valkoinen_aloittaa" : "pp_keltainen_aloittaa");
-  if (!toldRules) { toldRules = true; rg.say(["pp_ohje", first]); } else rg.say(first);
+  rg.say(first);
 }
 
 function drop(c: number) {
@@ -169,10 +196,93 @@ function tick(dt: number) {
     if (phoneClock > 0.25 && phoneClock - dt <= 0.25) aimCol = phoneMove(g, 2, rg.random, 0.75);
     if (phoneClock > 0.75) drop(aimCol);
   } else if (phase === "over") overClock += dt;
+  else if (phase === "intro") {
+    const before = introClock;
+    introClock += dt;
+    const k = Math.floor(introClock / SCENE_T), at = introClock - k * SCENE_T;
+    if (k >= SCENES.length) { newRound(); return; }
+    if (at >= PEN_AT && before - k * SCENE_T < PEN_AT) rg.sound("whoosh", { pitch: 0.8, volume: 0.4 });
+    if (at >= PEN_AT + PEN_T && before - k * SCENE_T < PEN_AT + PEN_T) rg.sound("note", { pitch: 1.5 });
+  }
 }
 
 function onBack() {
-  if (phase === "menu") rg.exit(); else { phase = "menu"; rg.sound("click"); }
+  if (phase === "menu") rg.exit();
+  else if (phase === "intro") endIntro(); else { phase = "menu"; rg.sound("click"); }
+}
+
+// a hand-drawn ring around the segment a..b (board coordinates), as an SVG
+// path; k (0..1) is how much of it the pen has drawn. It goes a little past
+// its start so the ends overlap like a real pen stroke.
+function penRing(ax: number, ay: number, bx: number, by: number, k: number): string {
+  const R = 24, len = Math.sqrt((bx - ax) * (bx - ax) + (by - ay) * (by - ay));
+  const ux = (bx - ax) / len, uy = (by - ay) / len, nx = -uy, ny = ux;
+  const per = 2 * len + 2 * Math.PI * R, total = per * 1.12, N = 90;
+  const n = Math.max(2, Math.floor(N * k));
+  let d = "";
+  for (let i = 0; i <= n; i++) {
+    const s = (i / N) * total, m = s % per;
+    const w = 1 + 0.07 * Math.sin(s * 0.045 + 1) + 0.04 * Math.sin(s * 0.11);  // a slightly shaky hand
+    const grow = 1 + 0.09 * (s / total);                                          // the overlap passes outside
+    let x = 0, y = 0;
+    if (m < len) { x = ax + ux * m - nx * R * w * grow; y = ay + uy * m - ny * R * w * grow; }
+    else if (m < len + Math.PI * R) {
+      const a = (m - len) / R;
+      x = bx + (-nx * Math.cos(a) + ux * Math.sin(a)) * R * w * grow;
+      y = by + (-ny * Math.cos(a) + uy * Math.sin(a)) * R * w * grow;
+    } else if (m < 2 * len + Math.PI * R) {
+      const q = m - len - Math.PI * R;
+      x = bx - ux * q + nx * R * w * grow; y = by - uy * q + ny * R * w * grow;
+    } else {
+      const a = (m - 2 * len - Math.PI * R) / R;
+      x = ax + (nx * Math.cos(a) - ux * Math.sin(a)) * R * w * grow;
+      y = ay + (ny * Math.cos(a) - uy * Math.sin(a)) * R * w * grow;
+    }
+    d += (i === 0 ? "M " : " L ") + x.toFixed(1) + " " + y.toFixed(1);
+  }
+  return d;
+}
+
+function Intro() {
+  const kids = [];
+  const L = boardLeft();
+  const k = Math.min(SCENES.length - 1, Math.floor(introClock / SCENE_T));
+  const at = introClock - k * SCENE_T;
+  const sc = SCENES[k];
+  kids.push(<div className="ititle" style={{ left: 0, top: 58, width: width }}>{rg.t("Näin saat pisteen!", "This is how you score!", "¡Así se gana un punto!")}</div>);
+  const steps = [];
+  for (let i = 0; i < SCENES.length; i++) steps.push(<div className={i === k ? "istep ion" : i < k ? "istep idone" : "istep"} />);
+  kids.push(<div className="isteps" style={{ left: 0, top: 96, width: width }}>{steps}</div>);
+  const done = at >= PEN_AT + PEN_T;
+  kids.push(<div className={done ? "status ilabel" : "status sw"} style={{ left: 0, top: 114, width: width }}>{rg.t(sc.fi, sc.en, sc.es)}</div>);
+  const holes = [];
+  for (let c = 0; c < COLS; c++) for (let r = 0; r < ROWS; r++) {
+    holes.push(<div className="hole" style={{ left: PAD + c * CELL + 3, top: PAD + (ROWS - 1 - r) * CELL + 3 }} />);
+  }
+  kids.push(<div className="frame" style={{ left: L, top: BT, width: BW, height: BH }}>{holes}</div>);
+  // the balls pop in one by one, the line's own four last
+  const order = [];
+  for (let i = 4; i < sc.cells.length; i++) order.push(sc.cells[i]);
+  for (let i = 0; i < 4; i++) order.push(sc.cells[i]);
+  for (let i = 0; i < order.length; i++) {
+    const a = at - i * POP_T;
+    if (a <= 0) continue;
+    const cl = order[i], win = i >= order.length - 4;
+    const s = BALL * Math.min(1, 0.4 + a * 6);
+    kids.push(<img className="ball" src={img(cl[2], win && done)} style={{ left: ballX(cl[0]) + (BALL - s) / 2, top: ballY(cl[1]) + (BALL - s) / 2, width: s, height: s, opacity: win || !done ? "1" : "0.55" }} />);
+  }
+  // the red pen ring
+  if (at > PEN_AT) {
+    const a = sc.cells[0], b = sc.cells[3];
+    const cx = (c: number) => L + PAD + c * CELL + CELL / 2;
+    const cy = (r: number) => BT + PAD + (ROWS - 1 - r) * CELL + CELL / 2;
+    const d = penRing(cx(a[0]), cy(a[1]), cx(b[0]), cy(b[1]), Math.min(1, (at - PEN_AT) / PEN_T));
+    const vb = "0 0 " + width + " " + height;
+    kids.push(<path d={d} stroke="rgba(120,0,0,0.45)" strokeWidth="7" fill="none" viewBox={vb} style={{ position: "absolute", left: 0, top: 2, width: width, height: height }} />);
+    kids.push(<path d={d} stroke="#ff2b2b" strokeWidth="5" fill="none" viewBox={vb} style={{ position: "absolute", left: 0, top: 0, width: width, height: height }} />);
+  }
+  kids.push(<div className="btn back small" id="skip" style={{ left: (width - 170) / 2, top: BT + BH + 14 }} onClick={() => endIntro()}>{rg.t("Aloita ▶", "Start ▶", "Empezar ▶")}</div>);
+  return <div className="screen">{kids}</div>;
 }
 
 function ScorePill(p: number) {
@@ -277,5 +387,5 @@ function Menu() {
 }
 
 function view() {
-  return phase === "menu" ? Menu() : Game();
+  return phase === "menu" ? Menu() : phase === "intro" ? Intro() : Game();
 }
