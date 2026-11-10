@@ -1,0 +1,17 @@
+{
+ "_comment": "Prisma (games/prisma): the same ids as voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "peli_prisma": "Prism",
+  "prisma_tip1": "Turn the prism with your finger so the light hits the screen.",
+  "prisma_tip2": "Drag the screen further and closer. Measure the width of the colours in three places.",
+  "prisma_tip3": "Change what the prism is made of. How much does the light turn?",
+  "prisma_tip4": "Adjust the three lamps. Make yellow, magenta, cyan and white light.",
+  "prisma_tip5": "Change the colour of the light. Try all four.",
+  "prisma_fact1": "White light is many colours together. The prism bends each colour a little differently, and that makes a rainbow.",
+  "prisma_fact2": "The further the screen, the wider the colours spread.",
+  "prisma_fact3": "Glass bends light more than water, and air hardly at all.",
+  "prisma_fact4": "Red, green and blue light together look white.",
+  "prisma_fact5": "A prism does not make colours, it only separates them. One-coloured light has just one colour."
+ }
+}

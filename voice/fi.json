@@ -952,6 +952,17 @@
   "pp_valkoinen_aloittaa": "Valkoinen aloittaa.",
   "pp_keltainen_aloittaa": "Keltainen aloittaa.",
   "pp_valkoinen_voitti": "Valkoinen voitti!",
-  "pp_keltainen_voitti": "Keltainen voitti!"
+  "pp_keltainen_voitti": "Keltainen voitti!",
+  "peli_prisma": "Prisma",
+  "prisma_tip1": "Käännä prismaa sormella niin, että valo osuu valkokankaalle.",
+  "prisma_tip2": "Vedä kangasta kauemmas ja lähemmäs. Mittaa värien leveys kolmesta kohdasta.",
+  "prisma_tip3": "Vaihda prisman ainetta. Kuinka paljon valo kääntyy?",
+  "prisma_tip4": "Säädä kolmea lamppua. Tee keltaista, pinkkiä, turkoosia ja valkoista valoa.",
+  "prisma_tip5": "Vaihda valon väriä. Kokeile kaikkia neljää.",
+  "prisma_fact1": "Valkoinen valo on monta väriä yhdessä. Prisma taittaa jokaista väriä vähän eri verran, ja niin syntyy sateenkaari.",
+  "prisma_fact2": "Mitä kauempana kangas on, sitä leveämmäksi värit ehtivät levitä.",
+  "prisma_fact3": "Lasi taittaa valoa enemmän kuin vesi, ja ilma ei juuri ollenkaan.",
+  "prisma_fact4": "Punainen, vihreä ja sininen valo yhdessä näyttävät valkoiselta.",
+  "prisma_fact5": "Prisma ei tee värejä, se vain erottelee ne. Yksivärisessä valossa on vain yksi väri."
  }
 }
