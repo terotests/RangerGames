@@ -81,7 +81,9 @@ def done(lang, cid, text):
     try:
         with open(os.path.join(OUT, lang, cid + ".json"), encoding="utf-8") as fh:
             j = json.load(fh)
-            return j.get("text") == text and j.get("spoken", text) == spoken(lang, text) and os.path.exists(os.path.join(OUT, lang, cid + ".wav"))
+            # a clip none of whose takes had a fitting length is left to Piper ("failed", no .wav)
+            same = j.get("text") == text and j.get("spoken", text) == spoken(lang, text)
+            return same and (j.get("failed") or os.path.exists(os.path.join(OUT, lang, cid + ".wav")))
     except (OSError, ValueError):
         return False
 
@@ -145,17 +147,27 @@ def main():
             x = trim(wav.squeeze().detach().cpu().numpy(), model.sr)
             dur = len(x) / model.sr
             # far too long (repeats, trailing noise) or too short (words dropped): try again
-            ok = 0.4 * want - 0.3 <= dur <= max(2.0 * want + 1.2, 2.5)
+            # (a name of a few syllables cut to half shows only against a tighter floor)
+            low = 0.9 * want if want < 1.5 else 0.4 * want - 0.3
+            ok = low <= dur <= max(2.0 * want + 1.2, 2.5)
             if best is None or abs(dur - want) < abs(best[1] - want):
                 best = (x, dur, seed)
             if ok:
                 break
         x, dur, seed = best
-        sf.write(os.path.join(OUT, lang, cid + ".wav"), x, model.sr, subtype="PCM_16")
+        wav_path = os.path.join(OUT, lang, cid + ".wav")
+        info = {"text": text, "spoken": say, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1}
+        if ok:
+            sf.write(wav_path, x, model.sr, subtype="PCM_16")
+        else:
+            # every take cut short or ran on: no clip, the build lets Piper say it
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+            info.update({"failed": True, "best": round(dur, 2), "want": round(want, 2)})
         with open(os.path.join(OUT, lang, cid + ".json"), "w", encoding="utf-8") as fh:
-            json.dump({"text": text, "spoken": say, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1}, fh, ensure_ascii=False)
+            json.dump(info, fh, ensure_ascii=False)
         left = (time.time() - t_all) / (n + 1) * (len(todo) - n - 1)
-        print(f"[{n + 1}/{len(todo)}] {lang}/{cid} {dur:.1f} s in {time.time() - t0:.0f} s, tries {attempt + 1}; ~{left / 3600:.1f} h left", flush=True)
+        print(f"[{n + 1}/{len(todo)}] {lang}/{cid} {dur:.1f} s in {time.time() - t0:.0f} s, tries {attempt + 1}{'' if ok else ' FAILED (Piper says it)'}; ~{left / 3600:.1f} h left", flush=True)
 
 
 if __name__ == "__main__":
