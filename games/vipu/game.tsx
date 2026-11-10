@@ -448,6 +448,24 @@ function Scene() {
   return out;
 }
 
+
+// A bucket drawn with paths: the bucket emoji (Unicode 13) is newer than
+// the old phone's font (Android 9 has Emoji 11).
+function Bucket(size: number) {
+  const box = { position: "absolute", left: 0, top: 0, width: size, height: size };
+  let handle = "";
+  for (let i = 0; i <= 12; i++) { const a = Math.PI + i / 12 * Math.PI; handle += (i ? " L " : "M ") + (12 + Math.cos(a) * 6.5).toFixed(2) + " " + (9 + Math.sin(a) * 6.5).toFixed(2); }
+  return (
+    <div style={{ width: size, height: size }}>
+      <path d={handle} stroke="#4f5b67" strokeWidth="1.5" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 5 9 L 19 9 L 17.2 21 L 6.8 21 Z" fill="#b7c2cd" viewBox="0 0 24 24" style={box} />
+      <path d="M 5.8 14.5 L 18.2 14.5" stroke="#8592a0" strokeWidth="1.2" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 5 9 L 19 9 L 17.2 21 L 6.8 21 Z" stroke="#4f5b67" strokeWidth="1.3" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 4.3 9 L 19.7 9" stroke="#4f5b67" strokeWidth="2.4" fill="none" viewBox="0 0 24 24" style={box} />
+    </div>
+  );
+}
+
 function Controls() {
   const lv = LEVELS[level];
   const bucket = items.find((it) => it.kind === "b");
@@ -455,7 +473,7 @@ function Controls() {
   const btns: any[] = [];
   if (bucket) {
     btns.push(<div className={pouring > 0 ? "btn pour on" : "btn pour"} id="pour" onPointerDown={() => press(1)}>🚰 {rg.t("Hana", "Tap", "Grifo")}</div>);
-    btns.push(<div className={pouring < 0 ? "btn drain on" : "btn drain"} id="drain" onPointerDown={() => press(-1)}>🪣 {rg.t("Valuta", "Drain", "Vaciar")}</div>);
+    btns.push(<div className={pouring < 0 ? "btn drain on" : "btn drain"} id="drain" onPointerDown={() => press(-1)}>{Bucket(24)}<div style={{ marginLeft: 4 }}>{rg.t("Valuta", "Drain", "Vaciar")}</div></div>);
   }
   btns.push(<div className="btn small" id="hint" onClick={() => { showHint = !showHint; rg.sound("click"); if (showHint) speak("vv_kauemmas"); }}>💡</div>);
   btns.push(<div className="btn small" id="reset" onClick={() => startLevel(level)}>↺</div>);

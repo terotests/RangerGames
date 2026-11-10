@@ -53,7 +53,7 @@ const TOOLS: { [k: string]: { icon: string; name: string[]; power: number; r: nu
     tip: ["Liekki on kuuma (800 °C) mutta pieni, ja tikku palaa loppuun.", "The flame is hot (800 °C) but small, and the match burns out.", "La llama está caliente (800 °C) pero es pequeña y la cerilla se consume."] },
   candle: { icon: "🕯️", name: ["Kynttilä", "Candle", "Vela"], power: 80, r: 7,
     tip: ["Kuuma ilma nousee ylös: pidä liekki jään alla!", "Hot air rises: hold the flame under the ice!", "El aire caliente sube: ¡pon la llama debajo del hielo!"] },
-  wood: { icon: "🪵", name: ["Palava puu", "Burning wood", "Leña ardiendo"], power: 900, r: 15,
+  wood: { icon: "", name: ["Palava puu", "Burning wood", "Leña ardiendo"], power: 900, r: 15,
     tip: ["Puussa on paljon energiaa, ja se vapautuu lämpönä kun puu palaa.", "Wood holds a lot of energy; burning sets it free as heat.", "La madera guarda mucha energía, que al arder se libera como calor."] },
   stove: { icon: "🏕️", name: ["Retkikeitin", "Camping stove", "Hornillo"], power: 2500, r: 20,
     tip: ["Kaasuliekki on sininen ja tosi kuuma. Tehokkain lämmitin!", "A gas flame is blue and very hot. The strongest heater!", "La llama de gas es azul y muy caliente. ¡El más potente!"] },
@@ -1060,7 +1060,7 @@ function ToolButton(k: Tool) {
   if (k === "match" && matches > 0) badge = String(matches);
   return (
     <div className={"tool" + (sel ? " sel" : "") + (on ? " on" : "")} onPointerDown={() => pickTool(k)}>
-      <div className="ticon">{k === "palm" && handFrozen ? "🥶" : T.icon}</div>
+      <div className="ticon">{k === "palm" && handFrozen ? "🥶" : k === "wood" ? Drawn("wood", 30) : T.icon}</div>
       {badge && k === "match" ? <div className="badge">{badge}</div> : null}
     </div>
   );
@@ -1095,8 +1095,8 @@ function Toolbar() {
           <div className="tname">{rg.t("Hella", "Hotplate", "Hornillo")} {Math.round(plateT)}°</div>
         </div>
         {free
-          ? <div className="tool util" onPointerDown={() => dropIce(false)}><div className="ticon">🧊➕</div></div>
-          : <div className="tool util" onPointerDown={() => startLevel(level)}><div className="ticon">↺</div></div>}
+          ? <div className="tool util" onPointerDown={() => dropIce(false)}><div className="ticon irow">{Drawn("ice", 24)}<div>➕</div></div></div>
+          : <div className="tool util" onPointerDown={() => startLevel(level)}><div className="ticon">{Drawn("reset", 26)}</div></div>}
       </div>
     </div>
   );
@@ -1124,18 +1124,82 @@ function Menu() {
   const bob = Math.sin(t * 2) * 4;
   return (
     <div className="screen menu">
-      <div className="mtitle" style={{ marginTop: 40 + bob }}>🧊 {rg.t("Lämpölabra", "Heat Lab", "Laboratorio de calor")}</div>
+      <div className="mtitle irow" style={{ marginTop: 40 + bob }}>{Drawn("ice", 38)}<div style={{ marginLeft: 8 }}>{rg.t("Lämpölabra", "Heat Lab", "Laboratorio de calor")}</div></div>
       <div className="msub">{rg.t("Sulata jää ja vapauta jäätyneet aarteet!", "Melt the ice and free the frozen treasures!", "¡Derrite el hielo y libera los tesoros congelados!")}</div>
       <div className="levels">
         {LEVELS.map((L, i) => (
           <div className={"lvl" + (L.id === "leikki" ? " play" : "")} onClick={() => startLevel(i)}>
-            <div className="lvlicon">{L.blocks.filter((b) => b.t).map((b) => b.t).join("") || "🧊🧂🔥"}</div>
+            {L.blocks.some((b) => b.t)
+              ? <div className="lvlicon">{L.blocks.filter((b) => b.t).map((b) => b.t).join("")}</div>
+              : <div className="lvlicon irow">{Drawn("ice", 24)}<div>🧂🔥</div></div>}
             <div className="lvlname">{rg.t(L.name, L.en, L.es)}</div>
             {best[L.id] ? <div className="lvlbest">✓ {best[L.id]} s</div> : null}
           </div>
         ))}
       </div>
       <div className="mlearn">{rg.t("Opitaan: lämpötila, olomuodot ja lämpöenergian siirtyminen.", "Learn: temperature, states of matter and how heat moves.", "Aprende: temperatura, estados de la materia y cómo se mueve el calor.")}</div>
+    </div>
+  );
+}
+
+// Drawn icons. The ice cube (Unicode 12) and the log (Unicode 13) emoji are
+// newer than the old phone's font (Android 9 has Emoji 11), and ↺ is missing
+// from many phone fonts, so these are vector paths in a 24×24 box.
+function ring(cx: number, cy: number, r: number): string {
+  let d = "";
+  for (let i = 0; i <= 20; i++) { const a = i / 20 * Math.PI * 2; d += (i ? " L " : "M ") + (cx + Math.cos(a) * r).toFixed(2) + " " + (cy + Math.sin(a) * r).toFixed(2); }
+  return d + " Z";
+}
+
+function arcPts(cx: number, cy: number, r: number, a0: number, a1: number): number[][] {
+  const pts: number[][] = [];
+  for (let i = 0; i <= 16; i++) { const a = (a0 + (a1 - a0) * i / 16) * Math.PI / 180; pts.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]); }
+  return pts;
+}
+
+function polyline(pts: number[][]): string {
+  let d = "";
+  for (let i = 0; i < pts.length; i++) d += (i ? " L " : "M ") + pts[i][0].toFixed(2) + " " + pts[i][1].toFixed(2);
+  return d;
+}
+
+// [d, fill] or [d, "", stroke, width]
+const DRAWN: { [k: string]: string[][] } = {
+  ice: [
+    ["M 12 2.5 L 21.5 7.3 L 12 12.1 L 2.5 7.3 Z", "#eefaff"],
+    ["M 2.5 7.3 L 12 12.1 L 12 21.8 L 2.5 17 Z", "#a8dcf2"],
+    ["M 21.5 7.3 L 12 12.1 L 12 21.8 L 21.5 17 Z", "#74c3e6"],
+    ["M 12 2.5 L 21.5 7.3 L 21.5 17 L 12 21.8 L 2.5 17 L 2.5 7.3 Z M 2.5 7.3 L 12 12.1 L 21.5 7.3 M 12 12.1 L 12 21.8", "", "#3d8fbd", "1.1"],
+    ["M 4.7 10.2 L 4.7 14.6", "", "#ffffff", "1.4"],
+    ["M 9.2 6 L 12 4.6", "", "#ffffff", "1.2"],
+  ],
+  wood: [
+    ["M 11 9.5 L 9.3 6.3 L 11.4 7.2 L 12.2 2.6 L 13.8 6.6 L 15.4 4.8 L 15 9.5 Z", "#ff8c1a"],
+    ["M 12 9.5 L 11.6 7.8 L 12.6 8.2 L 13.1 6.2 L 14 8.4 L 14.3 9.5 Z", "#ffd166"],
+    [polyline(arcPts(5, 14.5, 4.5, 90, 270)) + " L 18 10 L 18 19 Z", "#8b5a2b"],
+    ["M 7 12.5 L 14.5 12.5 M 6 16.5 L 12 16.5", "", "#5e3a17", "1.1"],
+    [ring(18, 14.5, 4.5), "#e3b37c"],
+    [ring(18, 14.5, 4.5), "", "#6b4220", "1"],
+    [ring(18, 14.5, 2.6), "", "#a9713c", "0.9"],
+  ],
+};
+
+function Drawn(name: string, size: number) {
+  const box = { position: "absolute", left: 0, top: 0, width: size, height: size };
+  let parts = DRAWN[name];
+  if (name === "reset") {
+    const pts = arcPts(12, 12, 7.5, -60, 230);
+    const e = pts[pts.length - 1], p = pts[pts.length - 2], a = Math.atan2(e[1] - p[1], e[0] - p[0]), b = 2.5, s = 7;
+    const tip = [e[0] + Math.cos(a) * s, e[1] + Math.sin(a) * s];
+    const l = [e[0] + Math.cos(a + b) * s * 0.8, e[1] + Math.sin(a + b) * s * 0.8];
+    const q = [e[0] + Math.cos(a - b) * s * 0.8, e[1] + Math.sin(a - b) * s * 0.8];
+    parts = [[polyline(pts), "", "#ffffff", "2.6"], [polyline([tip, l, q]) + " Z", "#ffffff"]];
+  }
+  return (
+    <div style={{ width: size, height: size }}>
+      {parts.map((x) => x[2]
+        ? <path d={x[0]} stroke={x[2]} strokeWidth={x[3]} fill="none" viewBox="0 0 24 24" style={box} />
+        : <path d={x[0]} fill={x[1]} viewBox="0 0 24 24" style={box} />)}
     </div>
   );
 }

@@ -65,7 +65,7 @@ TAMPERE = [
     ("koskipuisto", "Koskipuisto", "🌳", 51, 31),
     ("hameenpuisto", "Hämeenpuisto", "🌷", -639, 121),
     ("nasinpuisto", "Näsinpuisto", "🌲", -639, -499),
-    ("pikkukakkonen", "Pikku Kakkosen puisto", "🛝", 99, -37),
+    ("pikkukakkonen", "Pikku Kakkosen puisto", "🧸", 99, -37),
     ("sorinaukio", "Sorin aukion leikkikenttä", "🎠", 313, 447),
     ("tammerkoski", "Tammerkoski", "🌊", -90, -160),
     ("nasijarvi", "Näsijärvi", "⛵", -1400, -690),

@@ -476,7 +476,7 @@ function GoalViews() {
     } else {
       if (p >= 1) out.push(<div className="emoji" style={{ left: cx - 30, top: FY + k.y * C - 44, width: 60, fontSize: 36 }}>🏰</div>);
       else out.push(<div className="ghost" style={{ left: FX + k.x * C, top: FY + (k.y + k.h - Math.ceil(k.need / k.w)) * C, width: k.w * C, height: 1 }} />);
-      out.push(<div className="emoji" style={{ left: FX + (k.x + k.w) * C + 4, top: FY + (k.y + k.h) * C - 26, width: 30, fontSize: 20 }}>🪣</div>);
+      out.push(<div className="emoji" style={{ left: FX + (k.x + k.w) * C + 4, top: FY + (k.y + k.h) * C - 26, width: 26, height: 26 }}>{Bucket(26)}</div>);
     }
   }
   return out;
@@ -585,6 +585,24 @@ function Menu() {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+
+// A bucket drawn with paths: the bucket emoji (Unicode 13) is newer than
+// the old phone's font (Android 9 has Emoji 11).
+function Bucket(size: number) {
+  const box = { position: "absolute", left: 0, top: 0, width: size, height: size };
+  let handle = "";
+  for (let i = 0; i <= 12; i++) { const a = Math.PI + i / 12 * Math.PI; handle += (i ? " L " : "M ") + (12 + Math.cos(a) * 6.5).toFixed(2) + " " + (9 + Math.sin(a) * 6.5).toFixed(2); }
+  return (
+    <div style={{ width: size, height: size }}>
+      <path d={handle} stroke="#4f5b67" strokeWidth="1.5" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 5 9 L 19 9 L 17.2 21 L 6.8 21 Z" fill="#b7c2cd" viewBox="0 0 24 24" style={box} />
+      <path d="M 5.8 14.5 L 18.2 14.5" stroke="#8592a0" strokeWidth="1.2" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 5 9 L 19 9 L 17.2 21 L 6.8 21 Z" stroke="#4f5b67" strokeWidth="1.3" fill="none" viewBox="0 0 24 24" style={box} />
+      <path d="M 4.3 9 L 19.7 9" stroke="#4f5b67" strokeWidth="2.4" fill="none" viewBox="0 0 24 24" style={box} />
     </div>
   );
 }
