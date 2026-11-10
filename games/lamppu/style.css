@@ -62,13 +62,11 @@
 .gname { font-size: 10px; color: #34435a; margin-left: 3px; }
 .gname.on { color: #ffffff; }
 
-.pickers { position: absolute; width: 344px; }
-.prow { flex-direction: row; flex-wrap: wrap; justify-content: center; margin-bottom: 2px; }
-.pick { margin: 2px; border-radius: 12px; background-color: #ffffff; align-items: center; justify-content: center;
-  border-width: 2px; border-color: #d5dde8; }
-.pick.b { width: 106px; height: 74px; }
-.pick.r { width: 80px; height: 40px; }
-.pick.on { border-color: #f4a100; background-color: #fff5d6; }
-.pbox { height: 50px; align-items: center; justify-content: center; }
-.rbox { height: 20px; align-items: center; justify-content: center; }
-.plabel { font-size: 11px; font-weight: 700; color: #34435a; }
+.slot.hot { border-color: #f4a100; background-color: #fff5d6; }
+.rslot { position: absolute; width: 76px; height: 26px; border-radius: 13px; border-width: 2px; border-color: #8aa39a;
+  background-color: rgba(255,255,255,0.8); align-items: center; justify-content: center; }
+.rslot.hot { border-color: #f4a100; background-color: #fff5d6; }
+.tile { position: absolute; border-radius: 12px; background-color: #ffffff; border-width: 2px; border-color: #d5dde8; }
+.tile.empty { background-color: rgba(255,255,255,0.35); border-color: #c3ccd8; }
+.tlabel { position: absolute; align-items: center; }
+.tltext { font-size: 11px; font-weight: 700; color: #34435a; }
