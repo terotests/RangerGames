@@ -1,0 +1,33 @@
+{
+ "_comment": "Vesilabra (games/vesilabra): spoken goals, lessons and hints; written by tools/vesilabra/voice.js from the game's TEXT table. The Finnish ones are in voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "vl_leikki": "Sandbox! Hold your finger on the screen to pour water or sand. Tap a valve to open it.",
+  "vl_1": "Open the red valve so the water reaches the tank.",
+  "vl_2": "Tap the pipes to turn them so the water reaches the tank.",
+  "vl_3": "Water turns the wheel. Turn the pipe so the water falls on the right side of the wheel. Then the wheel turns the right way and lifts the gate.",
+  "vl_4": "Fill both vessels to the line. The tap is at the top and the valve at the bottom.",
+  "vl_5": "Fill the vessels to different lines. The middle valve keeps them apart.",
+  "vl_6": "The water escapes into the pit. Fill it with sand so the water reaches the tank.",
+  "vl_1_opi": "Water flows down because gravity pulls it.",
+  "vl_2_opi": "Water only follows the pipes when they are connected.",
+  "vl_3_opi": "Flowing water does work: it turns a water wheel.",
+  "vl_4_opi": "In connected vessels the water stands at the same height.",
+  "vl_5_opi": "A closed valve breaks the connection, and the levels can differ.",
+  "vl_6_opi": "Wet sand holds water back, but a sieve lets water through.",
+  "vl_h_venttiili": "Tap the red valve.",
+  "vl_h_putki": "Tap the pipe where the finger is. It turns.",
+  "vl_h_hyrra": "Tap the pipe so the water falls on the right side of the wheel.",
+  "vl_h_vaarin": "The wheel turns the wrong way! Turn the pipe the other way.",
+  "vl_h_hana": "Tap the tap to let the water run.",
+  "vl_h_hana_kiinni": "That's enough! Tap the tap to stop the water.",
+  "vl_h_auki": "Open the middle valve so the water gets into the other vessel.",
+  "vl_h_kiinni": "Close the middle valve to keep the vessels apart.",
+  "vl_h_pois": "Too much water! Open the valve in the left vessel's bottom to let some out.",
+  "vl_h_pois_kiinni": "Close the valve in the left vessel's bottom.",
+  "vl_h_hiekka": "Choose the sand at the bottom.",
+  "vl_h_kuoppa": "Pour sand into the pit with your finger.",
+  "vl_h_loppu": "The sand ran out. Start again.",
+  "vl_h_odota": "Good! Wait a moment, the water is flowing."
+ }
+}

@@ -1,0 +1,33 @@
+{
+ "_comment": "Vesilabra (games/vesilabra): spoken goals, lessons and hints; written by tools/vesilabra/voice.js from the game's TEXT table. The Finnish ones are in voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "vl_leikki": "¡Arenero! Mantén el dedo en la pantalla para echar agua o arena. Toca una válvula para abrirla.",
+  "vl_1": "Abre la válvula roja para que el agua llegue al depósito.",
+  "vl_2": "Toca los tubos para girarlos y que el agua llegue al depósito.",
+  "vl_3": "El agua mueve la rueda. Gira el tubo para que el agua caiga en el lado derecho de la rueda. Así la rueda gira bien y levanta la compuerta.",
+  "vl_4": "Llena los dos vasos hasta la línea. El grifo está arriba y la válvula abajo.",
+  "vl_5": "Llena los vasos hasta líneas distintas. La válvula del medio los separa.",
+  "vl_6": "El agua se escapa por el hoyo. Llénalo de arena para que el agua llegue al depósito.",
+  "vl_1_opi": "El agua baja porque la gravedad la atrae.",
+  "vl_2_opi": "El agua solo sigue los tubos si están unidos.",
+  "vl_3_opi": "El agua que corre hace trabajo: mueve una rueda de agua.",
+  "vl_4_opi": "En vasos comunicantes el agua queda a la misma altura.",
+  "vl_5_opi": "Una válvula cerrada corta la unión, y los niveles pueden ser distintos.",
+  "vl_6_opi": "La arena mojada frena el agua, pero una rejilla la deja pasar.",
+  "vl_h_venttiili": "Toca la válvula roja.",
+  "vl_h_putki": "Toca el tubo donde está el dedo. Gira.",
+  "vl_h_hyrra": "Toca el tubo para que el agua caiga en el lado derecho de la rueda.",
+  "vl_h_vaarin": "¡La rueda gira al revés! Gira el tubo hacia el otro lado.",
+  "vl_h_hana": "Toca el grifo para que salga agua.",
+  "vl_h_hana_kiinni": "¡Ya basta! Toca el grifo para cerrar el agua.",
+  "vl_h_auki": "Abre la válvula del medio para que el agua pase al otro vaso.",
+  "vl_h_kiinni": "Cierra la válvula del medio para separar los vasos.",
+  "vl_h_pois": "¡Demasiada agua! Abre la válvula del fondo del vaso izquierdo para vaciar un poco.",
+  "vl_h_pois_kiinni": "Cierra la válvula del fondo del vaso izquierdo.",
+  "vl_h_hiekka": "Elige la arena abajo.",
+  "vl_h_kuoppa": "Echa arena en el hoyo con el dedo.",
+  "vl_h_loppu": "Se acabó la arena. Empieza otra vez.",
+  "vl_h_odota": "¡Bien! Espera un poco, el agua corre."
+ }
+}
