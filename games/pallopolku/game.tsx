@@ -1,5 +1,6 @@
-// Pallopolku: a ball rolls down an endless road in 3D. Tap the left or right
-// side to change lane, swipe up (or tap the ball) to jump. Stars are points;
+// Pallopolku: a ball rolls down an endless road in 3D. Slide a finger left or
+// right anywhere on the screen and the ball follows it smoothly; tapping the
+// left or right side still hops one lane. Swipe up (or tap the ball) to jump. Stars are points;
 // a crate costs a heart. The 3D is the engine's own rg.three scene, drawn
 // under this 2D view, so it runs the same on the phone and the web.
 
@@ -19,7 +20,10 @@ let clock = 0;
 let z = 0;               // the ball's position along the road (goes negative)
 let speed = 8;
 let lane = 1;
-let x = 0;               // the ball's x, easing towards its lane
+let x = 0;               // the ball's x, easing towards goalX
+let goalX = 0;           // where the finger (or a lane tap) wants the ball
+const EDGE = 2.15;       // the ball stays between the red-white kerbs
+const DRAG = 1.6 / 85;   // world units per pixel: ~85 px of slide = one lane
 let y = R;
 let vy = 0;
 let roll = 0;
@@ -33,6 +37,9 @@ let nextId = 0;
 let tileZ: number[] = [];
 let treeZ: number[] = [];
 let downAt = { x: 0, y: 0, t: 0 };
+let dragFrom = 0;        // goalX when the finger went down
+let dragging = false;    // the finger has slid sideways: it steers, not taps
+let jumped = false;      // this touch already made a jump
 
 function init() {
   best = rg.load("best", 0);
@@ -69,7 +76,7 @@ function build() {
 function reset() {
   for (const th of things) rg.three("remove", { id: th.id });
   things = [];
-  z = 0; speed = 8; lane = 1; x = 0; y = R; vy = 0; hearts = 3; hurt = -10; stars = 0; nextRow = -24;
+  z = 0; speed = 8; lane = 1; x = 0; goalX = 0; y = R; vy = 0; hearts = 3; hurt = -10; stars = 0; nextRow = -24;
   for (let i = 0; i < TILES; i++) { tileZ[i] = -i * TILE; place("tile", i); }
 }
 
@@ -113,8 +120,11 @@ function jump() {
 
 function steer(d: number) {
   if (mode !== "play") return;
-  const n = Math.max(0, Math.min(2, lane + d));
-  if (n !== lane) { lane = n; rg.sound("whoosh", { volume: 0.4 }); }
+  // hop to the next lane from wherever the ball is now
+  let near = 0;
+  for (let i = 1; i < 3; i++) if (Math.abs(LANES[i] - goalX) < Math.abs(LANES[near] - goalX)) near = i;
+  const n = Math.max(0, Math.min(2, near + d));
+  if (LANES[n] !== goalX) { lane = n; goalX = LANES[n]; rg.sound("whoosh", { volume: 0.4 }); }
 }
 
 function start() {
@@ -127,6 +137,9 @@ function start() {
 
 function onPointerDown(px: number, py: number) {
   downAt = { x: px, y: py, t };
+  dragFrom = goalX;
+  dragging = false;
+  jumped = false;
   if (mode === "title") start();
   else if (mode === "over" && clock > 1) start();
 }
@@ -134,8 +147,8 @@ function onPointerDown(px: number, py: number) {
 function onPointerUp(px: number, py: number) {
   if (mode !== "play") return;
   const dx = px - downAt.x, dy = py - downAt.y;
+  if (dragging || jumped) return;      // the slide already steered or jumped
   if (dy < -35 && Math.abs(dy) > Math.abs(dx)) jump();
-  else if (Math.abs(dx) > 35) steer(dx > 0 ? 1 : -1);
   else if (Math.abs(px - width / 2) < 50 && py > height * 0.5) jump();
   else steer(px < width / 2 ? -1 : 1);
 }
@@ -150,15 +163,28 @@ function onBack() {
   if (mode === "play") { mode = "title"; rg.stopMusic(); } else rg.exit();
 }
 
-function tick(dt: number) {
+function tick(dt: number, input: any) {
   t += dt;
   clock += dt;
   for (const th of things) if (th.kind === "star" && !th.got) rg.three("set", { id: th.id, ry: t * 3 + th.z });
   if (mode !== "play") { camera(); return; }
 
+  // finger steering: while the finger is down, the ball follows its sideways
+  // slide; a quick upward flick jumps once per touch
+  const p = input.pointer;
+  if (p.down && t > downAt.t) {
+    const dx = p.x - downAt.x, dy = p.y - downAt.y;
+    if (!dragging && Math.abs(dx) > 10 && Math.abs(dx) >= Math.abs(dy) * 0.7) {
+      dragging = true;
+      downAt.x = p.x;                  // start following from here, no jerk
+    }
+    if (dragging) goalX = Math.max(-EDGE, Math.min(EDGE, dragFrom + (p.x - downAt.x) * DRAG));
+    else if (!jumped && dy < -40 && Math.abs(dy) > Math.abs(dx) * 1.5) { jumped = true; jump(); }
+  }
+
   speed = Math.min(18, speed + dt * 0.15);
   z -= speed * dt;
-  x += (LANES[lane] - x) * Math.min(1, dt * 12);
+  x += (goalX - x) * Math.min(1, dt * 14);
   vy -= 22 * dt;
   y = Math.max(R, y + vy * dt);
   if (y === R) vy = 0;
@@ -223,6 +249,7 @@ function view() {
         <div className="overlay">
           <div className="big">{rg.t("Pallopolku", "Ball Run", "Camino de la pelota")}</div>
           <div className="hintrow"><div className="hintbox">👈</div><div className="hintbox">👆</div><div className="hintbox">👉</div></div>
+          <div className="hint slide">{rg.t("Liu'uta sormea, pallo seuraa", "Slide your finger, the ball follows", "Desliza el dedo, la pelota te sigue")}</div>
           <div className="go">{rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")}</div>
           {best > 0 ? <div className="hint">{rg.t("Ennätys", "Record", "Récord")}: ⭐ {best}</div> : null}
         </div>
