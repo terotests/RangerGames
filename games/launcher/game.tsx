@@ -122,7 +122,8 @@ function chooseLang(l: string) {
   rg.setLang(l);
   rg.sound("pop");
   rg.vibrate(15);
-  rg.say("hei");
+  // a whole sentence in the new language: a lone "Hei!" came out unclear
+  rg.say("kieli_" + l);
 }
 
 function Flag(l: string) {
