@@ -8,6 +8,7 @@ own, for hours, and can stop and go on at any time:
     python tools/chatterbox/render.py                 # fi, en, es (in that order)
     python tools/chatterbox/render.py fi              # one language
     python tools/chatterbox/render.py --only m_valmis # some ids (all languages)
+    python tools/chatterbox/render.py fi --only 'prisma_*'  # ids by prefix
 
 Each clip goes to .deps/voice-clips/chatterbox/<lang>/<id>.wav with <id>.json
 beside it (the text it says). rg_voice build uses a clip whose text still
@@ -24,6 +25,17 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 OUT = os.environ.get("RG_VOICE_CLIPS", os.path.join(ROOT, ".deps", "voice-clips", "chatterbox"))
 # seconds per character, roughly, for the length check
 PACE = {"fi": 0.075, "en": 0.065, "es": 0.065}
+
+# clips said livelier (Chatterbox's exaggeration; 0.5 is its default): short
+# exclamations for children. A clip rendered with another value is rendered again.
+LIVELY = {"prisma_": 0.75}
+
+
+def expression(cid):
+    for prefix, x in LIVELY.items():
+        if cid.startswith(prefix):
+            return x
+    return 0.5
 
 
 def lists(lang):
@@ -82,7 +94,7 @@ def done(lang, cid, text):
         with open(os.path.join(OUT, lang, cid + ".json"), encoding="utf-8") as fh:
             j = json.load(fh)
             # a clip none of whose takes had a fitting length is left to Piper ("failed", no .wav)
-            same = j.get("text") == text and j.get("spoken", text) == spoken(lang, text)
+            same = j.get("text") == text and j.get("spoken", text) == spoken(lang, text) and j.get("exaggeration", 0.5) == expression(cid)
             return same and (j.get("failed") or os.path.exists(os.path.join(OUT, lang, cid + ".wav")))
     except (OSError, ValueError):
         return False
@@ -99,7 +111,8 @@ def main():
     todo = []
     for lang in langs:
         for cid, text in lists(lang).items():
-            if (only is None or cid in only) and not done(lang, cid, text):
+            wanted = only is None or cid in only or any(o.endswith("*") and cid.startswith(o[:-1]) for o in only)
+            if wanted and not done(lang, cid, text):
                 todo.append((lang, cid, text))
     print(f"{len(todo)} clips to render into {OUT}", flush=True)
     if not todo:
@@ -143,7 +156,9 @@ def main():
         for attempt in range(3):
             seed = int(hashlib.sha1(f"{lang}:{cid}:{attempt}".encode()).hexdigest()[:8], 16)
             torch.manual_seed(seed)
-            wav = model.generate(say, language_id=lang)
+            x_lively = expression(cid)
+            # livelier takes follow the text less tightly: a lower cfg_weight keeps their pace natural
+            wav = model.generate(say, language_id=lang, exaggeration=x_lively, cfg_weight=0.5 if x_lively <= 0.5 else 0.35)
             x = trim(wav.squeeze().detach().cpu().numpy(), model.sr)
             dur = len(x) / model.sr
             # far too long (repeats, trailing noise) or too short (words dropped): try again
@@ -156,7 +171,7 @@ def main():
                 break
         x, dur, seed = best
         wav_path = os.path.join(OUT, lang, cid + ".wav")
-        info = {"text": text, "spoken": say, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1}
+        info = {"text": text, "spoken": say, "engine": "chatterbox-multilingual", "seed": seed, "attempts": attempt + 1, "exaggeration": expression(cid)}
         if ok:
             sf.write(wav_path, x, model.sr, subtype="PCM_16")
         else:
