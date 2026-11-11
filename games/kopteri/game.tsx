@@ -118,6 +118,7 @@ const HINT_AFTER = 12;          // s
 const DONE = "#ffffff";          // a found place on the globe
 const BLINK = "#ff006e";         // the hint
 const GOLD = "#ffd166";          // a found country flashes in this
+const OUTLINE = "#e63946";       // … and its borders are drawn in this
 const NEAR_PX = 24;              // a country counts as found this close to its edge (pixels) …
 const NEAR_MIN = 1.5;            // … but at least this many degrees
 const NEAR_MAX = 4;              // … and at most this many
@@ -460,6 +461,11 @@ function drawGlobe() {
     c[key] = on ? BLINK : baseColors[key];
     args.colors = c;
   }
+  // while it is celebrated, the found place's borders are drawn thick over the others
+  if (foundClock >= 0) {
+    const w = 3.5 + 2 * Math.abs(Math.sin(foundClock * 5));
+    args.outline = [stage === 1 ? cur().group : cur().id, OUTLINE, w];
+  } else args.outline = false;
   rg.three("globe", args);
 }
 

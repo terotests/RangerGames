@@ -23,6 +23,7 @@
 //!   peaks: [[lon, lat, size], …] | false,  // mountains: cones lit by the sun, casting shadows
 //!   peakSize, peakSnow,          // a peak's base radius in degrees (default 1.2); the colour of
 //!                                // its snowy top (size >= 2 always has one, smaller ones in snow bands)
+//!   outline: [idOrGroup, colour, width] | false,   // one region's border drawn over the others
 //!   visible })
 //! ```
 //!
@@ -224,6 +225,8 @@ pub struct Globe {
     peak_size: f64,
     peak_snow: V3,
     lines: Vec<Vec<V3>>,
+    /// one region (id or group) outlined over the others: (key, colour, width)
+    outline: Option<(String, V3, f64)>,
     /// regions drawn in the last frame
     pub drawn: usize,
 }
@@ -261,6 +264,7 @@ impl Globe {
             land: [0.55, 0.78, 0.4],
             border: Some([1.0, 1.0, 1.0]),
             border_width: 1.0,
+            outline: None,
             grid: Some([1.0, 1.0, 1.0]),
             glow: Some([0.6, 0.85, 1.0]),
             rim: None,
@@ -364,6 +368,16 @@ impl Globe {
         self.glow = opt_color(&a.get("glow"), self.glow);
         self.rim = opt_color(&a.get("rim"), self.rim);
         self.shade = a.get("shade").as_num(self.shade);
+        match a.get("outline") {
+            Json::Null => {}
+            Json::Arr(v) if !v.is_empty() => {
+                let key = v[0].as_str().to_string();
+                let c = color(v.get(1).unwrap_or(&Json::Null), [1.0, 0.82, 0.4]);
+                let wd = v.get(2).map(|x| x.as_num(3.0)).unwrap_or(3.0);
+                self.outline = Some((key, c, wd));
+            }
+            _ => self.outline = None,
+        }
         if let Json::Bool(v) = a.get("visible") {
             self.visible = v;
         }
@@ -698,6 +712,22 @@ impl Globe {
         }
         if let Some(b) = self.border {
             out.rings(7, b, 0.85, self.border_width, &bpts, &bends);
+        }
+        if let Some((key, oc, ow)) = self.outline.clone() {
+            let mut opts: Vec<f32> = Vec::new();
+            let mut oends: Vec<f32> = Vec::new();
+            for reg in self.regions.iter().filter(|r| r.id == key || r.group == key) {
+                if let Some((_, pts, ends)) = project_part(&reg.whole, oc, 0.0, None, toward, seen, w, h, &view, &px) {
+                    let off = opts.len() as f32;
+                    opts.extend_from_slice(&pts);
+                    for e in ends.iter() {
+                        oends.push(off + e);
+                    }
+                }
+            }
+            if !opts.is_empty() {
+                out.rings(7, oc, 1.0, ow, &opts, &oends);
+            }
         }
         self.render_peaks(out, &|c: &V3| dot(*c, toward) >= 0.08, &|p: &V3| {
             let v = view(p);
@@ -1272,6 +1302,24 @@ mod tests {
         // from the far side, B
         g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false);
         assert_eq!(g.drawn, 1);
+    }
+
+    #[test]
+    fn outlines_one_region() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r#"{{"regions":[["A","x",{}],["B","x",{}]],"lon":0,"lat":0,"r":100,"grid":false,"glow":false}}"#, square(0.0, 0.0), square(10.0, 0.0)));
+        g.command(&a);
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        let plain = out.count;
+        g.command(&rg_core::json::parse(r##"{"outline":["A","#ffd166",4]}"##));
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, plain + 1);
+        g.command(&rg_core::json::parse(r#"{"outline":false}"#));
+        let mut out = DrawStream::new();
+        g.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, plain);
     }
 
     #[test]
