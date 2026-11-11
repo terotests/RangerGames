@@ -621,11 +621,11 @@ function FlagsView() {
         <div className="title">Kielisaari</div>
         <div className="sub">{rg.t("Valitse kieli", "Choose a language", "Elige un idioma")}</div>
         <div className={l0 === "en" ? "flagbtn flagon" : "flagbtn"} id="en" onClick={() => chooseLang("en")}>
-          {img("flag_en", 0, 0, 120, 80, { position: "relative" })}
+          <div className="flagbox">{img("flag_en", 0, 0, 120, 80, { position: "relative" })}</div>
           <div className="flagname">English</div>
         </div>
         <div className={l0 === "es" ? "flagbtn flagon" : "flagbtn"} id="es" onClick={() => chooseLang("es")}>
-          {img("flag_es", 0, 0, 120, 80, { position: "relative" })}
+          <div className="flagbox">{img("flag_es", 0, 0, 120, 80, { position: "relative" })}</div>
           <div className="flagname">Español</div>
         </div>
         {img("pip", 0, 0, 110, 110, { position: "relative", marginTop: 6 })}
