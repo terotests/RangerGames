@@ -3,6 +3,22 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+  // On a phone the playground's frame and menus are in the way: go straight
+  // to the game as it runs when installed (full screen, touch, sound,
+  // vibration). ?frame=1 keeps the playground.
+  (function () {
+    var q = new URLSearchParams(location.search);
+    var touch = window.matchMedia && matchMedia("(pointer: coarse)").matches;
+    var small = Math.min(screen.width, screen.height) <= 600;
+    if (touch && small && q.get("frame") !== "1") {
+      var t = new URLSearchParams();
+      t.set("mode", "mobile");
+      if (q.get("game")) t.set("game", q.get("game"));
+      location.replace("index.html?" + t.toString());
+    }
+  })();
+</script>
 <title>RangerGames Playground</title>
 <link rel="icon" href="icon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">

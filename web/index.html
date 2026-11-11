@@ -20,6 +20,10 @@
   #device { position: fixed; left: 0; top: 0; width: 100%; height: 100%; overflow: hidden; }
   #game { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   canvas { position: absolute; left: 0; top: 0; display: block; touch-action: none; }
+  /* phone browser: the game keeps out of the notch, rounded corners and the
+     home bar (iPhone), as the installed app does */
+  body.phone #device { left: env(safe-area-inset-left, 0px); top: env(safe-area-inset-top, 0px);
+    width: auto; height: auto; right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); }
   body.framed { background: radial-gradient(circle at 50% 35%, #2d3366 0%, #12142a 70%); }
   body.framed #device { left: 50%; top: 50%; border-radius: 22px; background: #1b1f3b;
     box-shadow: 0 0 0 10px #0b0c16, 0 0 0 11px #3a3f63, 0 24px 60px rgba(0,0,0,.6); }
@@ -67,6 +71,7 @@
     var PW = 360, PH = 720;
     var device = document.getElementById("device"), game = document.getElementById("game");
     if (framed) document.body.classList.add("framed");
+    else if (!embedded) document.body.classList.add("phone");
     var tofull = document.getElementById("tofull");
     params.set("mode", "mobile"); tofull.href = "?" + params.toString();
     function fit() {
@@ -74,6 +79,7 @@
       if (!framed) {
         device.style.width = device.style.height = "";
         device.style.marginLeft = device.style.marginTop = "";
+        if (!embedded) { W = device.clientWidth || W; H = device.clientHeight || H; }
         game.style.transform = "";
         game.style.width = W + "px"; game.style.height = H + "px";
         return { w: W, h: H, zoom: 1 };
