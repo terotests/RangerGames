@@ -16,7 +16,7 @@ const GOOD_ROT = 0;
 const WAVES = whiteWaves(16);
 const MONO: { [k: string]: number } = { red: 650, green: 530, blue: 460 };
 
-type Q = { text: string; options: string[]; right: number; hint: string };
+type Q = { id: string; text: string; options: string[]; right: number; hint: string };
 
 let mode = "menu";
 let srcY = SRC_Y;          // the lamp's height (level 3 is higher: the wall catches all)
@@ -28,6 +28,9 @@ let screens: Screen[] = [];
 let rays: Ray[] = [];
 let light = "white";
 let dist = 150;          // level 2: the screen's distance from the prism, px
+let wasOn = false;       // the colours were all on the screen last frame
+let glassN = 0;          // which of the three glass tings is next
+let saidTir = false;
 let rail = { x: 0, y: 0, dx: 1, dy: 0 };
 let goodClock = 0;
 let won = false;
@@ -128,9 +131,10 @@ function start(i: number) {
   goodClock = 0; won = false; wonClock = 0; quiz = null; quizWrong = -1; quizMsg = ""; drag = null; flash = "";
   setRail();
   retrace();
-  if (i === 2) tryMaterial("glass");
+  if (i === 2) tryMaterial("glass", true);
   mode = "play";
-  rg.sound("click");
+  wasOn = allOnScreen(); saidTir = false;
+  sfx("glass2", 0.6);
   rg.say("prisma_tip" + (i + 1));
 }
 
@@ -158,20 +162,25 @@ function cm(px: number): string {
 
 function say(msg: string) { flash = msg; flashClock = 2.6; }
 
+// a sound file of this game (sfx/, made by tools/prisma/sfx.py)
+function sfx(name: string, vol?: number) { rg.sound(rg.asset("sfx/" + name + ".wav"), { volume: vol === undefined ? 1 : vol }); }
+
 function measure() {
   if (won || quiz) return;
   const w = spreadPx();
-  if (!allOnScreen()) { rg.sound("wrong"); say(rg.t("Kaikki värit eivät osu kankaalle.", "Not all colours hit the screen.", "No todos los colores llegan a la pantalla.")); return; }
+  if (!allOnScreen()) { sfx("hmm"); say(rg.t("Kaikki värit eivät osu kankaalle.", "Not all colours hit the screen.", "No todos los colores llegan a la pantalla.")); return; }
   for (const m of measures) if (Math.abs(m[0] - dist) < 30) {
-    rg.sound("wrong");
+    sfx("hmm");
     say(rg.t("Siirrä kangasta ensin toiseen kohtaan.", "Move the screen somewhere else first.", "Mueve antes la pantalla a otro sitio."));
     return;
   }
   measures.push([dist, w]);
   measures.sort((a, b) => a[0] - b[0]);
-  rg.sound("pop", { pitch: 0.8 + measures.length * 0.15 });
+  sfx("measure");
   rg.vibrate(15);
+  rg.say(measures.length < 3 ? "prisma_measure" + measures.length : "prisma_measure3");
   if (measures.length >= 3) askLater(() => ({
+    id: "prisma_q2",
     text: rg.t("Mitä värikaistalle tapahtui, kun kangas meni kauemmas?", "What happened to the colours when the screen went further?", "¿Qué pasó con los colores al alejar la pantalla?"),
     options: [rg.t("Kapeni", "Got narrower", "Se estrechó"), rg.t("Pysyi samana", "Stayed the same", "Quedó igual"), rg.t("Leveni", "Got wider", "Se ensanchó")],
     right: 2,
@@ -183,7 +192,7 @@ let pendingQuiz: (() => Q) | null = null;
 let pendingClock = 0;
 function askLater(f: () => Q) { pendingQuiz = f; pendingClock = 1.2; }
 
-function tryMaterial(id: string) {
+function tryMaterial(id: string, quiet?: boolean) {
   prism.mat = MATERIALS[id];
   const r = trace(prism, [], SRC_X, srcY, SRC_A, 589, SW, SH);
   const first = tried[id] === undefined;
@@ -191,8 +200,9 @@ function tryMaterial(id: string) {
   placeScreens();
   rays = [];
   for (const nm of WAVES) rays.push(trace(prism, screens, SRC_X, srcY, SRC_A, nm, SW, SH));
-  rg.sound(id === "water" ? "whoosh" : "click", { pitch: id === "air" ? 1.3 : 1 });
+  if (!quiet) { sfx(id); rg.say("prisma_" + id); }
   if (first && tried.air !== undefined && tried.water !== undefined && tried.glass !== undefined) askLater(() => ({
+    id: "prisma_q3",
     text: rg.t("Mikä taittoi valoa eniten?", "What bent the light the most?", "¿Qué desvió más la luz?"),
     options: [rg.t("Ilma", "Air", "Aire"), rg.t("Vesi", "Water", "Agua"), rg.t("Lasi", "Glass", "Vidrio")],
     right: 2,
@@ -204,15 +214,17 @@ function setLight(k: string) {
   if (won || quiz) return;
   light = k;
   retrace();
-  rg.sound("click", { pitch: k === "white" ? 1 : MONO[k] / 550 });
+  sfx("light_" + k);
   rg.vibrate(8);
   const first = !tried[k];
   tried[k] = 1;
+  if (first) rg.say("prisma_light_" + k);
   if (k !== "white" && rays.length && rays[0].hit) {
     marks = marks.filter((m) => m.nm !== MONO[k]);
     marks.push({ nm: MONO[k], u: rays[0].hit.along });
   }
   if (first && tried.white && tried.red && tried.green && tried.blue) askLater(() => ({
+    id: "prisma_q5",
     text: rg.t("Miksi yksivärinen valo ei tee sateenkaarta?", "Why doesn't one-coloured light make a rainbow?", "¿Por qué la luz de un color no hace arcoíris?"),
     options: [rg.t("Prisma meni rikki", "The prism broke", "El prisma se rompió"), rg.t("Siinä on vain yksi väri", "It has only one colour", "Solo tiene un color"), rg.t("Valo on liian heikko", "The light is too weak", "La luz es muy débil")],
     right: 1,
@@ -224,11 +236,14 @@ function answer(i: number) {
   if (!quiz) return;
   if (i === quiz.right) {
     quiz = null;
+    sfx("right");
+    rg.say("prisma_right");
     win();
   } else {
+    rg.say(quiz.id.split("_q").join("_hint"));
     quizWrong = i;
     quizMsg = quiz.hint;
-    rg.sound("wrong");
+    sfx("hmm");
     rg.vibrate(30);
   }
 }
@@ -252,10 +267,10 @@ function win() {
   won = true; wonClock = 0; drag = null;
   done[String(lv)] = true;
   rg.save("done", done);
-  rg.sound("win");
+  sfx("fanfare");
   rg.vibrate([50, 40, 90]);
   rg.celebrate(width / 2, TOP + SH * 0.45, { big: lv === LEVELS.length - 1 });
-  rg.say("prisma_fact" + (lv + 1));
+  rg.say("prisma_fact" + (lv + 1), { queue: true });
 }
 
 // --- input -----------------------------------------------------------------
@@ -284,13 +299,17 @@ function slide(i: number, y: number) {
   const v = rg.clamp((SLIDER_BOT - y) / (SLIDER_BOT - SLIDER_TOP), 0, 1);
   const before = lamps[i];
   lamps[i] = Math.round(v * 20) / 20;
-  if (lamps[i] !== before) { rg.sound("tick", { pitch: 0.7 + lamps[i] * 0.8, volume: 0.4 }); rg.vibrate(4); }
+  if (lamps[i] !== before) {
+    if (before === 0) sfx("lamp", 0.8);
+    else rg.sound("tick", { pitch: 0.7 + lamps[i] * 0.8, volume: 0.4 });
+    rg.vibrate(4);
+  }
 }
 
 function slideScreen(x: number, y: number) {
   const d = (x - rail.x) * rail.dx + (y - rail.y) * rail.dy;
   const nd = rg.clamp(d, 25, 190);
-  if (Math.floor(nd / 20) !== Math.floor(dist / 20)) { rg.sound("tick", { volume: 0.4 }); rg.vibrate(4); }
+  if (Math.floor(nd / 20) !== Math.floor(dist / 20)) { sfx("slide", 0.7); rg.vibrate(4); }
   dist = nd;
   retrace();
 }
@@ -298,9 +317,14 @@ function slideScreen(x: number, y: number) {
 function turnBy(deg: number) {
   if (won || quiz) return;
   prism.rot += deg;
-  rg.sound("tick");
+  glassTing();
   rg.vibrate(6);
   retrace();
+}
+
+function glassTing() {
+  glassN = (glassN + 1) % 3;
+  sfx("glass" + (glassN + 1), 0.5);
 }
 
 function onBack() {
@@ -321,7 +345,7 @@ function tick(dt: number, input: any) {
       while (da > 180) da -= 360;
       while (da < -180) da += 360;
       const r = drag.rot0 + da;
-      if (Math.floor(r / 10) !== Math.floor(prism.rot / 10)) { rg.sound("tick", { volume: 0.4 }); rg.vibrate(4); }
+      if (Math.floor(r / 10) !== Math.floor(prism.rot / 10)) { glassTing(); rg.vibrate(4); }
       prism.rot = r;
       retrace();
     } else if (drag.kind === "screen") slideScreen(x, y);
@@ -329,9 +353,16 @@ function tick(dt: number, input: any) {
   }
   if (pendingQuiz) {
     pendingClock -= dt;
-    if (pendingClock <= 0) { quiz = pendingQuiz(); pendingQuiz = null; quizWrong = -1; quizMsg = ""; rg.sound("pop"); }
+    if (pendingClock <= 0) { quiz = pendingQuiz(); pendingQuiz = null; quizWrong = -1; quizMsg = ""; rg.sound("pop"); rg.say(quiz.id, { queue: true }); }
   }
   if (won) { wonClock += dt; return; }
+  // the colours land on the screen: a shimmer (and in the first level, a cheer)
+  const on = lv !== 3 && light === "white" && allOnScreen();
+  if (on && !wasOn) { sfx("rainbow", 0.8); if (lv === 0) rg.say("prisma_hit"); }
+  wasOn = on;
+  if (lv === 0 && !saidTir && !on) {
+    for (const r of rays) if (r.inside > 0) { saidTir = true; rg.say("prisma_tir"); break; }
+  }
   if (lv === 0) {
     if (allOnScreen()) { goodClock += dt; if (goodClock > 0.9) win(); } else goodClock = 0;
   }
@@ -342,7 +373,8 @@ function tick(dt: number, input: any) {
         foundClock[m.id] = (foundClock[m.id] || 0) + dt;
         if (foundClock[m.id] > 0.6) {
           found[m.id] = true;
-          rg.sound("star", { pitch: 0.9 + rg.random() * 0.3 });
+          sfx("found");
+          rg.say("prisma_mix_" + m.id);
           rg.vibrate(20);
           rg.celebrate(180, TOP + 150, {});
           let all = true;
