@@ -5,7 +5,7 @@
 
 /* menu */
 .flags { flex-direction: row; margin-top: 14px; }
-.flag { width: 130px; height: 92px; margin-left: 8px; margin-right: 8px; border-radius: 24px; background-color: #ffffff;
+.flag { width: 100px; height: 88px; margin-left: 6px; margin-right: 6px; border-radius: 24px; background-color: #ffffff;
   align-items: center; justify-content: center; opacity: 0.6; shadow-color: rgba(0,0,0,0.15); shadow-offset-y: 4px; }
 .flag.on { opacity: 1; background-color: #fff7b0; border-width: 4px; border-color: #ffb703; }
 .femo { font-size: 44px; }
