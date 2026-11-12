@@ -1,10 +1,10 @@
 // Valopeilit: light comes from the sun or a torch, and mirrors bring it to
 // a flower, a solar panel, a cat that wants a sunny nap, a cold lizard or
 // wet laundry – but never to the owl, who sleeps in the day. The angle of
-// incidence is the angle of reflection: a mirror turns steplessly with the
-// finger dragged around it (the light follows at any angle, traceFree), a tap
-// turns it to the next 22.5° step, and the angle at the selected mirror is
-// shown on the board.
+// incidence is the angle of reflection. Dragging a mirror moves it; dragging
+// anywhere else on the board turns the nearest mirror steplessly (the light
+// follows at any angle, traceFree); a tap on a mirror turns it to the next
+// 22.5° step, and the angle at the selected mirror is shown on the board.
 // Optics: lib/optics.ts, levels: lib/levels.ts (checked by tools/peilit/solve.ts).
 
 import { traceFree, parseMap, solved, incidenceOf, Cell, FreeTrace, FreeHit } from "lib/optics";
@@ -14,7 +14,10 @@ import { LEVELS } from "lib/levels";
 // finger), m the same within 0–8
 type Piece = Cell & { turns?: number; va?: number; born?: number };
 type Drag = { kind: string; fromX: number; fromY: number; tray: boolean; x: number; y: number; sx: number; sy: number; moved: boolean;
-  rot: boolean; turns0: number; m0: number };
+  rot: boolean; turns0: number; m0: number;
+  // out: pressed beside the mirrors, so the drag turns the nearest one
+  // (fromX/fromY); px/py: the pressed cell; ang: the finger's last angle
+  out: boolean; px: number; py: number; ang: number };
 
 const W = 7, H = 9;
 const TOP = 58;
@@ -140,23 +143,50 @@ function onPointerDown(px: number, py: number) {
   const [x, y] = cell;
   const c = piece(x, y);
   if (c) {
-    drag = { kind: c.k, fromX: x, fromY: y, tray: false, x: px, y: py, sx: px, sy: py, moved: false, rot: false, turns0: c.turns || 0, m0: c.m || 0 };
+    drag = { kind: c.k, fromX: x, fromY: y, tray: false, x: px, y: py, sx: px, sy: py, moved: false, rot: false, turns0: c.turns || 0, m0: c.m || 0,
+      out: false, px: x, py: y, ang: 0 };
     return;
   }
-  if (canPlace(x, y)) {
-    if (!left[kind]) { kind = left.mirror ? "mirror" : left.split ? "split" : kind; }
-    if (!left[kind]) { rg.sound("wrong"); return; }
-    left[kind]--;
-    put(x, y, kind, 2);
-    rg.sound("pop");
-    rg.vibrate(12);
+  // beside the mirrors: a drag turns the nearest mirror, a tap puts a new one
+  const n = nearest(px, py);
+  const nx = n ? n[0] : -1, ny = n ? n[1] : -1;
+  const nc = n ? piece(nx, ny) : null;
+  drag = { kind: nc ? nc.k : kind, fromX: nx, fromY: ny, tray: false, x: px, y: py, sx: px, sy: py, moved: false, rot: false,
+    turns0: nc ? nc.turns || 0 : 0, m0: nc ? nc.m || 0 : 0, out: true, px: x, py: y, ang: n ? fingerAngle(nx, ny, px, py) : 0 };
+}
+
+// the mirror nearest to a point on the board; one that turns before a bolted one
+function nearest(px: number, py: number): number[] | null {
+  let best: number[] | null = null, bd = 1e9;
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const c = piece(x, y);
+    if (!c) continue;
+    const dx = BX + (x + 0.5) * C - px, dy = BY + (y + 0.5) * C - py;
+    const d = Math.sqrt(dx * dx + dy * dy) + (c.lock ? 1e5 : 0);
+    if (d < bd) { bd = d; best = [x, y]; }
   }
+  return best;
+}
+
+function fingerAngle(x: number, y: number, px: number, py: number): number {
+  return Math.atan2(py - (BY + (y + 0.5) * C), px - (BX + (x + 0.5) * C)) * 180 / Math.PI;
+}
+
+function tapEmpty(x: number, y: number) {
+  if (!canPlace(x, y)) return;
+  if (!left[kind]) { kind = left.mirror ? "mirror" : left.split ? "split" : kind; }
+  if (!left[kind]) { rg.sound("wrong"); return; }
+  left[kind]--;
+  put(x, y, kind, 2);
+  rg.sound("pop");
+  rg.vibrate(12);
 }
 
 function trayDown(k: string, info: any) {
   if (won || !left[k]) return;
   kind = k;
-  drag = { kind: k, fromX: -1, fromY: -1, tray: true, x: info.x, y: info.y, sx: info.x, sy: info.y, moved: false, rot: false, turns0: 0, m0: 0 };
+  drag = { kind: k, fromX: -1, fromY: -1, tray: true, x: info.x, y: info.y, sx: info.x, sy: info.y, moved: false, rot: false, turns0: 0, m0: 0,
+    out: false, px: -1, py: -1, ang: 0 };
 }
 
 function onPointerUp(px: number, py: number) {
@@ -172,11 +202,12 @@ function onPointerUp(px: number, py: number) {
     }
     return;
   }
-  const c = piece(d.fromX, d.fromY);
+  if (d.out && !d.rot) { tapEmpty(d.px, d.py); return; }
+  const c = d.fromX >= 0 ? piece(d.fromX, d.fromY) : null;
   if (!c) return;
   if (d.rot) { endRotate(c); return; }
-  if (!d.moved || (cell && cell[0] === d.fromX && cell[1] === d.fromY)) { turn(d.fromX, d.fromY, 1); return; }
-  if (c.fixed) { rg.sound("wrong"); return; }
+  if (!d.moved) { turn(d.fromX, d.fromY, 1); return; }
+  if (cell && cell[0] === d.fromX && cell[1] === d.fromY) return;
   if (!cell) { takeBack(d.fromX, d.fromY); return; }
   if (canPlace(cell[0], cell[1])) {
     grid[d.fromY][d.fromX] = null;
@@ -197,37 +228,28 @@ function onKeyDown(key: string) {
 }
 
 // --- turning with the finger -----------------------------------------------
-// Pressing a mirror and moving the finger around it turns the mirror to point
-// at the finger, steplessly, and the light follows at every angle. A finger
-// that goes far from the mirror (more than ROT_R cells) carries the mirror to
-// another square instead.
-
-const ROT_R = 1.6;
+// A finger pressed beside the mirrors and moved turns the nearest mirror as
+// much as the finger goes around it, steplessly, and the light follows at
+// every angle. A mirror bolted to the board (fixed, not locked) cannot move,
+// so dragging it turns it the same way.
 
 function rotateDrag(d: Drag) {
-  const c = piece(d.fromX, d.fromY);
+  const c = d.fromX >= 0 ? piece(d.fromX, d.fromY) : null;
   if (!c) return;
+  if (c.lock) { if (!d.rot) { d.rot = true; rg.sound("wrong"); rg.vibrate(20); } return; }
   const cx = BX + (d.fromX + 0.5) * C, cy = BY + (d.fromY + 0.5) * C;
   const dx = d.x - cx, dy = d.y - cy;
-  const r = Math.sqrt(dx * dx + dy * dy);
-  if (r > ROT_R * C && !c.fixed) {
-    // too far: this is a move, the mirror keeps the angle it had
-    if (d.rot) { c.turns = d.turns0; c.m = d.m0; c.va = d.turns0 * 22.5; d.rot = false; retrace(); }
-    d.moved = true;
-    return;
-  }
-  if (c.lock) { if (!d.rot && r > C * 0.35) { d.rot = true; rg.sound("wrong"); rg.vibrate(20); } return; }
-  if (r < C * 0.3 && !d.rot) return;
-  if (r < C * 0.15) return;
-  d.rot = true;
-  d.moved = false;
-  sel = [d.fromX, d.fromY];
-  // a mirror is the same turned half a circle: take the angle nearest to now
-  let a = Math.atan2(dy, dx) * 180 / Math.PI;
+  if (!d.rot) { d.rot = true; sel = [d.fromX, d.fromY]; rg.vibrate(6); }
+  // right on top of the centre the angle jumps around: wait for the finger
+  if (dx * dx + dy * dy < C * C * 0.09) return;
+  const fa = Math.atan2(dy, dx) * 180 / Math.PI;
+  let da = fa - d.ang;
+  while (da > 180) da -= 360;
+  while (da < -180) da += 360;
+  d.ang = fa;
+  if (Math.abs(da) < 0.05) return;
   const now = c.va === undefined ? (c.turns || 0) * 22.5 : c.va;
-  while (a - now > 90) a -= 180;
-  while (a - now < -90) a += 180;
-  if (Math.abs(a - now) < 0.05) return;
+  const a = now + da;
   // a soft click every 22.5° passed, like a dial
   if (Math.floor(a / 22.5) !== Math.floor(now / 22.5)) { rg.sound("tick", { pitch: 0.9 + (((Math.round(a / 22.5) % 8) + 8) % 8) * 0.05, volume: 0.5 }); rg.vibrate(4); }
   c.va = a;
@@ -256,7 +278,12 @@ function tick(dt: number, input: any) {
   if (drag && input.pointer.down) {
     drag.x = input.pointer.x; drag.y = input.pointer.y;
     if (drag.tray) { if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 12) drag.moved = true; }
-    else if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 6 || drag.rot) rotateDrag(drag);
+    else if (drag.rot) rotateDrag(drag);
+    else if (Math.abs(drag.x - drag.sx) + Math.abs(drag.y - drag.sy) > 8) {
+      const c = drag.fromX >= 0 ? piece(drag.fromX, drag.fromY) : null;
+      if (drag.out || (c && c.fixed)) rotateDrag(drag);
+      else drag.moved = true;
+    }
   }
   for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
     const c = grid[y][x];
@@ -529,10 +556,23 @@ function Board() {
         {things}
         {mirrors}
         {AngleView()}
+        {TurnLine()}
         {flying}
       </div>
     </div>
   );
+}
+
+// while the nearest mirror turns: a dotted line from the finger to it
+function TurnLine() {
+  if (!drag || !drag.out || !drag.rot || drag.fromX < 0) return [];
+  const cx = (drag.fromX + 0.5) * C, cy = (drag.fromY + 0.5) * C;
+  const fx = drag.x - BX, fy = drag.y - BY;
+  const vb = "0 0 " + C * W + " " + C * H;
+  return [
+    <path d={"M " + fx.toFixed(1) + " " + fy.toFixed(1) + " L " + cx.toFixed(1) + " " + cy.toFixed(1)} stroke="#ffffff" strokeWidth="3" strokeDasharray="3 7" fill="none" viewBox={vb} style={{ position: "absolute", left: 0, top: 0, width: C * W, height: C * H }} />,
+    <div className="fingerdot" style={{ left: Math.round(fx - 14), top: Math.round(fy - 14), width: 28, height: 28, borderRadius: 14 }} />
+  ];
 }
 
 function info(): string {
@@ -731,7 +771,7 @@ function Menu() {
       <div className="subtitle">{rg.t("Ohjaa valo peileillä perille", "Guide the light with mirrors", "Guía la luz con espejos")}</div>
       {MenuBeam()}
       <div className="grid">{cards}</div>
-      <div className="mhelp">{rg.t("Pyöritä peiliä sormella, se kääntyy portaattomasti. Vedä kauas: siirtyy.", "Circle a mirror to turn it. Drag far to move it.", "Gira el espejo con el dedo. Arrástralo lejos para moverlo.")}</div>
+      <div className="mhelp">{rg.t("Vedä peiliä: se siirtyy. Vedä peilin vierestä: lähin peili kääntyy.", "Drag a mirror to move it. Drag beside it to turn the nearest mirror.", "Arrastra un espejo para moverlo. Arrastra a su lado para girar el espejo más cercano.")}</div>
     </div>
   );
 }
