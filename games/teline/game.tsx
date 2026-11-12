@@ -376,12 +376,14 @@ function rnd() {
   return (seed % 10000) / 10000;
 }
 
-// The sky, the city, the girders and the ladders never change: built once.
+// The sky, the city, the girders and the ladders never change: built once,
+// and kept small (few stars and windows, long girder pieces): every box costs
+// layout time on an old phone.
 let scene: any = null;
 
 function Sky() {
   const out: any[] = [<div className="sky" />];
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 12; i++) {
     const big = rnd() < 0.25;
     out.push(<div className={big ? "star bigstar" : "star"} style={{ left: Math.floor(rnd() * 630), top: Math.floor(30 + rnd() * 260) }} />);
   }
@@ -401,7 +403,7 @@ function City() {
     out.push(<div className="tower" style={{ left: x, top, width: w, height: 480 - top }} />);
     for (let y = top + 10; y < 470; y += 16) {
       for (let wx = x + 6; wx < x + w - 8; wx += 12) {
-        if (rnd() < 0.18) out.push(<div className={rnd() < 0.3 ? "win warm" : "win"} style={{ left: wx, top: y }} />);
+        if (rnd() < 0.07) out.push(<div className={rnd() < 0.3 ? "win warm" : "win"} style={{ left: wx, top: y }} />);
       }
     }
   }
@@ -411,8 +413,8 @@ function City() {
 function Girders() {
   const out: any[] = [];
   G.forEach((q, gi) => {
-    for (let x = q.x0; x < q.x1; x += 48) {
-      const w = Math.min(48, q.x1 - x);
+    for (let x = q.x0; x < q.x1; x += 100) {
+      const w = Math.min(100, q.x1 - x);
       out.push(<div className={gi === 6 ? "perch" : "girder"} style={{ left: x, top: sy(gi, x + w / 2), width: w, height: 10 }} />);
     }
   });
@@ -427,7 +429,7 @@ function Ladders() {
     for (const [a, b] of segs) {
       out.push(<div className="rail" style={{ left: l.x - 10, top: a, height: b - a }} />);
       out.push(<div className="rail" style={{ left: l.x + 7, top: a, height: b - a }} />);
-      for (let y = a + 4; y < b - 1; y += 9) out.push(<div className="rung" style={{ left: l.x - 8, top: y }} />);
+      for (let y = a + 4; y < b - 1; y += 12) out.push(<div className="rung" style={{ left: l.x - 8, top: y }} />);
     }
   }
   return out;
