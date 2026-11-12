@@ -1,5 +1,7 @@
-// Kielipelit: English and Spanish for children (5–8 years). The flag picks
-// the language; everything is said aloud, so no reading is needed. Four games:
+// Kielipelit: English and Spanish for children (5–8 years), and Finnish for
+// Finnish preschoolers (viskari: words, colours, places, numbers, reading and
+// spelling on the "Viskari" level). The flag picks the language; everything
+// is said aloud, so no reading is needed. Four games:
 //  Sanat    - words: hear and pick the picture, memory pairs, which word is
 //             this (8 v), make the word from letters (8 v)
 //  Etsi     - "Find the red key.": coloured things in a room open a treasure
@@ -12,7 +14,7 @@
 // A wrong answer is a hint, never a punishment: the thing tapped is named,
 // and the question is said again.
 
-import { WORDS, COLORS, OBJECTS, FIND_COLORS, PLACES, MENU, CAFE_MAX, STORY, clipTexts } from "lib/words";
+import { WORDS, COLORS, OBJECTS, FIND_COLORS, PLACES, MENU, CAFE_MAX, STORY, FI_PREFIX, clipTexts } from "lib/words";
 
 type Mode = "menu" | "sanat" | "etsi" | "kahvila" | "tarina" | "done";
 type Later = { at: number; f: () => void };
@@ -44,28 +46,31 @@ function init() {
   const r: any = rg;
   const g = typeof r.lang === "string" ? r.lang : "";
   lang = g === "en" || g === "es" ? g : rg.load("lang", "en");
+  if (lang !== "en" && lang !== "es" && lang !== "fi") lang = "en";
   hard = rg.load("hard", false);
-  mem = rg.load("mem", { en: {}, es: {} });
+  mem = rg.load("mem", { en: {}, es: {}, fi: {} });
   rounds = rg.load("rounds", 0);
   best = rg.load("best", {});
 }
 
 // ---- helpers ---------------------------------------------------------------
 
-// a clip in the chosen language (voice/<lang>/*.json)
+// a clip in the chosen language (voice/<lang>/*.json; Finnish: kl_<id> in voice/fi.json)
 function say(ids: any, opts?: any) {
   const a = Array.isArray(ids) ? ids : [ids];
   const out: string[] = [];
-  for (const id of a) if (id) out.push(lang + ":" + id);
+  for (const id of a) if (id) out.push(lang === "fi" ? "fi:" + FI_PREFIX + id : lang + ":" + id);
   rg.say(out, opts);
 }
+const FI = () => lang === "fi";
 // the clip texts, shown on the screen as they are said (the game works without sound too)
-const TEXTS: any = { en: clipTexts("en"), es: clipTexts("es") };
+const TEXTS: any = { en: clipTexts("en"), es: clipTexts("es"), fi: clipTexts("fi") };
 function txt(id: string) { const T = TEXTS[lang]; return T.game[id] || T.common[id] || ""; }
 // the task card: the sentence in the chosen language, and in Finnish what to do
 let card = { text: "", fi: "", bold: "" };
 // bold: the words of the text to show in bold (the word being learnt)
-function setCard(text: string, fi: string, bold?: string) { card = { text: text, fi: fi, bold: bold || "" }; }
+// (in Finnish the text already says it, so the line below only tells what to do: help)
+function setCard(text: string, fi: string, bold?: string, help?: string) { card = { text: text, fi: FI() ? (help || "") : fi, bold: bold || "" }; }
 // feedback: ✓ or ✗ with what was said, shown for a moment
 let fb = { text: "", ok: true, at: -9 };
 function feedback(ok: boolean, ids: string[]) {
@@ -76,7 +81,7 @@ function Card(small?: boolean) {
   return (
     <div className="task" id="task" onClick={() => repeat()}>
       <div className="twords">{Words(card.text, card.bold, small)}</div>
-      <div className="tfi">{card.fi}</div>
+      {card.fi ? <div className="tfi">{card.fi}</div> : null}
     </div>
   );
 }
@@ -111,7 +116,9 @@ function later(s: number, f: () => void) { laters.push({ at: t + s, f: f }); }
 function word(id: string): any { for (const w of WORDS) if (w.id === id) return w; return WORDS[0]; }
 function color(id: string): any { for (const c of COLORS) if (c.id === id) return c; return COLORS[0]; }
 function label(w: any) { return w[lang]; }
-function bare(w: any) { return lang === "es" ? w.es.replace(/^(el|la) /, "") : w.en; }
+// a word to read: Finnish preschoolers read capital letters first
+function readLabel(w: any) { return FI() ? w.fi.toUpperCase() : w[lang]; }
+function bare(w: any) { return lang === "es" ? w.es.replace(/^(el|la) /, "") : lang === "fi" ? w.fi : w.en; }
 function burst(x: number, y: number, n: number) {
   for (let k = 0; k < n; k++) {
     const a = rg.random() * Math.PI * 2, sp = 80 + rg.random() * 220;
@@ -247,16 +254,17 @@ function sNext() {
 
 function sAsk() {
   if (sKind === "pick") {
-    setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.", label(sTarget));
+    setCard(txt("kp_where_" + sTarget.id), "Missä on " + fiWord(sTarget) + "? Napauta oikeaa kuvaa.", label(sTarget), "Napauta oikeaa kuvaa.");
     say("kp_where_" + sTarget.id);
   } else if (sKind === "recall") {
-    setCard(txt("kp_what"), "Mikä tämä on? Napauta oikeaa sanaa. 🔊 sanoo sanan ääneen.");
+    setCard(txt("kp_what"), "Mikä tämä on? Napauta oikeaa sanaa. 🔊 sanoo sanan ääneen.", "", "Lue sanat ja napauta oikeaa. 🔊 sanoo sanan.");
     say("kp_what");
   } else if (sKind === "build") {
-    setCard(txt("kp_build") + "  " + bare(sTarget).toUpperCase(), "Kokoa sana kirjaimista oikeassa järjestyksessä (" + fiWord(sTarget) + ").", bare(sTarget).toUpperCase());
+    setCard(txt("kp_build") + "  " + bare(sTarget).toUpperCase(), "Kokoa sana kirjaimista oikeassa järjestyksessä (" + fiWord(sTarget) + ").", bare(sTarget).toUpperCase(), "Napauta kirjaimet oikeassa järjestyksessä.");
     say(["kp_build", sTarget.id]);
   } else {
-    setCard(txt("kp_pairs"), hard ? "Käännä kortteja: yhdistä kuva ja sana." : "Käännä kaksi korttia. Etsi samat kuvat.");
+    const h = hard ? "Käännä kortteja: yhdistä kuva ja sana." : "Käännä kaksi korttia. Etsi samat kuvat.";
+    setCard(txt("kp_pairs"), h, "", h);
     say("kp_pairs");
   }
 }
@@ -331,7 +339,7 @@ function sLetter(i: number) {
   } else {
     l.at = t;
     sMistakes++;
-    fb.text = "✗ " + (lang === "es" ? "No es " : "Not ") + l.ch;
+    fb.text = "✗ " + (lang === "es" ? "No es " : lang === "fi" ? "Ei " : "Not ") + l.ch;
     rg.sound("wrong");
     rg.vibrate(40);
   }
@@ -352,7 +360,7 @@ function Sanat() {
         <div className={hard ? "cards c4" : "cards c3"}>
           {sCards.map((c, i) => (
             <div className={(c.done ? "mcard done" : c.open ? "mcard open" : "mcard") + (hard ? " sm" : "")} id={"mc" + i} onClick={() => sCard(i)}>
-              {c.open || c.done ? (c.text ? <div className="mtext">{label(c.w)}</div> : <div className="mpic"><div className={hard ? "memo sm" : "memo"}>{c.w.e}</div><div className="mlabel">{label(c.w)}</div></div>) : <div className="mback">?</div>}
+              {c.open || c.done ? (c.text ? <div className="mtext">{readLabel(c.w)}</div> : <div className="mpic"><div className={hard ? "memo sm" : "memo"}>{c.w.e}</div><div className="mlabel">{label(c.w)}</div></div>) : <div className="mback">?</div>}
             </div>
           ))}
         </div>
@@ -389,7 +397,7 @@ function Sanat() {
             return (
               <div className="rrow" style={{ marginLeft: dx }}>
                 <div className="rplay" id={"rp" + i} onClick={() => say(w.id)}>🔊</div>
-                <div className={ok ? "rword ok" : "rword"} id={"rw" + i} onClick={() => sPick(i)}>{label(w)}</div>
+                <div className={ok ? "rword ok" : "rword"} id={"rw" + i} onClick={() => sPick(i)}>{readLabel(w)}</div>
               </div>
             );
           })}
@@ -493,17 +501,17 @@ function np(it: Item) {
   const c = color(it.c), w = word(it.o);
   let g = "m";
   for (const o of OBJECTS) if (o.id === it.o) g = o.g;
-  return lang === "en" ? c.en + " " + w.en : w.es + " " + (g === "f" ? c.esf : c.es);
+  return lang === "es" ? w.es + " " + (g === "f" ? c.esf : c.es) : c[lang] + " " + w[lang];
 }
 function npFi(it: Item) { return color(it.c).fi + " " + word(it.o).fi; }
 function placeFi(id: string) { for (const p of PLACES) if (p.id === id) return p.fi; return ""; }
 function eAsk() {
   const it = items[eTarget];
   if (hard) {
-    setCard(txt("kp_put_" + it.c + "_" + it.o) + " " + txt("kp_" + ePlace), "Napauta " + npFi(it) + ", sitten " + placeFi(ePlace), np(it));
+    setCard(txt("kp_put_" + it.c + "_" + it.o) + " " + txt("kp_" + ePlace), "Napauta " + npFi(it) + ", sitten " + placeFi(ePlace), np(it), "Napauta ensin esinettä, sitten paikkaa.");
     say(["kp_put_" + it.c + "_" + it.o, "kp_" + ePlace]);
   } else {
-    setCard(txt("kp_find_" + it.c + "_" + it.o), "Etsi ja napauta: " + npFi(it), np(it));
+    setCard(txt("kp_find_" + it.c + "_" + it.o), "Etsi ja napauta: " + npFi(it), np(it), "Napauta oikeaa esinettä.");
     say("kp_find_" + it.c + "_" + it.o);
   }
 }
@@ -732,7 +740,7 @@ function cAsk(hello: boolean) {
   const a: string[] = hello ? ["hello"] : [];
   if (cOrder.length === 1) a.push("kp_order" + cOrder[0].n + "_" + cOrder[0].id);
   else { a.push("kp_like2"); a.push("kp_q" + cOrder[0].n + "_" + cOrder[0].id); a.push("kp_and"); a.push("kp_q" + cOrder[1].n + "_" + cOrder[1].id); a.push("please"); }
-  cText = a.filter((x) => x !== "hello").map((x) => txt(x)).join(" ").replace(/ please$/, ", please.").replace(/ por favor$/, ", por favor.");
+  cText = a.filter((x) => x !== "hello").map((x) => txt(x)).join(" ").replace(/ please$/, ", please.").replace(/ por favor$/, ", por favor.").replace(/ kiitos$/, ", kiitos.");
   say(a);
 }
 
@@ -829,7 +837,7 @@ function Kahvila() {
           {tray.length === 0 ? <div className="trayhelp">Napauta ruokia tarjottimelle 👇</div> : tray.map((id, i) => <div className="titem" id={"tr" + i} onClick={() => cRemove(i)}>{word(id).e}</div>)}
         </div>
       </div>
-      <div className="cafefi">Kuuntele tai lue tilaus ja napauta oikeat ruoat.</div>
+      <div className="cafefi">{FI() ? "Kuuntele tilaus ja napauta oikeat ruoat." : "Kuuntele tai lue tilaus ja napauta oikeat ruoat."}</div>
       <div className="menu">
         {MENU.map((m) => <div className="mitem" id={"m-" + m.id} onClick={() => cAdd(m.id)}><div className="miemo">{word(m.id).e}</div></div>)}
       </div>
@@ -883,15 +891,15 @@ function Tarina() {
   return (
     <div className="screen" style={{ backgroundColor: scene.bg }}>
       <div className="bar">
-        <div className={showFi ? "fi on" : "fi"} id="fi" onClick={() => { showFi = !showFi; rg.sound("click"); }}>🇫🇮</div>
+        {FI() ? <div /> : <div className={showFi ? "fi on" : "fi"} id="fi" onClick={() => { showFi = !showFi; rg.sound("click"); }}>🇫🇮</div>}
         <div className="speak" id="ask" onClick={() => say("kp_" + scene.id)}>🔊</div>
       </div>
       <div className="stage" id="stage" onClick={() => say("kp_" + scene.id)} style={{ opacity: String(k) }}>
         {scene.pic.map((e: string, i: number) => <div className="semo" style={{ marginTop: Math.sin(t * 2 + i) * 6 }}>{e}</div>)}
       </div>
       <div className={night ? "line night" : "line"}>{scene[lang]}</div>
-      {showFi ? <div className={night ? "finn night" : "finn"}>{scene.fi}</div> : null}
-      <div className={night ? "thelp night" : "thelp"}>{scene.choices ? "Valitse kuva: mitä tapahtuu seuraavaksi?" : scene.next ? "Paina ▶ jatkaaksesi. 🇫🇮 näyttää suomeksi." : "Tarina loppui!"}</div>
+      {showFi && !FI() ? <div className={night ? "finn night" : "finn"}>{scene.fi}</div> : null}
+      <div className={night ? "thelp night" : "thelp"}>{scene.choices ? "Valitse kuva: mitä tapahtuu seuraavaksi?" : scene.next ? (FI() ? "Paina ▶ jatkaaksesi." : "Paina ▶ jatkaaksesi. 🇫🇮 näyttää suomeksi.") : "Tarina loppui!"}</div>
       {scene.choices ? (
         <div className="tchoices">
           {scene.choices.map((c: any, i: number) => (
@@ -938,10 +946,13 @@ function Menu() {
         <div className={lang === "es" ? "flag on" : "flag"} id="es" onClick={() => setLang("es")}>
           <div className="femo">🇪🇸</div><div className="fname">Español</div>
         </div>
+        <div className={lang === "fi" ? "flag on" : "flag"} id="fi" onClick={() => setLang("fi")}>
+          <div className="femo">🇫🇮</div><div className="fname">Suomi</div>
+        </div>
       </div>
       <div className="levels">
         <div className={!hard ? "lvl on" : "lvl"} id="easy" onClick={() => { hard = false; rg.save("hard", false); rg.sound("click"); }}>🐣 Helppo</div>
-        <div className={hard ? "lvl on" : "lvl"} id="hard" onClick={() => { hard = true; rg.save("hard", true); rg.sound("click"); }}>🦊 8 v</div>
+        <div className={hard ? "lvl on" : "lvl"} id="hard" onClick={() => { hard = true; rg.save("hard", true); rg.sound("click"); }}>{FI() ? "🦊 Viskari" : "🦊 8 v"}</div>
       </div>
       <div className="games">
         {GAMES.map((g, i) => {
@@ -966,7 +977,7 @@ function Done() {
   for (let i = 0; i < of; i++) st.push(<div className={i < stars ? "bigstar" : "bigstar off"}>⭐</div>);
   return (
     <div className="screen">
-      <div className="title" style={{ marginTop: 90 }}>{stars * 2 >= of ? (lang === "es" ? "¡Muy bien!" : "Well done!") : (lang === "es" ? "¡Buen trabajo!" : "Good job!")}</div>
+      <div className="title" style={{ marginTop: 90 }}>{txt(stars * 2 >= of ? "well_done" : "good_job")}</div>
       <div className="stars">{st}</div>
       <div className="button" id="again" onClick={() => start(game)} style={{ backgroundColor: "#06d6a0" }}>↻</div>
       <div className="button back" id="menu" onClick={() => toMenu()}>☰</div>
