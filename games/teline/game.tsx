@@ -6,60 +6,59 @@
 // is stuck on the beam above him. He keeps rolling cable spools down the
 // girders. Help Pip the builder climb up to the kitten.
 //
-// The phone version: the 640×480 scaffold sits at the top of a tall screen
-// and big buttons under it walk (◀ ▶), climb (▲ ▼) and jump. A tap on the
-// scaffold jumps too. Arrow keys and Space work on a keyboard.
-// Easier than the arcade original, for children: five builders, slower
-// spools, ladders are easy to grab, and the bonus running out costs nothing.
-// A wrench smashes spools for a few seconds (no climbing then).
+// The phone version is played with a finger: hold it on the scaffold and Pip
+// walks there, and climbs the nearest ladder up or down when the finger is on
+// another floor. Pip jumps over a spool rolling at him by himself; a tap on
+// Pip or on the big bar at the bottom jumps too. Arrow keys and Space work on
+// a keyboard.
+// Easier than the arcade original, for children: five builders, slow spools,
+// every ladder is whole, a lost builder comes back where he fell (with a
+// moment of blinking safety), a spool never comes down a ladder Pip is on,
+// and the bonus running out costs nothing. A wrench smashes spools for a few
+// seconds.
 
 type Girder = { x0: number; x1: number; yL: number; yR: number };
 type Ladder = { x: number; lo: number; hi: number; broken: boolean };
 type Spool = { g: number; x: number; y: number; dir: number; fall: boolean; vy: number;
   down: number; checked: number; jumped: boolean; spin: number };
 type Mode = "title" | "play" | "dying" | "cleared" | "over";
-type Btn = { id: string; x: number; y: number; w: number; h: number; label: string };
 
 const W = 640;
 const FY = 64;   // the scaffold's top on the screen
+const FH = 1040; // the scaffold's height
+const JY = FY + FH + 14; // the jump bar
+const JH = 1300 - JY - 14;
 const R = 9;     // spool radius (for hits; drawn a little larger)
 const THROW_X = 142; // where Grumble puts a spool down
 const LIVES = 5;
 
 // girders from the bottom (0) to Grumble's (5); the kitten's perch is 6
+// (the arcade layout stretched to the phone's tall screen; the slopes are the
+// same)
 const G: Girder[] = [
-  { x0: 0, x1: 640, yL: 462, yR: 450 },
-  { x0: 0, x1: 596, yL: 376, yR: 390 },
-  { x0: 44, x1: 640, yL: 306, yR: 292 },
-  { x0: 0, x1: 596, yL: 220, yR: 234 },
-  { x0: 44, x1: 640, yL: 150, yR: 136 },
-  { x0: 0, x1: 430, yL: 86, yR: 86 },
-  { x0: 250, x1: 340, yL: 46, yR: 46 },
+  { x0: 0, x1: 640, yL: 966, yR: 954 },
+  { x0: 0, x1: 596, yL: 793, yR: 807 },
+  { x0: 44, x1: 640, yL: 647, yR: 633 },
+  { x0: 0, x1: 596, yL: 473, yR: 487 },
+  { x0: 44, x1: 640, yL: 327, yR: 313 },
+  { x0: 0, x1: 430, yL: 170, yR: 170 },
+  { x0: 250, x1: 340, yL: 90, yR: 90 },
 ];
 // the direction a spool rolls on each girder (downhill)
 const ROLL = [-1, 1, -1, 1, -1, 1, 0];
 
+// every ladder is whole here (the arcade's broken ones fooled children)
 const L: Ladder[] = [
   { x: 520, lo: 0, hi: 1, broken: false },
-  { x: 250, lo: 0, hi: 1, broken: true },
+  { x: 250, lo: 0, hi: 1, broken: false },
   { x: 110, lo: 1, hi: 2, broken: false },
-  { x: 330, lo: 1, hi: 2, broken: true },
+  { x: 330, lo: 1, hi: 2, broken: false },
   { x: 470, lo: 2, hi: 3, broken: false },
   { x: 220, lo: 2, hi: 3, broken: false },
   { x: 150, lo: 3, hi: 4, broken: false },
-  { x: 380, lo: 3, hi: 4, broken: true },
+  { x: 380, lo: 3, hi: 4, broken: false },
   { x: 390, lo: 4, hi: 5, broken: false },
   { x: 310, lo: 5, hi: 6, broken: false },
-];
-
-// the buttons under the scaffold
-const BY = FY + 480 + 130;
-const BTNS: Btn[] = [
-  { id: "left", x: 16, y: BY + 150, w: 180, h: 190, label: "◀" },
-  { id: "right", x: 212, y: BY + 150, w: 180, h: 190, label: "▶" },
-  { id: "up", x: 436, y: BY, w: 188, h: 150, label: "▲" },
-  { id: "jump", x: 420, y: BY + 166, w: 204, h: 160, label: "" },
-  { id: "down", x: 436, y: BY + 342, w: 188, h: 150, label: "▼" },
 ];
 
 function sy(g: number, x: number): number {
@@ -81,32 +80,44 @@ let bonusClock = 0;
 let clock = 0;
 let modeClock = 0;
 
-const P = { x: 40, y: 0, g: 0, vx: 0, vy: 0, air: false, climb: -1, face: 1, walk: 0, wrench: 0 };
+const P = { x: 40, y: 0, g: 0, vx: 0, vy: 0, air: false, climb: -1, face: 1, walk: 0, wrench: 0, safe: 0 };
 let spools: Spool[] = [];
 let throwClock = 0;
 let throwAnim = 0;
 let wrenches: { g: number; x: number; taken: boolean }[] = [];
 let popups: { x: number; y: number; text: string; t: number }[] = [];
-let held: any = {};      // buttons held down this frame
-let shown: any = {};     // the same, for drawing (tick clears held)
+let keys: any = {};      // arrow keys held this frame
+let goal: any = null;    // where the finger wants Pip to go (field coordinates), or null
+let fingerDown = false;  // a finger is on the scaffold
+let jumpLit = 0;         // the jump bar glows for a moment after a press
+let respawnG = 0, respawnX = 40;
 
 function init() {
   best = rg.load("best", 0);
   resetLevel();
 }
 
+function placeHero(g: number, x: number) {
+  P.g = g; P.x = Math.max(G[g].x0, Math.min(G[g].x1 - 16, x)); P.y = sy(g, P.x + 8);
+  P.vx = 0; P.vy = 0; P.air = false; P.climb = -1;
+}
+
 function resetLevel() {
-  P.x = 40; P.g = 0; P.y = sy(0, P.x + 8); P.vx = 0; P.vy = 0; P.air = false; P.climb = -1; P.face = 1; P.wrench = 0;
+  placeHero(0, 40);
+  P.face = 1; P.wrench = 0; P.safe = 0;
   spools = [];
-  throwClock = 1.6;
+  throwClock = 2.4;
   bonus = 5000;
   bonusClock = 0;
   wrenches = [{ g: 1, x: 60, taken: false }, { g: 3, x: 540, taken: false }];
   popups = [];
+  goal = null;
 }
 
-function newGame() {
-  score = 0; lives = LIVES; level = 1; newBest = false;
+// from the title: level 1; after a game over the same level goes on
+function newGame(again: boolean) {
+  score = 0; lives = LIVES; newBest = false;
+  if (!again) level = 1;
   resetLevel();
   mode = "play";
   modeClock = 0;
@@ -119,26 +130,25 @@ function pop(x: number, y: number, text: string) {
 }
 
 function jump() {
-  if (mode === "title") { newGame(); return; }
-  if (mode === "over") { if (modeClock > 1) newGame(); return; }
+  if (mode === "title") { newGame(false); return; }
+  if (mode === "over") { if (modeClock > 1) newGame(true); return; }
   if (mode !== "play" || P.air || P.climb >= 0) return;
   P.air = true;
   P.vy = -235;
-  P.vx = ((held.left ? -1 : 0) + (held.right ? 1 : 0)) * 110;
+  P.vx = Math.sign(P.vx) * 110;
   rg.sound("jump", { volume: 0.6 });
 }
 
-function btnAt(x: number, y: number): string {
-  for (const b of BTNS) {
-    if (x >= b.x - 8 && x < b.x + b.w + 8 && y >= b.y - 8 && y < b.y + b.h + 8) return b.id;
-  }
-  return "";
-}
+function inField(y: number) { return y >= FY && y < FY + FH; }
 
 function onPointerDown(x: number, y: number) {
-  const b = btnAt(x, y);
-  if (b === "jump" || (y >= FY && y < FY + 480) || mode !== "play") jump();
-  else if (b) held[b] = true; // a tap shorter than a frame still moves a step
+  if (mode !== "play") { jump(); return; }
+  if (y >= FY + FH) { jumpLit = 0.25; jump(); return; }
+  if (!inField(y)) return;
+  // a tap on Pip jumps; anywhere else is where to go
+  const fy = y - FY;
+  if (Math.abs(x - (P.x + 8)) < 40 && Math.abs(fy - (P.y - 15)) < 44 && P.climb < 0) { jumpLit = 0.25; jump(); return; }
+  goal = { x, y: fy };
 }
 
 function onKeyDown(key: string) {
@@ -154,18 +164,60 @@ function onBack() {
 
 function readInput() {
   const k = __input.keys;
-  const h: any = {
+  keys = {
     left: k["ArrowLeft"] || k["a"], right: k["ArrowRight"] || k["d"],
     up: k["ArrowUp"] || k["w"], down: k["ArrowDown"] || k["s"],
   };
+  if (keys.left || keys.right || keys.up || keys.down) goal = null;
+  fingerDown = false;
   for (const p of __input.pointers) {
-    if (!p.down) continue;
-    const b = btnAt(p.x, p.y);
-    if (b) h[b] = true;
+    if (!p.down || !inField(p.y)) continue;
+    // a finger held on Pip (a jump) does not walk him
+    const fy = p.y - FY;
+    if (Math.abs(p.x - (P.x + 8)) < 40 && Math.abs(fy - (P.y - 15)) < 44) continue;
+    fingerDown = true;
+    goal = { x: p.x, y: fy };
   }
-  // a quick tap from onPointerDown counts for this frame
-  for (const id in held) if (held[id]) h[id] = true;
-  held = h;
+}
+
+// the floor a point on the scaffold belongs to: the girder under it
+function floorAt(x: number, y: number): number {
+  if (y < sy(6, 295) + 16) return 6;
+  let f = 0;
+  for (let g = 1; g <= 5; g++) if (y < sy(g, x) + 16) f = g;
+  return f;
+}
+
+// The finger as arrow keys: walk to the finger on the same floor, otherwise
+// to the best ladder towards its floor and up or down it.
+function steer(): any {
+  const c: any = { left: false, right: false, up: false, down: false };
+  if (!goal || P.air) return c;
+  const want = floorAt(goal.x, goal.y);
+  const px = P.x + 8;
+  if (P.climb >= 0) {
+    if (want >= L[P.climb].hi) c.up = true; else c.down = true;
+    return c;
+  }
+  let tx = goal.x;
+  if (want !== P.g) {
+    const up = want > P.g;
+    let bestL: Ladder | null = null;
+    let bestD = 1e9;
+    for (const l of L) {
+      if ((up ? l.lo : l.hi) !== P.g) continue;
+      const d = Math.abs(l.x - px) + 0.5 * Math.abs(l.x - goal.x);
+      if (d < bestD) { bestD = d; bestL = l; }
+    }
+    if (!bestL) return c;
+    if (Math.abs(bestL.x - px) < 8) { if (up) c.up = true; else c.down = true; return c; }
+    tx = bestL.x;
+  } else if (Math.abs(tx - px) < 8) {
+    if (!fingerDown) goal = null;
+    return c;
+  }
+  if (tx < px) c.left = true; else c.right = true;
+  return c;
 }
 
 function tick(dt: number) {
@@ -173,30 +225,32 @@ function tick(dt: number) {
   dt = Math.min(dt, 1 / 30);
   clock += dt;
   modeClock += dt;
+  jumpLit = Math.max(0, jumpLit - dt);
   for (const p of popups) { p.t -= dt; p.y -= 30 * dt; }
   popups = popups.filter((p) => p.t > 0);
   if (mode === "dying") {
-    if (modeClock > 1.4) {
+    if (modeClock > 1.2) {
       if (lives <= 0) gameOver();
-      else { resetLevel(); mode = "play"; }
+      else respawn();
       modeClock = 0;
     }
-    clearTaps();
     return;
   }
   if (mode === "cleared") {
     if (modeClock > 2.4) { level++; resetLevel(); mode = "play"; modeClock = 0; }
-    clearTaps();
     return;
   }
-  if (mode !== "play") { clearTaps(); return; }
+  if (mode !== "play") return;
 
   // the bonus runs down (to zero; that costs nothing here)
   bonusClock += dt;
   if (bonusClock >= 2) { bonusClock -= 2; bonus = Math.max(0, bonus - 100); }
   if (P.wrench > 0) P.wrench = Math.max(0, P.wrench - dt);
+  if (P.safe > 0) P.safe = Math.max(0, P.safe - dt);
 
-  movePlayer(dt, held.left, held.right, held.up, held.down);
+  const s = steer();
+  movePlayer(dt, keys.left || s.left, keys.right || s.right, keys.up || s.up, keys.down || s.down);
+  autoJump();
   moveSpools(dt);
   grumble(dt);
 
@@ -204,9 +258,9 @@ function tick(dt: number) {
   for (const w of wrenches) {
     if (w.taken) continue;
     const wy = sy(w.g, w.x) - 26;
-    if (P.climb < 0 && Math.abs(P.x + 8 - w.x) < 18 && P.y > wy && P.y - 30 < wy + 14) {
+    if (P.climb < 0 && Math.abs(P.x + 8 - w.x) < 22 && P.y > wy && P.y - 30 < wy + 14) {
       w.taken = true;
-      P.wrench = 7;
+      P.wrench = 8;
       pop(w.x, wy, rg.t("JAKOAVAIN!", "WRENCH!", "¡LLAVE!"));
       rg.sound("coin", { pitch: 1.3 });
       rg.vibrate(20);
@@ -219,38 +273,51 @@ function tick(dt: number) {
     pop(P.x, P.y - 40, "+" + bonus);
     mode = "cleared";
     modeClock = 0;
-    rg.celebrate(295, FY + 30, { big: true });
+    goal = null;
+    if (lives < 7) lives++; // a new builder for every kitten saved
+    rg.celebrate(295, FY + 70, { big: true });
     rg.vibrate(60);
     rg.say(level === 1 ? "hienoa" : level === 2 ? "mahtavaa" : "loistavaa");
   }
-  clearTaps();
 }
-
-function clearTaps() { shown = held; held = {}; }
 
 function gameOver() {
   mode = "over";
+  goal = null;
   rg.stopMusic();
-  if (score > best) { best = score; newBest = true; rg.save("best", best); rg.celebrate(W / 2, FY + 200, { big: true, sound: false }); }
+  if (score > best) { best = score; newBest = true; rg.save("best", best); rg.celebrate(W / 2, FY + 400, { big: true, sound: false }); }
   rg.sound("lose");
   rg.say(newBest ? "uusi_ennatys" : "voi_ei");
 }
 
 function die() {
-  if (mode !== "play") return;
+  if (mode !== "play" || P.safe > 0) return;
   pop(P.x - 6, P.y - 44, rg.t("AU!", "OUCH!", "¡AY!"));
   lives--;
   mode = "dying";
   modeClock = 0;
+  // back where he fell: at the foot of the ladder he was on, or on his girder
+  if (P.climb >= 0) { respawnG = L[P.climb].lo; respawnX = L[P.climb].x - 8; }
+  else { respawnG = P.g; respawnX = P.x; }
   rg.sound("hit");
   rg.vibrate([60, 40, 120]);
   if (lives > 0) rg.say(lives === 1 ? "ei_haittaa" : "hups");
 }
 
+function respawn() {
+  placeHero(respawnG, respawnX);
+  P.safe = 2.5;
+  goal = null;
+  // the spools close by roll away
+  const py = P.y;
+  spools = spools.filter((s) => Math.abs(s.x - P.x) > 150 || Math.abs(s.y - py) > 120);
+  mode = "play";
+}
+
 // a ladder within easy reach: children's thumbs are not pixel-exact
 function ladderAt(g: number, goingUp: boolean): Ladder | null {
   let bestL: Ladder | null = null;
-  let bestD = 18;
+  let bestD = 28;
   for (const l of L) {
     if (l.broken) continue;
     const d = Math.abs(P.x + 8 - l.x);
@@ -259,21 +326,22 @@ function ladderAt(g: number, goingUp: boolean): Ladder | null {
   return bestL;
 }
 
+const CLIMB = 170;
+
 function movePlayer(dt: number, left: boolean, right: boolean, up: boolean, down: boolean) {
   if (P.climb >= 0) {
     const l = L[P.climb];
     const top = sy(l.hi, l.x), bottom = sy(l.lo, l.x);
-    if (up) { P.y -= 80 * dt; P.walk += dt * 8; }
-    if (down) { P.y += 80 * dt; P.walk += dt * 8; }
+    if (up) { P.y -= CLIMB * dt; P.walk += dt * 10; }
+    if (down) { P.y += CLIMB * dt; P.walk += dt * 10; }
     if (P.y <= top) { P.y = top; P.g = l.hi; P.climb = -1; }
     else if (P.y >= bottom) { P.y = bottom; P.g = l.lo; P.climb = -1; }
     return;
   }
   if (!P.air) {
-    // onto a ladder (not while carrying the wrench)
-    if (P.wrench <= 0 && (up || down)) {
+    if (up || down) {
       const l = ladderAt(P.g, up);
-      if (l) { P.climb = L.indexOf(l); P.x = l.x - 8; return; }
+      if (l) { P.climb = L.indexOf(l); P.x = l.x - 8; P.vx = 0; return; }
     }
     P.vx = 0;
     if (left) { P.vx = -95; P.face = -1; }
@@ -292,13 +360,29 @@ function movePlayer(dt: number, left: boolean, right: boolean, up: boolean, down
   }
 }
 
+function spoolSpeed() { return Math.min(110, 64 + level * 8); }
+
+// Pip hops over a spool rolling at him on his own girder, just in time
+function autoJump() {
+  if (P.air || P.climb >= 0 || mode !== "play") return;
+  const px = P.x + 8;
+  for (const s of spools) {
+    if (s.fall || s.down > 0 || s.g !== P.g) continue;
+    const dx = s.x - px;
+    const closing = -Math.sign(dx) * s.dir * spoolSpeed() + Math.sign(dx) * P.vx;
+    if (closing <= 0) continue;
+    const t = (Math.abs(dx) - 13) / closing;
+    if (t > 0 && t < 0.2) { jump(); return; }
+  }
+}
+
 function moveSpools(dt: number) {
-  const speed = Math.min(150, 78 + level * 12);
+  const speed = spoolSpeed();
   for (const s of spools) {
     s.spin += dt * speed * s.dir / R;
     if (s.down > 0) {
       // going down a ladder
-      s.y += 80 * dt;
+      s.y += 140 * dt;
       const floor = sy(s.down - 1, s.x) - R;
       if (s.y >= floor) { s.g = s.down - 1; s.down = 0; s.dir = ROLL[s.g]; s.y = floor; }
     } else if (s.fall) {
@@ -317,11 +401,12 @@ function moveSpools(dt: number) {
         s.g = s.g - 1; // the girder below, or -1 off the bottom
       } else {
         s.y = sy(s.g, s.x) - R;
-        // a ladder down: decided once per ladder
-        for (const l of L) {
-          if (l.hi === s.g && !l.broken && Math.abs(s.x - l.x) < 3 && s.checked !== L.indexOf(l)) {
-            s.checked = L.indexOf(l);
-            if (rg.random() < Math.min(0.45, 0.15 + level * 0.05)) { s.down = s.g; s.x = l.x; }
+        // a ladder down: decided once per ladder, never the one Pip is on
+        for (let i = 0; i < L.length; i++) {
+          const l = L[i];
+          if (l.hi === s.g && Math.abs(s.x - l.x) < 3 && s.checked !== i) {
+            s.checked = i;
+            if (P.climb !== i && rg.random() < Math.min(0.35, 0.1 + level * 0.05)) { s.down = s.g; s.x = l.x; }
           }
         }
       }
@@ -347,14 +432,14 @@ function moveSpools(dt: number) {
       rg.sound("coin", { volume: 0.5 });
     }
   }
-  spools = spools.filter((s) => s.y < 600 && s.x > -40);
+  spools = spools.filter((s) => s.y < FH + 100 && s.x > -40);
 }
 
 function grumble(dt: number) {
   throwAnim = Math.max(0, throwAnim - dt);
   throwClock -= dt;
   if (throwClock <= 0) {
-    throwClock = Math.max(1.6, 3.2 - level * 0.25) + rg.random() * 1.2;
+    throwClock = Math.max(2.2, 4 - level * 0.25) + rg.random() * 1.5;
     throwAnim = 0.4;
     spools.push({ g: 5, x: THROW_X, y: sy(5, THROW_X) - R, dir: 1, fall: false, vy: 0, down: 0, checked: -1, jumped: false, spin: 0 });
   }
@@ -383,9 +468,9 @@ let scene: any = null;
 
 function Sky() {
   const out: any[] = [<div className="sky" />];
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < 18; i++) {
     const big = rnd() < 0.25;
-    out.push(<div className={big ? "star bigstar" : "star"} style={{ left: Math.floor(rnd() * 630), top: Math.floor(30 + rnd() * 260) }} />);
+    out.push(<div className={big ? "star bigstar" : "star"} style={{ left: Math.floor(rnd() * 630), top: Math.floor(30 + rnd() * 560) }} />);
   }
   out.push(<div className="moon-glow" style={{ left: 452, top: 26 }} />);
   out.push(<div className="moon" style={{ left: 466, top: 40 }} />);
@@ -395,15 +480,17 @@ function Sky() {
 }
 
 // the city behind the scaffold: towers with a few lit windows
+const GROUND = 978; // the street under the scaffold
+
 function City() {
   const out: any[] = [];
-  const towers = [[0, 360, 70], [64, 330, 54], [112, 390, 80], [186, 300, 46], [226, 350, 74], [296, 320, 60],
-    [352, 372, 84], [430, 286, 52], [478, 340, 70], [544, 310, 50], [590, 360, 50]];
+  const towers = [[0, 780, 70], [64, 715, 54], [112, 845, 80], [186, 650, 46], [226, 760, 74], [296, 695, 60],
+    [352, 805, 84], [430, 620, 52], [478, 735, 70], [544, 670, 50], [590, 780, 50]];
   for (const [x, top, w] of towers) {
-    out.push(<div className="tower" style={{ left: x, top, width: w, height: 480 - top }} />);
-    for (let y = top + 10; y < 470; y += 16) {
+    out.push(<div className="tower" style={{ left: x, top, width: w, height: GROUND - top }} />);
+    for (let y = top + 10; y < GROUND - 10; y += 16) {
       for (let wx = x + 6; wx < x + w - 8; wx += 12) {
-        if (rnd() < 0.07) out.push(<div className={rnd() < 0.3 ? "win warm" : "win"} style={{ left: wx, top: y }} />);
+        if (rnd() < 0.05) out.push(<div className={rnd() < 0.3 ? "win warm" : "win"} style={{ left: wx, top: y }} />);
       }
     }
   }
@@ -448,7 +535,8 @@ function Stack() {
 
 // Pip the builder: a hard hat, red overalls, boots. From behind on a ladder.
 function Hero() {
-  const flash = mode === "dying" && Math.floor(modeClock * 10) % 2 === 0;
+  const flash = (mode === "dying" && Math.floor(modeClock * 10) % 2 === 0);
+  if (P.safe > 0 && Math.floor(P.safe * 8) % 2 === 0) return null; // blinking: safe for a moment
   const step = Math.floor(P.walk) % 2;
   const climbing = P.climb >= 0;
   const right = P.face > 0;
@@ -587,7 +675,7 @@ function Hud() {
 
 function Banner(props: { title: string; lines: string[] }) {
   return (
-    <div className="banner" style={{ left: W / 2 - 220, top: 120 }}>
+    <div className="banner" style={{ left: W / 2 - 220, top: 360 }}>
       <div className="banner-title">{props.title}</div>
       {props.lines.map((l, i) => <div className={i === props.lines.length - 1 ? "banner-line go" : "banner-line"}>{l}</div>)}
     </div>
@@ -603,19 +691,28 @@ function Scene() {
       {Girders()}
       {Ladders()}
       {Stack()}
+      <div className="street" style={{ top: GROUND }} />
+      <div className="kerb" style={{ top: GROUND }} />
     </div>
   );
 }
 
-function Button(b: Btn) {
-  const on = !!shown[b.id] || (b.id === "jump" && mode === "play" && P.air);
-  const cls = "btn " + (b.id === "jump" ? "btn-jump" : "btn-dir") + (on ? " pressed" : "");
-  const text = b.id === "jump" ? rg.t("HYPPY", "JUMP", "SALTA") : b.label;
+// the jump bar under the scaffold
+function JumpBar() {
+  const on = jumpLit > 0 || (mode === "play" && P.air);
   return (
-    <div className={cls} style={{ left: b.x, top: b.y, width: b.w, height: b.h }}>
-      <div className={b.id === "jump" ? "btn-text jump-text" : "btn-text"}>{text}</div>
+    <div className={on ? "btn btn-jump pressed" : "btn btn-jump"} style={{ left: 16, top: JY, width: W - 32, height: JH }}>
+      <div className="btn-text jump-text">{rg.t("HYPPY", "JUMP", "SALTA")}</div>
     </div>
   );
+}
+
+// where the finger sent Pip
+function Goal() {
+  if (!goal || mode !== "play") return null;
+  const f = floorAt(goal.x, goal.y);
+  const gx = Math.max(G[f].x0 + 8, Math.min(G[f].x1 - 8, goal.x));
+  return <div className="goal" style={{ left: gx - 14, top: sy(f, gx) - 10 }} />;
 }
 
 function view() {
@@ -628,21 +725,23 @@ function view() {
         {Grumble()}
         {Kitten()}
         {wrenches.filter((w) => !w.taken).map((w) => Wrench({ x: w.x, y: sy(w.g, w.x) - 30 + Math.sin(clock * 4) * 2 }))}
+        {Goal()}
         {Spools()}
         {mode !== "title" ? Hero() : null}
         {popups.map((p) => <div className="popup" style={{ left: p.x - 12, top: p.y }}>{p.text}</div>)}
         {mode === "title" ? Banner({ title: rg.t("TELINEKIIPEILY", "SCAFFOLD SCRAMBLE", "ESCALADA"), lines: [
           rg.t("Nosturirobotti vierittää kaapelikeloja!", "Grumble the crane-bot is rolling spools!", "¡El robot grúa lanza bobinas!"),
-          rg.t("Kiipeä kissanpennun luo ja hyppää kelojen yli.", "Climb up to the kitten and jump the spools.", "Sube hasta el gatito y salta las bobinas."),
+          rg.t("Kiipeä kissanpennun luo.", "Climb up to the kitten.", "Sube hasta el gatito."),
+          rg.t("Kosketa paikkaa, jonne haluat mennä.", "Touch where you want to go.", "Toca donde quieres ir."),
           rg.t("Napauta ja aloita!", "Tap to start!", "¡Toca para empezar!")] }) : null}
         {mode === "cleared" ? Banner({ title: rg.t("KISSA PELASTETTU!", "KITTEN SAVED!", "¡GATITO A SALVO!"), lines: [
           "Bonus " + bonus, rg.t("Seuraavaksi taso ", "Next: level ", "Siguiente: nivel ") + (level + 1)] }) : null}
         {mode === "over" ? Banner({ title: rg.t("PELI PÄÄTTYI", "GAME OVER", "FIN DEL JUEGO"), lines: [
           rg.t("Pisteet ", "Score ", "Puntos ") + score + (newBest ? "  🎉" : ""),
-          modeClock > 1 ? rg.t("Napauta ja pelaa uudestaan", "Tap to play again", "Toca para jugar otra vez") : " "] }) : null}
+          modeClock > 1 ? rg.t("Napauta ja jatka tasolta ", "Tap to go on from level ", "Toca para seguir en el nivel ") + level : " "] }) : null}
       </div>
-      <div className="pad" style={{ top: FY + 480 }} />
-      {BTNS.map((b) => Button(b))}
+      <div className="pad" style={{ top: FY + FH }} />
+      {JumpBar()}
     </div>
   );
 }
