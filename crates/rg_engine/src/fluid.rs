@@ -10,6 +10,8 @@
 //! - **Sand** is grains that fall (faster the longer they fall), slide down
 //!   the sides of a pile, sink through water pushing the water up, and turn
 //!   wet next to water (a wet grain slides less, so wet sand piles steeper).
+//!   Running water wears it slowly: a grain the stream touches is carried
+//!   downstream now and then (erosion); still water leaves it alone.
 //! - **Wheels** (hyrrät) are blades that are walls for the water and sand.
 //!   The weight of what lies on a blade and the push of water beside it
 //!   turn the wheel; a turning blade scoops what it sweeps into.
@@ -53,6 +55,10 @@ const MAX_MASS: f32 = 1.0;
 const MAX_COMPRESS: f32 = 0.01;
 const MIN_FLOW: f32 = 0.005;
 const MAX_SPEED: f32 = 1.0;
+/// erosion: the current (smoothed flow, cells of water a step) below which
+/// water does not move sand, and how fast it carries grains above that
+const EROSION_START: f32 = 0.15;
+const EROSION_RATE: f64 = 0.05;
 /// what is left in a cell below this evaporates (no endless thin film)
 const DRY: f32 = 0.002;
 /// the simulation's step; frames run as many as their time needs (at most 3)
@@ -122,6 +128,10 @@ pub struct Sim {
     blade: Vec<bool>,
     mass: Vec<f32>,
     next: Vec<f32>,
+    /// how fast water moves through a cell, smoothed over a few steps:
+    /// sideways (signed, + = right) and falling down; erosion reads them
+    drift: Vec<f32>,
+    fall: Vec<f32>,
     /// the pressure step's labels of water bodies
     label: Vec<u32>,
     palette: Vec<Rgb>,
@@ -187,6 +197,8 @@ impl Sim {
             blade: Vec::new(),
             mass: Vec::new(),
             next: Vec::new(),
+            drift: Vec::new(),
+            fall: Vec::new(),
             label: Vec::new(),
             palette: vec![[0.35, 0.38, 0.45]],
             wheels: Vec::new(),
@@ -449,6 +461,8 @@ impl Sim {
             self.blade = vec![false; n];
             self.mass = vec![0.0; n];
             self.next = vec![0.0; n];
+            self.drift = vec![0.0; n];
+            self.fall = vec![0.0; n];
             self.palette = vec![[0.35, 0.38, 0.45]];
             self.wheels.clear();
             self.valves.clear();
@@ -908,6 +922,7 @@ impl Sim {
                     flow = flow.clamp(0.0, MAX_SPEED.min(rem));
                     self.next[i] -= flow;
                     self.next[b] += flow;
+                    self.fall[b] += flow;
                     rem -= flow;
                 }
                 if rem <= 0.0 {
@@ -933,6 +948,9 @@ impl Sim {
                     let flow = ((m - self.mass[j]) / 4.0).clamp(0.0, rem);
                     self.next[i] -= flow;
                     self.next[j] += flow;
+                    let f = if go_left { -flow } else { flow };
+                    self.drift[i] += f;
+                    self.drift[j] += f;
                     rem -= flow;
                     if rem <= 0.0 {
                         break;
@@ -1149,6 +1167,14 @@ impl Sim {
                     continue;
                 }
                 self.vel[cur] = 0;
+                // running water wears the pile: a grain it touches is
+                // carried off now and then, downstream (slowly: a few
+                // percent a step even in a fast stream)
+                if let Some(to) = self.erode(cur, x, cy) {
+                    self.swap_grain(cur, to);
+                    moved[to] = stamp;
+                    continue;
+                }
                 // slide down the side of the pile
                 if cy + 1 < h {
                     let slip = if self.wet[cur] != 0 { 0.12 } else { 0.9 };
@@ -1172,6 +1198,60 @@ impl Sim {
                 }
             }
         }
+    }
+
+    /// Whether running water carries the grain at `i` (x, y) off this step,
+    /// and where: the side cell the water runs to (water falling on it
+    /// splashes it to either side). Still water does nothing.
+    fn erode(&mut self, i: usize, x: usize, y: usize) -> Option<usize> {
+        let w = self.w;
+        let water = |s: &Sim, j: usize| s.mat[j] == EMPTY && s.mass[j] > 0.25;
+        let mut drift = 0.0f32;
+        let mut fall = 0.0f32;
+        let mut n = 0;
+        let mut look = |j: usize, s: &Sim| {
+            if water(s, j) {
+                drift += s.drift[j];
+                fall = fall.max(s.fall[j]);
+                n += 1;
+            }
+        };
+        if x > 0 { look(i - 1, self); }
+        if x + 1 < w { look(i + 1, self); }
+        if y > 0 { look(i - w, self); }
+        if n == 0 {
+            return None;
+        }
+        // the stream's strength: sideways current, and water falling on it
+        let s = (drift.abs() - EROSION_START).max(0.0) + (fall - EROSION_START * 2.0).max(0.0) * 0.5;
+        if s <= 0.0 {
+            return None;
+        }
+        let p = (s as f64 * EROSION_RATE).min(0.08);
+        if !self.chance(p) {
+            return None;
+        }
+        let dir: i64 = if drift > 0.0 { 1 } else if drift < 0.0 { -1 } else if self.rand() % 2 == 0 { 1 } else { -1 };
+        let nx = x as i64 + dir;
+        if nx >= 0 && nx < w as i64 {
+            let side = (i as i64 + dir) as usize;
+            if water(self, side) {
+                return Some(side);
+            }
+            // a grain on top of the pile: lifted into the stream over it
+            if y > 0 && water(self, side - w) && water(self, i - w) {
+                return Some(side - w);
+            }
+        }
+        // water falling straight on it splashes it to either side
+        let back = x as i64 - dir;
+        if fall > drift.abs() && back >= 0 && back < w as i64 {
+            let side = (i as i64 - dir) as usize;
+            if water(self, side) {
+                return Some(side);
+            }
+        }
+        None
     }
 
     /// A grain moves from `a` into the free cell `b`; b's water goes to a.
@@ -1224,6 +1304,10 @@ impl Sim {
             self.tick += 1;
             self.pour_sources();
             self.turn_wheels();
+            for k in 0..self.drift.len() {
+                self.drift[k] *= 0.8;
+                self.fall[k] *= 0.8;
+            }
             self.fall_sand();
             for _ in 0..4 {
                 self.flow_water();
@@ -1498,6 +1582,57 @@ mod tests {
         assert_eq!(st.get("sand").as_num(0.0), 100.0);
         // a pile, not a column: wider than the 10 it fell as
         assert!(bottom_sand > 10, "{}", bottom_sand);
+    }
+
+    fn sand_mean_x(s: &Sim) -> f64 {
+        let (mut cx, mut n) = (0.0, 0.0);
+        for i in 0..s.mat.len() {
+            if s.mat[i] == SAND {
+                cx += (i % s.w) as f64;
+                n += 1.0;
+            }
+        }
+        cx / n
+    }
+
+    #[test]
+    fn running_water_wears_sand_slowly() {
+        // a stream down a slope runs over a sand pile and carries it downstream
+        let mut s = sim(&[
+            ("init", r#"{"w":120,"h":80,"cell":1}"#),
+            ("line", r#"{"x0":0,"y0":40,"x1":100,"y1":57,"width":3,"mat":"wall"}"#),
+            ("rect", r#"{"x":60,"y":38,"w":14,"h":10,"mat":"sand"}"#),
+            ("source", r#"{"id":"s","x":4,"y":2,"w":6,"rate":40}"#),
+            ("drain", r#"{"id":"d","x":0,"y":76,"w":120,"h":4}"#),
+        ]);
+        run(&mut s, 1.0);
+        let x0 = sand_mean_x(&s);
+        run(&mut s, 4.0);
+        // slowly: not much in the first seconds
+        let x1 = sand_mean_x(&s);
+        assert!(x1 - x0 < 2.0, "{} -> {}", x0, x1);
+        run(&mut s, 30.0);
+        let x2 = sand_mean_x(&s);
+        assert!(x2 - x0 > 3.0, "{} -> {}", x0, x2);
+        assert_eq!(s.state().get("sand").as_num(0.0), 140.0);
+    }
+
+    #[test]
+    fn still_water_leaves_sand_alone() {
+        let mut s = sim(&[
+            ("init", r#"{"w":60,"h":60,"cell":1}"#),
+            ("rect", r#"{"x":10,"y":50,"w":40,"h":4,"mat":"wall"}"#),
+            ("rect", r#"{"x":10,"y":20,"w":4,"h":30,"mat":"wall"}"#),
+            ("rect", r#"{"x":46,"y":20,"w":4,"h":30,"mat":"wall"}"#),
+            ("rect", r#"{"x":24,"y":44,"w":10,"h":6,"mat":"sand"}"#),
+        ]);
+        run(&mut s, 2.0);
+        s.command("rect", &parse(r#"{"x":14,"y":26,"w":32,"h":10,"mat":"water"}"#));
+        run(&mut s, 4.0);
+        let before: Vec<u8> = s.mat.clone();
+        run(&mut s, 10.0);
+        let changed = (0..s.mat.len()).filter(|&i| (before[i] == SAND) != (s.mat[i] == SAND)).count();
+        assert!(changed <= 4, "{} cells changed", changed);
     }
 
     #[test]
