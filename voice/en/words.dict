@@ -874,3 +874,197 @@ ilves IH1 L V EH0 S
 tappara T AA1 P AA0 R AA0
 ilves's IH1 L V EH0 S IH0 Z
 tappara's T AA1 P AA0 R AA0 Z
+add AE1 D
+adjust AH0 JH AH1 S T
+air EH1 R
+alone AH0 L OW1 N
+apart AH0 P AA1 R T
+arena ER0 IY1 N AH0
+arrow AE1 R OW0
+balls B AO1 L Z
+bends B EH1 N D Z
+bent B EH1 N T
+beside B IH0 S AY1 D
+between B IH0 T W IY1 N
+blueberries B L UW1 B EH2 R IY0 Z
+blueberry B L UW1 B EH2 R IY0
+bolted B OW1 L T AH0 D
+bounces B AW1 N S IH0 Z
+boxes B AA1 K S AH0 Z
+breaks B R EY1 K S
+bring B R IH1 NG
+burning B ER1 N IH0 NG
+but B AH1 T
+campfire K AE1 M P F AY2 ER0
+card K AA1 R D
+cards K AA1 R D Z
+change CH EY1 N JH
+closer K L OW1 S ER0
+coloured K AH1 L ER0 D
+cone K OW1 N
+connected K AH0 N EH1 K T IH0 D
+connection K AH0 N EH1 K SH AH0 N
+crosses K R AO1 S IH0 Z
+cyan S AY0 AE1 N
+day D EY1
+degrees D IH0 G R IY1 Z
+dice D AY1 S
+differ D IH1 F ER0
+differently D IH1 F R AH0 N T L IY0
+dig D IH1 G
+disc D IH1 S K
+discs D IH1 S K S
+don't D OW1 N T
+drag D R AE1 G
+drop D R AA1 P
+eighty EY1 T IY0
+english IH1 NG G L IH0 SH
+enough IH0 N AH1 F
+escapes IH0 S K EY1 P S
+everyone EH1 V R IY0 W AH2 N
+except IH0 K S EH1 P T
+falls F AO1 L Z
+fifty F IH1 F T IY0
+fill F IH1 L
+fir F ER1
+fire F AY1 ER0
+fits F IH1 T S
+flowers F L AW1 ER0 Z
+flowing F L OW1 IH0 NG
+flows F L OW1 Z
+follows F AA1 L OW0 Z
+forty F AO1 R T IY0
+froze F R OW1 Z
+further F ER1 DH ER0
+gap G AE1 P
+gate G EY1 T
+gives G IH1 V Z
+going G OW1 IH0 NG
+golf G AA1 L F
+grain G R EY1 N
+gravity G R AE1 V AH0 T IY0
+guide G AY1 D
+half HH AE1 F
+happened HH AE1 P AH0 N D
+hardly HH AA1 R D L IY0
+hay HH EY1
+heater HH IY1 T ER0
+height HH AY1 T
+higher HH AY1 ER0
+hill HH IH1 L
+hits HH IH1 T S
+hold HH OW1 L D
+holds HH OW1 L D Z
+holes HH OW1 L Z
+honey HH AH1 N IY0
+if IH1 F
+inside IH2 N S AY1 D
+just JH AH1 S T
+keeps K IY1 P S
+lamps L AE1 M P S
+laundry L AO1 N D R IY0
+lets L EH1 T S
+lettuce L EH1 T AH0 S
+levels L EH1 V AH0 L Z
+lifts L IH1 F T S
+lights L AY1 T S
+line L AY1 N
+lines L AY1 N Z
+lizard L IH1 Z ER0 D
+magenta M AH0 JH EH1 N T AH0
+makes M EY1 K S
+measure M EH1 ZH ER0
+measured M EH1 ZH ER0 D
+measurement M EH1 ZH ER0 M AH0 N T
+measurements M EH1 ZH ER0 M AH0 N T S
+melt M EH1 L T
+memory M EH1 M ER0 IY0
+mirror M IH1 R ER0
+mirrors M IH1 R ER0 Z
+moment M OW1 M AH0 N T
+moves M UW1 V Z
+much M AH1 CH
+mussel M AH1 S AH0 L
+mussels M AH1 S AH0 L Z
+nap N AE1 P
+needs N IY1 D Z
+ninety N AY1 N T IY0
+number N AH1 M B ER0
+numbers N AH1 M B ER0 Z
+nuts N AH1 T S
+off AO1 F
+onto AA1 N T UW0
+owls AW1 L Z
+own OW1 N
+palm P AA1 M
+panel P AE1 N AH0 L
+passes P AE1 S AH0 Z
+past P AE1 S T
+path P AE1 TH
+pictures P IH1 K CH ER0 Z
+pipe P AY1 P
+pipes P AY1 P S
+pit P IH1 T
+player P L EY1 ER0
+player's P L EY1 ER0 Z
+pool P UW1 L
+pour P AO1 R
+pours P AO1 R Z
+prism P R IH1 Z AH0 M
+pyramid P IH1 R AH0 M IH0 D
+rainbow R EY1 N B OW2
+ran R AE1 N
+reach R IY1 CH
+reaches R IY1 CH AH0 Z
+robot R OW1 B AA2 T
+rock R AA1 K
+row R OW1
+safe S EY1 F
+sandbox S AE1 N D B AA2 K S
+scientist S AY1 AH0 N T IH0 S T
+separates S EH1 P ER0 EY2 T S
+seventy S EH1 V AH0 N T IY0
+shadow SH AE1 D OW2
+shelves SH EH1 L V Z
+shut SH AH1 T
+side S AY1 D
+sieve S IH1 V
+sixty S IH1 K S T IY0
+slant S L AE1 N T
+solar S OW1 L ER0
+solitaire S AA2 L AH0 T EH1 R
+some S AH1 M
+speak S P IY1 K
+splits S P L IH1 T S
+spread S P R EH1 D
+stand S T AE1 N D
+stands S T AE1 N D Z
+stone S T OW1 N
+sunflower S AH1 N F L AW2 ER0
+tank T AE1 NG K
+thirty TH ER1 D IY2
+together T AH0 G EH1 DH ER0
+top T AA1 P
+tortoise T AO1 R T AH0 S
+trapped T R AE1 P T
+treasures T R EH1 ZH ER0 Z
+tunnel T AH1 N AH0 L
+turned T ER1 N D
+twig T W IH1 G
+twigs T W IH1 G Z
+valve V AE1 L V
+vessel V EH1 S AH0 L
+vessel's V EH1 S AH0 L Z
+vessels V EH1 S AH0 L Z
+waiting W EY1 T IH0 NG
+want W AA1 N T
+went W EH1 N T
+wet W EH1 T
+wheel W IY1 L
+wider W AY1 D ER0
+width W IH1 D TH
+win W IH1 N
+work W ER1 K
+worm W ER1 M
+worms W ER1 M Z
+yours Y UH1 R Z
