@@ -13,11 +13,11 @@ const { ART } = require("./art");
   for (const [name, svg] of Object.entries(ART)) {
     const w = +svg.match(/width="(\d+)"/)[1], h = +svg.match(/height="(\d+)"/)[1];
     // coins are 200 px pictures shown at ~50 px: half size is still sharp on a phone
-    const scale = name.startsWith("c") || name === "e1" || name === "e2" ? 0.6 : 1;
+    const scale = name === "icon" ? 1 : name.startsWith("c") || name === "e1" || name === "e2" ? 0.6 : 1;
     const W = Math.round(w * scale), H = Math.round(h * scale);
     await page.setViewportSize({ width: W, height: H });
     await page.setContent(`<html><body style="margin:0;background:transparent">${svg.replace("<svg ", `<svg style="display:block;width:${W}px;height:${H}px" `)}</body></html>`);
-    await page.screenshot({ path: path.join(out, name + ".png"), omitBackground: true });
+    await page.screenshot({ path: name === "icon" ? path.join(out, "..", "icon.png") : path.join(out, name + ".png"), omitBackground: true });
   }
   const sheet = process.argv[2];
   if (sheet) {

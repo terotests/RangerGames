@@ -118,4 +118,13 @@ const ART = {
   e100: note(100, 147, 77, "#7fc784", "#d7f0d4", "#2f7a35", 3),
 };
 
+// the launcher's tile (128 x 128): a 10 € note with a 2 € coin on it
+function icon() {
+  const n = ART.e10, c = ART.e2;
+  const inner = (x) => x.replace(/^<svg[^>]*>/, "").replace(/<\/svg>$/, "");
+  return svg(128, 128, `<g transform="translate(2 18) rotate(-14 62 34) scale(${124 / 254})">${inner(n).split('id="n"').join('id="n2"').split("url(#n)").join("url(#n2)")}</g>
+  <g transform="translate(52 52) scale(${76 / 200})">${inner(c)}</g>`);
+}
+ART.icon = icon();
+
 module.exports = { ART };
