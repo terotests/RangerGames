@@ -226,25 +226,30 @@ var rg = {
   hit: function (a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
 };
 
-// Two or more phones in one game (rg.net). The host's transport carries
-// lines of text: Bluetooth (RFCOMM) between Android phones, and on the web a
-// BroadcastChannel between tabs of the same browser, so a game can be tried
-// with two tabs. One phone hosts (rg.net.host()), the others look for it
-// (rg.net.find(), then rg.net.join(peer.id) for one of rg.net.peers). Up to
-// 7 guests on Bluetooth. rg.net.send(data) sends any JSON value: from the
-// host to every guest (or to one: send(data, peerId)), from a guest to the
-// host. Messages are wrapped with the game's id, so a phone in another game
-// never gets them. The game hears everything in onNet(ev):
+// Two or more phones together (rg.net). The host's transport carries lines
+// of text: Bluetooth (RFCOMM) between Android phones, and on the web a
+// BroadcastChannel between tabs of the same browser, so it can be tried with
+// two tabs (web/kaksi.html). The phones are connected once, in the
+// launcher's settings (⚙️ → Kaksi puhelinta): one hosts (rg.net.host()),
+// the others look for it (rg.net.find(), then rg.net.join(peer.id) for one
+// of rg.net.peers). Up to 7 guests on Bluetooth. The link stays up from game
+// to game, and a guest follows the host: when the host starts a game, or
+// goes back to the menu, the guests do too.
+// rg.net.send(data) sends any JSON value: from the host to every guest (or
+// to one: send(data, peerId)), from a guest to the host. Messages are
+// wrapped with the game's id, so a phone in another game never gets them.
+// The game hears everything in onNet(ev):
 //   { type: "state", state }   "off" | "hosting" | "searching" | "connecting" | "connected" | "error"
 //                              (with ev.reason on an error: "no-bluetooth", "bluetooth-off",
 //                              "permission", "connect-failed", "busy")
 //   { type: "peers", peers }   the phones found: [{ id, name, paired }]
-//   { type: "join", peer }     a phone came into the game ({ id, name, game })
-//   { type: "leave", peer }    a phone left or the link broke
+//   { type: "join", peer }     a phone is in this game now ({ id, name, game })
+//   { type: "leave", peer }    a phone left this game, or the link broke
+//   { type: "other-game", peer, game }  a linked phone is in another game
 //   { type: "message", from, data }
-// rg.net.available is false when the host has no way to connect (no
-// Bluetooth); rg.net.kind is "bluetooth" or "web". Starting another game
-// closes the links.
+// rg.net.links are the linked phones (each with the game it is in) and
+// rg.net.here() those in this game. rg.net.available is false when the host
+// has no way to connect (no Bluetooth); rg.net.kind is "bluetooth" or "web".
 var __net = { links: {} };
 rg.net = {
   available: false,
@@ -254,8 +259,8 @@ rg.net = {
   role: "",          // "host" or "guest" once hosting or joining
   name: "",          // this phone's name as the others see it
   peers: [],         // phones found by find()
-  links: [],         // phones in the game now: [{ id, name, game }]
-  // opts: { max } guests (1–7, default 7): a two-player game hosts with max 1
+  links: [],         // linked phones: [{ id, name, game }]
+  // opts: { max } guests (1–7, default 7)
   host: function (opts) {
     rg.net.role = "host";
     __cmds.push(["net", "host", { game: __game, max: (opts && opts.max) || 7 }]);
@@ -267,7 +272,8 @@ rg.net = {
     __cmds.push(["net", "send", to === undefined ? { text: text } : { text: text, to: String(to) }]);
   },
   close: function () { __cmds.push(["net", "close", null]); },
-  connected: function () { return rg.net.links.length > 0; }
+  connected: function () { return rg.net.links.length > 0; },
+  here: function () { return rg.net.links.filter(function (l) { return l.game === __game; }); }
 };
 
 function __netLinks() {
@@ -276,11 +282,27 @@ function __netLinks() {
   rg.net.links = a;
 }
 
+// tells a linked phone which game this one is in (r: an answer, not answered again)
+function __netHello(id, answer) {
+  var m = { $: "hello", g: __game, n: rg.net.name, h: rg.net.role === "host" ? 1 : 0, l: __launcher ? 1 : 0 };
+  if (answer) m.r = 1;
+  __cmds.push(["net", "send", { to: String(id), text: JSON.stringify(m) }]);
+}
+
 function __netEvent(ev) {
   if (!ev || typeof ev !== "object") return;
   var out = null;
   if (ev.type === "info") {
+    // at the start of every game: what the host can do and the links still up
     rg.net.available = !!ev.available; rg.net.kind = ev.kind || ""; rg.net.name = ev.name || rg.net.name;
+    rg.net.state = ev.state || "off"; rg.net.role = ev.role || "";
+    __net.links = {};
+    var ls = ev.links || [];
+    for (var i = 0; i < ls.length; i++) {
+      __net.links[ls[i].id] = { id: String(ls[i].id), name: ls[i].name || "", game: "", host: false };
+      __netHello(ls[i].id, false);
+    }
+    __netLinks();
     return;
   } else if (ev.type === "state") {
     rg.net.state = String(ev.state); rg.net.reason = ev.reason || "";
@@ -292,13 +314,15 @@ function __netEvent(ev) {
   } else if (ev.type === "open") {
     // a link is up: say which game this phone is in; "join" comes with the answer
     var p0 = ev.peer || {};
-    __net.links[p0.id] = { id: String(p0.id), name: p0.name || "", game: "" };
-    __cmds.push(["net", "send", { to: String(p0.id), text: JSON.stringify({ $: "hello", g: __game, n: rg.net.name }) }]);
+    if (ev.role) rg.net.role = ev.role;
+    __net.links[p0.id] = { id: String(p0.id), name: p0.name || "", game: "", host: false };
+    __netLinks();
+    __netHello(p0.id, false);
     return;
   } else if (ev.type === "leave") {
     var p1 = ev.peer || {}, had = __net.links[p1.id];
     delete __net.links[p1.id]; __netLinks();
-    if (had && had.game === __game) out = { type: "leave", peer: had };
+    if (had) out = { type: "leave", peer: had };
   } else if (ev.type === "data") {
     var m = null;
     try { m = JSON.parse(ev.text); } catch (err) { m = null; }
@@ -306,11 +330,18 @@ function __netEvent(ev) {
     var l = __net.links[ev.from];
     if (m.$ === "hello") {
       if (!l) return;
-      var first = l.game === "";
-      l.game = String(m.g || ""); if (m.n) l.name = String(m.n);
+      if (!m.r) __netHello(ev.from, true);
+      var was = l.game;
+      l.game = String(m.g || ""); l.host = !!m.h; if (m.n) l.name = String(m.n);
       __netLinks();
-      if (first && l.game === __game) out = { type: "join", peer: l };
-      else if (first) out = { type: "other-game", peer: l, game: l.game };
+      // a guest goes where its host goes
+      if (l.host && rg.net.role === "guest" && l.game !== __game) {
+        if (m.l) { if (!__launcher) rg.exit(); }
+        else rg.launch(l.game);
+      }
+      if (l.game === __game && was !== __game) out = { type: "join", peer: l };
+      else if (l.game !== __game && was === __game) out = { type: "leave", peer: l };
+      else if (l.game !== __game) out = { type: "other-game", peer: l, game: l.game };
     } else if (m.g === __game) {
       out = { type: "message", from: String(ev.from), data: m.d };
     }
@@ -497,7 +528,7 @@ function __start(arg) {
   for (var vl in vs) { var m = {}; for (var vi = 0; vi < vs[vl].length; vi++) m[vs[vl][vi]] = true; __voices[vl] = m; }
   __launcher = !!a.launcher;
   __net.links = {};
-  rg.net.state = "off"; rg.net.role = ""; rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
+  rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
   __speech = a.speech !== false;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();

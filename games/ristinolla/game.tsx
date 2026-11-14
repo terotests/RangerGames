@@ -1,8 +1,11 @@
 // Ristinolla: three in a row. Two players on one phone, against the
 // phone (an easy opponent that sometimes misses, so a child can win), or on
-// two phones over Bluetooth (rg.net; on the web two browser tabs). On two
-// phones the host keeps the game: it is X, the guest O, the guest's taps go
-// to the host and the host sends the whole game back after every change.
+// two phones over Bluetooth (rg.net; on the web two browser tabs). The
+// phones are connected in the menu's settings (⚙️ → Kaksi puhelinta); when
+// both are in Ristinolla the two-phone game starts by itself (the guest
+// follows the host into the game). The host keeps the game: it is X, the
+// guest O, the guest's taps go to the host and the host sends the whole game
+// back after every change.
 
 type Mark = "" | "X" | "O";
 type Mode = "menu" | "net" | "play" | "over";
@@ -24,7 +27,8 @@ let overClock = 0;
 let starts: Mark = "X";
 let net = false;               // playing on two phones
 let me: Mark = "X";            // on two phones: this phone's mark (host X, guest O)
-let netNote = "";              // on the two-phone screen: what went wrong last
+let netNote = "";              // in the menu: why the two-phone game ended
+let partner = "";              // the host's: the guest it plays with
 let firstState = false;        // a guest waits for the host's first round
 
 function newRound() {
@@ -122,48 +126,54 @@ function again() {
   else rg.net.send({ t: "again" });
 }
 
-function openNet() {
-  rg.sound("click");
-  mode = "net"; netNote = "";
-  rg.net.close();
-  rg.say("net_aloita_tai_liity");
-}
-
+// back from the two-phone game: to the games menu (a guest follows its host)
 function leaveNet() {
   rg.sound("click");
-  rg.net.close();
-  net = false; mode = "menu";
+  net = false;
+  rg.exit();
 }
 
-const NET_ERRORS: { [k: string]: string[] } = {
-  "no-bluetooth": ["Tässä laitteessa ei ole Bluetoothia.", "This device has no Bluetooth.", "Este dispositivo no tiene Bluetooth."],
-  "bluetooth-off": ["Bluetooth ei mennyt päälle.", "Bluetooth did not turn on.", "El Bluetooth no se encendió."],
-  "permission": ["Peli tarvitsee luvan käyttää Bluetoothia.", "The game needs permission to use Bluetooth.", "El juego necesita permiso para usar Bluetooth."],
-  "connect-failed": ["Kaverin puhelimeen ei saatu yhteyttä.", "Could not reach your friend's phone.", "No se pudo conectar con el teléfono de tu amigo."],
-  "busy": ["Kaverin pelissä on jo pelaaja.", "Your friend's game already has a player.", "La partida de tu amigo ya tiene jugador."]
-};
+function beginNet(peer: any) {
+  net = true; vsPhone = false; netNote = "";
+  me = rg.net.role === "host" ? "X" : "O";
+  partner = peer ? peer.id : "";
+  score = { X: 0, O: 0 }; starts = "X";
+  rg.sound("win");
+  rg.vibrate([40, 60, 40]);
+  if (me === "X") { newRound(); rg.say(["net_yhdistetty", turn === me ? "sinun_vuorosi" : "kaverin_vuoro"]); }
+  else { board = ["", "", "", "", "", "", "", "", ""]; born = [0, 0, 0, 0, 0, 0, 0, 0, 0]; mode = "play"; turn = "X"; firstState = true; }
+}
+
+// the menu's two-phone button: start with the friend if it is in Ristinolla too
+function twoPhones() {
+  rg.sound("click");
+  const here = rg.net.here();
+  if (here.length && rg.net.role === "host") { beginNet(here[0]); return; }
+  if (here.length) { rg.net.send({ t: "start" }); return; }
+  mode = "net";
+}
 
 function onNet(ev: any) {
   if (ev.type === "join") {
-    // the friend is here: the host starts, X begins the first round
-    net = true; vsPhone = false; netNote = "";
-    me = rg.net.role === "host" ? "X" : "O";
-    score = { X: 0, O: 0 }; starts = "X";
-    rg.sound("win");
-    rg.vibrate([40, 60, 40]);
-    if (me === "X") { newRound(); rg.say(["net_yhdistetty", turn === me ? "sinun_vuorosi" : "kaverin_vuoro"]); }
-    else { board = ["", "", "", "", "", "", "", "", ""]; born = [0, 0, 0, 0, 0, 0, 0, 0, 0]; mode = "play"; turn = "X"; firstState = true; }
+    // the friend came into Ristinolla: the host starts, X begins the first round
+    if (net) return;
+    if (rg.net.role === "host") beginNet(ev.peer);
+    else if (ev.peer.host) beginNet(ev.peer);
   } else if (ev.type === "leave") {
-    if (net) { net = false; mode = "net"; netNote = rg.t("Yhteys katkesi.", "The connection was lost.", "Se perdió la conexión."); rg.sound("lose"); rg.say("net_katkesi"); }
-  } else if (ev.type === "other-game") {
-    netNote = rg.t("Kaveri on eri pelissä.", "Your friend is in another game.", "Tu amigo está en otro juego.");
-  } else if (ev.type === "state" && ev.state === "error") {
-    const e = NET_ERRORS[ev.reason];
-    netNote = e ? rg.t(e[0], e[1], e[2]) : rg.t("Yhteys ei onnistunut.", "Could not connect.", "No se pudo conectar.");
-    rg.sound("wrong"); rg.say("net_virhe");
+    const mine = rg.net.role === "host" ? ev.peer.id === partner : ev.peer.host;
+    if (net && mine) {
+      net = false; mode = "menu";
+      const linked = rg.net.links.some((l: any) => l.id === ev.peer.id);
+      netNote = linked ? rg.t("Kaveri lähti pelistä.", "Your friend left the game.", "Tu amigo salió del juego.") : rg.t("Yhteys katkesi.", "The connection was lost.", "Se perdió la conexión.");
+      rg.sound("lose"); rg.say("net_katkesi");
+    }
+  } else if (ev.type === "message" && !net && rg.net.role === "host" && ev.data && ev.data.t === "start") {
+    const p = rg.net.links.filter((l: any) => l.id === ev.from)[0];
+    if (p) beginNet(p);
   } else if (ev.type === "message" && net) {
     const m = ev.data || {};
     if (rg.net.role === "host") {
+      if (ev.from !== partner) return;
       if (m.t === "tap" && turn !== me && mode === "play") place(m.i);
       else if (m.t === "again" && mode === "over") newRound();
     } else if (m.t === "st") applyState(m);
@@ -195,19 +205,15 @@ function tick(dt: number) {
 }
 
 function start(phone: boolean) {
-  vsPhone = phone; net = false; score = { X: 0, O: 0 }; starts = "X";
+  vsPhone = phone; net = false; netNote = ""; score = { X: 0, O: 0 }; starts = "X";
   rg.sound("click");
   newRound();
 }
 
 function onBack() {
   if (mode === "menu") rg.exit();
-  else if (mode === "net" || net) leaveNet();
+  else if (net) leaveNet();
   else { mode = "menu"; rg.sound("click"); }
-}
-
-function onClose() {
-  rg.net.close();
 }
 
 function MarkView(m: Mark, i: number) {
@@ -259,61 +265,33 @@ function Menu() {
     <div className="screen menu">
       <div className="title" style={{ marginTop: 60 + bob }}>{rg.t("Ristinolla", "Tic-Tac-Toe", "Tres en raya")}</div>
       <div className="demo">❌ ⭕</div>
+      {netNote ? <div className="note">{netNote}</div> : null}
       <div className="btn" id="vsphone" onClick={() => start(true)}>📱 {rg.t("Puhelinta vastaan", "Against the phone", "Contra el teléfono")}</div>
       <div className="btn alt" id="vsfriend" onClick={() => start(false)}>👫 {rg.t("Kaverin kanssa", "With a friend", "Con un amigo")}</div>
-      <div className="btn two" id="twophones" onClick={() => openNet()}>📱📱 {rg.t("Kaksi puhelinta", "Two phones", "Dos teléfonos")}</div>
+      <div className="btn two" id="twophones" onClick={() => twoPhones()}>📱📱 {rg.t("Kaksi puhelinta", "Two phones", "Dos teléfonos")}</div>
       <div className="btn back" id="exit" onClick={() => rg.exit()}>{rg.t("← Valikkoon", "← Menu", "← Menú")}</div>
     </div>
   );
 }
 
-// the two-phone screen: start a game (host) or join a friend's (find)
-function NetMenu() {
-  const st = rg.net.state;
-  const pulse = 1 + Math.sin(t * 4) * 0.08;
-  const web = rg.net.kind === "web";
-  let body;
-  if (!rg.net.available) {
-    body = <div className="note">{rg.t("Tässä laitteessa ei voi pelata kahdella puhelimella.", "Two-phone play does not work on this device.", "En este dispositivo no se puede jugar con dos teléfonos.")}</div>;
-  } else if (st === "hosting" || (st === "connected" && !net)) {
-    body = [
-      <div className="bigicon" style={{ transform: "scale(" + pulse.toFixed(3) + ")" }}>📡</div>,
-      <div className="label">{st === "connected" ? rg.t("Yhdistetään…", "Connecting…", "Conectando…") : rg.t("Odotetaan kaveria…", "Waiting for your friend…", "Esperando a tu amigo…")}</div>,
-      <div className="hint">{rg.t("Kaveri painaa omassa puhelimessaan Liity ja valitsee tämän:", "Your friend taps Join on their phone and picks this one:", "Tu amigo pulsa Unirse en su teléfono y elige este:")}</div>,
-      <div className="myname">📱 {rg.net.name}</div>,
-      web ? <div className="hint">{rg.t("(Selaimessa: avaa peli toiseen välilehteen.)", "(In a browser: open the game in another tab.)", "(En el navegador: abre el juego en otra pestaña.)")}</div> : null,
-      <div className="btn back small" id="cancel" onClick={() => openNet()}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
-    ];
-  } else if (st === "searching" || st === "connecting") {
-    const list = rg.net.peers.map((p: any, k: number) => (
-      <div className="btn peer" id={"peer" + k} onClick={() => { rg.sound("click"); rg.net.join(p.id); }}>📱 {p.name}{p.paired ? " ⭐" : ""}</div>
-    ));
-    body = [
-      <div className="bigicon" style={{ transform: "rotate(" + Math.round(Math.sin(t * 3) * 20) + "deg)" }}>🔍</div>,
-      <div className="label">{st === "connecting" ? rg.t("Yhdistetään…", "Connecting…", "Conectando…") : list.length ? rg.t("Valitse kaverin puhelin", "Pick your friend's phone", "Elige el teléfono de tu amigo") : rg.t("Etsitään kaveria…", "Looking for your friend…", "Buscando a tu amigo…")}</div>,
-      st === "connecting" ? null : <div className="peers">{list}</div>,
-      list.length || st === "connecting" ? null : <div className="hint">{rg.t("Kaverin puhelimessa pitää olla Aloita peli painettuna.", "Your friend's phone must have Start a game pressed.", "El teléfono de tu amigo debe tener pulsado Empezar partida.")}</div>,
-      <div className="btn back small" id="cancel" onClick={() => openNet()}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
-    ];
-  } else {
-    body = [
-      netNote ? <div className="note">{netNote}</div> : <div className="demo small">📱📡📱</div>,
-      <div className="btn" id="host" onClick={() => { rg.sound("click"); netNote = ""; rg.net.host({ max: 1 }); rg.say("net_odota"); }}>🏠 {rg.t("Aloita peli", "Start a game", "Empezar partida")}</div>,
-      <div className="btn alt" id="join" onClick={() => { rg.sound("click"); netNote = ""; rg.net.find(); rg.say("net_etsi"); }}>🔍 {rg.t("Liity kaverin peliin", "Join a friend's game", "Unirse a un amigo")}</div>
-    ];
-  }
+// the two-phone button without a friend in Ristinolla: where to connect
+function NetHelp() {
+  const linked = rg.net.connected();
   return (
     <div className="screen menu">
       <div className="title small" style={{ marginTop: 50 }}>{rg.t("Kaksi puhelinta", "Two phones", "Dos teléfonos")}</div>
-      {body}
-      <div className="btn back small" id="netback" onClick={() => leaveNet()}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
+      <div className="demo small">📱📡📱</div>
+      <div className="note">{linked
+        ? rg.t("Kaveri on toisessa pelissä. Kun kaveri avaa Ristinollan, peli alkaa.", "Your friend is in another game. When they open Tic-Tac-Toe, the game starts.", "Tu amigo está en otro juego. Cuando abra Tres en raya, empieza la partida.")
+        : rg.t("Yhdistä puhelimet ensin: valikko → ⚙️ → Kaksi puhelinta.", "Connect the phones first: menu → ⚙️ → Two phones.", "Conecta primero los teléfonos: menú → ⚙️ → Dos teléfonos.")}</div>
+      <div className="btn back small" id="netback" onClick={() => { mode = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
     </div>
   );
 }
 
 function view() {
   if (mode === "menu") return Menu();
-  if (mode === "net") return NetMenu();
+  if (mode === "net") return NetHelp();
   return (
     <div className="screen">
       <div className="top">

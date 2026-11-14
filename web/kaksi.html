@@ -3,7 +3,8 @@
 <!-- Two phones side by side, for trying the two-phone games (rg.net) without
      a second phone: both screens are index.html, and they talk through the
      browser's BroadcastChannel as two Android phones do over Bluetooth.
-     kaksi.html?game=ristinolla opens that game on both. -->
+     Connect them in the menu's ⚙️ settings; kaksi.html?game=ristinolla
+     opens that game on both. -->
 <html lang="fi">
 <head>
 <meta charset="utf-8">
@@ -22,14 +23,14 @@
 </style>
 </head>
 <body>
-<header><b>Kaksi puhelinta</b>: toinen painaa <i>Aloita peli</i>, toinen <i>Liity kaverin peliin</i>.</header>
+<header><b>Kaksi puhelinta</b>: valikon ⚙️-asetuksista toinen painaa <i>Aloita</i>, toinen <i>Liity kaverin puhelimeen</i>.</header>
 <main>
   <figure><figcaption>Puhelin 1</figcaption><iframe id="p1" title="Puhelin 1" allow="autoplay"></iframe></figure>
   <figure><figcaption>Puhelin 2</figcaption><iframe id="p2" title="Puhelin 2" allow="autoplay"></iframe></figure>
 </main>
 <script>
-  var game = new URLSearchParams(location.search).get("game") || "ristinolla";
-  var src = "index.html?mode=mobile&game=" + encodeURIComponent(game);
+  var game = new URLSearchParams(location.search).get("game") || "";
+  var src = "index.html?mode=mobile" + (game ? "&game=" + encodeURIComponent(game) : "");
   document.getElementById("p1").src = src;
   // the second one a moment later, so the two do not fight over the first load
   setTimeout(function () { document.getElementById("p2").src = src; }, 300);

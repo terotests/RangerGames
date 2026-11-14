@@ -323,9 +323,10 @@ impl Engine {
         // the last game's sensors off (GPS uses the battery)
         self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
-        // the last game's links to other phones closed (rg.net); the host
-        // answers with what it can do ({type: "info"}) for the new game
-        self.commands.push(HostCommand { kind: "net".into(), name: "close".into(), args: Json::Null });
+        // rg.net: the links to other phones stay up from game to game; the
+        // host tells the new game what it can do and which links are up
+        // ({type: "info"}), and the game says to them where it is
+        self.commands.push(HostCommand { kind: "net".into(), name: "info".into(), args: Json::Null });
         self.error = String::new();
         self.script = None;
         self.input = Input::new();
