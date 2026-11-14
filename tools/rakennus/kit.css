@@ -1,0 +1,46 @@
+.root { width: 100%; height: 100%; background: linear-gradient(180deg, #fff3d6, #ffd9a8); }
+.screen { width: 100%; height: 100%; }
+.screen.flow { align-items: center; }
+.titlebox { position: absolute; align-items: center; }
+.title { font-size: 36px; font-weight: 700; color: #b5540a; }
+.dtitle { font-size: 42px; font-weight: 700; color: #b5540a; }
+.lead { font-size: 24px; color: #6a4c93; margin-top: 10px; margin-bottom: 14px; }
+.tile { position: absolute; border-radius: 22px; shadow-color: rgba(0,0,0,0.22); shadow-offset-y: 5px; }
+.tnum { position: absolute; left: 10px; top: 6px; font-size: 18px; font-weight: 700; color: rgba(255,255,255,0.85); }
+.tname { position: absolute; font-size: 17px; font-weight: 700; color: #ffffff; text-align: center; justify-content: center; align-items: center; }
+.tbest { position: absolute; font-size: 13px; color: #ffffff; text-align: right; justify-content: flex-end; }
+.hit { position: absolute; }
+.level { width: 220px; height: 52px; border-radius: 26px; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+.level.back { position: absolute; background-color: #9a8c98; height: 46px; }
+.level.flowbtn { position: relative; margin-top: 14px; }
+.lvname { font-size: 21px; font-weight: 700; color: #ffffff; }
+.progress { position: absolute; flex-direction: row; }
+.dot { width: 16px; height: 16px; border-radius: 8px; margin: 4px; background-color: #f1d3b3; }
+.dot.done { background-color: #06d6a0; }
+.dot.now { background-color: #f77f00; }
+.stepline { position: absolute; flex-direction: row; align-items: flex-end; height: 22px; width: 100px; justify-content: center; }
+.sbar { width: 8px; margin-left: 2px; border-radius: 2px; background-color: #f1d3b3; }
+.sbar.on { background-color: #f77f00; }
+.stepmsg { font-size: 18px; color: #d62828; margin-left: 8px; }
+.stepmsg.up { color: #06d6a0; }
+.prompt { position: absolute; min-height: 44px; border-radius: 22px; background-color: #ffffff; align-items: center; justify-content: center;
+  padding-left: 10px; padding-right: 10px; padding-top: 4px; padding-bottom: 4px; shadow-color: rgba(0,0,0,0.12); shadow-offset-y: 4px; }
+.ptext { font-size: 21px; font-weight: 700; color: #3d405b; text-align: center; }
+.ptext.small { font-size: 17px; }
+.hintbtn { position: absolute; width: 46px; height: 46px; border-radius: 23px; background-color: #ffd166; font-size: 26px;
+  align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.btn { position: absolute; height: 58px; border-radius: 29px; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.25); shadow-offset-y: 5px; }
+.btext { font-size: 23px; font-weight: 700; color: #ffffff; }
+.card { position: absolute; border-radius: 18px; background-color: #ffffff; shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.card.off { opacity: 0.35; }
+.card.ok { background-color: #c9f7e4; }
+.card.sel { background-color: #ffe8a3; }
+.label { position: absolute; font-size: 16px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; align-items: center; }
+.big { position: absolute; font-size: 30px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; align-items: center; }
+.stars { flex-direction: row; flex-wrap: wrap; width: 300px; justify-content: center; margin-top: 20px; }
+.bigstar { font-size: 40px; margin: 2px; }
+.bigstar.off { opacity: 0.2; }
+.spark { position: absolute; width: 9px; height: 9px; border-radius: 3px; }
+.root3d { width: 100%; height: 100%; }
