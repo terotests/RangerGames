@@ -4,7 +4,9 @@
 //                    slides them to the same starting line
 //   2 Palikat        how many blocks long is the board? (answers with dots)
 //   3 Viivoitin      drag the pencil to the number that is said, on a ruler
-import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, rect } from "lib/kit";
+//   4 Vatupassi      make a shelf (last step: a picture) straight: the spirit
+//                    level's bubble goes to the middle when it is level
+import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, rect, turn } from "lib/kit";
 
 const WOODS = ["#d39150", "#e9c46a", "#c97c3d", "#f4a261"];
 const BLOCK_C = ["#ef476f", "#ffd166", "#06d6a0", "#118ab2", "#7b2cbf"];
@@ -13,6 +15,7 @@ const LEVELS: Level[] = [
   { name: rg.t("Kumpi pidempi", "Which is longer", "¿Cuál es más largo?"), color: "#f77f00", say: "rk_m_pidempi", pic: (x, y, s) => [Box(x - 50 * s, y - 24 * s, 100 * s, 18 * s, WOODS[0], 4), Box(x - 50 * s, y + 6 * s, 64 * s, 18 * s, WOODS[1], 4)] },
   { name: rg.t("Palikat", "Blocks", "Bloques"), color: "#2a9d8f", say: "rk_m_palikat", pic: (x, y, s) => { const o = [Box(x - 50 * s, y - 24 * s, 100 * s, 16 * s, WOODS[0], 4)]; for (let i = 0; i < 5; i++) o.push(Box(x - 50 * s + i * 20 * s, y, 19 * s, 19 * s, BLOCK_C[i], 3)); return o; } },
   { name: rg.t("Viivoitin", "Ruler", "La regla"), color: "#118ab2", say: "rk_m_merkitse", pic: (x, y, s) => Ruler(x - 54 * s, y + 4 * s, 108 * s, 50, 10, false).concat(Pencil(x + 10 * s, y + 2 * s, s * 0.7)) },
+  { name: rg.t("Vatupassi", "Spirit level", "El nivel"), color: "#7b2cbf", say: "rk_m_vatupassi", pic: (x, y, s) => Plank(x - 54 * s, y + 6 * s, 108 * s, 14 * s, WOODS[0]).concat(SpiritLevel(x, y - 6 * s, 90 * s, 0, 0)) },
 ];
 
 type Board = { len: number; x: number; y: number; c: string; off: number };
@@ -28,11 +31,18 @@ let target = 30;
 let pen = 0;              // the pencil's place, cm
 let grab = false;
 let countT = -10;         // the hint counting the blocks
+// the spirit level
+let tilt = 0.2;           // the shelf's (or picture's) angle, radians, + = right end down
+let tilt0 = 0, grabY = 0, grabX = 0;
+let lvlGrab = false;
+let wasLevel = false;
+let offTries = 0;
 
 function instruct() {
   if (K.level === 0) rg.say(boards.length > 2 ? "rk_m_pisin" : "rk_m_pidempi");
   else if (K.level === 1) rg.say("rk_m_palikat");
-  else rg.say(["rk_m_merkitse", rg.sayId.number(target)]);
+  else if (K.level === 2) rg.say(["rk_m_merkitse", rg.sayId.number(target)]);
+  else rg.say(step() === 2 ? "rk_m_taulu" : "rk_m_vatupassi");
 }
 
 function next() {
@@ -59,6 +69,9 @@ function next() {
     ans = rg.range(min, max);
     const others = [ans - 1, ans + 1, ans + 2, ans - 2].filter((v) => v >= 1 && v <= 12);
     choices = rg.shuffle([ans].concat(rg.shuffle(others).slice(0, 2)));
+  } else if (K.level === 3) {
+    tilt = (rg.range(0, 1) ? 1 : -1) * (0.12 + Math.random() * 0.14);
+    lvlGrab = false; wasLevel = false; offTries = 0;
   } else {
     span = s === 0 ? 50 : 100;
     const stepCm = s === 2 ? 5 : 10;
@@ -101,7 +114,22 @@ function RW() { return width - 52; }
 function cmX(cm: number) { return RX() + RW() * cm / span; }
 const RY = 300;
 
+// ---- level 4: the spirit level ---------------------------------------------------------
+const SHELF = { x: 40, y: 330, len: 0 };
+function shelfLen() { return width - 80; }
+function lvlTol() { return [0.035, 0.018, 0.018][step()]; }
+function bubbleOff() { return Math.max(-34, Math.min(34, -tilt * 520)); }
+function isLevel() { return Math.abs(tilt) < lvlTol(); }
+function lvlRelease() {
+  if (!lvlGrab) return;
+  lvlGrab = false;
+  if (isLevel()) { tilt = 0; win(width / 2, SHELF.y - 40, ["rk_m_suorassa"]); return; }
+  offTries++;
+  if (offTries >= 2) { offTries = 0; const n = miss(); hintT = K.t; if (n >= 1) rg.say("rk_m_vihje_vatupassi"); }
+}
+
 function onPointerDown(x: number, y: number) {
+  if (K.mode === "play" && K.level === 3 && K.solved < 0 && y > 130) { lvlGrab = true; tilt0 = tilt; grabY = y; grabX = x; rg.sound("click", { volume: 0.4 }); return; }
   if (K.mode !== "play" || K.level !== 2 || K.solved >= 0) return;
   if (Math.abs(x - cmX(pen)) < 50 && y > RY - 120 && y < RY + 80) { grab = true; rg.sound("click"); }
 }
@@ -122,11 +150,22 @@ function release() {
   rg.say(say);
 }
 
-function onPointerUp() { release(); }
+function onPointerUp() { release(); lvlRelease(); }
 
 function tick(dt: number, input: any) {
   update(dt);
   if (K.mode !== "play") return;
+  if (lvlGrab && input && input.pointer) {
+    const p = input.pointer;
+    if (p.down) {
+      // the shelf: up and down at its free end; the picture: sideways turns it round its nail
+      tilt = step() === 2 ? tilt0 + (p.x - grabX) / 160 : tilt0 + (p.y - grabY) / shelfLen();
+      tilt = Math.max(-0.45, Math.min(0.45, tilt));
+      const lv = isLevel();
+      if (lv && !wasLevel) { rg.sound("tick"); rg.vibrate(15); }
+      wasLevel = lv;
+    } else lvlRelease();
+  }
   if (grab && input && input.pointer) {
     if (input.pointer.down) {
       const cm = Math.max(0, Math.min(span, (input.pointer.x - RX()) / RW() * span));
@@ -145,10 +184,11 @@ function hint() {
     const ids = ["rk_m_vihje_palikat"];
     for (let i = 1; i <= ans; i++) ids.push(rg.sayId.number(i));
     rg.say(ids);
-  } else rg.say(["rk_m_vihje_merkitse", rg.sayId.number(target)]);
+  } else if (K.level === 2) rg.say(["rk_m_vihje_merkitse", rg.sayId.number(target)]);
+  else rg.say("rk_m_vihje_vatupassi");
 }
 
-function onBack() { grab = false; back(); }
+function onBack() { grab = false; lvlGrab = false; back(); }
 
 // ---- drawing -----------------------------------------------------------------------
 function Plank(x: number, y: number, w: number, h: number, c: string) {
@@ -180,6 +220,25 @@ function Pencil(x: number, y: number, s: number) {
   ];
 }
 
+// a spirit level `w` long, its middle at (cx, cy), turned by a; the bubble `off` from the middle
+function SpiritLevel(cx: number, cy: number, w: number, a: number, off: number) {
+  const h = Math.max(14, w * 0.15), r = (pts: number[][]) => turn(pts, cx, cy, a);
+  const vw = w * 0.34, vh = h * 0.72;
+  const lv = Math.abs(off) < 6;
+  const out: any[] = [
+    Poly(r(rect(cx - w / 2, cy - h / 2, w, h)), "#ffd60a", "#b08900", 2),
+    Poly(r(rect(cx - w / 2, cy - h / 2, 10, h)), "#343a40"),
+    Poly(r(rect(cx + w / 2 - 10, cy - h / 2, 10, h)), "#343a40"),
+    Poly(r(rect(cx - vw / 2, cy - vh / 2, vw, vh)), lv ? "#b7f5c4" : "#d8f3dc", "#2d6a4f", 1.5),
+    Poly(r(rect(cx - vw * 0.13 - 1, cy - vh / 2, 2, vh)), "#2d6a4f"),
+    Poly(r(rect(cx + vw * 0.13 - 1, cy - vh / 2, 2, vh)), "#2d6a4f"),
+  ];
+  const bx = Math.max(-vw / 2 + vh * 0.5, Math.min(vw / 2 - vh * 0.5, off * vw / 90));
+  const c = turn([[cx + bx, cy]], cx, cy, a)[0];
+  out.push(Circle(c[0], c[1], vh * 0.42, "#fdfffc", lv ? "#06d6a0" : "#1b4332"));
+  return out;
+}
+
 function Dots(n: number, x: number, y: number) {
   const out: any[] = [];
   for (let i = 0; i < n; i++) out.push(Circle(x - (Math.min(n, 5) - 1) * 6 + (i % 5) * 12, y + Math.floor(i / 5) * 12, 4.5, "#ffffff"));
@@ -188,7 +247,8 @@ function Dots(n: number, x: number, y: number) {
 
 function Play() {
   const out: any[] = [];
-  const text = K.level === 0 ? (boards.length > 2 ? rg.t("Mikä lauta on pisin?", "Which board is longest?", "¿Cuál es la más larga?") : rg.t("Kumpi lauta on pidempi?", "Which board is longer?", "¿Cuál es más larga?"))
+  const text = K.level === 3 ? (step() === 2 ? rg.t("Laita taulu suoraan", "Hang the picture straight", "Pon el cuadro recto") : rg.t("Laita hylly suoraan", "Make the shelf straight", "Pon la balda recta"))
+    : K.level === 0 ? (boards.length > 2 ? rg.t("Mikä lauta on pisin?", "Which board is longest?", "¿Cuál es la más larga?") : rg.t("Kumpi lauta on pidempi?", "Which board is longer?", "¿Cuál es más larga?"))
     : K.level === 1 ? rg.t("Montako palikkaa pitkä?", "How many blocks long?", "¿Cuántos bloques mide?")
     : rg.t("Vedä kynä kohtaan ", "Drag the pencil to ", "Lleva el lápiz al ") + target;
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
@@ -244,6 +304,57 @@ function Play() {
     if (!grab && K.solved < 0 && pen === 0) out.push(PointAt(px + 26, RY - 70, "#f77f00"));
     out.push(<div className="big" style={{ left: width / 2 - 60, top: RY + 110, width: 120 }}>{String(Math.round(pen))}</div>);
     if (K.question === 0 && K.misses === 0) out.push(<div className="label" style={{ left: 20, top: RY + 170, width: width - 40 }}>{rg.t("Vedä kynää sormella", "Drag the pencil", "Arrastra el lápiz")}</div>);
+  }
+  if (K.level === 3) {
+    const s = step(), hinting = K.t - hintT < 6;
+    out.push(Box(0, 120, width, height - 120, "#f1e9da"));
+    for (let i = 0; i < 6; i++) out.push(Line([[0, 170 + i * 80], [width, 170 + i * 80]], "rgba(0,0,0,0.04)", 2));
+    if (s < 2) {
+      // a shelf on its left bracket; the right end goes up and down
+      const L = shelfLen(), x0 = SHELF.x, y0 = SHELF.y;
+      const ex = x0 + Math.cos(tilt) * L, ey = y0 + Math.sin(tilt) * L;
+      out.push(Poly([[x0 - 6, y0 + 10], [x0 + 8, y0 + 10], [x0 + 8, y0 + 70], [x0 - 6, y0 + 70]], "#6c757d"));
+      out.push(Poly([[x0 + 8, y0 + 12], [x0 + 50, y0 + 12], [x0 + 8, y0 + 56]], "#868e96"));
+      out.push(Poly(turn(rect(x0, y0 - 9, L, 18), x0, y0, tilt), WOODS[0], "#8d5524", 2));
+      out.push(Circle(x0 + 2, y0, 5, "#495057"));
+      const mx = x0 + Math.cos(tilt) * L / 2, my = y0 + Math.sin(tilt) * L / 2;
+      const nx = Math.sin(tilt), ny = -Math.cos(tilt);
+      const lh = Math.max(14, L * 0.62 * 0.15);
+      for (const e of SpiritLevel(mx + nx * (9 + lh / 2), my + ny * (9 + lh / 2), L * 0.62, tilt, bubbleOff())) out.push(e);
+      // the free end, to drag
+      out.push(Circle(ex, ey, 20, "rgba(247,127,0,0.25)", "#f77f00"));
+      if (K.solved < 0 && (K.question === 0 || hinting) && !lvlGrab) {
+        const up = tilt > 0;
+        out.push(Poly(up ? [[ex, ey - 64], [ex - 16, ey - 40], [ex + 16, ey - 40]] : [[ex, ey + 64], [ex - 16, ey + 40], [ex + 16, ey + 40]], "#f77f00"));
+      }
+      // a ball on the shelf rolls to the low end, as a second clue
+      const bxs = Math.max(0, Math.min(1, 0.5 + tilt * 3));
+      const bxp = x0 + 30 + (L - 60) * bxs;
+      const byp = y0 + Math.tan(tilt) * (bxp - x0) - 9 - 11;
+      out.push(Circle(bxp, byp, 11, "#ef476f"));
+    } else {
+      // a picture on a nail; turning it sideways
+      const cx = width / 2, ny0 = 190, fw = width * 0.62, fh = fw * 0.72;
+      const top = ny0 + 46;
+      out.push(Circle(cx, ny0, 5, "#495057"));
+      const fr = (pts: number[][]) => turn(pts, cx, ny0, tilt);
+      const tl = fr([[cx - fw * 0.3, top]])[0], tr = fr([[cx + fw * 0.3, top]])[0];
+      out.push(Line([tl, [cx, ny0], tr], "#495057", 2));
+      out.push(Poly(fr(rect(cx - fw / 2, top, fw, fh)), "#8d5524", "#5c3a17", 2));
+      out.push(Poly(fr(rect(cx - fw / 2 + 12, top + 12, fw - 24, fh - 24)), "#bde0fe"));
+      out.push(Poly(fr([[cx - fw / 2 + 12, top + fh - 12], [cx - fw * 0.1, top + fh * 0.45], [cx + fw * 0.12, top + fh - 12]]), "#52b788"));
+      out.push(Poly(fr([[cx - fw * 0.05, top + fh - 12], [cx + fw * 0.2, top + fh * 0.35], [cx + fw / 2 - 12, top + fh - 12]]), "#40916c"));
+      const sun = fr([[cx + fw * 0.28, top + fh * 0.28]])[0];
+      out.push(Circle(sun[0], sun[1], fw * 0.07, "#ffd166"));
+      const lv = fr([[cx, top - 13]])[0];
+      for (const e of SpiritLevel(lv[0], lv[1], fw * 0.8, tilt, bubbleOff())) out.push(e);
+      if (K.solved < 0 && (K.question === 0 || hinting) && !lvlGrab) {
+        const y = top + fh + 50, dir = tilt > 0 ? -1 : 1;
+        out.push(Line([[cx - dir * 50, y], [cx + dir * 30, y]], "#f77f00", 8));
+        out.push(Poly([[cx + dir * 54, y], [cx + dir * 30, y - 16], [cx + dir * 30, y + 16]], "#f77f00"));
+      }
+    }
+    if (K.question === 0 && K.misses === 0 && K.solved < 0) out.push(<div className="label" style={{ left: 20, top: height - 90, width: width - 40 }}>{s === 2 ? rg.t("Käännä taulua sormella", "Turn the picture", "Gira el cuadro") : rg.t("Vedä hyllyn päätä ylös tai alas", "Drag the shelf's end up or down", "Mueve el extremo arriba o abajo")}</div>);
   }
   return <div className="screen">{out}</div>;
 }
