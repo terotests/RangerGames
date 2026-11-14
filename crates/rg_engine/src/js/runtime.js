@@ -108,10 +108,10 @@ var rg = {
     __speechSet[String(id)] = !!on;
     __cmds.push(["setting", "speech", __speechSet]);
   },
-  // the clip id of a number (0–20), a letter ("Ä" → "kirjain_ae", "Ñ" →
+  // the clip id of a number (0–100), a letter ("Ä" → "kirjain_ae", "Ñ" →
   // "kirjain_enye") or a word ("Ratón" → "sana_raton"), in any language
   sayId: {
-    number: function (n) { return n >= 0 && n <= 20 ? "n" + Math.round(n) : ""; },
+    number: function (n) { return n >= 0 && n <= 100 ? "n" + Math.round(n) : ""; },
     letter: function (c) {
       var l = String(c).toLowerCase();
       return "kirjain_" + (l === "ä" ? "ae" : l === "ö" ? "oe" : l === "ñ" ? "enye" : __plain(l));

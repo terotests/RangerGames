@@ -27,3 +27,26 @@
 .bigstar { font-size: 40px; margin: 2px; }
 .bigstar.off { opacity: 0.2; }
 .spark { position: absolute; width: 9px; height: 9px; border-radius: 3px; }
+.levels { flex-direction: row; flex-wrap: wrap; width: 340px; justify-content: center; }
+.level.wide { width: 300px; height: 52px; border-radius: 26px; margin-top: 10px; }
+.level.half { width: 150px; height: 58px; border-radius: 22px; margin-top: 10px; margin-left: 5px; margin-right: 5px; }
+.level.back { margin-top: 18px; }
+.blocks { flex-direction: row; align-items: flex-end; justify-content: center; flex-wrap: wrap; }
+.bar { width: 13px; height: 110px; margin: 1px; border-radius: 3px; flex-direction: column; }
+.barpart { width: 13px; border-radius: 2px; }
+.cubes { flex-direction: row; flex-wrap: wrap; width: 30px; margin-left: 4px; }
+.cube { width: 13px; height: 13px; margin: 1px; border-radius: 2px; }
+.gone { opacity: 0.22; }
+.rows { align-items: flex-start; }
+.row { flex-direction: row; margin: 1px; }
+.rdot { width: 16px; height: 16px; border-radius: 8px; margin: 1px; background-color: #7b2cbf; }
+.storypic { font-size: 40px; }
+.story { width: 300px; font-size: 21px; color: #3d405b; margin-top: 8px; text-align: center; }
+.sum.small { font-size: 32px; }
+.choice.four { font-size: 32px; }
+.stepline { flex-direction: row; align-items: flex-end; margin-top: 6px; height: 22px; }
+.steplabel { font-size: 13px; color: #6a4c93; margin-right: 6px; }
+.sbar { width: 8px; margin-left: 2px; border-radius: 2px; background-color: #f1c9a0; }
+.sbar.on { background-color: #e85d04; }
+.stepmsg { font-size: 18px; color: #d62828; margin-left: 8px; }
+.stepmsg.up { color: #06d6a0; }
