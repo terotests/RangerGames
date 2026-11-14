@@ -1,0 +1,68 @@
+# Renders the games' voice clips with Chatterbox (tools/chatterbox/render.py)
+# on a GitHub runner, so no local machine has to: about a minute or more a
+# clip on the CPU, so a run renders what fits in ~5 h and the next run goes on
+# (clips already made are skipped). The clips live on the orphan branch
+# `voice-clips` (chatterbox/<lang>/<id>.wav + .json); the CI android job
+# checks it out, and rg_voice uses a clip whose text still matches.
+name: Voice
+
+on:
+  workflow_dispatch:
+    inputs:
+      langs:
+        description: "languages (e.g. fi, or fi en es)"
+        default: "fi en es"
+      only:
+        description: "ids or prefixes (e.g. rk_* peli_ruuvit), empty = all"
+        default: ""
+  push:
+    branches: [main]
+    paths: ["voice/**"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: voice
+  cancel-in-progress: false
+
+jobs:
+  chatterbox:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: The clips so far (branch voice-clips)
+        run: |
+          if git ls-remote --exit-code --heads origin voice-clips >/dev/null; then
+            git clone --depth 1 --branch voice-clips "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" .deps/voice-clips
+          else
+            mkdir -p .deps/voice-clips && git -C .deps/voice-clips init -b voice-clips
+            git -C .deps/voice-clips remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Chatterbox (CPU)
+        run: |
+          pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
+          pip install chatterbox-tts soundfile "setuptools<81"
+      - name: Render (stops after ~5 h, the next run goes on)
+        env:
+          LANGS: ${{ github.event.inputs.langs || 'fi en es' }}
+          ONLY: ${{ github.event.inputs.only || '' }}
+        run: |
+          args="$LANGS"
+          [[ -n "$ONLY" ]] && args="$args --only $ONLY"
+          set -f
+          timeout 18000 python tools/chatterbox/render.py $args || echo "render stopped ($?)"
+      - name: Save the clips
+        if: always()
+        run: |
+          cd .deps/voice-clips
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A chatterbox 2>/dev/null || true
+          if git diff --cached --quiet; then echo "no new clips"; exit 0; fi
+          git commit -q -m "Chatterbox clips ($(git diff --cached --name-only | grep -c '\.json$') updated)"
+          git push origin HEAD:voice-clips

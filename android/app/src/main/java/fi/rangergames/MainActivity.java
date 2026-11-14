@@ -23,6 +23,8 @@ import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.io.FileInputStream;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
@@ -193,10 +195,36 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
     }
 
+    /**
+     * Games that never go to git (family photos, home places) come as their own
+     * pack beside the app, pushed from the computer:
+     *   adb push private.rgpk /sdcard/Android/data/fi.rangergames/files/private.rgpk
+     * (scripts/private-pack.sh makes and pushes it). The APK itself, built by CI,
+     * has only the public games; this one adds to them, over the same /games.
+     */
+    private void mountPrivate() {
+        try {
+            File dir = getExternalFilesDir(null);
+            if (dir == null) return;
+            File f = new File(dir, "private.rgpk");
+            if (!f.isFile()) return;
+            byte[] data = new byte[(int) f.length()];
+            try (InputStream in = new FileInputStream(f)) {
+                int off = 0, r;
+                while (off < data.length && (r = in.read(data, off, data.length - off)) > 0) off += r;
+            }
+            int n = Engine.mount("/games", data);
+            Log.i("RangerGames", "private.rgpk: " + n + " files");
+        } catch (Throwable t) {
+            Log.w("RangerGames", "private.rgpk not mounted", t);
+        }
+    }
+
     /** The games' pack into the virtual directory, the saves back, the launcher started. */
     private void boot() throws Exception {
         int n = Engine.mount("/games", asset(this, "games.rgpk"));
         if (n < 0) throw new IllegalStateException("games.rgpk is not a pack");
+        mountPrivate();
         for (Map.Entry<String, ?> e : saves.getAll().entrySet()) {
             if (e.getKey().startsWith("/save/") && e.getValue() instanceof String) {
                 Engine.put(e.getKey(), ((String) e.getValue()).getBytes(StandardCharsets.UTF_8));

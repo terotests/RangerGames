@@ -61,6 +61,8 @@ jobs:
     # natively: the engine with the NDK (no WebView), the Java host with gradle
     needs: engine
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -86,12 +88,31 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+      - name: Chatterbox clips (branch voice-clips, made by the Voice workflow)
+        run: |
+          rm -rf .deps/voice-clips
+          git clone --depth 1 --branch voice-clips "https://github.com/${{ github.repository }}.git" .deps/voice-clips \
+            || echo "no voice-clips branch yet: Piper says every clip"
       - name: APK
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" bash scripts/build-android.sh
       - uses: actions/upload-artifact@v4
         with:
           name: RangerGames-apk
           path: android/app/build/outputs/apk/release/*.apk
+      # main's APK as a public release asset, so the Mac only downloads and
+      # installs it (curl + adb, no build, no GitHub sign-in): the phone build
+      # is made here. Only public games are in it (private ones never reach git).
+      - name: Publish the phone APK (release "phone-latest")
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/release/app-release.apk RangerGames.apk
+          gh release view phone-latest >/dev/null 2>&1 || \
+            gh release create phone-latest --prerelease --title "Phone build (latest main)" \
+              --notes "Built by CI from the newest main. Install: adb install -r RangerGames.apk"
+          gh release upload phone-latest RangerGames.apk --clobber
+          gh release edit phone-latest --notes "Built by CI from main ${GITHUB_SHA::7}. Install: adb install -r RangerGames.apk"
 
   pages:
     if: github.event_name != 'pull_request' && (github.ref == format('refs/heads/{0}', github.event.repository.default_branch) || github.ref == 'refs/heads/main')

@@ -19,11 +19,23 @@ android {
         versionName "0.2.0"
     }
 
+    // One key for every build (the Mac's and CI's), so a CI-built APK installs
+    // over a Mac-built one (adb install -r) without wiping the phone's saves.
+    // It is public on purpose: this app is only sideloaded. A store build needs
+    // its own, secret key.
+    signingConfigs {
+        sideload {
+            storeFile file("../sideload.keystore")
+            storePassword "rangergames"
+            keyAlias "rangergames"
+            keyPassword "rangergames"
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
-            // signed with the debug key so the APK installs as it is; use your own key for a store
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.sideload
         }
     }
 
