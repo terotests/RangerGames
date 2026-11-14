@@ -7,6 +7,10 @@
 //                   first (fingers stay safe), then hit; last step: put the
 //                   nails on their marks first
 //   4 Linnunpönttö  every question nails one more part of a birdhouse
+//   5 Sorkkarauta   pull nails out: hook the crowbar's claw under a nail's
+//                   head and push the handle down; the heel is the pivot, so
+//                   the claw lifts the nail (later: drag the bar to each nail,
+//                   long nails need two pulls)
 import { K, Level, setup, step, start, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, turn, rect, ngon } from "lib/kit";
 
 type Nail = { x: number; h: number; bent: number; fixT: number; held: boolean; fallen: number; placed: boolean; px: number; py: number };
@@ -28,6 +32,7 @@ const LEVELS: Level[] = [
   { name: rg.t("Osu keskelle", "Hit the middle", "Al centro"), color: "#e63946", say: "rk_v_osu", pic: (x, y, s) => picHammer(x, y, s, 0.5).concat([Line([[x - 30 * s, y - 50 * s], [x + 30 * s, y - 50 * s]], "#ffffff", 4)]) },
   { name: rg.t("Pihdit", "Pliers", "Alicates"), color: "#2a9d8f", say: "rk_v_pihdit", pic: (x, y, s) => Pliers(x + 4 * s, y + 4 * s, s * 0.9, true).concat([Box(x - 40 * s, y + 26 * s, 80 * s, 18 * s, WOOD, 4)]) },
   { name: rg.t("Linnunpönttö", "Birdhouse", "Pajarera"), color: "#7b2cbf", say: "rk_v_ponto", pic: (x, y, s) => House(x, y + 6 * s, s * 0.55, 6) },
+  { name: rg.t("Sorkkarauta", "Crowbar", "Palanca"), color: "#c1121f", say: "rk_v_sorkka", pic: (x, y, s) => [Box(x - 50 * s, y + 26 * s, 100 * s, 18 * s, WOOD, 4)].concat(NailPic(x - 18 * s, y + 26 * s, 30 * s, 0, false), Crowbar(x - 18 * s, y, x - 4 * s, y + 26 * s, 0.8, s * 0.32)) },
 ];
 
 let nails: Nail[] = [];
@@ -42,10 +47,18 @@ let grabNail = -1;
 let hintT = -10;
 let BY = 420;             // the board's top
 let part = 0;             // the birdhouse: parts done
+// the crowbar level: nails with `e` px still in the wood, and the bar
+type Pull = { x: number; h: number; e: number; out: number; h0: number };
+let pulls: Pull[] = [];
+let bar = { x: 0, y: 0, on: -1, a: 0.45, a0: 0.45 };   // free bar's grip, hooked nail, handle angle
+let barGrab = "";            // "move": carrying the bar, "lever": pushing the handle
+let lifted = false;
+const A0 = 0.42, A1 = 1.32;  // the handle: up, down on the board
 
 function instruct() {
   if (K.level === 2 && nails.some((n) => !n.placed)) rg.say("rk_v_vie_naula");
   else if (K.level === 2 && pliers.on < 0 && nails.some((n) => n.h > MAXH * 0.55)) rg.say("rk_v_pihdit");
+  else if (K.level === 4) rg.say(bar.on >= 0 ? "rk_v_paina" : "rk_v_sorkka");
   else rg.say(K.level === 1 ? "rk_v_osu" : K.level === 3 ? "rk_v_ponto" : "rk_v_naulaa");
 }
 
@@ -64,6 +77,17 @@ function next() {
     nails.push({ x, h: MAXH, bent: 0, fixT: -10, held: false, fallen: -10, placed: !(K.level === 2 && s === 2), px: 40 + i * 30, py: height - 70 });
   }
   if (K.level === 2) pliers = { x: width - 70, y: height - 80, on: -1 };
+  if (K.level === 4) {
+    nails = [];
+    const m = [1, 2, 3][s];
+    pulls = [];
+    for (let i = 0; i < m; i++) {
+      const h = rg.range(18, 30), e = s === 0 ? 40 : rg.range(40, 72);
+      pulls.push({ x: Math.round(width * (i + 1) / (m + 1)) - 16, h, e, out: -10, h0: h });
+    }
+    bar = { x: width - 130, y: height - 80, on: s === 0 ? 0 : -1, a: A0, a0: A0 };
+    barGrab = "";
+  }
   target = -1;
   swingT = -10;
   hintT = -10;
@@ -127,6 +151,7 @@ function tolerance(): number { return [22, 16, 11][step()]; }
 
 function onPointerDown(x: number, y: number) {
   if (K.mode !== "play" || K.solved >= 0) return;
+  if (K.level === 4) { barDown(x, y); return; }
   // the pliers, or a nail to put on its mark
   if (K.level === 2) {
     if (Math.abs(x - pliers.x) < 50 && Math.abs(y - pliers.y) < 60 && pliers.on < 0) { grab = "pliers"; rg.sound("click"); return; }
@@ -167,7 +192,74 @@ function drop() {
   grab = "";
 }
 
-function onPointerUp() { drop(); }
+function onPointerUp() { drop(); barUp(); }
+
+// ---- the crowbar ----------------------------------------------------------------------
+const BAR_L = 200;
+function heelOf(p: Pull) { return { x: p.x + 30, y: BY }; }
+// the handle's end for a hooked bar
+function handleEnd(p: Pull, a: number) { const h = heelOf(p); return { x: h.x + Math.sin(a) * BAR_L, y: h.y - Math.cos(a) * BAR_L }; }
+function barDown(x: number, y: number) {
+  if (bar.on >= 0) {
+    const e = handleEnd(pulls[bar.on], bar.a);
+    if (Math.hypot(x - e.x, y - e.y) < 90 || (x > pulls[bar.on].x && y < BY && y > e.y - 40)) { barGrab = "lever"; bar.a0 = bar.a; lifted = false; rg.sound("click", { volume: 0.4 }); return; }
+    if (step() > 0 && Math.hypot(x - pulls[bar.on].x, y - (BY - pulls[bar.on].h)) < 60) { barGrab = "move"; bar.on = -1; bar.x = x; bar.y = y; return; }
+    return;
+  }
+  if (Math.hypot(x - bar.x, y - bar.y) < 90) { barGrab = "move"; bar.x = x; bar.y = y; rg.sound("click", { volume: 0.4 }); }
+}
+function barMove(x: number, y: number) {
+  if (barGrab === "move") { bar.x = x; bar.y = y; return; }
+  if (barGrab === "lever" && bar.on >= 0) {
+    const p = pulls[bar.on], h = heelOf(p);
+    const a = Math.atan2(x - h.x, h.y - y);
+    const na = Math.max(A0, Math.min(A1, a));
+    // the claw lifts the nail as the handle goes down
+    const lift = Math.max(0, (na - A0) / (A1 - A0)) * 42;
+    const want = p.h0 + lift;
+    const got = Math.min(want, p.h0 + p.e);
+    if (Math.floor(got / 8) !== Math.floor(p.h / 8)) rg.sound("tick", { volume: 0.5 });
+    p.h = got;
+    bar.a = na;
+    if (p.h >= p.h0 + p.e - 0.5 && p.out < 0) nailOut(bar.on);
+  }
+}
+function nailOut(i: number) {
+  const p = pulls[i];
+  p.out = K.t;
+  barGrab = "";
+  rg.sound("pop"); rg.vibrate(30);
+  bar.on = -1; bar.a = A0;
+  const left = pulls.filter((q) => q.out < 0);
+  if (left.length === 0) { win(p.x, BY - 60, ["rk_v_irti"]); return; }
+  rg.say("rk_v_irti");
+  if (step() === 0) bar.on = pulls.indexOf(left[0]);
+  else { bar.x = p.x + 60; bar.y = BY - 60; }
+}
+function barUp() {
+  if (barGrab === "lever" && bar.on >= 0) {
+    const p = pulls[bar.on];
+    // the nail stays up as far as it came; the handle springs back up
+    p.e -= p.h - p.h0;
+    p.h0 = p.h;
+    bar.a = A0;
+    if (p.h - p.h0 < 1 && bar.a0 === A0) {}
+  }
+  if (barGrab === "move") {
+    // hook it if the claw (the bar's grip point) is at a nail's head
+    let done = false;
+    pulls.forEach((p, i) => {
+      if (!done && p.out < 0 && Math.abs(bar.x - p.x) < 44 && Math.abs(bar.y - (BY - p.h)) < 60) { bar.on = i; bar.a = A0; done = true; rg.sound("pop"); rg.say("rk_v_paina"); }
+    });
+    if (!done) {
+      const n = miss();
+      hintT = K.t;
+      rg.say(n >= 2 ? "rk_v_vihje_sorkka" : "kokeile_toista");
+      bar.x = width - 130; bar.y = height - 80;
+    }
+  }
+  barGrab = "";
+}
 
 function tick(dt: number, input: any) {
   const before = K.t - swingT;
@@ -175,6 +267,9 @@ function tick(dt: number, input: any) {
   if (K.mode !== "play") return;
   if (before < 0.1 && K.t - swingT >= 0.1) land();
   if (K.level === 1 && K.t - swingT > 0.35) sway = Math.sin(K.t * [1.8, 2.6, 3.6][step()]) * 54;
+  if (barGrab && input && input.pointer) {
+    if (input.pointer.down) barMove(input.pointer.x, input.pointer.y); else barUp();
+  }
   if (grab && input && input.pointer) {
     if (input.pointer.down) {
       if (grab === "pliers") { pliers.x = input.pointer.x; pliers.y = input.pointer.y; }
@@ -189,10 +284,11 @@ function hint() {
   if (K.level === 1) rg.say("rk_v_vihje_osu");
   else if (K.level === 2 && nails.some((n) => !n.placed)) rg.say("rk_v_vie_naula");
   else if (K.level === 2) rg.say("rk_v_pihdit");
+  else if (K.level === 4) rg.say(bar.on >= 0 ? "rk_v_paina" : "rk_v_vihje_sorkka");
   else rg.say("rk_v_vihje_naulaa");
 }
 
-function onBack() { grab = ""; back(); }
+function onBack() { grab = ""; barGrab = ""; back(); }
 
 // ---- drawing ----------------------------------------------------------------------
 function NailPic(x: number, base: number, h: number, bent: number, lying: boolean) {
@@ -224,6 +320,24 @@ function Hammer(nx: number, top: number, a: number, side: number) {
   const head = rot(rect(px - 132, py - 40, 28, 52));
   const claw = rot([[px - 132, py - 40], [px - 104, py - 40], [px - 96, py - 62], [px - 112, py - 52]]);
   return [Poly(handle, "#8d5524", "#5c3a17", 2), Poly(claw, "#495057"), Poly(head, "#6c757d", "#343a40", 2), Poly(rot(rect(px - 132, py + 6, 28, 6)), "#343a40")];
+}
+
+// a crowbar: the claw's tip at (cx, cy) under a nail head, the heel on the board at
+// (hx, hy), the handle going up from the heel at angle a (0 = straight up)
+function Crowbar(cx: number, cy: number, hx: number, hy: number, a: number, s: number) {
+  const L = BAR_L * s;
+  const ex = hx + Math.sin(a) * L, ey = hy - Math.cos(a) * L;
+  const knee = [hx - 4 * s, hy - 8 * s];
+  return [
+    Line([[cx - 6 * s, cy + 2 * s], [cx + 4 * s, cy + 6 * s], knee, [hx + 2 * s, hy - 2 * s]], "#9d0208", 10 * s),
+    Line([[hx, hy - 4 * s], [ex, ey]], "#c1121f", 12 * s),
+    Line([[hx + Math.sin(a) * L * 0.75, hy - Math.cos(a) * L * 0.75], [ex, ey]], "#212529", 14 * s),
+    Poly([[cx - 12 * s, cy - 2 * s], [cx - 2 * s, cy - 4 * s], [cx - 2 * s, cy + 6 * s]], "#343a40"),
+  ];
+}
+// the bar lying free, its claw at (x, y)
+function FreeBar(x: number, y: number) {
+  return Crowbar(x, y, x + 18, y + 16, 1.15, 0.8);
 }
 
 function Pliers(x: number, y: number, s: number, open: boolean) {
@@ -269,10 +383,12 @@ function Play() {
     : K.level === 2 && nails.some((n) => !n.placed) ? rg.t("Vie naula merkkiin", "Put the nail on the mark", "Pon el clavo en la marca")
     : K.level === 2 && pliers.on < 0 && nails.some((n) => n.h > MAXH * 0.55) ? rg.t("Pidä naulaa pihdeillä", "Hold the nail with the pliers", "Sujeta el clavo con los alicates")
     : K.level === 3 ? rg.t("Rakenna linnunpönttö", "Build a birdhouse", "Construye una pajarera")
+    : K.level === 4 ? (bar.on >= 0 ? rg.t("Paina vartta alas", "Push the handle down", "Baja el mango") : rg.t("Vie sorkka naulaan", "Hook the nail", "Engancha el clavo"))
     : rg.t("Lyö naulat puuhun", "Hammer the nails in", "Clava los clavos");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
   if (K.level === 3) for (const e of House(width / 2, 210, 0.75, part + (K.solved >= 0 ? 1 : 0))) out.push(e);
   for (const e of Board()) out.push(e);
+  if (K.level === 4) { PlayBar(out); return <div className="screen">{out}</div>; }
   const hinting = K.t - hintT < 5;
   nails.forEach((n, i) => {
     if (!n.placed) {
@@ -308,6 +424,40 @@ function Play() {
   if (K.level !== 1 && step() === 0 && K.misses === 0 && live.length && nails.every((q) => q.placed) && !(K.level === 2 && pliers.on < 0 && live[0].h > MAXH * 0.55))
     out.push(PointAt(live[0].x, BY - live[0].h - 70, "#f77f00"));
   return <div className="screen">{out}</div>;
+}
+
+function PlayBar(out: any[]) {
+  const hinting = K.t - hintT < 5;
+  // a tin for the nails that came out
+  out.push(Poly([[20, BY - 60], [70, BY - 60], [66, BY], [24, BY]], "#adb5bd", "#6c757d", 2));
+  const done = pulls.filter((p) => p.out >= 0 && K.t - p.out > 0.6).length;
+  for (let i = 0; i < done; i++) out.push(Line([[30 + i * 9, BY - 52], [38 + i * 9, BY - 70]], "#868e96", 4));
+  pulls.forEach((p, i) => {
+    if (p.out >= 0) {
+      const k = Math.min(1, (K.t - p.out) / 0.6);
+      if (k < 1) {
+        const x = p.x + (45 - p.x) * k, y = BY - p.h - Math.sin(k * Math.PI) * 120 - (BY - 60 - (BY - p.h)) * 0 + (60 - p.h) * k * 0;
+        for (const e of NailPic(x, y + p.h, p.h, 0, false)) out.push(e);
+      }
+      return;
+    }
+    // the hole's dark ring and the nail
+    for (const e of NailPic(p.x, BY, p.h, 0, false)) out.push(e);
+    if (step() > 0 && bar.on < 0 && (K.question === 0 || hinting) && barGrab === "move") out.push(Circle(p.x, BY - p.h, 26, "rgba(6,214,160,0.3)", "#06d6a0"));
+  });
+  if (bar.on >= 0) {
+    const p = pulls[bar.on], h = heelOf(p);
+    for (const e of Crowbar(p.x - 2, BY - p.h + 3, h.x, h.y, bar.a, 1)) out.push(e);
+    const e = handleEnd(p, bar.a);
+    if (barGrab !== "lever" && K.solved < 0 && (K.question === 0 || hinting || step() === 0)) {
+      out.push(Circle(e.x, e.y, 22, "rgba(247,127,0,0.3)", "#f77f00"));
+      out.push(Line([[e.x + 10, e.y + 30], [e.x + 50, e.y + 120]], "#f77f00", 8));
+      out.push(Poly([[e.x + 60, e.y + 142], [e.x + 34, e.y + 124], [e.x + 62, e.y + 108]], "#f77f00"));
+    }
+  } else {
+    for (const e of FreeBar(bar.x, bar.y)) out.push(e);
+    if (barGrab !== "move" && K.solved < 0 && (K.question === 0 || hinting)) out.push(PointAt(bar.x + 20, bar.y - 40, "#f77f00"));
+  }
 }
 
 setup(rg.t("Vasara", "Hammer", "Martillo"), LEVELS, 6, next);
