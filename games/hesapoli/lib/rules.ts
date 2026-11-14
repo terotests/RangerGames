@@ -46,7 +46,7 @@ export function buildCost(i: number): number { return Math.round(SQ[i].price / 2
 // the surprise cards
 export const CARDS = ["loysit", "synttarit", "pyora", "piirustus", "lahtoon", "vankilaan", "peruuta", "vapaa", "puistoon", "jaatelo"];
 
-export type Player = { tok: number; ai: boolean; pos: number; money: number; jail: number; free: number; out: boolean };
+export type Player = { tok: number; name?: string; ai: boolean; pos: number; money: number; jail: number; free: number; out: boolean };
 export type Game = { players: Player[]; owner: number[]; level: number[]; pot: number; cur: number; round: number; rounds: number; deck: number[]; doubles: number; over: boolean };
 
 export function newGame(toks: number[], ais: boolean[], rounds: number, rnd: () => number): Game {

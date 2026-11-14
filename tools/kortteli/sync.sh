@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 T=tools/kortteli/template
 for g in mansepoli hesapoli; do
   mkdir -p games/$g/lib
-  for f in game.tsx style.css lib/rules.ts; do
+  for f in game.tsx style.css lib/rules.ts lib/saylen.ts; do
     case $f in *.css) c="/*"; e=" */";; *) c="//"; e="";; esac
     { echo "$c GENERATED from $T/$f by tools/kortteli/sync.sh: edit that file, not this copy.$e"; cat $T/$f; } > games/$g/$f
   done
