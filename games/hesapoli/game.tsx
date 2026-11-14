@@ -1,12 +1,16 @@
-// Korttelikauppa: a city board game for 2–4 players (children, on one phone,
-// or against the phone), in 3D on the streets of a small town.
+// GENERATED from tools/kortteli/template/game.tsx by tools/kortteli/sync.sh: edit that file, not this copy.
+// The template of the city board games Mansepoli (Tampere) and Hesapoli
+// (Helsinki): 2–4 players (children, on one phone, or against the phone), in
+// 3D on the streets of a town. tools/kortteli/sync.sh copies this file into
+// each game; the street names, the kiosk, the colours and the landmark in the
+// middle come from the game's own lib/theme.ts.
 //
 // Throw two dice and go round the ring road. Buy the plots you stop on; on
 // your own plots build a hut, a house, a block of flats and, when you own the
 // whole block (two plots of one colour), a hotel. Others who stop on your plot
 // pay rent: the bigger the building, the bigger the rent. Passing the start
 // gives 150 €. The police take you to jail; out with doubles, a free card or
-// 50 €. Surprise cards, an ice cream kiosk and a park where the fees end up.
+// 50 €. Surprise cards, a kiosk and a park where the fees end up.
 // The game ends after the chosen rounds, or when someone cannot pay: the
 // richest wins. The houses are Talot's (lib/house.ts), the rules lib/rules.ts.
 
@@ -14,21 +18,17 @@ import { N, SQ, START, JAIL, PARK, POLICE, KIOSK, PASS_BONUS, JAIL_FINE, KIOSK_F
   Game, newGame as rulesNew, baseRent, buildCost, rent, rentAt, canBuild, buildable, wholeBlock, worth, buy, build, pay, path, stepsTo, drawCard,
   ranking, nextPlayer, aiBuy, aiBuild, aiPlan, aiJail, owned } from "lib/rules";
 import { Spec, CATS, objects, visible, front, extent, Obj, Pic } from "lib/house";
+import { THEME } from "lib/theme";
 
 // ---- names and pictures ----------------------------------------------------
-const STREET: any = {
-  siili: ["Siilipolku", "Hedgehog Path", "Senda del Erizo"], myyra: ["Myyräkuja", "Mole Lane", "Callejón del Topo"],
-  kala: ["Kalatie", "Fish Road", "Calle del Pez"], simpukka: ["Simpukkakuja", "Shell Lane", "Callejón de la Concha"],
-  perhonen: ["Perhoskuja", "Butterfly Lane", "Callejón Mariposa"], kukka: ["Kukkatie", "Flower Road", "Calle de las Flores"],
-  kettu: ["Kettukatu", "Fox Street", "Calle del Zorro"], orava: ["Oravatie", "Squirrel Road", "Calle de la Ardilla"],
-  mansikka: ["Mansikkakatu", "Strawberry Street", "Calle Fresa"], kirsikka: ["Kirsikkatie", "Cherry Road", "Calle Cereza"],
-  aurinko: ["Aurinkokatu", "Sun Street", "Calle del Sol"], banaani: ["Banaanitie", "Banana Road", "Calle Plátano"],
-  sammakko: ["Sammakkokatu", "Frog Street", "Calle de la Rana"], omena: ["Omenatie", "Apple Road", "Calle Manzana"],
-  valas: ["Valaskatu", "Whale Street", "Calle de la Ballena"], meri: ["Merikatu", "Sea Street", "Calle del Mar"],
-  start: ["Lähtö", "Start", "Salida"], jail: ["Vankila", "Jail", "Cárcel"], park: ["Puisto", "Park", "Parque"],
-  police: ["Poliisi", "Police", "Policía"], kiosk: ["Jäätelökioski", "Ice cream kiosk", "Heladería"], chance: ["Yllätys", "Surprise", "Sorpresa"],
-};
-function sqName(i: number): string { const s = STREET[SQ[i].id]; return rg.t(s[0], s[1], s[2]); }
+// street and corner names come from the game's lib/theme.ts
+const PLOT_K: number[] = [];   // square -> the plot's number 0…15 (-1: not a plot)
+{ let k = 0; for (let i = 0; i < N; i++) PLOT_K.push(SQ[i].kind === "plot" ? k++ : -1); }
+function sqName(i: number): string {
+  if (PLOT_K[i] >= 0) return THEME.streets[PLOT_K[i]];
+  const s = THEME.names[SQ[i].kind]; return rg.t(s[0], s[1], s[2]);
+}
+function tt(a: string[]): string { return rg.t(a[0], a[1], a[2]); }
 const TOK: any[] = [
   { id: "auto", color: "#e63946", emoji: "🚗", name: ["Auto", "Car", "Coche"], turn: ["Auton vuoro", "Car's turn", "Turno del coche"] },
   { id: "raketti", color: "#3a86ff", emoji: "🚀", name: ["Raketti", "Rocket", "Cohete"], turn: ["Raketin vuoro", "Rocket's turn", "Turno del cohete"] },
@@ -120,7 +120,7 @@ function turnObj(o: Obj, cx: number, cz: number, a: number) {
 }
 function addObj(o: Obj, a: number, group: number, dy: number) {
   rg.three("add", { id: o.id, shape: o.shape, size: o.size, color: o.color, x: o.x, y: o.y + dy, z: o.z, rx: o.rx, ry: o.ry, rz: o.rz, wy: a,
-    sx: o.sx, sy: o.sy, sz: o.sz, layer: o.layer, detail: o.detail, visible: o.vis, group });
+    sx: o.sx, sy: o.sy, sz: o.sz, layer: o.layer, detail: o.detail, emissive: (o as any).emissive, visible: o.vis, group });
 }
 // the objects of a Talot house at (cx, cz) turned by a
 function houseObjs(s: Spec, prefix: string, cx: number, cz: number, a: number): Obj[] {
@@ -148,9 +148,11 @@ function setHouse(i: number, drop: boolean) {
 
 const ROAD = 1.25, WALK = 0.55;   // half the road's width, the pavement
 const FOG = [15, 38], HAZE = "#dde9f1";
+let fogOver = false;   // the fog is pushed far away for the view from above
 function scene() {
   rg.three("clear");
   // the far town fades into the haze
+  fogOver = false;
   rg.three("scene", { background: ["#7cc0ee", HAZE], ground: { y: 0, color: "#8cc56a" }, fog: FOG, fogColor: HAZE });
   rg.three("light", { id: "sun", type: "directional", x: 4, y: 8, z: 3, intensity: 0.65 });
   rg.three("light", { id: "ambient", type: "ambient", intensity: 0.45 });
@@ -191,6 +193,7 @@ function scene() {
   }
   corners();
   city();
+  landmark();
   houses = []; builtLevel = []; dropT = [];
   for (let i = 0; i < N; i++) { houses.push(null); builtLevel.push(0); dropT.push(-10); }
   for (let i = 0; i < N; i++) if (g.level[i]) setHouse(i, false);
@@ -203,7 +206,7 @@ function scene() {
 let town: any[] = [];         // { objs, x, z }: culled like the board's houses
 let seedT = 7;
 function tr(): number { seedT = (seedT * 48271) % 2147483647; return seedT / 2147483647; }
-const WALLC = ["#5b8fb9", "#e9a46a", "#f2e2c4", "#c9ced6", "#d9705f", "#f6d55c", "#9cc5a1", "#b9a3d0", "#e8e1d7", "#8fa9c7"];
+const WALLC: string[] = THEME.walls;
 const ROOFC = ["#7a2e22", "#4a4a4a", "#8a5a3b", "#2f5d50"];
 function ob(id: string, shape: string, size: number[], color: string, x: number, y: number, z: number, o: any): Obj {
   const r: Obj = { cat: "", id, shape, size, color, x, y, z, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, layer: 0, detail: 8, face: 99, vis: false };
@@ -261,7 +264,6 @@ function city() {
       const p = at(j, -(ROAD + WALK + 2.6));
       townHouse(kind, 2.7 + tr() * 0.3, h, 2.3, p[0], p[1], aIn);
     }
-    { const p = at(3, -(ROAD + WALK + 5.6)); townHouse("flat", 3.6, 4.5 + tr() * 3.5, 2.2, p[0], p[1], aIn); }
     // outside: rows behind the plots, higher and higher into the haze
     for (let j = 0.5; j <= 5.6; j += 1) {
       const p = at(j, ROAD + WALK + 5.9), kind = tr() < 0.4 ? "gable" : "flat";
@@ -269,6 +271,13 @@ function city() {
     }
     for (let j = 0; j < 6; j += 1.25) { const p = at(j, ROAD + WALK + 9.6); townHouse("flat", 3.4, 6 + tr() * 5, 3, p[0], p[1], aOut); }
   }
+}
+// the city's landmark in the middle of the board (lib/theme.ts), sorted as one thing
+function landmark() {
+  const objs: Obj[] = THEME.landmark.map((d: any, k: number) => ob("lm" + k, d.shape, d.size, d.color, d.x, d.y, d.z,
+    { layer: d.layer || 0, detail: d.detail || 8, ry: d.ry || 0, emissive: !!d.emissive }));
+  for (const o of objs) { o.vis = true; addObj(o, 0, 400, 0); }
+  fixed.push({ objs, a: 0, x: 0, z: 0 });
 }
 // a present box on a surprise square
 function gift(id: string, x: number, z: number, a: number) {
@@ -283,10 +292,17 @@ function kiosk(x: number, z: number, a: number) {
   const k = at(0, 0);
   rg.three("add", { id: "ki_b", shape: "box", size: [1.6, 1.0, 1.1], color: "#ffffff", x: k[0], y: 0.5, z: k[1], wy: a, group: 201 });
   rg.three("add", { id: "ki_w", shape: "box", size: [1.1, 0.4, 0.04], color: "#8fd3f4", x: at(0, 0.56)[0], y: 0.7, z: at(0, 0.56)[1], wy: a, layer: 1, group: 201 });
-  rg.three("add", { id: "ki_r", shape: "roof", size: [1.4, 0.35, 1.9], color: "#f15bb5", x: k[0], y: 1.0, z: k[1], wy: a + Math.PI / 2, layer: 2, group: 201 });
+  rg.three("add", { id: "ki_r", shape: "roof", size: [1.4, 0.35, 1.9], color: THEME.kiosk.roof, x: k[0], y: 1.0, z: k[1], wy: a + Math.PI / 2, layer: 2, group: 201 });
   const ic = at(0.95, 0.6);
-  rg.three("add", { id: "ki_c", shape: "cone", size: [0.22, 0.7], color: "#e0a458", x: ic[0], y: 0.35, z: ic[1], rx: Math.PI });
-  rg.three("add", { id: "ki_s", shape: "sphere", size: [0.27], color: "#ffafcc", x: ic[0], y: 0.82, z: ic[1], detail: 8 });
+  if (THEME.kiosk.kind === "makkara") {
+    // a big black sausage with lingonberry jam on a pole
+    rg.three("add", { id: "ki_c", shape: "cylinder", size: [0.04, 0.04, 0.7], color: "#495057", x: ic[0], y: 0.35, z: ic[1], detail: 6 });
+    rg.three("add", { id: "ki_s", shape: "cylinder", size: [0.16, 0.16, 0.8], color: "#2b1b18", x: ic[0], y: 0.82, z: ic[1], rz: Math.PI / 2, wy: a, detail: 10 });
+    rg.three("add", { id: "ki_j", shape: "sphere", size: [0.11], color: "#c1121f", x: ic[0], y: 1.0, z: ic[1], detail: 6 });
+  } else {
+    rg.three("add", { id: "ki_c", shape: "cone", size: [0.22, 0.7], color: "#e0a458", x: ic[0], y: 0.35, z: ic[1], rx: Math.PI });
+    rg.three("add", { id: "ki_s", shape: "sphere", size: [0.27], color: "#ffafcc", x: ic[0], y: 0.82, z: ic[1], detail: 8 });
+  }
 }
 function corners() {
   fixed = [];
@@ -421,6 +437,10 @@ function focusQ(): number {
 }
 function camStep(dt: number) {
   let tc: number[], tl: number[];
+  if (overview !== fogOver) {
+    fogOver = overview;
+    rg.three("scene", { background: ["#7cc0ee", HAZE], ground: { y: 0, color: "#8cc56a" }, fog: overview ? [70, 130] : FOG, fogColor: HAZE });
+  }
   if (overview) {
     tc = [0, 50, 30]; tl = [0, 0, 2];
   } else {
@@ -469,18 +489,19 @@ function cull() {
   lastCull = CAM.slice();
   const f = [LOOK[0] - CAM[0], LOOK[2] - CAM[2]], fl = Math.sqrt(f[0] * f[0] + f[1] * f[1]) || 1;
   const fx = f[0] / fl, fz = f[1] / fl, far = overview ? 999 : FOG[1] + 3;
-  const check = (h: any) => {
+  const check = (h: any, front: boolean) => {
     const dx = h.x - CAM[0], dz = h.z - CAM[2];
     const z = dx * fx + dz * fz, side = Math.abs(dx * -fz + dz * fx);
-    const on = overview || (z > -3 && z < far && side < z * 0.62 + 4);
+    // from above, the town between the camera and the board is left out
+    const on = overview ? !(front && h.z > R + 3) : (z > -3 && z < far && side < z * 0.62 + 4);
     for (const o of h.objs) {
       const v = on && visible(o, CAM);
       if (v !== o.vis) { o.vis = v; rg.three("set", { id: o.id, visible: v }); }
     }
   };
-  for (const h of houses) if (h) check(h);
-  for (const h of fixed) check(h);
-  for (const h of town) check(h);
+  for (const h of houses) if (h) check(h, false);
+  for (const h of fixed) check(h, false);
+  for (const h of town) check(h, true);
 }
 
 // ---- the game's flow -----------------------------------------------------------------
@@ -644,7 +665,7 @@ function arrive() {
         dlg = { kind: "deed", sq: i, title: sqName(i), text: rg.t("Ostatko tontin " + sq.price + " eurolla?", "Buy the plot for " + sq.price + " euros?", "¿Compras el terreno por " + sq.price + " euros?"), icon: "", color: BLOCK_COLORS[sq.block],
           btns: [{ id: "buy", label: "🏷️ " + rg.t("Osta", "Buy", "Comprar") + " " + sq.price + " €", cls: "go", act: () => doBuy(i) }, { id: "nobuy", label: rg.t("Ei nyt", "Not now", "Ahora no"), cls: "back", act: () => endTurn() }],
           ai: aiBuy(g, g.cur, i) ? 0 : 1 };
-        say(p.ai ? [] : ["kt_k_" + sq.id, "kt_osta"]);
+        say(p.ai ? [] : [THEME.voice + "_k_" + PLOT_K[i], "kt_osta"]);
       } else {
         dlg = { kind: "deed", sq: i, title: sqName(i), text: rg.t("Tontti maksaa " + sq.price + " €. Rahasi eivät riitä.", "The plot costs " + sq.price + " €. You don't have enough money.", "El terreno cuesta " + sq.price + " €. No tienes suficiente dinero."), icon: "", color: BLOCK_COLORS[sq.block],
           btns: [{ id: "ok", label: rg.t("Selvä", "OK", "Vale"), cls: "go", act: () => endTurn() }], ai: 0 };
@@ -675,7 +696,7 @@ function arrive() {
   }
   if (sq.kind === "chance") { card(); return; }
   if (sq.kind === "kiosk") {
-    info(sqName(i), rg.t("Jäätelö maksaa " + KIOSK_FEE + " €. Raha menee puistoon.", "An ice cream costs " + KIOSK_FEE + " €. The money goes to the park.", "Un helado cuesta " + KIOSK_FEE + " €. El dinero va al parque."), "🍦", "#f15bb5", "kt_kioski");
+    info(sqName(i), tt(THEME.kiosk.text).replace("{fee}", "" + KIOSK_FEE), THEME.kiosk.icon, THEME.kiosk.color, THEME.kiosk.clip);
     dlg.btns[0].act = () => { payTo(g.cur, -2, KIOSK_FEE); endTurn(); };
     return;
   }
@@ -1151,8 +1172,8 @@ function Menu() {
   return (
     <div className="screen menu">
       <div className="menupics">{pics}</div>
-      <div className="title">{rg.t("Korttelikauppa", "City Blocks", "Barrios")}</div>
-      <div className="subtitle">{rg.t("Heitä nopat, osta tontteja ja rakenna taloja ja hotelleja!", "Throw the dice, buy plots and build houses and hotels!", "¡Tira los dados, compra terrenos y construye casas y hoteles!")}</div>
+      <div className="title">{tt(THEME.title)}</div>
+      <div className="subtitle">{tt(THEME.subtitle)}</div>
       <div className="tokrow">{TOK.map((tk) => <div className="tokball" style={{ backgroundColor: tk.color }}>{tk.emoji}</div>)}</div>
       {saved ? <div className="btn go wide" id="resume" onClick={resume}>{"▶ " + rg.t("Jatka peliä", "Continue", "Continuar")}</div> : null}
       <div className="btn open wide" id="new" onClick={() => { phase = "setup"; rg.sound("click"); say("kt_kuka_pelaa"); }}>{"🎲 " + rg.t("Uusi peli", "New game", "Nueva partida")}</div>
