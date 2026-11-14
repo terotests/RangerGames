@@ -142,6 +142,12 @@ const TEXT: Record<string, T> = {
   rk_t_vie_autoon: ["Vie hiekka autoon.", "Take the sand to the truck.", "Lleva la arena al camión."],
   rk_t_valui: ["Hups, hiekka valui maahan.", "Oops, the sand spilled.", "¡Uy, la arena se cayó!"],
   rk_t_auto_taynna: ["Auto on täynnä hiekkaa!", "The truck is full of sand!", "¡El camión está lleno de arena!"],
+  rk_t_kaivuri3d: ["Täytä auto hiekalla. Vasen vipu kääntää kaivuria, oikea vipu laskee ja nostaa puomia.", "Fill the truck with sand. The left stick turns the digger, the right stick lowers and lifts the boom.", "Llena el camión de arena. La palanca izquierda gira la excavadora, la derecha baja y sube el brazo."],
+  rk_t_kauha3d: ["Oikea vipu sivulle kääntää kauhaa. Sulje kauha hiekassa ja avaa se auton päällä.", "Push the right stick sideways to turn the bucket. Close it in the sand, open it over the truck.", "Mueve la palanca derecha a los lados para girar la pala. Ciérrala en la arena y ábrela sobre el camión."],
+  rk_t_varsi3d: ["Vasen vipu eteen ja taakse liikuttaa kauhan vartta. Ylety kauhalla hiekkaan.", "Push the left stick forward and back to move the arm. Reach the sand with the bucket.", "La palanca izquierda adelante y atrás mueve el brazo. Alcanza la arena con la pala."],
+  rk_t_kaanna_hiekalle: ["Käännä kaivuri hiekkakasan luo.", "Turn the digger to the sand pile.", "Gira la excavadora hacia la arena."],
+  rk_t_kaanna_autolle: ["Käännä kaivuri auton luo.", "Turn the digger to the truck.", "Gira la excavadora hacia el camión."],
+  rk_t_laske_puomi: ["Laske kauha hiekkaan.", "Lower the bucket into the sand.", "Baja la pala a la arena."],
   // Työkalupakki
   peli_tyokalupakki: ["Työkalupakki", "Toolbox", "Caja de herramientas"],
   rk_k_mika: ["Mikä työkalu tähän tarvitaan?", "Which tool do we need?", "¿Qué herramienta necesitamos?"],

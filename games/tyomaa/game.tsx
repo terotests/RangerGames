@@ -6,8 +6,9 @@
 //                  recipe says, run it, and pour the concrete into the mould;
 //                  the mixer is 3D (rg.three): the inside tumbles and turns grey,
 //                  it rumbles and the phone shakes while it turns
-//   3 Kaivuri      move the excavator's arm to dig sand into the truck: first
-//                  by tapping, then with a lever, then lever and bucket button
+//   3 Kaivuri      3D view from the excavator cab: two sticks turn the cab and
+//                  move the boom (then the bucket, then the arm) to dig sand
+//                  from the pile into the truck
 import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, turn, rect, ngon, Button } from "lib/kit";
 
 const SAND = "#e9c46a", SAND2 = "#d4a84f";
@@ -32,16 +33,6 @@ let flyT = -10;
 type Ing = { id: string; want: number; have: number };
 let recipe: Ing[] = [];
 let mixT = -10, pourT = -10, drum = 0, bounce = { id: "", t: -10 };
-// the digger
-let boom = -1.6;          // the arm's angle (radians, screen: 0 right, -π/2 up, -π left)
-let goal = -1.6;          // where a tap sends it
-let curl = false;         // the bucket closed (holding sand)
-let full = false;         // sand in the bucket
-let loads = 0;
-let auto = "";            // step 0: "dig" or "dump" going on
-let autoT = 0;
-let spill = -10;
-
 function GY() { return Math.round(height * 0.68); }
 
 // ---- the concrete mixer in 3D ---------------------------------------------------------
@@ -304,7 +295,7 @@ function rumble(dt: number) {
 function instruct() {
   if (K.level === 0) rg.say(["rk_t_lapio_n", rg.sayId.number(want), want === 1 ? "rk_t_lapiollinen" : "rk_t_lapiollista"]);
   else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_mylly" : phase === "mix" ? "rk_t_kaynnista" : "rk_t_kaada");
-  else rg.say(step() === 0 ? "rk_t_kaivuri" : step() === 1 ? "rk_t_vipu" : "rk_t_kauha");
+  else sayDig();
 }
 
 function next() {
@@ -329,13 +320,8 @@ function next() {
     bits = []; fly = []; mixK = 0; tiltNow = REST; drum = 0;
     build3d();
   } else {
-    rg.three("clear");
-    want = 3;
-    loads = 0;
-    boom = -1.6; goal = -1.6;
-    curl = false; full = false;
-    auto = "";
     phase = "play";
+    startDig();
   }
   instruct();
 }
@@ -358,10 +344,7 @@ function onPointerDown(x: number, y: number) {
     });
     return;
   }
-  if (K.level === 2) {
-    if (step() === 0) { tapDigger(x, y); return; }
-    if (y > height - 110 && y < height - 40) { grab = "lever"; lever(x); }
-  }
+  if (K.level === 2) digDown(x, y);
 }
 
 function dropShovel() {
@@ -424,58 +407,312 @@ function pour() {
   rg.sound("whoosh");
 }
 
-// ---- 3: digger ------------------------------------------------------------------------
-const BOOM_L = 120, STICK_L = 70;
-function base() { return { x: width / 2, y: GY() - 70 }; }
-function tip(a: number) {
-  const b = base();
-  const ex = b.x + Math.cos(a) * BOOM_L, ey = b.y + Math.sin(a) * BOOM_L;
-  const sa = a + (a > -Math.PI / 2 ? 1.25 : -1.25);
-  return { x: ex + Math.cos(sa) * STICK_L, y: ey + Math.sin(sa) * STICK_L, ex, ey };
-}
-const PILE_A = -0.35, TRUCK_A = -2.75;
-function atPile() { return Math.abs(boom - PILE_A) < 0.25; }
-function atTruck() { return Math.abs(boom - TRUCK_A) < 0.3; }
+// ---- 3: digger, seen from its cab in 3D ----------------------------------------------
+// The cab turns (yaw); the boom, the arm and the bucket move in the cab's own
+// upright plane. Two control sticks: the left one turns the cab (and later moves
+// the arm), the right one lifts the boom (and later turns the bucket). Step 0: the
+// bucket fills and empties by itself; step 1: the bucket is the child's; step 2:
+// the arm too, and the sand pile is farther away.
+const DG = { boomH: 1.45, boomF: 0.55, boomX: 0.42, L1: 3.3, L2: 2.3, LB: 0.75 };
+const CABH = 2.55, CABX = -0.7, CABF = -0.5, FOVD = 74;
+const PSAND = "#d9a441", PSAND2 = "#b98a2e";
+const PILE_YAW = 1.05, TRUCK_YAW = -1.15;
+const BED = { d: 4.5, top: 1.25, len: 2.3, wid: 1.5 };
+const YELLOW = "#f2b705", YELLOW2 = "#c78f00", STEEL = "#4a4f55";
+let yaw = 0, boomA = 0.55, armA = -1.55, buck = 0.25;   // buck: 0 open (empties), 1 curled
+let full = false, loads = 0, pileD = 4.7, pileAmt = 1;
+let stick: any = { L: [0, 0], R: [0, 0] };
+let digGrab = "";
+let humT = 0, dumpT = -10, scoopT = -10, wasIn = false;
 
-function tapDigger(x: number, y: number) {
-  if (auto) return;
-  if (x > width / 2 && !full) { auto = "dig"; autoT = K.t; goal = PILE_A; rg.sound("click"); }
-  else if (x < width / 2 && full) { auto = "dump"; autoT = K.t; goal = TRUCK_A; rg.sound("click"); }
-  else if (x < width / 2 && !full) { const n = miss(); hintT = K.t; rg.say(n >= 2 ? ["rk_t_tyhja", "rk_t_vihje_kaivuri"] : "rk_t_tyhja"); }
-  else { hintT = K.t; rg.say("rk_t_vie_autoon"); }
+function fwd(y: number) { return [Math.sin(y), 0, -Math.cos(y)]; }
+function rgt(y: number) { return [Math.cos(y), 0, Math.sin(y)]; }
+// a point of the cab's plane (lateral x, forward f, height h) in the world
+function cabPt(x: number, f: number, h: number): number[] { const F = fwd(yaw), Rr = rgt(yaw); return [x * Rr[0] + f * F[0], h, x * Rr[2] + f * F[2]]; }
+// the joints in the cab plane: [f, h]
+function joints() {
+  const p0 = [DG.boomF, DG.boomH];
+  const e1 = [p0[0] + DG.L1 * Math.cos(boomA), p0[1] + DG.L1 * Math.sin(boomA)];
+  const aa = boomA + armA;
+  const e2 = [e1[0] + DG.L2 * Math.cos(aa), e1[1] + DG.L2 * Math.sin(aa)];
+  const ba = aa - 0.5 - buck * 1.9;
+  const t = [e2[0] + DG.LB * Math.cos(ba), e2[1] + DG.LB * Math.sin(ba)];
+  return { p0, e1, e2, t, aa, ba };
+}
+function tipWorld(): number[] { const j = joints(); return cabPt(DG.boomX, j.t[0], j.t[1]); }
+function pileC(): number[] { const F = fwd(PILE_YAW); return [F[0] * pileD, 0, F[2] * pileD]; }
+function truckC(): number[] { const F = fwd(TRUCK_YAW); return [F[0] * BED.d, 0, F[2] * BED.d]; }
+const PILE_R = 1.7;
+function pileH() { return 1.55 * pileAmt; }
+// is the bucket in the sand?
+function inSand(): boolean {
+  const t = tipWorld(), c = pileC();
+  const r = Math.hypot(t[0] - c[0], t[2] - c[2]);
+  if (r > PILE_R) return false;
+  return t[1] < pileH() * (1 - r / PILE_R) + 0.12;
+}
+// is the bucket over the truck's bed?
+function overBed(): boolean {
+  const t = tipWorld(), c = truckC();
+  const F = fwd(TRUCK_YAW), Rr = rgt(TRUCK_YAW);
+  const dx = t[0] - c[0], dz = t[2] - c[2];
+  const along = dx * Rr[0] + dz * Rr[2], across = dx * F[0] + dz * F[2];
+  return Math.abs(along) < BED.len / 2 + 0.4 && Math.abs(across) < BED.wid / 2 + 0.7 && t[1] > BED.top - 0.2;
 }
 
-function lever(x: number) {
-  const k = Math.max(0, Math.min(1, (x - 40) / (width - 80)));
-  goal = TRUCK_A + (PILE_A - TRUCK_A) * k;
+// a link from a to b (cab plane points) as a box of thickness w × d
+function link(id: string, a: number[], b: number[], x: number) {
+  const A = cabPt(x, a[0], a[1]), B = cabPt(x, b[0], b[1]);
+  const d = unit(sub(B, A)), Rr = rgt(yaw);
+  const z = cross(Rr, d);
+  const M: M3 = [[Rr[0], d[0], z[0]], [Rr[1], d[1], z[1]], [Rr[2], d[2], z[2]]];
+  const e = euler(M), L = Math.hypot(B[0] - A[0], B[1] - A[1], B[2] - A[2]);
+  rg.three("set", { id, x: (A[0] + B[0]) / 2, y: (A[1] + B[1]) / 2, z: (A[2] + B[2]) / 2, rx: e[0], ry: e[1], rz: e[2], sy: L });
 }
 
-function bucket() {
-  if (K.level !== 2 || step() < 2 || K.solved >= 0) return;
-  if (!curl) {
-    curl = true;
-    if (atPile()) { full = true; rg.sound("hit"); rg.say("rk_t_kauha_taynna"); }
-    else rg.sound("click");
-    return;
+function buildDig() {
+  rg.three("clear");
+  rg.three("scene", { background: ["#8fb8de", "#e3edf5"], ground: { y: 0, color: "#7d6b4f" } });
+  rg.three("light", { id: "sun", type: "directional", x: 3, y: 7, z: 2, intensity: 0.55 });
+  rg.three("light", { id: "amb", type: "ambient", intensity: 0.45 });
+  // the site: a fence round it, houses behind, a few trees
+  for (let i = 0; i < 28; i++) {
+    const a = i / 28 * Math.PI * 2, F = fwd(a);
+    rg.three("add", { id: "fence" + i, shape: "box", size: [3.0, 1.6, 0.08], color: i % 2 ? "#3d4a52" : "#46545c", x: F[0] * 13.5, y: 0.8, z: F[2] * 13.5, ry: -a, layer: -1 });
   }
-  curl = false;
-  if (full && atTruck()) { dumped(); return; }
-  if (full) {
-    full = false;
-    spill = K.t;
-    const n = miss();
-    hintT = K.t;
-    rg.say(n >= 2 ? ["rk_t_valui", "rk_t_vihje_kaivuri"] : "rk_t_valui");
-  } else rg.sound("click");
+  const houses = [[0.3, 26, 7, 5], [0.75, 28, 10, 7], [-0.4, 27, 6, 8], [-0.95, 25, 9, 6], [1.6, 26, 8, 6], [2.4, 27, 6, 9], [-1.8, 28, 7, 7], [3.1, 26, 9, 5], [-2.6, 27, 8, 8]];
+  houses.forEach((h, i) => { const F = fwd(h[0]); rg.three("add", { id: "house" + i, shape: "box", size: [h[2], h[3], 4], color: ["#a9a399", "#9c968b", "#b5b0a6"][i % 3], x: F[0] * h[1], y: h[3] / 2, z: F[2] * h[1], ry: -h[0], layer: -1 }); });
+  [[2.0, 9], [-2.1, 10], [2.8, 8.5], [-0.2, 11]].forEach((t, i) => {
+    const F = fwd(t[0]);
+    rg.three("add", { id: "trunk" + i, shape: "cylinder", size: [0.15, 0.15, 1], detail: 6, color: "#7f5539", x: F[0] * t[1], y: 0.5, z: F[2] * t[1] });
+    rg.three("add", { id: "tree" + i, shape: "cone", size: [0.9, 2.2], detail: 8, color: "#40916c", x: F[0] * t[1], y: 2.0, z: F[2] * t[1] });
+  });
+  // the sand pile: two cones
+  rg.three("add", { id: "pile", shape: "cone", size: [PILE_R, 1], detail: 16, color: PSAND });
+  rg.three("add", { id: "pile2", shape: "cone", size: [PILE_R * 0.6, 1], detail: 12, color: PSAND2 });
+  // the truck, its side towards us
+  const c = truckC(), ty = -TRUCK_YAW + Math.PI / 2;
+  const Rr = rgt(TRUCK_YAW), F = fwd(TRUCK_YAW);
+  const at = (al: number, ac: number) => [c[0] + Rr[0] * al + F[0] * ac, c[2] + Rr[2] * al + F[2] * ac];
+  const p = (id: string, shape: string, size: number[], al: number, ac: number, y: number, color: string, extra?: any) => { const q = at(al, ac); rg.three("add", Object.assign({ id, shape, size, color, x: q[0], y, z: q[1], ry: ty + Math.PI / 2 }, extra || {})); };
+  p("tCab", "box", [1.3, 1.5, 1.6], -BED.len / 2 - 0.75, 0, 1.35, "#e63946");
+  p("tWin", "box", [0.05, 0.6, 1.3], -BED.len / 2 - 1.42, 0, 1.7, "#a8dadc");
+  p("tChassis", "box", [BED.len + 1.6, 0.3, 1.4], -0.7, 0, 0.6, "#343a40");
+  p("tFloor", "box", [BED.len, 0.12, BED.wid], 0, 0, 0.82, "#6c757d");
+  p("tWallA", "box", [BED.len, 0.45, 0.07], 0, BED.wid / 2, 1.05, "#adb5bd");
+  p("tWallB", "box", [BED.len, 0.45, 0.07], 0, -BED.wid / 2, 1.05, "#adb5bd");
+  p("tWallC", "box", [0.07, 0.45, BED.wid], BED.len / 2, 0, 1.05, "#adb5bd");
+  p("tWallD", "box", [0.07, 0.45, BED.wid], -BED.len / 2, 0, 1.05, "#adb5bd");
+  p("tLoad", "box", [BED.len - 0.12, 1, BED.wid - 0.12], 0, 0, 0.9, SAND, { visible: false });
+  [-1.7, -0.1, 0.8].forEach((al, i) => { for (const ac of [-0.75, 0.75]) p("tw" + i + (ac > 0 ? "a" : "b"), "cylinder", [0.38, 0.38, 0.25], al, ac, 0.38, "#212529", { rx: Math.PI / 2, ry: ty }); });
+  // the digger's own parts: boom, arm, bucket plates, hydraulic cylinders, sand in the bucket
+  rg.three("add", { id: "boom", shape: "box", size: [0.34, 1, 0.42], color: YELLOW });
+  rg.three("add", { id: "arm", shape: "box", size: [0.26, 1, 0.32], color: YELLOW });
+  rg.three("add", { id: "cylB", shape: "cylinder", size: [0.07, 0.07, 1], detail: 8, color: "#ced4da" });
+  rg.three("add", { id: "cylA", shape: "cylinder", size: [0.06, 0.06, 1], detail: 8, color: "#ced4da" });
+  rg.three("add", { id: "bkBack", shape: "box", size: [0.8, 1, 0.08], color: STEEL });
+  rg.three("add", { id: "bkBot", shape: "box", size: [0.8, 1, 0.08], color: "#3b3f44" });
+  rg.three("add", { id: "bkL", shape: "box", size: [0.06, 1, 0.5], color: STEEL });
+  rg.three("add", { id: "bkR", shape: "box", size: [0.06, 1, 0.5], color: STEEL });
+  for (let i = 0; i < 4; i++) rg.three("add", { id: "tooth" + i, shape: "box", size: [0.08, 1, 0.06], color: "#adb5bd" });
+  rg.three("add", { id: "bkSand", shape: "sphere", size: [0.4], detail: 8, color: PSAND, visible: false });
+  // the machine's own front under the cab: tracks and the boom's foot
+  rg.three("add", { id: "foot", shape: "box", size: [0.6, 0.7, 0.8], color: YELLOW2 });
+  placeDig();
 }
 
-function dumped() {
-  full = false;
+function placeDig() {
+  const j = joints();
+  const cam = cabPt(CABX, CABF, CABH), look = cabPt(0.55, 6, 0.8);
+  rg.three("camera", { x: cam[0], y: cam[1], z: cam[2], lookAt: look, fov: FOVD });
+  digCam = { cam, look };
+  // pile and truck load
+  const c = pileC();
+  rg.three("set", { id: "pile", x: c[0], y: pileH() / 2, z: c[2], sy: pileH() });
+  rg.three("set", { id: "pile2", x: c[0] + 0.5, y: pileH() * 0.35, z: c[2] - 0.4, sy: pileH() * 0.7 });
+  const lf = loads / Math.max(1, want);
+  const tc = truckC();
+  rg.three("set", { id: "tLoad", visible: loads > 0, sy: 0.15 + 0.5 * lf, y: 0.9 + (0.15 + 0.5 * lf) / 2, x: tc[0], z: tc[2] });
+  // the links
+  link("foot", [DG.boomF - 0.1, DG.boomH - 0.6], [DG.boomF + 0.1, DG.boomH], DG.boomX);
+  link("boom", j.p0, j.e1, DG.boomX);
+  link("arm", j.e1, j.e2, DG.boomX);
+  const mB = [j.p0[0] + DG.L1 * 0.45 * Math.cos(boomA), j.p0[1] + DG.L1 * 0.45 * Math.sin(boomA) - 0.25];
+  link("cylB", [DG.boomF + 0.3, DG.boomH - 0.55], mB, DG.boomX);
+  const e1b = [j.e1[0] - 0.5 * Math.cos(boomA), j.e1[1] - 0.5 * Math.sin(boomA) + 0.28];
+  const a2 = [j.e1[0] + 1.2 * Math.cos(j.aa), j.e1[1] + 1.2 * Math.sin(j.aa) + 0.18];
+  link("cylA", e1b, a2, DG.boomX);
+  // the bucket: a back plate e2→tip, a bottom plate from the tip back, sides and teeth
+  const bd = [Math.cos(j.ba), Math.sin(j.ba)];
+  const nb = [-bd[1], bd[0]];          // towards the open side
+  const bot = [j.t[0] + nb[0] * 0.5, j.t[1] + nb[1] * 0.5];
+  link("bkBack", j.e2, j.t, DG.boomX);
+  link("bkBot", j.t, bot, DG.boomX);
+  const mid = [(j.e2[0] + bot[0]) / 2, (j.e2[1] + bot[1]) / 2];
+  link("bkL", j.e2, [j.t[0] + nb[0] * 0.25, j.t[1] + nb[1] * 0.25], DG.boomX - 0.4);
+  link("bkR", j.e2, [j.t[0] + nb[0] * 0.25, j.t[1] + nb[1] * 0.25], DG.boomX + 0.4);
+  for (let i = 0; i < 4; i++) link("tooth" + i, bot, [bot[0] + nb[0] * 0.14 - bd[0] * 0.05, bot[1] + nb[1] * 0.14 - bd[1] * 0.05], DG.boomX - 0.3 + i * 0.2);
+  const sp = cabPt(DG.boomX, mid[0] + nb[0] * 0.05, mid[1] + nb[1] * 0.05);
+  rg.three("set", { id: "bkSand", visible: full, x: sp[0], y: sp[1], z: sp[2] });
+}
+let digCam: any = { cam: [0, 2, 0], look: [0, 1, -5] };
+function projDig(p: number[]): number[] {
+  const f = unit(sub(digCam.look, digCam.cam)), r = unit(cross(f, [0, 1, 0])), u = cross(r, f);
+  const focal = (height / 2) / Math.tan(FOVD * Math.PI / 360);
+  const v = sub(p, digCam.cam), z = Math.max(0.1, dot(v, f));
+  return [width / 2 + dot(v, r) / z * focal, height / 2 - dot(v, u) / z * focal];
+}
+
+function startDig() {
+  const s = step();
+  want = s === 0 ? 2 : 3;
+  loads = 0; full = false; pileAmt = 1;
+  pileD = s === 2 ? 5.3 : 4.3;
+  yaw = 0; boomA = 0.8; armA = -1.6; buck = 0.25;
+  stick = { L: [0, 0], R: [0, 0] }; digGrab = "";
+  fly = []; wasIn = false;
+  buildDig();
+}
+
+// the sticks' places and size
+function stickC(k: string) { return { x: k === "L" ? width * 0.25 : width * 0.75, y: height - 92 }; }
+const STICK_R = 54;
+function digDown(x: number, y: number) {
+  for (const k of ["L", "R"]) { const c = stickC(k); if (Math.hypot(x - c.x, y - c.y) < STICK_R * 1.5) { digGrab = k; digMove(x, y); rg.sound("click", { volume: 0.4 }); } }
+}
+function digMove(x: number, y: number) {
+  const c = stickC(digGrab);
+  let dx = (x - c.x) / STICK_R, dy = (y - c.y) / STICK_R;
+  const l = Math.hypot(dx, dy);
+  if (l > 1) { dx /= l; dy /= l; }
+  stick[digGrab] = [dx, dy];
+}
+function digUp() { if (digGrab) stick[digGrab] = [0, 0]; digGrab = ""; }
+// which way each stick works in this step: [left x, left y, right x, right y]
+function axes() { const s = step(); return { swing: true, arm: s >= 2, boom: true, bucket: s >= 1 }; }
+function dz(v: number) { return Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82; }
+
+function tickDig(dt: number) {
+  const A = axes(), s = step();
+  const L = stick.L, R = stick.R;
+  const old = { yaw, boomA, armA, buck };
+  yaw += dz(L[0]) * 0.9 * dt;
+  yaw = Math.max(-1.9, Math.min(1.9, yaw));
+  boomA -= dz(R[1]) * 0.55 * dt;
+  boomA = Math.max(0.05, Math.min(1.0, boomA));
+  if (A.arm) { armA -= dz(L[1]) * 0.8 * dt; armA = Math.max(-2.3, Math.min(-0.7, armA)); }
+  if (A.bucket) { buck += dz(R[0]) * 1.4 * dt; buck = Math.max(0, Math.min(1, buck)); }
+  // the bucket's teeth stop at the ground
+  if (tipWorld()[1] < 0.03) { boomA = old.boomA; armA = old.armA; buck = old.buck; if (tipWorld()[1] < 0.03) yaw = old.yaw; }
+  const moving = Math.abs(yaw - old.yaw) + Math.abs(boomA - old.boomA) + Math.abs(armA - old.armA) + Math.abs(buck - old.buck) > 1e-4;
+  // the engine's hum while something moves
+  humT -= dt;
+  if (moving && humT <= 0) { humT = 0.22; rg.sound("hit", { pitch: 0.22 + Math.random() * 0.06, volume: 0.12 }); }
+  const sand = inSand();
+  if (s === 0) {
+    // the bucket fills when it goes into the sand and empties over the truck
+    if (!full && sand) scoop();
+    const target = full ? 1 : 0.25;
+    buck += Math.max(-1.8 * dt, Math.min(1.8 * dt, target - buck));
+    if (full && overBed()) dump();
+  } else {
+    if (!full && sand && buck > 0.75 && old.buck <= 0.75) scoop();
+    if (full && buck < 0.35) { if (overBed()) dump(); else spill(); }
+  }
+  if (sand && !wasIn) { rg.sound("hit", { pitch: 0.5, volume: 0.4 }); rg.vibrate(30); }
+  wasIn = sand;
+  tickFly(dt);
+  placeDig();
+}
+function scoop() {
+  full = true; scoopT = K.t;
+  pileAmt = Math.max(0.45, pileAmt - 0.1);
+  rg.sound("hit"); rg.vibrate([30, 40, 30]);
+  const p = projDig(tipWorld());
+  spray(p[0], p[1], p[0] + (Math.random() - 0.5) * 40, p[1] + 30, [SAND, SAND2], 40, 30);
+  rg.say("rk_t_kauha_taynna");
+}
+function dump() {
+  full = false; dumpT = K.t;
   loads++;
-  flyT = K.t;
-  rg.sound("pop");
+  const p = projDig(tipWorld()), q = projDig(truckC().map((v, i) => i === 1 ? BED.top : v));
+  spray(p[0], p[1], q[0], q[1], [SAND, SAND2, "#d9b25f"], 120, 36);
+  rg.sound("whoosh", { pitch: 0.5 }); rg.sound("pop");
   rg.say(rg.sayId.number(loads));
-  if (loads >= want) win(70, GY() - 60, ["rk_t_auto_taynna"]);
+  if (loads >= want) win(width / 2, height / 2, ["rk_t_auto_taynna"]);
+}
+function spill() {
+  full = false;
+  const p = projDig(tipWorld());
+  spray(p[0], p[1], p[0], p[1] + 120, [SAND, SAND2], 60, 30);
+  const n = miss();
+  hintT = K.t;
+  rg.say(n >= 2 ? ["rk_t_valui", "rk_t_vihje_kaivuri"] : "rk_t_valui");
+}
+// what to do next, for the hint arrows and speech
+function nextDo(): string {
+  const t = tipWorld();
+  if (!full) {
+    if (Math.abs(yaw - PILE_YAW) > 0.35) return yaw < PILE_YAW ? "swingR" : "swingL";
+    if (step() >= 2) { const c = pileC(); const r = Math.hypot(t[0] - c[0], t[2] - c[2]); if (r > PILE_R * 0.8) return "armOut"; }
+    if (!inSand()) return "boomDown";
+    return step() >= 1 ? "curl" : "boomDown";
+  }
+  if (t[1] < BED.top + 0.5 && Math.abs(yaw - TRUCK_YAW) > 0.3) return "boomUp";
+  if (Math.abs(yaw - TRUCK_YAW) > 0.3) return yaw < TRUCK_YAW ? "swingR" : "swingL";
+  if (!overBed()) return t[1] < BED.top + 0.3 ? "boomUp" : "boomDown";
+  return "open";
+}
+function sayDig() { rg.say(step() === 0 ? "rk_t_kaivuri3d" : step() === 1 ? "rk_t_kauha3d" : "rk_t_varsi3d"); }
+function hintDig() {
+  const n = nextDo();
+  const id: any = { swingR: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", swingL: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", boomDown: "rk_t_laske_puomi", boomUp: "rk_t_vie_autoon", armOut: "rk_t_varsi3d", curl: "rk_t_kauha3d", open: "rk_t_kauha3d" };
+  rg.say(id[n]);
+}
+
+// the cab around the view and the sticks on the dashboard
+function Stick(k: string, a: any, color: string) {
+  const out: any[] = [];
+  const c = stickC(k), v = stick[k];
+  out.push(Circle(c.x, c.y, STICK_R, "#2b2d31", "#495057"));
+  const tri = (dx: number, dy: number, col: string) => {
+    const x = c.x + dx * (STICK_R - 12), y = c.y + dy * (STICK_R - 12);
+    out.push(Poly([[x + dx * 9, y + dy * 9], [x - dy * 8 - dx * 4, y + dx * 8 - dy * 4], [x + dy * 8 - dx * 4, y - dx * 8 - dy * 4]], col));
+  };
+  if (k === "L") { tri(-1, 0, "#f77f00"); tri(1, 0, "#f77f00"); if (a.arm) { tri(0, -1, "#06d6a0"); tri(0, 1, "#06d6a0"); } }
+  else { tri(0, -1, YELLOW); tri(0, 1, YELLOW); if (a.bucket) { tri(-1, 0, "#4cc9f0"); tri(1, 0, "#4cc9f0"); } }
+  const kx = c.x + v[0] * (STICK_R - 20), ky = c.y + v[1] * (STICK_R - 20);
+  out.push(Line([[c.x, c.y + 6], [kx, ky]], "#111", 9));
+  out.push(Circle(kx, ky, 22, color, "#111"));
+  return out;
+}
+function Cab() {
+  const out: any[] = [];
+  const W = width, H = height, dash = H - 170;
+  // pillars, roof and the dashboard, a little slanted like a real cab
+  out.push(Poly([[0, 0], [30, 0], [44, dash], [0, dash]], "#22262a"));
+  out.push(Poly([[W, 0], [W - 26, 0], [W - 40, dash], [W, dash]], "#22262a"));
+  out.push(Poly([[0, 0], [W, 0], [W, 12], [0, 18]], "#22262a"));
+  out.push(Poly([[46, 0], [52, 0], [70, dash], [62, dash]], "#3a3f44"));
+  out.push(Poly([[0, dash - 6], [W, dash - 14], [W, H], [0, H]], "#343a40"));
+  out.push(Poly([[0, dash - 6], [W, dash - 14], [W, dash - 4], [0, dash + 4]], "#495057"));
+  return out;
+}
+function PlayDig(out: any[]) {
+  const hinting = K.t - hintT < 5;
+  for (const e of Grains(fly.map((f) => ({ x: f.x, y: f.y, s: f.r * 2.4, c: f.c })))) out.push(e);
+  for (const e of Cab()) out.push(e);
+  const a = axes();
+  for (const e of Stick("L", a, "#f77f00")) out.push(e);
+  for (const e of Stick("R", a, YELLOW)) out.push(e);
+  // loads as dots
+  for (let i = 0; i < want; i++) out.push(Circle(width / 2 - (want - 1) * 17 + i * 34, height - 160, 11, i < loads ? "#06d6a0" : "#ffffff", "#e76f51"));
+  if (K.question === 0 || hinting) {
+    const n = nextDo(), L = stickC("L"), R = stickC("R");
+    const at: any = { swingR: [L.x + 62, L.y], swingL: [L.x - 62, L.y], armOut: [L.x, L.y - 62], boomDown: [R.x, R.y + 64], boomUp: [R.x, R.y - 64], curl: [R.x + 62, R.y], open: [R.x - 62, R.y] };
+    const p = at[n];
+    if (p && K.solved < 0) { const r = 15 + 4 * Math.sin(K.t * 8); out.push(Circle(p[0] - (p[0] - (n.startsWith("swing") || n === "armOut" ? L.x : R.x)) * 0.25, p[1] - (p[1] - (n.startsWith("swing") || n === "armOut" ? L.y : R.y)) * 0.25, r, "rgba(255,209,102,0.35)", "#ffd166")); }
+  }
 }
 
 function tick(dt: number, input: any) {
@@ -507,21 +744,13 @@ function tick(dt: number, input: any) {
     place3d();
   }
   if (K.level === 2) {
-    const sp = 2.2 * dt;
-    boom += Math.max(-sp, Math.min(sp, goal - boom));
-    if (step() === 0 && auto) {
-      if (auto === "dig" && Math.abs(boom - goal) < 0.02) { if (!curl) { curl = true; full = true; rg.sound("hit"); autoT = K.t; } else if (K.t - autoT > 0.4) { goal = -1.6; auto = ""; } }
-      if (auto === "dump" && Math.abs(boom - goal) < 0.02) { curl = false; dumped(); auto = ""; goal = -1.6; }
-    }
-    if (step() === 1) {
-      if (!full && atPile()) { curl = true; full = true; rg.sound("hit"); }
-      if (full && atTruck()) { curl = false; dumped(); }
-      if (!full && !atPile()) curl = false;
-    }
+    if (digGrab && p) { if (p.down) digMove(p.x, p.y); else digUp(); }
+    tickDig(dt);
   }
 }
 
 function onPointerUp() {
+  digUp();
   if (grab === "shovel") dropShovel();
   if (grab === "ing") dropIng();
   grab = "";
@@ -533,10 +762,10 @@ function hint() {
   rg.sound("click");
   if (K.level === 0) rg.say(["rk_t_vihje_lapio", rg.sayId.number(want)]);
   else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_vihje_mylly" : phase === "mix" ? "rk_t_kaynnista" : "rk_t_kaada");
-  else rg.say("rk_t_vihje_kaivuri");
+  else hintDig();
 }
 
-function onBack() { grab = ""; back(); }
+function onBack() { grab = ""; digUp(); back(); }
 
 // ---- drawing ------------------------------------------------------------------------
 function Mound(cx: number, by: number, w: number, h: number): number[][] {
@@ -598,6 +827,7 @@ function Mixer(x: number, y: number, s: number, rot: number, tilt: number, fill:
   return out;
 }
 
+const BOOM_L = 120, STICK_L = 70;   // the 2D digger of the menu picture
 function Excavator(x: number, gy: number, s: number, a: number, cl: number, sand: boolean) {
   // x, gy: the tracks' middle on the ground; a: the arm's angle; cl: bucket closed 0..1
   const out: any[] = [];
@@ -641,7 +871,7 @@ function Play() {
     : K.level === 1 ? (phase === "fill" ? rg.t("Tee betonia", "Make concrete", "Haz hormigón") : phase === "mix" || phase === "mixing" ? rg.t("Käynnistä mylly ▶", "Start the mixer ▶", "Arranca ▶") : rg.t("Kaada muottiin", "Pour into the mould", "Vierte en el molde"))
     : rg.t("Täytä auto hiekalla", "Fill the truck with sand", "Llena el camión de arena");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
-  if (K.level !== 1) {
+  if (K.level === 0) {
     out.push(Box(0, gy, width, height - gy, "#a7c957"));
     out.push(Box(0, gy, width, 10, "#6a994e"));
   }
@@ -676,26 +906,7 @@ function Play() {
     if (phase === "pour") { out.push(Button("pour", rg.t("Kaada", "Pour", "Vierte"), width / 2 - 70, height - 90, 140, "#f77f00", () => pour())); out.push(PointAt(width / 2, height - 96, "#f77f00")); }
     if (K.question === 0 && phase === "fill" && recipe.every((q) => q.have === 0)) out.push(<div className="label" style={{ left: 110, top: height - 70, width: width - 130 }}>{rg.t("Vedä myllyyn", "Drag into the mixer", "Arrastra a la hormigonera")}</div>);
   }
-  if (K.level === 2) {
-    out.push(Poly(Mound(width - 50, gy, 70, 70), SAND, SAND2, 2));
-    for (const e of Truck(62, gy + 6, loads)) out.push(e);
-    const cl = curl ? 1 : 0;
-    for (const e of Excavator(width / 2 + 24, gy + 6, 0.85, boom, cl, full)) out.push(e);
-    if (K.t - spill < 1) { const t = tip(boom); out.push(Poly(Mound(t.x, gy, 20, 10), SAND)); }
-    for (let i = 0; i < want; i++) out.push(Circle(width / 2 - (want - 1) * 17 + i * 34, 150, 13, i < loads ? "#06d6a0" : "#ffffff", "#e76f51"));
-    if (step() === 0) {
-      if (!auto && (K.question === 0 || hinting)) out.push(full ? PointAt(70, gy - 90, "#06d6a0") : PointAt(width - 50, gy - 80, "#f77f00"));
-    } else {
-      // the lever: left = the truck, right = the sand
-      const k = (boom - TRUCK_A) / (PILE_A - TRUCK_A);
-      out.push(Box(40, height - 86, width - 80, 22, "rgba(0,0,0,0.18)", 11));
-      out.push(<div className="label" style={{ left: 10, top: height - 116, width: 60 }}>🚚</div>);
-      out.push(<div className="label" style={{ left: width - 70, top: height - 116, width: 60 }}>⛰️</div>);
-      out.push(Circle(40 + (width - 80) * Math.max(0, Math.min(1, k)), height - 75, 26, "#e76f51", "#ffffff"));
-      if (step() === 2) out.push(Button("bucket", curl ? rg.t("Kauha auki", "Open", "Abrir") : rg.t("Kauha kiinni", "Scoop", "Cerrar"), width / 2 - 90, 186, 180, curl ? "#118ab2" : "#e76f51", () => bucket()));
-      if (hinting) out.push(full ? PointAt(60, height - 100, "#06d6a0") : PointAt(width - 60, height - 100, "#f77f00"));
-    }
-  }
+  if (K.level === 2) PlayDig(out);
   return <div className="screen">{out}</div>;
 }
 
@@ -706,5 +917,5 @@ function view() {
   if (K.mode === "menu") body = Menu([]);
   else if (K.mode === "done") body = Done();
   else body = Play();
-  return <div className={K.mode === "play" && K.level === 1 ? "root3d" : "root"}>{body}{Sparks()}</div>;
+  return <div className={K.mode === "play" && K.level >= 1 ? "root3d" : "root"}>{body}{Sparks()}</div>;
 }
