@@ -110,7 +110,7 @@ function winScale(s: Spec): number {
 
 // ---- 3D ---------------------------------------------------------------------------
 // one rg.three object: the 3D house is a list of these
-export type Obj = { cat: string; id: string; shape: string; size: number[]; color: string; x: number; y: number; z: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; layer: number; detail: number; face: number; vis: boolean };
+export type Obj = { cat: string; id: string; shape: string; size: number[]; color: string; x: number; y: number; z: number; rx: number; ry: number; rz: number; sx: number; sy: number; sz: number; layer: number; detail: number; face: number; vis: boolean; deco: boolean };
 // face: the way a thing on a wall faces (ry as in slots), 99 for none. A thin
 // thing on a wall is drawn over the walls (a higher layer), so it must be hidden
 // when its wall faces away from the camera: see visible().
@@ -125,7 +125,7 @@ export function visible(o: Obj, cam: number[]): boolean {
 let list: Obj[] = [];
 let curCat = "";
 function add(shape: string, size: number[], color: string, x: number, y: number, z: number, o?: any) {
-  const ob: Obj = { cat: curCat, id: "", shape, size, color, x, y, z, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, layer: 0, detail: 12, face: 99, vis: true };
+  const ob: Obj = { cat: curCat, id: "", shape, size, color, x, y, z, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, layer: 0, detail: 12, face: 99, vis: true, deco: false };
   if (o) for (const k of Object.keys(o)) (ob as any)[k] = o[k];
   list.push(ob);
 }
@@ -143,7 +143,7 @@ function base3(s: Spec, m: Dims) {
   const b = s.base;
   if (b === "kivi") {
     add("box", [m.w + 0.24, 0.3, m.d + 0.24], "#8d939b", 0, 0.15, 0);
-    for (let i = 0; i < 4; i++) add("box", [0.34, 0.12, 0.03], "#6c737c", -m.w / 2 + 0.3 + i * (m.w - 0.4) / 3, 0.17, m.d / 2 + 0.125, { layer: 1, face: 0 });
+    for (let i = 0; i < 4; i++) add("box", [0.34, 0.12, 0.03], "#6c737c", -m.w / 2 + 0.3 + i * (m.w - 0.4) / 3, 0.17, m.d / 2 + 0.125, { layer: 1, deco: true, face: 0 });
   } else if (b === "betoni") {
     add("box", [m.w + 1.0, 0.15, m.d + 1.0], "#c4c8cc", 0, 0.075, 0);
   } else if (b === "kallio") {
@@ -177,10 +177,10 @@ function walls3(s: Spec, m: Dims) {
     // logs: a dark line between each, and the log ends crossing at the corners
     for (let i = 1; i < 6; i++) {
       const ly = y + i * H / 6;
-      add("box", [W, 0.035, 0.02], "#6d4524", 0, ly, D / 2 + 0.01, { layer: 1, face: 0 });
-      add("box", [W, 0.035, 0.02], "#6d4524", 0, ly, -D / 2 - 0.01, { layer: 1, face: Math.PI });
-      add("box", [0.02, 0.035, D], "#6d4524", W / 2 + 0.01, ly, 0, { layer: 1, face: Math.PI / 2 });
-      add("box", [0.02, 0.035, D], "#6d4524", -W / 2 - 0.01, ly, 0, { layer: 1, face: -Math.PI / 2 });
+      add("box", [W, 0.035, 0.02], "#6d4524", 0, ly, D / 2 + 0.01, { layer: 1, deco: true, face: 0 });
+      add("box", [W, 0.035, 0.02], "#6d4524", 0, ly, -D / 2 - 0.01, { layer: 1, deco: true, face: Math.PI });
+      add("box", [0.02, 0.035, D], "#6d4524", W / 2 + 0.01, ly, 0, { layer: 1, deco: true, face: Math.PI / 2 });
+      add("box", [0.02, 0.035, D], "#6d4524", -W / 2 - 0.01, ly, 0, { layer: 1, deco: true, face: -Math.PI / 2 });
     }
     for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("box", [0.2, H, 0.2], "#86582f", cx * (W / 2 + 0.02), y + H / 2, cz * (D / 2 + 0.02));
   } else if (w === "punainen" || w === "keltainen") {
@@ -189,17 +189,17 @@ function walls3(s: Spec, m: Dims) {
     const rows = Math.max(1, Math.floor(H / 0.85));
     for (let i = 1; i < rows; i++) {
       const ly = y + i * H / rows;
-      add("box", [W, 0.06, 0.02], "#c9b8a3", 0, ly, D / 2 + 0.01, { layer: 1, face: 0 });
-      add("box", [W, 0.06, 0.02], "#c9b8a3", 0, ly, -D / 2 - 0.01, { layer: 1, face: Math.PI });
-      add("box", [0.02, 0.06, D], "#c9b8a3", W / 2 + 0.01, ly, 0, { layer: 1, face: Math.PI / 2 });
-      add("box", [0.02, 0.06, D], "#c9b8a3", -W / 2 - 0.01, ly, 0, { layer: 1, face: -Math.PI / 2 });
+      add("box", [W, 0.06, 0.02], "#c9b8a3", 0, ly, D / 2 + 0.01, { layer: 1, deco: true, face: 0 });
+      add("box", [W, 0.06, 0.02], "#c9b8a3", 0, ly, -D / 2 - 0.01, { layer: 1, deco: true, face: Math.PI });
+      add("box", [0.02, 0.06, D], "#c9b8a3", W / 2 + 0.01, ly, 0, { layer: 1, deco: true, face: Math.PI / 2 });
+      add("box", [0.02, 0.06, D], "#c9b8a3", -W / 2 - 0.01, ly, 0, { layer: 1, deco: true, face: -Math.PI / 2 });
     }
   } else if (w === "linna") {
     for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("cylinder", [0.42, 0.42, H + 0.5], "#949aa0", cx * W / 2, y + (H + 0.5) / 2, cz * D / 2, { detail: 10 });
     const st = [[-0.6, 0.3], [0.5, 0.65], [-0.2, 0.9], [0.7, 0.2], [-0.75, 1.2], [0.2, 1.35]];
-    for (const p of st) add("box", [0.26, 0.12, 0.02], "#8a9096", p[0] * W / 2 + 0.0, y + p[1] * H / 1.7, D / 2 + 0.01, { layer: 1, face: 0 });
+    for (const p of st) add("box", [0.26, 0.12, 0.02], "#8a9096", p[0] * W / 2 + 0.0, y + p[1] * H / 1.7, D / 2 + 0.01, { layer: 1, deco: true, face: 0 });
   } else if (w === "maja") {
-    for (let i = 1; i < 5; i++) add("box", [0.025, H, 0.02], "#9c7a45", -W / 2 + i * W / 5, y + H / 2, D / 2 + 0.01, { layer: 1, face: 0 });
+    for (let i = 1; i < 5; i++) add("box", [0.025, H, 0.02], "#9c7a45", -W / 2 + i * W / 5, y + H / 2, D / 2 + 0.01, { layer: 1, deco: true, face: 0 });
   }
 }
 
@@ -275,7 +275,7 @@ function roof3(s: Spec, m: Dims) {
     const y = top + m.hr + 0.05 - rise, edge = r === "musta" ? "#1f1f1f" : r === "punainen" ? "#8e2a1f" : "#1f5a24";
     add("roof", [D + 0.3, rise, half * 2], ROOF_C[r], 0, y, 0, { ry: Math.PI / 2, layer: 4 });
     add("roof", [D + 0.3, rise, half * 2], edge, 0, y - 0.1, 0, { ry: Math.PI / 2, layer: 3 });
-    if (r === "punainen") for (let i = 1; i < 4; i++) for (const sd of [-1, 1]) add("box", [len, 0.03, 0.04], "#962d22", sd * half / 2, top + m.hr - rise / 2 + 0.07, -D / 2 - 0.15 + i * (D + 0.3) / 4, { rz: -sd * a, layer: 4 });
+    if (r === "punainen") for (let i = 1; i < 4; i++) for (const sd of [-1, 1]) add("box", [len, 0.03, 0.04], "#962d22", sd * half / 2, top + m.hr - rise / 2 + 0.07, -D / 2 - 0.15 + i * (D + 0.3) / 4, { rz: -sd * a, layer: 4, deco: true });
     add("box", [0.14, 0.12, D + 0.32], edge, 0, top + m.hr + 0.06, 0, { layer: 4 });
   } else if (r === "tasa") {
     add("box", [W + 0.2, 0.14, D + 0.2], "#6c757d", 0, top + 0.07, 0, { layer: 4 });
@@ -310,7 +310,7 @@ function top3(s: Spec, m: Dims) {
     const c = t === "tiili" ? "#a5402d" : "#7f8c8d", w = t === "tiili" ? 0.3 : 0.38;
     add("box", [w, h, w], c, x, y + h / 2, z, { layer: 5 });
     add("box", [w + 0.08, 0.08, w + 0.08], t === "tiili" ? "#7b2d1f" : "#5f6a6a", x, y + h, z, { layer: 5 });
-    if (t === "tiili") for (let i = 1; i < 4; i++) add("box", [w + 0.01, 0.025, w + 0.01], "#e6d3c3", x, y + i * h / 4, z, { layer: 5 });
+    if (t === "tiili") for (let i = 1; i < 4; i++) add("box", [w + 0.01, 0.025, w + 0.01], "#e6d3c3", x, y + i * h / 4, z, { layer: 5, deco: true });
   } else if (t === "lippu") {
     let x = 0, y = roofAt(s, 0), z = 0;
     if (s.roof === "torni") { x = m.round ? 0 : m.w / 2; z = m.round ? 0 : m.d / 2; y = top + (s.walls === "linna" ? 0.5 : 0) + 0.85; }
@@ -342,7 +342,9 @@ function top3(s: Spec, m: Dims) {
 }
 
 // the 3D objects of the parts in `cats` (the others are not built yet)
-export function objects(s: Spec, cats: string[], prefix: string, dx: number): Obj[] {
+// dx, dz: where the house stands; lite: leave out the small decorations (log
+// lines, stones, tiles) of a house far away in the village
+export function objects(s: Spec, cats: string[], prefix: string, dx: number, dz?: number, lite?: boolean): Obj[] {
   list = [];
   const m = dims(s);
   const has = (c: string) => cats.indexOf(c) >= 0 && get(s, c) !== "";
@@ -354,7 +356,9 @@ export function objects(s: Spec, cats: string[], prefix: string, dx: number): Ob
     const ss = c === "walls" && !has("roof") ? withRoof(s, "") : s;
     steps[c](ss, m);
   }
-  list.forEach((o, i) => { o.id = prefix + o.cat + i; o.x += dx; });
+  if (lite) list = list.filter((o) => !o.deco);
+  const z0 = dz || 0;
+  list.forEach((o, i) => { o.id = prefix + o.cat + i; o.x += dx; o.z += z0; });
   return list;
 }
 function withRoof(s: Spec, r: string): Spec { const c = copy(s); c.roof = r; return c; }
@@ -541,4 +545,10 @@ export function extent(s: Spec): number[] {
   if (s.top === "pontto" && s.base !== "puu") l = Math.min(l, -m.w / 2 - 0.95);
   if (s.top === "lippu") r = Math.max(r, (s.roof === "torni" ? m.w / 2 : 0) + 0.5);
   return [l, r, tallness(s)];
+}
+
+// where a person stands in front of the door, before going in (from the house's middle)
+export function doorFront(s: Spec): number[] {
+  const m = dims(s), fz = m.round ? m.w / 2 : m.d / 2;
+  return [0, fz + (s.door === "tunneli" ? 1.1 : s.door === "tikkaat" ? 0.65 : 0.35)];
 }

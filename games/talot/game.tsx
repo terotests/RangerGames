@@ -3,12 +3,14 @@
 //        flats, castle, igloo, treehouse): build it part by part. Each part
 //        (base, walls, door, windows, roof, last touch) is picked from 2–4
 //        tiles (3 adaptive steps); the part drops onto the house.
-//   7    Oma talo: free building with every part and wall paints
+//   7    Oma kylä: pick a spot in a 3D village, build a house there with every
+//        part and wall paint (up to 6 houses, tap 🔨 to change one); little
+//        people move into each new house and walk between the houses
 //   8    Oma katu: every house built so far stands on the child's street
 // The house can be turned with a finger. Everything is spoken; a wrong tile
 // says "look at the picture", the second one shows the right part.
 import { K, Level, setup, step, start, win, miss, update, toMenu, Header, Menu, Sparks, Poly, Box, PointAt } from "lib/kit";
-import { Spec, CATS, OPTIONS, HOUSES, PAINTS, empty, copy, get, set, dims, tallness, objects, front, extent, visible, Obj, Pic } from "lib/house";
+import { Spec, CATS, OPTIONS, HOUSES, PAINTS, empty, copy, get, set, dims, tallness, objects, front, extent, visible, doorFront, Obj, Pic } from "lib/house";
 
 const LETTER: any = { base: "b", walls: "w", door: "d", win: "i", roof: "r", top: "t" };
 const NAMES: any = {
@@ -43,7 +45,7 @@ function fit(s: Spec, cats: string[], x: number, y: number, w: number, h: number
 function housePic(i: number) { return (x: number, y: number, s: number) => fit(HOUSES[i], CATS, x - 52 * s, y - 44 * s, 104 * s, 82 * s, false, false); }
 const FREE_PIC: Spec = { base: "kivi", walls: "keltainen", door: "puu", win: "risti", roof: "punainen", top: "tiili", paint: "" };
 const LEVELS: Level[] = HOUSES.map((h: any, i: number) => ({ name: NAMES[h.id], color: ["#8d5a2b", "#c0392b", "#7f8c8d", "#5d6d7e", "#5dade2", "#43a047"][i], say: "rk_h_h_" + h.id, pic: housePic(i) }));
-LEVELS.push({ name: rg.t("Oma talo", "My house", "Mi casa"), color: "#f77f00", say: "rk_h_vapaa", pic: (x, y, s) => {
+LEVELS.push({ name: rg.t("Oma kylä", "My village", "Mi pueblo"), color: "#f77f00", say: "rk_h_kyla", pic: (x, y, s) => {
   const out = fit(FREE_PIC, CATS, x - 40 * s, y - 40 * s, 80 * s, 76 * s, false, false);
   for (let i = 0; i < 5; i++) { const a = K.t * 1.5 + i * 1.26; out.push(Box(x + Math.cos(a) * 46 * s - 4 * s, y - 4 * s + Math.sin(a) * 34 * s, 8 * s, 8 * s, PAINTS[i], 4 * s)); }
   return out;
@@ -70,6 +72,17 @@ let freeCat = "walls";
 let street: Spec[] = rg.load("street", []);
 let streetX = 0;
 let doneFree = false, lastMode = "menu", doneT = -10;
+// the village: six plots, two by two along three roads; a house is { p: plot, s: spec, n: people }
+const PLOTS = [[-2.9, 0], [2.9, 0], [-2.9, -7], [2.9, -7], [-2.9, -14], [2.9, -14]];
+const ROAD = 3.5;                 // a row's road is this far in front of its plots
+let village: any[] = rg.load("village", []);
+let vmode = "village";            // "village" (pick a spot) or "build"
+let plot = 0;                     // the plot being built on
+type Person = { id: string; x: number; z: number; path: number[][]; wait: number; house: number; to: number; shown: boolean };
+let people: Person[] = [];
+let personN = 0, strollT = 4, welcomed = false;
+const SHIRTS = ["#e63946", "#457b9d", "#f4a261", "#2a9d8f", "#9b5de5", "#f15bb5", "#00bbf9", "#fee440"];
+const SKIN = ["#f1c27d", "#e0ac69", "#c68642", "#8d5524", "#ffdbac"];
 
 // ---- the camera -------------------------------------------------------------------
 const FOV = 50;
@@ -77,27 +90,29 @@ let CAM = [0, 5, 8], LOOK = [0, 1, 0];
 function trayTop(): number {
   if (K.mode === "done") return height_() - 150;
   if (K.level === STREET_LV) return height_() - 20;
-  return K.level === FREE_LV ? height_() - 214 : height_() - 132;
+  if (K.level === FREE_LV) return vmode === "village" ? height_() - 20 : height_() - 214;
+  return height_() - 132;
 }
 function height_(): number { return height; }
 function focal(): number { return (height_() / 2) / Math.tan(FOV * Math.PI / 360); }
 function camera() {
-  let h = 2.5, cx = 0, dist = 0;
+  let h = 2.5, cx = 0, cz = 0, dist = 0, up = 0.42;
   const top = K.mode === "done" || K.level === FREE_LV ? 120 : 228;
-  if (K.level === STREET_LV) { h = 2.6; cx = streetX; dist = 13; }
+  if (K.level === STREET_LV) { h = 2.6; cx = streetX; dist = 13; up = 0.24; }
+  else if (K.level === FREE_LV && vmode === "village") { h = 1.2; cz = -6.3; dist = 20.5; up = 0.95; }
   else {
     // far enough that the whole house fits between the picture card and the tray
     const s = K.level === FREE_LV ? built : target, e = extent(s);
     h = tallness(s);
     const avail = trayTop() - top;
     dist = Math.max((e[1] - e[0] + 0.6) * focal() / (width * 0.86), (h + 0.6) * focal() / (avail * 0.95)) + dims(s).d / 2 + 0.8;
+    if (K.level === FREE_LV) { cx = PLOTS[plot][0]; cz = PLOTS[plot][1]; }
   }
   const want = (top + trayTop()) / 2, shift = (height_() / 2 - want) * dist / focal();
   const ly = h * 0.45 - shift * 0.9;
   const ya = K.level === STREET_LV ? 0.12 : yaw;
-  LOOK = [cx, ly, 0];
-  const up = K.level === STREET_LV ? 0.24 : 0.42;
-  CAM = [cx + Math.sin(ya) * dist * 0.9, ly + dist * up, Math.cos(ya) * dist * 0.9];
+  LOOK = [cx, ly, cz];
+  CAM = [cx + Math.sin(ya) * dist * 0.9, ly + dist * up, cz + Math.cos(ya) * dist * 0.9];
   rg.three("camera", { x: CAM[0], y: CAM[1], z: CAM[2], lookAt: LOOK, fov: FOV });
   cull();
 }
@@ -140,7 +155,8 @@ function yard(snow: boolean, s: Spec) {
 }
 // the whole house again; the parts of `fresh` drop from above
 function rebuild(fresh: string) {
-  const s = K.level === FREE_LV ? built : target;
+  if (K.level === FREE_LV) { buildVillage(fresh); return; }
+  const s = target;
   const snow = s.base === "lumi" || s.walls === "lumi";
   scene(snow);
   yard(snow, s);
@@ -169,7 +185,7 @@ function drop(dt: number) {
   let dy = 0;
   if (t < 0.4) { const u = 1 - t / 0.4; dy = 4 * u * u; }
   else if (t < 0.62) dy = Math.sin((t - 0.4) / 0.22 * Math.PI) * 0.18;
-  for (const o of objs) if (o.cat === dropCat) rg.three("set", { id: o.id, y: o.y + dy });
+  for (const o of objs) if (o.cat === dropCat && o.id.charAt(0) === "h") rg.three("set", { id: o.id, y: o.y + dy });
   if (t >= 0.62) dropCat = "";
   if (t >= 0.4 && t - dt < 0.4) { rg.sound("hit", { volume: 0.6 }); rg.vibrate(30); }
 }
@@ -216,12 +232,56 @@ function pick(i: number) {
 }
 function hint() { hintT = K.t; rg.say("rk_h_vihje"); }
 
-// ---- free building and the street ----------------------------------------------------------
+// ---- the village and free building -----------------------------------------------------------
+function houseAt(p: number): number { for (let i = 0; i < village.length; i++) if (village[i].p === p) return i; return -1; }
 function startFree() {
-  built = copy(FREE_START);
+  village = rg.load("village", []);
+  vmode = "village";
+  yaw = 0;
+  people = [];
+  welcomed = false;
+  buildVillage("");
+  rg.say(village.length >= PLOTS.length ? "rk_h_kyla_taysi" : village.length ? "rk_h_kyla" : "rk_h_paikka");
+}
+// the village scene; in build mode the house being built is `built` on its plot, in full detail
+function buildVillage(fresh: string) {
+  scene(false);
+  objs = [];
+  camera();
+  for (let r = 0; r < 3; r++) {
+    const z = PLOTS[r * 2][1] + ROAD;
+    rg.three("add", { id: "road" + r, shape: "box", size: [16, 0.02, 1.3], color: "#6c757d", x: 0, y: 0.01, z, layer: -1 });
+  }
+  rg.three("add", { id: "mainroad", shape: "box", size: [1.3, 0.02, 21], color: "#6c757d", x: 0, y: 0.011, z: -6, layer: -1 });
+  rg.three("add", { id: "pond", shape: "cylinder", size: [1.6, 1.6, 0.02], color: "#4ea8de", x: 6.8, y: 0.01, z: -3.5, layer: -1, detail: 16 });
+  const trees = [[-7, 1], [7, 2], [-7.2, -5], [-6.8, -11], [7, -9], [7.2, -15], [-7, -17], [0, -19], [4, -19.5], [-3.8, -19.2]];
+  trees.forEach((t, i) => {
+    rg.three("add", { id: "trunk" + i, shape: "cylinder", size: [0.14, 0.18, 0.7], color: "#7a4f2a", x: t[0], y: 0.35, z: t[1], detail: 6 });
+    rg.three("add", { id: "crown" + i, shape: "cone", size: [0.8, 1.8], color: i % 2 ? "#2e7d32" : "#388e3c", x: t[0], y: 1.6, z: t[1], detail: 8 });
+  });
+  let all: Obj[] = [];
+  PLOTS.forEach((pl, p) => {
+    const i = houseAt(p), building = vmode === "build" && p === plot;
+    const s = building ? built : i >= 0 ? village[i].s : null;
+    // a walk from the road to the door, and a sandy plot where nothing is built yet
+    rg.three("add", { id: "walk" + p, shape: "box", size: [0.6, 0.02, ROAD - 1.4], color: "#d9c9a3", x: pl[0], y: 0.012, z: pl[1] + 0.7 + (ROAD - 1.4) / 2, layer: -1 });
+    if (!s) { rg.three("add", { id: "plot" + p, shape: "box", size: [3.6, 0.01, 3.4], color: "#c8a97e", x: pl[0], y: 0.006, z: pl[1], layer: -1 }); return; }
+    const os = objects(s, CATS, building ? "h" : "v" + p + "_", pl[0], pl[1], !building);
+    for (const o of os) { addObj(o, building && o.cat === fresh ? 4 : 0); all.push(o); }
+  });
+  objs = all;
+  dropCat = fresh; dropT = K.t;
+  for (const q of people) addPerson(q);
+}
+function startBuild(p: number) {
+  const i = houseAt(p);
+  plot = p;
+  built = i >= 0 ? copy(village[i].s) : copy(FREE_START);
   freeCat = "walls";
+  vmode = "build";
   yaw = 0.55;
-  rebuild("");
+  rg.sound("click");
+  buildVillage("");
   rg.say("rk_h_vapaa");
 }
 function freePick(v: string) {
@@ -234,12 +294,74 @@ function freePick(v: string) {
   else if (c !== "paint") rg.say("rk_h_pois");
 }
 function freeDone() {
-  addToStreet(built);
-  doneFree = true;
-  K.mode = "done";
-  const c = center();
+  const i = houseAt(plot), fresh = i < 0;
+  if (fresh) village.push({ p: plot, s: copy(built), n: 0 }); else village[i].s = copy(built);
+  rg.save("village", village);
+  vmode = "village";
+  yaw = 0;
+  buildVillage("");
+  const pl = PLOTS[plot], c = project([pl[0], 1.2, pl[1]]);
   rg.celebrate(c[0], c[1], { big: true });
-  rg.say("rk_h_valmis_oma");
+  if (fresh) { moveIn(village.length - 1, 3); rg.say("rk_h_valmis_oma"); } else rg.say(["hienoa"]);
+}
+function backToVillage() { vmode = "village"; yaw = 0; rg.sound("click"); buildVillage(""); }
+
+// ---- little people ------------------------------------------------------------------------------
+function doorOf(i: number): number[] { const h = village[i], pl = PLOTS[h.p], d = doorFront(h.s); return [pl[0] + d[0], pl[1] + d[1]]; }
+function roadOf(i: number): number { return PLOTS[village[i].p][1] + ROAD; }
+function addPerson(q: Person) {
+  const k = parseInt(q.id.slice(2), 10);
+  rg.three("add", { id: q.id + "b", shape: "cylinder", size: [0.13, 0.17, 0.46], color: SHIRTS[k % SHIRTS.length], x: q.x, y: 0.23, z: q.z, detail: 8, visible: q.shown });
+  rg.three("add", { id: q.id + "h", shape: "sphere", size: [0.13], color: SKIN[k % SKIN.length], x: q.x, y: 0.6, z: q.z, detail: 8, visible: q.shown });
+}
+function newPerson(x: number, z: number, path: number[][], wait: number, to: number): Person {
+  const q: Person = { id: "pp" + (personN++), x, z, path, wait, house: -1, to, shown: false };
+  people.push(q);
+  addPerson(q);
+  return q;
+}
+// `n` people come along the main road and go into house i
+function moveIn(i: number, n: number) {
+  const d = doorOf(i), r = roadOf(i);
+  for (let k = 0; k < n; k++) newPerson(0.25 * (k - 1), 5, [[0.25 * (k - 1), r], [d[0], r], d], 1.2 + k * 0.8, i);
+}
+// now and then someone walks from one house to another
+function stroll() {
+  const homes: number[] = [];
+  village.forEach((h: any, i: number) => { if (h.n > 0) homes.push(i); });
+  if (!homes.length || village.length < 2) return;
+  const a = rg.pick(homes);
+  let b = rg.pick(village.map((h: any, i: number) => i).filter((i: number) => i !== a));
+  const da = doorOf(a), db = doorOf(b), ra = roadOf(a), rb = roadOf(b);
+  village[a].n--;
+  rg.save("village", village);
+  const path = ra === rb ? [[da[0], ra], [db[0], rb], db] : [[da[0], ra], [0, ra], [0, rb], [db[0], rb], db];
+  newPerson(da[0], da[1], path, 0, b);
+}
+function walk(dt: number) {
+  for (const q of people) {
+    if (q.wait > 0) { q.wait -= dt; continue; }
+    if (!q.shown) { q.shown = true; rg.three("set", { id: q.id + "b", visible: true }); rg.three("set", { id: q.id + "h", visible: true }); }
+    const t = q.path[0], dx = t[0] - q.x, dz = t[1] - q.z, d = Math.sqrt(dx * dx + dz * dz), st = 1.4 * dt;
+    if (d <= st) { q.x = t[0]; q.z = t[1]; q.path.shift(); }
+    else { q.x += dx / d * st; q.z += dz / d * st; }
+    const bob = Math.abs(Math.sin(K.t * 11 + q.x)) * 0.05;
+    rg.three("set", { id: q.id + "b", x: q.x, y: 0.23 + bob, z: q.z });
+    rg.three("set", { id: q.id + "h", x: q.x, y: 0.6 + bob, z: q.z });
+    if (!q.path.length) {
+      // in through the door
+      q.house = q.to;
+      if (village[q.to]) { village[q.to].n++; rg.save("village", village); }
+      rg.three("remove", { id: q.id + "b" }); rg.three("remove", { id: q.id + "h" });
+      rg.sound("pop", { volume: 0.6 });
+      if (!welcomed) { welcomed = true; rg.say("rk_h_muutti"); }
+    }
+  }
+  people = people.filter((q) => q.path.length > 0);
+  if (vmode === "village") {
+    strollT -= dt;
+    if (strollT <= 0) { strollT = 3 + rg.random() * 4; if (people.length < 3) stroll(); }
+  }
 }
 function addToStreet(s: Spec) {
   street.push(copy(s));
@@ -281,10 +403,12 @@ function tick(dt: number, input: any) {
   } else if (dragging) dragging = false;
   if (K.mode === "done" && !dragging && K.level !== STREET_LV) { yaw += dt * 0.5; camera(); }
   drop(dt);
+  if (K.level === FREE_LV && K.mode === "play") walk(dt);
 }
 function onBack() {
   dragging = false;
   if (K.mode === "menu") rg.exit();
+  else if (K.level === FREE_LV && vmode === "build") backToVillage();
   else toMenu();
 }
 
@@ -367,9 +491,32 @@ function FreeTray(): any[] {
   return out;
 }
 
-function Free(): any[] {
+function Village(): any[] {
   const out: any[] = [];
-  out.push(<div className="prompt" id="prompt" style={{ left: 14, top: 64, width: width - 160 }} onClick={() => rg.say("rk_h_vapaa")}><div className="ptext">{"🔊 " + rg.t("Oma talo", "My house", "Mi casa")}</div></div>);
+  const full = village.length >= PLOTS.length;
+  out.push(<div className="prompt" id="prompt" style={{ left: 14, top: 64, width: width - 28 }} onClick={() => rg.say(full ? "rk_h_kyla_taysi" : "rk_h_paikka")}><div className="ptext">{"🔊 " + (full ? rg.t("Oma kylä", "My village", "Mi pueblo") : rg.t("Mihin talo tulee?", "Where does it go?", "¿Dónde va la casa?"))}</div></div>);
+  let firstEmpty = -1;
+  PLOTS.forEach((pl, p) => {
+    const i = houseAt(p);
+    if (i < 0) {
+      if (firstEmpty < 0) firstEmpty = p;
+      const c = project([pl[0], 0.3, pl[1]]), b = Math.sin(K.t * 4 + p) * 4;
+      out.push(<div className="btn" id={"plot" + p} onClick={() => startBuild(p)} style={{ left: c[0] - 26, top: c[1] - 26 + b, width: 52, height: 52, borderRadius: 26, backgroundColor: "#06d6a0" }}><div className="btext">{"+"}</div></div>);
+    } else {
+      const s = village[i].s, c = project([pl[0], tallness(s) + 0.3, pl[1]]);
+      out.push(<div className="hintbtn" id={"edit" + p} onClick={() => startBuild(p)} style={{ left: c[0] - 23, top: c[1] - 50 }}>🔨</div>);
+      if (village[i].n > 0) out.push(<div className="label" style={{ left: c[0] + 22, top: c[1] - 42, width: 50, fontSize: 14, color: "#ffffff" }}>{"🙂" + village[i].n}</div>);
+    }
+  });
+  if (!village.length && firstEmpty >= 0) { const c = project([PLOTS[firstEmpty][0], 0.3, PLOTS[firstEmpty][1]]); out.push(PointAt(c[0], c[1] - 30, "#f77f00")); }
+  return out;
+}
+
+function Free(): any[] {
+  if (vmode === "village") return Village();
+  const out: any[] = [];
+  out.push(<div className="hintbtn" id="tovillage" onClick={() => backToVillage()} style={{ left: 10, top: 64 }}>🏘</div>);
+  out.push(<div className="prompt" id="prompt" style={{ left: 64, top: 64, width: width - 210 }} onClick={() => rg.say("rk_h_vapaa")}><div className="ptext">{"🔊 " + rg.t("Oma talo", "My house", "Mi casa")}</div></div>);
   out.push(<div className="btn" id="ready" onClick={() => freeDone()} style={{ left: width - 138, top: 58, width: 126, backgroundColor: "#06d6a0" }}><div className="btext">{"✔ " + rg.t("Valmis", "Ready", "Listo")}</div></div>);
   for (const e of FreeTray()) out.push(e);
   return out;
