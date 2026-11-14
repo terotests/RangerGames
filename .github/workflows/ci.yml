@@ -88,6 +88,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
+      - name: Chatterbox clips (branch voice-clips, made by the Voice workflow)
+        run: |
+          rm -rf .deps/voice-clips
+          git clone --depth 1 --branch voice-clips "https://github.com/${{ github.repository }}.git" .deps/voice-clips \
+            || echo "no voice-clips branch yet: Piper says every clip"
       - name: APK
         run: ANDROID_NDK_HOME="$ANDROID_NDK_LATEST_HOME" bash scripts/build-android.sh
       - uses: actions/upload-artifact@v4
