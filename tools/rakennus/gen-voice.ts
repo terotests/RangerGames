@@ -187,6 +187,77 @@ const TEXT: Record<string, T> = {
   rk_k_vihje_mittaa: ["Pituus mitataan rullamitalla.", "Length is measured with a tape measure.", "La longitud se mide con el metro."],
   rk_k_vihje_hylly: ["Vatupassin kupla näyttää, onko hylly suorassa.", "The spirit level's bubble shows if the shelf is straight.", "La burbuja del nivel dice si está recta."],
   rk_k_vihje_reika: ["Reikä porataan porakoneella.", "A hole is made with a drill.", "El agujero se hace con el taladro."],
+  // Talot
+  peli_talot: ["Talot", "Houses", "Casas"],
+  rk_h_h_mokki: ["Rakennetaan hirsimökki! Katso kuvaa.", "Let's build a log cabin! Look at the picture.", "¡Construyamos una cabaña de troncos! Mira el dibujo."],
+  rk_h_h_punainen: ["Rakennetaan punainen puutalo! Katso kuvaa.", "Let's build a red wooden house! Look at the picture.", "¡Construyamos una casa roja de madera! Mira el dibujo."],
+  rk_h_h_kerros: ["Rakennetaan kerrostalo! Katso kuvaa.", "Let's build a block of flats! Look at the picture.", "¡Construyamos un edificio de pisos! Mira el dibujo."],
+  rk_h_h_linna: ["Rakennetaan linna! Katso kuvaa.", "Let's build a castle! Look at the picture.", "¡Construyamos un castillo! Mira el dibujo."],
+  rk_h_h_iglu: ["Rakennetaan iglu! Katso kuvaa.", "Let's build an igloo! Look at the picture.", "¡Construyamos un iglú! Mira el dibujo."],
+  rk_h_h_puumaja: ["Rakennetaan puumaja! Katso kuvaa.", "Let's build a treehouse! Look at the picture.", "¡Construyamos una casa en el árbol! Mira el dibujo."],
+  rk_h_v_mokki: ["Hirsimökki on valmis!", "The log cabin is ready!", "¡La cabaña está lista!"],
+  rk_h_v_punainen: ["Punainen talo on valmis!", "The red house is ready!", "¡La casa roja está lista!"],
+  rk_h_v_kerros: ["Kerrostalo on valmis!", "The block of flats is ready!", "¡El edificio está listo!"],
+  rk_h_v_linna: ["Linna on valmis!", "The castle is ready!", "¡El castillo está listo!"],
+  rk_h_v_iglu: ["Iglu on valmis!", "The igloo is ready!", "¡El iglú está listo!"],
+  rk_h_v_puumaja: ["Puumaja on valmis!", "The treehouse is ready!", "¡La casa del árbol está lista!"],
+  rk_h_kadulle: ["Talo muutti sinun kadullesi.", "The house moved to your street.", "La casa se mudó a tu calle."],
+  rk_h_s_base: ["Minkä päällä kuvan talo on?", "What is the house in the picture standing on?", "¿Sobre qué está la casa del dibujo?"],
+  rk_h_s_walls: ["Millaiset seinät kuvan talossa on?", "What walls does the house in the picture have?", "¿Qué paredes tiene la casa del dibujo?"],
+  rk_h_s_door: ["Millainen ovi kuvan talossa on?", "What door does the house in the picture have?", "¿Qué puerta tiene la casa del dibujo?"],
+  rk_h_s_win: ["Millaiset ikkunat kuvan talossa on?", "What windows does the house in the picture have?", "¿Qué ventanas tiene la casa del dibujo?"],
+  rk_h_s_roof: ["Millainen katto kuvan talossa on?", "What roof does the house in the picture have?", "¿Qué tejado tiene la casa del dibujo?"],
+  rk_h_s_top: ["Mitä kuvassa on vielä?", "What else is in the picture?", "¿Qué más hay en el dibujo?"],
+  rk_h_katso: ["Katso kuvaa tarkasti. Kokeile toista.", "Look closely at the picture. Try another one.", "Mira bien el dibujo. Prueba otra."],
+  rk_h_vihje: ["Katso kuvaa. Oikea osa on nyt keltainen.", "Look at the picture. The right piece is yellow now.", "Mira el dibujo. La pieza correcta está amarilla."],
+  rk_h_vapaa: ["Rakenna ihan oma talo! Valitse osat alhaalta.", "Build your very own house! Pick the pieces at the bottom.", "¡Construye tu propia casa! Elige las piezas de abajo."],
+  rk_h_valmis_oma: ["Hieno talo! Se muutti sinun kadullesi.", "What a fine house! It moved to your street.", "¡Qué casa tan bonita! Se mudó a tu calle."],
+  rk_h_katu: ["Tässä on sinun katusi. Kaikki rakentamasi talot asuvat täällä.", "This is your street. All the houses you built live here.", "Esta es tu calle. Aquí viven todas las casas que construiste."],
+  rk_h_katu_tyhja: ["Katu on vielä tyhjä. Rakenna talo, niin se muuttaa tänne.", "The street is still empty. Build a house and it will move here.", "La calle aún está vacía. Construye una casa y se mudará aquí."],
+  rk_h_pois: ["Otetaan se pois.", "Let's take it off.", "La quitamos."],
+  rk_h_c_base: ["Mihin talo rakennetaan?", "Where shall we build the house?", "¿Dónde construimos la casa?"],
+  rk_h_c_walls: ["Valitse seinät.", "Pick the walls.", "Elige las paredes."],
+  rk_h_c_paint: ["Minkä värinen talo on?", "What colour is the house?", "¿De qué color es la casa?"],
+  rk_h_c_door: ["Valitse ovi.", "Pick a door.", "Elige una puerta."],
+  rk_h_c_win: ["Valitse ikkunat.", "Pick the windows.", "Elige las ventanas."],
+  rk_h_c_roof: ["Valitse katto.", "Pick a roof.", "Elige un tejado."],
+  rk_h_c_top: ["Mitä katolle tai pihalle?", "What goes on the roof or in the yard?", "¿Qué ponemos en el tejado o el jardín?"],
+  rk_h_b_kivi: ["Kivijalka.", "A stone foundation.", "Un cimiento de piedra."],
+  rk_h_b_betoni: ["Betonilaatta.", "A concrete slab.", "Una losa de hormigón."],
+  rk_h_b_kallio: ["Kallio.", "A rock.", "Una roca."],
+  rk_h_b_lumi: ["Lumikinos.", "A snowbank.", "Un montón de nieve."],
+  rk_h_b_puu: ["Iso puu.", "A big tree.", "Un árbol grande."],
+  rk_h_w_hirsi: ["Hirsiseinät.", "Log walls.", "Paredes de troncos."],
+  rk_h_w_punainen: ["Punaiset lautaseinät.", "Red wooden walls.", "Paredes rojas de madera."],
+  rk_h_w_keltainen: ["Keltaiset lautaseinät.", "Yellow wooden walls.", "Paredes amarillas de madera."],
+  rk_h_w_kerros: ["Korkeat kerrostalon seinät.", "Tall walls for flats.", "Paredes altas de edificio."],
+  rk_h_w_linna: ["Linnan kivimuurit.", "Castle stone walls.", "Murallas de piedra."],
+  rk_h_w_lumi: ["Lumiharkot.", "Snow blocks.", "Bloques de nieve."],
+  rk_h_w_maja: ["Pieni lautamaja.", "A little plank hut.", "Una cabañita de tablas."],
+  rk_h_d_puu: ["Puuovi.", "A wooden door.", "Una puerta de madera."],
+  rk_h_d_valkoinen: ["Valkoinen ovi.", "A white door.", "Una puerta blanca."],
+  rk_h_d_lasi: ["Lasiovi.", "A glass door.", "Una puerta de cristal."],
+  rk_h_d_kaari: ["Linnan portti.", "A castle gate.", "El portón del castillo."],
+  rk_h_d_tunneli: ["Lumitunneli.", "A snow tunnel.", "Un túnel de nieve."],
+  rk_h_d_tikkaat: ["Tikkaat.", "A ladder.", "Una escalera de mano."],
+  rk_h_i_pieni: ["Pienet ikkunat.", "Small windows.", "Ventanas pequeñas."],
+  rk_h_i_risti: ["Ristikkoikkunat.", "Windows with a cross.", "Ventanas con cruz."],
+  rk_h_i_rivi: ["Monta ikkunaa riveissä.", "Rows of windows.", "Filas de ventanas."],
+  rk_h_i_kapea: ["Kapeat ikkunat.", "Narrow windows.", "Ventanas estrechas."],
+  rk_h_i_jaa: ["Jääikkunat.", "Ice windows.", "Ventanas de hielo."],
+  rk_h_i_pyorea: ["Pyöreät ikkunat.", "Round windows.", "Ventanas redondas."],
+  rk_h_r_musta: ["Musta katto.", "A black roof.", "Un tejado negro."],
+  rk_h_r_punainen: ["Punainen tiilikatto.", "A red tiled roof.", "Un tejado rojo de tejas."],
+  rk_h_r_vihrea: ["Vihreä peltikatto.", "A green tin roof.", "Un tejado verde de chapa."],
+  rk_h_r_tasa: ["Tasakatto.", "A flat roof.", "Un tejado plano."],
+  rk_h_r_torni: ["Tornien katot.", "Tower roofs.", "Tejados de torre."],
+  rk_h_r_kupoli: ["Lumikupoli.", "A snow dome.", "Una cúpula de nieve."],
+  rk_h_t_tiili: ["Tiilipiippu.", "A brick chimney.", "Una chimenea de ladrillo."],
+  rk_h_t_kivi: ["Kivipiippu.", "A stone chimney.", "Una chimenea de piedra."],
+  rk_h_t_lippu: ["Lippu.", "A flag.", "Una bandera."],
+  rk_h_t_antenni: ["Antenni katolla.", "An aerial on the roof.", "Una antena en el tejado."],
+  rk_h_t_lumiukko: ["Lumiukko.", "A snowman.", "Un muñeco de nieve."],
+  rk_h_t_pontto: ["Linnunpönttö.", "A birdhouse.", "Una casita para pájaros."],
 };
 
 function clips(i: number): Record<string, string> {
@@ -195,14 +266,14 @@ function clips(i: number): Record<string, string> {
   return out;
 }
 
-const GAMES = ["ruuvit", "vasara", "jakoavain", "mittaus", "sahat", "pora", "tyomaa", "tyokalupakki"];
+const GAMES = ["ruuvit", "vasara", "jakoavain", "mittaus", "sahat", "pora", "tyomaa", "tyokalupakki", "talot"];
 const fiPath = "voice/fi.json";
 const fi = JSON.parse(fs.readFileSync(fiPath, "utf8"));
 for (const k of Object.keys(fi.clips)) if (k.startsWith("rk_") || GAMES.some((g) => k === "peli_" + g)) delete fi.clips[k];
 Object.assign(fi.clips, clips(0));
 fs.writeFileSync(fiPath, JSON.stringify(fi, null, 1) + "\n");
 ["en", "es"].forEach((lang, j) => {
-  const doc = { _comment: "Rakennuspelit (games/ruuvit, vasara, jakoavain, mittaus, sahat, pora, tyomaa): generated by tools/rakennus/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
+  const doc = { _comment: "Rakennuspelit (games/ruuvit, vasara, jakoavain, mittaus, sahat, pora, tyomaa, tyokalupakki, talot): generated by tools/rakennus/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
   fs.writeFileSync("voice/" + lang + "/rakennus.json", JSON.stringify(doc, null, 1) + "\n");
 });
 console.log("rk clips:", Object.keys(TEXT).length, "per language");
