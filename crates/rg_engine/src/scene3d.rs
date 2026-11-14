@@ -11,7 +11,9 @@
 //! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star"
-//!                             | "prism" | "roof" | "dome",   // prism: size [length (x), height, width (z)], base at y 0;
+//!                             | "prism" | "roof" | "dome"     // prism: size [length (x), height, width (z)], base at y 0;
+//!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
+//!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
 //!                                                   // dome: a half sphere, size [r], its flat bottom at y 0
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
@@ -20,7 +22,8 @@
 //!                      group })                          // objects of one group (a house) are sorted
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
-//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible })
+//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible,
+//!                      heights })                        // a heightfield's new heights
 //! rg.three("remove", { id })
 //! rg.three("clear")
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
@@ -236,9 +239,46 @@ fn mesh(shape: &str, size: &[f64], detail: usize) -> Mesh {
     Mesh { verts, faces }
 }
 
+/// A grid of (nx+1)*(nz+1) heights over w × d, centred on the origin: two
+/// triangles a cell, facing up; cells flat at 0 are left out (the floor shows).
+fn heightfield(size: &[f64], heights: &[f64]) -> Mesh {
+    let s = |i: usize, d: f64| size.get(i).copied().unwrap_or(d);
+    let (w, d) = (s(0, 1.0), s(1, 1.0));
+    let nx = (s(2, 8.0) as usize).clamp(1, 64);
+    let nz = (s(3, 8.0) as usize).clamp(1, 64);
+    let mut verts = Vec::with_capacity((nx + 1) * (nz + 1));
+    for j in 0..=nz {
+        for i in 0..=nx {
+            let y = heights.get(j * (nx + 1) + i).copied().unwrap_or(0.0);
+            verts.push([-w / 2.0 + w * i as f64 / nx as f64, y, -d / 2.0 + d * j as f64 / nz as f64]);
+        }
+    }
+    let mut faces = Vec::new();
+    for j in 0..nz {
+        for i in 0..nx {
+            let a = j * (nx + 1) + i;
+            let (b, c, dd) = (a + 1, a + nx + 2, a + nx + 1);
+            if [a, b, c, dd].iter().all(|&k| verts[k][1].abs() < 0.003) {
+                continue;
+            }
+            // split along the diagonal that keeps the surface convex-ish
+            if (verts[a][1] - verts[c][1]).abs() < (verts[b][1] - verts[dd][1]).abs() {
+                faces.push(vec![a, dd, c]);
+                faces.push(vec![a, c, b]);
+            } else {
+                faces.push(vec![a, dd, b]);
+                faces.push(vec![b, dd, c]);
+            }
+        }
+    }
+    Mesh { verts, faces }
+}
+
 struct Obj {
     id: String,
     mesh: Mesh,
+    /// a heightfield's size, kept for new heights
+    hf: Option<Vec<f64>>,
     color: V3,
     pos: V3,
     rot: V3,
@@ -435,9 +475,16 @@ impl Scene {
                 let id = a.get("id").as_str();
                 let size: Vec<f64> = a.get("size").items().iter().map(|v| v.as_num(1.0)).collect();
                 let shape = a.get("shape").as_str();
+                let hf = shape == "heightfield";
                 let o = Obj {
                     id: id.clone(),
-                    mesh: mesh(&shape, &size, a.get("detail").as_num(12.0) as usize),
+                    mesh: if hf {
+                        let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
+                        heightfield(&size, &hs)
+                    } else {
+                        mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
+                    },
+                    hf: if hf { Some(size.clone()) } else { None },
                     color: color(&a.get("color"), [0.8, 0.8, 0.8]),
                     pos: get3(a, ["x", "y", "z"], [0.0; 3]),
                     rot: get3(a, ["rx", "ry", "rz"], [0.0; 3]),
@@ -464,6 +511,12 @@ impl Scene {
                     }
                     if let Json::Bool(v) = a.get("visible") {
                         o.visible = v;
+                    }
+                    if let Some(size) = &o.hf {
+                        if !a.get("heights").is_null() {
+                            let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
+                            o.mesh = heightfield(size, &hs);
+                        }
                     }
                 }
             }

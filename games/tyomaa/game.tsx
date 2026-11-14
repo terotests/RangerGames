@@ -302,6 +302,7 @@ function instruct() {
 
 function next() {
   const s = step();
+  K.wait = K.level === 2 ? 3.6 : 1.8;
   hintT = -10;
   grab = "";
   carrying = "";
@@ -418,15 +419,15 @@ function pour() {
 // the arm too, and the sand pile is farther away.
 const DG = { boomH: 1.45, boomF: 0.55, boomX: 0.42, L1: 3.3, L2: 2.3, LB: 0.75 };
 const CABH = 2.55, CABX = -0.7, CABF = -0.5, FOVD = 74;
-const PSAND = "#d9a441", PSAND2 = "#b98a2e";
+const PSAND = "#c4964e", PSAND2 = "#a87d38";
 const PILE_YAW = 1.05, TRUCK_YAW = -1.15;
 const BED = { d: 4.5, top: 1.25, len: 2.3, wid: 1.5 };
 const YELLOW = "#f2b705", YELLOW2 = "#c78f00", STEEL = "#4a4f55";
 let yaw = 0, boomA = 0.55, armA = -1.55, buck = 0.25;   // buck: 0 open (empties), 1 curled
-let full = false, loads = 0, pileD = 4.7, pileAmt = 1;
+let full = false, loads = 0, pileD = 4.7;
 let stick: any = { L: [0, 0], R: [0, 0] };
 let digGrab = "";
-let humT = 0, dumpT = -10, scoopT = -10, wasIn = false;
+let humT = 0, wasIn = false;
 
 function fwd(y: number) { return [Math.sin(y), 0, -Math.cos(y)]; }
 function rgt(y: number) { return [Math.cos(y), 0, Math.sin(y)]; }
@@ -438,30 +439,94 @@ function joints() {
   const e1 = [p0[0] + DG.L1 * Math.cos(boomA), p0[1] + DG.L1 * Math.sin(boomA)];
   const aa = boomA + armA;
   const e2 = [e1[0] + DG.L2 * Math.cos(aa), e1[1] + DG.L2 * Math.sin(aa)];
-  const ba = aa - 0.5 - buck * 1.9;
+  // the bucket: open (0) its mouth looks forward and down, curled (1) up and back
+  const ba = aa - 1.16 + buck * 2.5;
   const t = [e2[0] + DG.LB * Math.cos(ba), e2[1] + DG.LB * Math.sin(ba)];
   return { p0, e1, e2, t, aa, ba };
 }
+// the way the bucket's mouth looks, as an angle in the cab plane (0 forward, π/2 up)
+function mouthAngle(): number { const j = joints(); return j.ba + 2.16; }
 function tipWorld(): number[] { const j = joints(); return cabPt(DG.boomX, j.t[0], j.t[1]); }
 function pileC(): number[] { const F = fwd(PILE_YAW); return [F[0] * pileD, 0, F[2] * pileD]; }
-function truckC(): number[] { const F = fwd(TRUCK_YAW); return [F[0] * BED.d, 0, F[2] * BED.d]; }
-const PILE_R = 1.7;
-function pileH() { return 1.55 * pileAmt; }
-// is the bucket in the sand?
-function inSand(): boolean {
-  const t = tipWorld(), c = pileC();
-  const r = Math.hypot(t[0] - c[0], t[2] - c[2]);
-  if (r > PILE_R) return false;
-  return t[1] < pileH() * (1 - r / PILE_R) + 0.12;
+function truckC(): number[] { const F = fwd(TRUCK_YAW), Rr = rgt(TRUCK_YAW); return [F[0] * BED.d + Rr[0] * truckOff, 0, F[2] * BED.d + Rr[2] * truckOff]; }
+
+// ---- the sand: heightfields, like the sand game but in 3D ----------------------
+// The pile and the truck's load are grids of sand heights. Sand that stands
+// steeper than it can slides down to its neighbours (a sandpile), so a hole
+// dug in the pile fills from the sides and a load dumped in the truck spreads
+// into a heap. The bucket cuts the sand at its teeth: curling, the cut sand goes
+// into the bucket; moving sideways, it pushes the sand along (or stops, deep in).
+const PN = 16, PS = 4.8, PCS = PS / PN;            // pile grid: cells, size, cell size
+const BNX = 10, BNZ = 6;                           // the truck bed's grid
+const BCX = BED.len / BNX, BCZ = BED.wid / BNZ;
+const FLOOR = 0.88, WALL = 0.42;                   // the bed floor's top, the walls' height over it
+const REPOSE = 0.68;                               // how steep sand stands (rise per run)
+const CAP = 0.42;                                  // what the bucket holds, m³
+let pile: number[] = [], bedH: number[] = [];
+let load = 0, bucketLump: number[] = [];
+let pileDirty = true, bedDirty = true, sentT = -10, lumpSig = "";
+let truckOff = 0, truckT = -10;                    // the truck's place along its length; when it came
+let bumpT = -10, deepSaid = false, hitSaid = false;
+let pourBed = 0, pourLost = 0, loadsSaid = 0;
+
+function pileAt(x: number, z: number): number { const c = pileC(); const i = Math.round((x - c[0]) / PCS + PN / 2), j = Math.round((z - c[2]) / PCS + PN / 2); return i < 0 || j < 0 || i > PN || j > PN ? -1 : j * (PN + 1) + i; }
+// a world point in the truck's frame: [along (towards the back), across, height]
+function inTruck(p: number[]): number[] {
+  const c = truckC(), F = fwd(TRUCK_YAW), Rr = rgt(TRUCK_YAW);
+  const dx = p[0] - c[0], dz = p[2] - c[2];
+  return [dx * Rr[0] + dz * Rr[2], dx * F[0] + dz * F[2], p[1]];
 }
-// is the bucket over the truck's bed?
-function overBed(): boolean {
-  const t = tipWorld(), c = truckC();
-  const F = fwd(TRUCK_YAW), Rr = rgt(TRUCK_YAW);
-  const dx = t[0] - c[0], dz = t[2] - c[2];
-  const along = dx * Rr[0] + dz * Rr[2], across = dx * F[0] + dz * F[2];
-  return Math.abs(along) < BED.len / 2 + 0.4 && Math.abs(across) < BED.wid / 2 + 0.7 && t[1] > BED.top - 0.2;
+function bedAt(al: number, ac: number): number {
+  const i = Math.round((al + BED.len / 2) / BCX), j = Math.round((-ac + BED.wid / 2) / BCZ);
+  return i < 0 || j < 0 || i > BNX || j > BNZ ? -1 : j * (BNX + 1) + i;
 }
+function bedVol() { let s = 0; for (const h of bedH) s += h; return s * BCX * BCZ; }
+function perLoad() { return CAP * 0.72; }
+
+// sand steeper than REPOSE slides to the lower neighbour
+function relax(h: number[], nx: number, nz: number, csx: number, csz: number, open: boolean, iters: number): boolean {
+  let moved = false;
+  for (let it = 0; it < iters; it++) {
+    for (let j = 0; j <= nz; j++) for (let i = 0; i <= nx; i++) {
+      const a = j * (nx + 1) + i;
+      if (i < nx) moved = slide(h, a, a + 1, REPOSE * csx) || moved;
+      if (j < nz) moved = slide(h, a, a + nx + 1, REPOSE * csz) || moved;
+    }
+    // the pile's rim runs out onto the ground
+    if (open) for (let k = 0; k <= nx; k++) { h[k] = 0; h[nz * (nx + 1) + k] = 0; h[k * (nx + 1)] = 0; h[k * (nx + 1) + nx] = 0; }
+  }
+  return moved;
+}
+function slide(h: number[], a: number, b: number, lim: number): boolean {
+  const d = h[a] - h[b];
+  if (Math.abs(d) <= lim + 0.002) return false;
+  const m = (Math.abs(d) - lim) * 0.35;
+  if (d > 0) { h[a] -= m; h[b] += m; } else { h[a] += m; h[b] -= m; }
+  return true;
+}
+function makePile() {
+  pile = new Array((PN + 1) * (PN + 1)).fill(0);
+  const c2 = [0.55, -0.45];
+  for (let j = 0; j <= PN; j++) for (let i = 0; i <= PN; i++) {
+    const x = (i - PN / 2) * PCS, z = (j - PN / 2) * PCS;
+    const a = 1.45 - Math.hypot(x, z) * REPOSE * 0.98;
+    const b = 1.0 - Math.hypot(x - c2[0], z - c2[1]) * REPOSE * 0.98;
+    pile[j * (PN + 1) + i] = Math.max(0, a, b) + (Math.random() - 0.5) * 0.06;
+  }
+  relax(pile, PN, PN, PCS, PCS, true, 6);
+}
+function newLump() { bucketLump = []; for (let k = 0; k < 35; k++) bucketLump.push(0.75 + Math.random() * 0.5); }
+// the sand in the bucket: a lumpy heap over the bucket's mouth, as tall as the load
+function lumpHeights(): number[] {
+  const f = load / CAP, out: number[] = [];
+  for (let j = 0; j <= 4; j++) for (let i = 0; i <= 6; i++) {
+    const u = (i - 3) / 3, v = (j - 2) / 2;
+    const d = 1 - (u * u * 0.8 + v * v);
+    out.push(i === 0 || j === 0 || i === 6 || j === 4 ? 0 : Math.round(Math.max(0, d) * 0.26 * f * bucketLump[j * 7 + i] * 100) / 100 + 0.01);
+  }
+  return out;
+}
+function r2(h: number[]) { return h.map((v) => Math.round(v * 100) / 100); }
 
 // a link from a to b (cab plane points) as a box of thickness w × d
 function link(id: string, a: number[], b: number[], x: number) {
@@ -473,11 +538,40 @@ function link(id: string, a: number[], b: number[], x: number) {
   rg.three("set", { id, x: (A[0] + B[0]) / 2, y: (A[1] + B[1]) / 2, z: (A[2] + B[2]) / 2, rx: e[0], ry: e[1], rz: e[2], sy: L });
 }
 
+// the truck's parts: id, shape, size, along, across, height, colour, extra
+const TRUCK: any[] = [
+  ["tCab", "box", [1.3, 1.5, 1.6], -BED.len / 2 - 0.75, 0, 1.35, "#e63946"],
+  ["tWin", "box", [0.05, 0.6, 1.3], -BED.len / 2 - 1.42, 0, 1.7, "#a8dadc"],
+  ["tChassis", "box", [BED.len + 1.6, 0.3, 1.4], -0.7, 0, 0.6, "#343a40"],
+  ["tFloor", "box", [BED.len, 0.12, BED.wid], 0, 0, 0.82, "#6c757d"],
+  ["tWallA", "box", [BED.len, 0.45, 0.07], 0, BED.wid / 2, 1.05, "#adb5bd"],
+  ["tWallB", "box", [BED.len, 0.45, 0.07], 0, -BED.wid / 2, 1.05, "#adb5bd"],
+  ["tWallC", "box", [0.07, 0.45, BED.wid], BED.len / 2, 0, 1.05, "#adb5bd"],
+  ["tWallD", "box", [0.07, 0.45, BED.wid], -BED.len / 2, 0, 1.05, "#adb5bd"],
+];
+function truckParts(): any[] {
+  const out = TRUCK.slice();
+  [-1.7, -0.1, 0.8].forEach((al, i) => { for (const ac of [-0.75, 0.75]) out.push(["tw" + i + (ac > 0 ? "a" : "b"), "cylinder", [0.38, 0.38, 0.25], al, ac, 0.38, "#212529", true]); });
+  return out;
+}
+function placeTruck(add: boolean) {
+  const c = truckC(), ty = -TRUCK_YAW + Math.PI / 2;
+  const Rr = rgt(TRUCK_YAW), F = fwd(TRUCK_YAW);
+  for (const p of truckParts()) {
+    const x = c[0] + Rr[0] * p[3] + F[0] * p[4], z = c[2] + Rr[2] * p[3] + F[2] * p[4];
+    const o: any = { id: p[0], x, y: p[5], z };
+    if (add) { o.shape = p[1]; o.size = p[2]; o.color = p[6]; o.ry = ty + Math.PI / 2; if (p[7]) { o.rx = Math.PI / 2; o.ry = ty; } }
+    rg.three(add ? "add" : "set", o);
+  }
+  // the load turns with the truck: its own x along the truck, z across (the other way)
+  rg.three(add ? "add" : "set", Object.assign({ id: "tLoad", x: c[0], y: FLOOR, z: c[2] }, add ? { shape: "heightfield", size: [BED.len - 0.1, BED.wid - 0.1, BNX, BNZ], heights: r2(bedH), color: PSAND, ry: -TRUCK_YAW } : {}));
+}
+
 function buildDig() {
   rg.three("clear");
   rg.three("scene", { background: ["#8fb8de", "#e3edf5"], ground: { y: 0, color: "#7d6b4f" } });
-  rg.three("light", { id: "sun", type: "directional", x: 3, y: 7, z: 2, intensity: 0.55 });
-  rg.three("light", { id: "amb", type: "ambient", intensity: 0.45 });
+  rg.three("light", { id: "sun", type: "directional", x: 3, y: 7, z: 2, intensity: 0.6 });
+  rg.three("light", { id: "amb", type: "ambient", intensity: 0.42 });
   // the site: a fence round it, houses behind, a few trees
   for (let i = 0; i < 28; i++) {
     const a = i / 28 * Math.PI * 2, F = fwd(a);
@@ -490,24 +584,10 @@ function buildDig() {
     rg.three("add", { id: "trunk" + i, shape: "cylinder", size: [0.15, 0.15, 1], detail: 6, color: "#7f5539", x: F[0] * t[1], y: 0.5, z: F[2] * t[1] });
     rg.three("add", { id: "tree" + i, shape: "cone", size: [0.9, 2.2], detail: 8, color: "#40916c", x: F[0] * t[1], y: 2.0, z: F[2] * t[1] });
   });
-  // the sand pile: two cones
-  rg.three("add", { id: "pile", shape: "cone", size: [PILE_R, 1], detail: 16, color: PSAND });
-  rg.three("add", { id: "pile2", shape: "cone", size: [PILE_R * 0.6, 1], detail: 12, color: PSAND2 });
-  // the truck, its side towards us
-  const c = truckC(), ty = -TRUCK_YAW + Math.PI / 2;
-  const Rr = rgt(TRUCK_YAW), F = fwd(TRUCK_YAW);
-  const at = (al: number, ac: number) => [c[0] + Rr[0] * al + F[0] * ac, c[2] + Rr[2] * al + F[2] * ac];
-  const p = (id: string, shape: string, size: number[], al: number, ac: number, y: number, color: string, extra?: any) => { const q = at(al, ac); rg.three("add", Object.assign({ id, shape, size, color, x: q[0], y, z: q[1], ry: ty + Math.PI / 2 }, extra || {})); };
-  p("tCab", "box", [1.3, 1.5, 1.6], -BED.len / 2 - 0.75, 0, 1.35, "#e63946");
-  p("tWin", "box", [0.05, 0.6, 1.3], -BED.len / 2 - 1.42, 0, 1.7, "#a8dadc");
-  p("tChassis", "box", [BED.len + 1.6, 0.3, 1.4], -0.7, 0, 0.6, "#343a40");
-  p("tFloor", "box", [BED.len, 0.12, BED.wid], 0, 0, 0.82, "#6c757d");
-  p("tWallA", "box", [BED.len, 0.45, 0.07], 0, BED.wid / 2, 1.05, "#adb5bd");
-  p("tWallB", "box", [BED.len, 0.45, 0.07], 0, -BED.wid / 2, 1.05, "#adb5bd");
-  p("tWallC", "box", [0.07, 0.45, BED.wid], BED.len / 2, 0, 1.05, "#adb5bd");
-  p("tWallD", "box", [0.07, 0.45, BED.wid], -BED.len / 2, 0, 1.05, "#adb5bd");
-  p("tLoad", "box", [BED.len - 0.12, 1, BED.wid - 0.12], 0, 0, 0.9, SAND, { visible: false });
-  [-1.7, -0.1, 0.8].forEach((al, i) => { for (const ac of [-0.75, 0.75]) p("tw" + i + (ac > 0 ? "a" : "b"), "cylinder", [0.38, 0.38, 0.25], al, ac, 0.38, "#212529", { rx: Math.PI / 2, ry: ty }); });
+  // the sand pile
+  const pc = pileC();
+  rg.three("add", { id: "pile", shape: "heightfield", size: [PS, PS, PN, PN], heights: r2(pile), color: PSAND, x: pc[0], y: 0, z: pc[2] });
+  placeTruck(true);
   // the digger's own parts: boom, arm, bucket plates, hydraulic cylinders, sand in the bucket
   rg.three("add", { id: "boom", shape: "box", size: [0.34, 1, 0.42], color: YELLOW });
   rg.three("add", { id: "arm", shape: "box", size: [0.26, 1, 0.32], color: YELLOW });
@@ -518,9 +598,10 @@ function buildDig() {
   rg.three("add", { id: "bkL", shape: "box", size: [0.06, 1, 0.5], color: STEEL });
   rg.three("add", { id: "bkR", shape: "box", size: [0.06, 1, 0.5], color: STEEL });
   for (let i = 0; i < 4; i++) rg.three("add", { id: "tooth" + i, shape: "box", size: [0.08, 1, 0.06], color: "#adb5bd" });
-  rg.three("add", { id: "bkSand", shape: "sphere", size: [0.4], detail: 8, color: PSAND, visible: false });
+  rg.three("add", { id: "bkSand", shape: "heightfield", size: [0.7, 0.8, 6, 4], heights: [], color: PSAND, visible: false });
   // the machine's own front under the cab: tracks and the boom's foot
   rg.three("add", { id: "foot", shape: "box", size: [0.6, 0.7, 0.8], color: YELLOW2 });
+  pileDirty = bedDirty = false; lumpSig = "";
   placeDig();
 }
 
@@ -529,13 +610,14 @@ function placeDig() {
   const cam = cabPt(CABX, CABF, CABH), look = cabPt(0.55, 6, 0.8);
   rg.three("camera", { x: cam[0], y: cam[1], z: cam[2], lookAt: look, fov: FOVD });
   digCam = { cam, look };
-  // pile and truck load
-  const c = pileC();
-  rg.three("set", { id: "pile", x: c[0], y: pileH() / 2, z: c[2], sy: pileH() });
-  rg.three("set", { id: "pile2", x: c[0] + 0.5, y: pileH() * 0.35, z: c[2] - 0.4, sy: pileH() * 0.7 });
-  const lf = loads / Math.max(1, want);
-  const tc = truckC();
-  rg.three("set", { id: "tLoad", visible: loads > 0, sy: 0.15 + 0.5 * lf, y: 0.9 + (0.15 + 0.5 * lf) / 2, x: tc[0], z: tc[2] });
+  // the sand that changed, at most 30 times a second
+  if ((pileDirty || bedDirty) && K.t - sentT > 0.033) {
+    sentT = K.t;
+    if (pileDirty) rg.three("set", { id: "pile", heights: r2(pile) });
+    if (bedDirty) rg.three("set", { id: "tLoad", heights: r2(bedH) });
+    pileDirty = bedDirty = false;
+  }
+  placeTruck(false);
   // the links
   link("foot", [DG.boomF - 0.1, DG.boomH - 0.6], [DG.boomF + 0.1, DG.boomH], DG.boomX);
   link("boom", j.p0, j.e1, DG.boomX);
@@ -551,12 +633,27 @@ function placeDig() {
   const bot = [j.t[0] + nb[0] * 0.5, j.t[1] + nb[1] * 0.5];
   link("bkBack", j.e2, j.t, DG.boomX);
   link("bkBot", j.t, bot, DG.boomX);
-  const mid = [(j.e2[0] + bot[0]) / 2, (j.e2[1] + bot[1]) / 2];
   link("bkL", j.e2, [j.t[0] + nb[0] * 0.25, j.t[1] + nb[1] * 0.25], DG.boomX - 0.4);
   link("bkR", j.e2, [j.t[0] + nb[0] * 0.25, j.t[1] + nb[1] * 0.25], DG.boomX + 0.4);
   for (let i = 0; i < 4; i++) link("tooth" + i, bot, [bot[0] + nb[0] * 0.14 - bd[0] * 0.05, bot[1] + nb[1] * 0.14 - bd[1] * 0.05], DG.boomX - 0.3 + i * 0.2);
-  const sp = cabPt(DG.boomX, mid[0] + nb[0] * 0.05, mid[1] + nb[1] * 0.05);
-  rg.three("set", { id: "bkSand", visible: full, x: sp[0], y: sp[1], z: sp[2] });
+  // the sand heap over the bucket's mouth (the line e2 – teeth), facing out of it
+  const mouth = [j.e2[0] - bot[0], j.e2[1] - bot[1]], ml = Math.hypot(mouth[0], mouth[1]);
+  const out = [mouth[1] / ml, -mouth[0] / ml];   // the mouth's normal, away from the bucket's inside
+  const inside = [(j.t[0] - bot[0]) * out[0] + (j.t[1] - bot[1]) * out[1]];
+  const o = inside[0] > 0 ? [-out[0], -out[1]] : out;
+  const sink = 0.06 + 0.16 * (1 - load / CAP);
+  const mid = [(j.e2[0] + bot[0]) / 2 - o[0] * sink, (j.e2[1] + bot[1]) / 2 - o[1] * sink];
+  if (load > 0.004) {
+    const Rr = rgt(yaw), F = fwd(yaw);
+    const up = [F[0] * o[0], o[1], F[2] * o[0]];
+    const z = cross(Rr, up);
+    const e = euler([[Rr[0], up[0], z[0]], [Rr[1], up[1], z[1]], [Rr[2], up[2], z[2]]]);
+    const sp = cabPt(DG.boomX, mid[0], mid[1]);
+    const hs = lumpHeights(), sig = hs.join(",");
+    const opt: any = { id: "bkSand", visible: true, x: sp[0], y: sp[1], z: sp[2], rx: e[0], ry: e[1], rz: e[2] };
+    if (sig !== lumpSig) { lumpSig = sig; opt.heights = hs; }
+    rg.three("set", opt);
+  } else rg.three("set", { id: "bkSand", visible: false });
 }
 let digCam: any = { cam: [0, 2, 0], look: [0, 1, -5] };
 function projDig(p: number[]): number[] {
@@ -569,11 +666,14 @@ function projDig(p: number[]): number[] {
 function startDig() {
   const s = step();
   want = s === 0 ? 2 : 3;
-  loads = 0; full = false; pileAmt = 1;
-  pileD = s === 2 ? 5.3 : 4.3;
+  loads = 0; load = 0; loadsSaid = 0; pourBed = 0; pourLost = 0;
+  pileD = s === 2 ? 5.6 : 4.6;
   yaw = 0; boomA = 0.8; armA = -1.6; buck = 0.25;
   stick = { L: [0, 0], R: [0, 0] }; digGrab = "";
-  fly = []; wasIn = false;
+  fly = []; wasIn = false; deepSaid = false; hitSaid = false;
+  truckOff = 9; truckT = K.t;
+  makePile(); newLump();
+  bedH = new Array((BNX + 1) * (BNZ + 1)).fill(0);
   buildDig();
 }
 
@@ -595,59 +695,170 @@ function digUp() { if (digGrab) stick[digGrab] = [0, 0]; digGrab = ""; }
 function axes() { const s = step(); return { swing: true, arm: s >= 2, boom: true, bucket: s >= 1 }; }
 function dz(v: number) { return Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82; }
 
+// points of the bucket in the world: the teeth and the back corner, across its width
+function bucketPts(): number[][] {
+  const j = joints();
+  const bd = [Math.cos(j.ba), Math.sin(j.ba)], nb = [-bd[1], bd[0]];
+  const bot = [j.t[0] + nb[0] * 0.5, j.t[1] + nb[1] * 0.5];
+  const out: number[][] = [];
+  for (const x of [-0.32, -0.1, 0.1, 0.32]) { out.push(cabPt(DG.boomX + x, bot[0], bot[1])); out.push(cabPt(DG.boomX + x, j.t[0], j.t[1])); }
+  out.push(cabPt(DG.boomX, j.e2[0], j.e2[1]));
+  return out;
+}
+// how far the bucket is into the truck's cab, walls or floor (0: not at all)
+function truckDepth(): number {
+  let d = 0;
+  for (const p of bucketPts()) {
+    const q = inTruck(p);
+    const al = q[0], ac = Math.abs(q[1]), y = q[2];
+    if (al > -BED.len / 2 - 1.45 && al < -BED.len / 2 - 0.05 && ac < 0.85 && y < 2.12) d += 2.12 - y;
+    else if (Math.abs(al) < BED.len / 2 + 0.05 && ac < BED.wid / 2 + 0.05) {
+      const inner = Math.abs(al) < BED.len / 2 - 0.06 && ac < BED.wid / 2 - 0.06;
+      if (!inner && y < FLOOR + WALL + 0.03) d += FLOOR + WALL + 0.03 - y;
+      if (inner && y < FLOOR + 0.03) d += FLOOR + 0.03 - y;   // the load is soft: the bucket goes into it
+    }
+  }
+  return d;
+}
+// the sand above the bucket's cutting points
+function sandAbove(): { v: number; ex: number }[] {
+  const out: { v: number; ex: number }[] = [];
+  const pts = bucketPts();
+  for (let k = 0; k < 8; k++) {
+    const p = pts[k], v = pileAt(p[0], p[2]);
+    if (v >= 0 && pile[v] > p[1]) out.push({ v, ex: pile[v] - Math.max(0, p[1]) });
+  }
+  return out;
+}
+function inSand(): boolean { return sandAbove().some((c) => c.ex > 0.04); }
+
 function tickDig(dt: number) {
   const A = axes(), s = step();
   const L = stick.L, R = stick.R;
   const old = { yaw, boomA, armA, buck };
+  const tip0 = tipWorld();
+  const depth0 = truckDepth();
+  // the truck comes in, and drives off once full
+  if (K.solved >= 0) {
+    const k = K.t - K.solved - 0.9;
+    if (k > 0) { truckOff = -k * k * 1.6; if (Math.floor(K.t * 4) !== Math.floor((K.t - dt) * 4)) rg.sound("hit", { pitch: 0.16, volume: 0.25 }); }
+  } else if (truckOff > 0) {
+    const k = Math.min(1, (K.t - truckT) / 1.8);
+    truckOff = 9 * (1 - k) * (1 - k);
+    if (Math.floor(K.t * 4) !== Math.floor((K.t - dt) * 4)) rg.sound("hit", { pitch: 0.16, volume: 0.22 });
+  }
   yaw += dz(L[0]) * 0.9 * dt;
   yaw = Math.max(-1.9, Math.min(1.9, yaw));
   boomA -= dz(R[1]) * 0.55 * dt;
   boomA = Math.max(0.05, Math.min(1.0, boomA));
   if (A.arm) { armA -= dz(L[1]) * 0.8 * dt; armA = Math.max(-2.3, Math.min(-0.7, armA)); }
   if (A.bucket) { buck += dz(R[0]) * 1.4 * dt; buck = Math.max(0, Math.min(1, buck)); }
-  // the bucket's teeth stop at the ground
-  if (tipWorld()[1] < 0.03) { boomA = old.boomA; armA = old.armA; buck = old.buck; if (tipWorld()[1] < 0.03) yaw = old.yaw; }
-  const moving = Math.abs(yaw - old.yaw) + Math.abs(boomA - old.boomA) + Math.abs(armA - old.armA) + Math.abs(buck - old.buck) > 1e-4;
+  if (s === 0) {
+    // the bucket curls by itself in the sand and opens over the truck
+    const over = overBed();
+    const target = load > 0.02 && over ? 0 : load > CAP * 0.5 || (inSand() && load < CAP) ? 1 : 0.25;
+    buck += Math.max(-1.6 * dt, Math.min(1.6 * dt, target - buck));
+  }
+  // the teeth stop at the ground, and at the truck
+  const back = () => { boomA = old.boomA; armA = old.armA; buck = old.buck; };
+  const low = () => bucketPts().reduce((m, q) => Math.min(m, q[1]), 9);
+  if (low() < 0.03) { back(); if (low() < 0.03) yaw = old.yaw; }
+  // a move that takes the bucket deeper into the truck is stopped (one out of it is not,
+  // so sand heaped up under the bucket cannot trap it)
+  const nowD = truckDepth();
+  if (nowD > depth0 + 0.002) {
+    back(); if (truckDepth() > depth0 + 0.002) yaw = old.yaw;
+    if (K.t - bumpT > 0.4) { bumpT = K.t; rg.sound("hit", { pitch: 1.3, volume: 0.6 }); rg.vibrate(50); if (!hitSaid) { hitSaid = true; rg.say("rk_t_osui_autoon"); } }
+  }
+  // the sand: cut into the bucket while it curls, pushed along while it moves sideways
+  const cut = sandAbove();
+  if (cut.length) {
+    const curling = buck > old.buck + 1e-4;
+    const tip1 = tipWorld();
+    const mv = [tip1[0] - tip0[0], tip1[2] - tip0[2]], ml = Math.hypot(mv[0], mv[1]);
+    const deep = cut.reduce((m, c) => Math.max(m, c.ex), 0);
+    if (curling && load < CAP) {
+      // step 0 digs a little deeper by itself
+      const bonus = s === 0 ? 0.25 : 0;
+      for (const c of cut) {
+        const take = Math.min(c.ex + bonus, pile[c.v], (CAP - load) / (PCS * PCS));
+        pile[c.v] -= take; load += take * PCS * PCS;
+      }
+      if (load >= CAP * 0.85 && loadsSaid === 0) { loadsSaid = 1; rg.say("rk_t_kauha_taynna"); }
+      pileDirty = true;
+    } else if (ml > 1e-4 && deep > 0.4 && (yaw !== old.yaw || armA !== old.armA)) {
+      // too deep to push sideways: the bucket stops
+      yaw = old.yaw; armA = old.armA;
+      if (K.t - bumpT > 0.5) { bumpT = K.t; rg.sound("hit", { pitch: 0.45, volume: 0.5 }); rg.vibrate(40); if (!deepSaid) { deepSaid = true; rg.say("rk_t_liian_syvalla"); } }
+    } else {
+      // push the cut sand one cell on, the way the bucket goes (or round it)
+      for (const c of cut) {
+        const i = c.v % (PN + 1), jj = Math.floor(c.v / (PN + 1));
+        const n = ml > 1e-4 ? [Math.round(mv[0] / ml), Math.round(mv[1] / ml)] : [[1, 0], [-1, 0], [0, 1], [0, -1]][Math.floor(Math.random() * 4)];
+        const ni = i + n[0], nj = jj + n[1];
+        pile[c.v] -= c.ex;
+        if (ni >= 0 && nj >= 0 && ni <= PN && nj <= PN) pile[nj * (PN + 1) + ni] += c.ex;
+      }
+      pileDirty = true;
+    }
+  }
+  // pouring: the open bucket lets the sand out where it is
+  const ma = mouthAngle();
+  if (load > 0 && ma < 0.55) {
+    const flow = Math.min(load, CAP * dt * (0.8 + 4 * Math.min(1, (0.55 - ma) / 0.6)));
+    load -= flow;
+    const t = tipWorld(), q = inTruck(t);
+    const b = bedAt(q[0], q[1]);
+    if (b >= 0 && Math.abs(q[0]) < BED.len / 2 && Math.abs(q[1]) < BED.wid / 2 && t[1] > FLOOR) {
+      // spread over the cell and its neighbours
+      const bi = b % (BNX + 1), bj = Math.floor(b / (BNX + 1));
+      const per = flow / (BCX * BCZ) / 5;
+      for (const d of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+        const i = Math.max(0, Math.min(BNX, bi + d[0])), jj = Math.max(0, Math.min(BNZ, bj + d[1]));
+        bedH[jj * (BNX + 1) + i] += per;
+      }
+      bedDirty = true; pourBed += flow;
+    } else {
+      const v = pileAt(t[0], t[2]);
+      if (v >= 0) { pile[v] += flow / (PCS * PCS); pileDirty = true; } else pourLost += flow;
+    }
+    if (Math.random() < 0.7) {
+      const p = projDig(t), g = projDig([t[0], b >= 0 ? FLOOR + 0.2 : 0, t[2]]);
+      spray(p[0], p[1], g[0], g[1], [SAND, SAND2, "#d9b25f"], 5, 18);
+    }
+    if (Math.floor(K.t * 6) !== Math.floor((K.t - dt) * 6)) rg.sound("whoosh", { pitch: 0.4 + Math.random() * 0.2, volume: 0.25 });
+    if (load <= 0.001) { load = 0; afterPour(); }
+  }
+  // the sand settles
+  if (relax(pile, PN, PN, PCS, PCS, true, 1)) pileDirty = true;
+  if (relax(bedH, BNX, BNZ, BCX, BCZ, false, 2)) { bedDirty = true; for (let k = 0; k < bedH.length; k++) if (bedH[k] > WALL + 0.35) bedH[k] = WALL + 0.35; }
   // the engine's hum while something moves
+  const moving = Math.abs(yaw - old.yaw) + Math.abs(boomA - old.boomA) + Math.abs(armA - old.armA) + Math.abs(buck - old.buck) > 1e-4;
   humT -= dt;
   if (moving && humT <= 0) { humT = 0.22; rg.sound("hit", { pitch: 0.22 + Math.random() * 0.06, volume: 0.12 }); }
   const sand = inSand();
-  if (s === 0) {
-    // the bucket fills when it goes into the sand and empties over the truck
-    if (!full && sand) scoop();
-    const target = full ? 1 : 0.25;
-    buck += Math.max(-1.8 * dt, Math.min(1.8 * dt, target - buck));
-    if (full && overBed()) dump();
-  } else {
-    if (!full && sand && buck > 0.75 && old.buck <= 0.75) scoop();
-    if (full && buck < 0.35) { if (overBed()) dump(); else spill(); }
-  }
   if (sand && !wasIn) { rg.sound("hit", { pitch: 0.5, volume: 0.4 }); rg.vibrate(30); }
   wasIn = sand;
+  full = load > CAP * 0.3;
   tickFly(dt);
   placeDig();
 }
-function scoop() {
-  full = true; scoopT = K.t;
-  pileAmt = Math.max(0.45, pileAmt - 0.1);
-  rg.sound("hit"); rg.vibrate([30, 40, 30]);
-  const p = projDig(tipWorld());
-  spray(p[0], p[1], p[0] + (Math.random() - 0.5) * 40, p[1] + 30, [SAND, SAND2], 40, 30);
-  rg.say("rk_t_kauha_taynna");
-}
-function dump() {
-  full = false; dumpT = K.t;
-  loads++;
-  const p = projDig(tipWorld()), q = projDig(truckC().map((v, i) => i === 1 ? BED.top : v));
-  spray(p[0], p[1], q[0], q[1], [SAND, SAND2, "#d9b25f"], 120, 36);
-  rg.sound("whoosh", { pitch: 0.5 }); rg.sound("pop");
-  rg.say(rg.sayId.number(loads));
+// the bucket is empty: count the truck's loads, or tell that the sand fell down
+function afterPour() {
+  loadsSaid = 0; newLump();
+  const v = bedVol();
+  const n = Math.min(want, Math.floor(v / perLoad() + 0.08));
+  if (pourLost > pourBed && pourLost > CAP * 0.3) spill();
+  else if (n > loads) { loads = n; rg.sound("pop"); rg.say(rg.sayId.number(loads)); }
+  pourBed = 0; pourLost = 0;
   if (loads >= want) win(width / 2, height / 2, ["rk_t_auto_taynna"]);
 }
+// is the bucket over the truck's bed?
+function overBed(): boolean {
+  const t = tipWorld(), q = inTruck(t);
+  return Math.abs(q[0]) < BED.len / 2 + 0.2 && Math.abs(q[1]) < BED.wid / 2 + 0.3 && t[1] > FLOOR + WALL - 0.2;
+}
 function spill() {
-  full = false;
-  const p = projDig(tipWorld());
-  spray(p[0], p[1], p[0], p[1] + 120, [SAND, SAND2], 60, 30);
   const n = miss();
   hintT = K.t;
   rg.say(n >= 2 ? ["rk_t_valui", "rk_t_vihje_kaivuri"] : "rk_t_valui");
@@ -655,9 +866,11 @@ function spill() {
 // what to do next, for the hint arrows and speech
 function nextDo(): string {
   const t = tipWorld();
+  const qt = inTruck(t);
+  if (!full && Math.abs(qt[0]) < BED.len / 2 + 0.6 && Math.abs(qt[1]) < BED.wid / 2 + 0.6 && t[1] < FLOOR + WALL + 0.35) return "boomUp";
   if (!full) {
     if (Math.abs(yaw - PILE_YAW) > 0.35) return yaw < PILE_YAW ? "swingR" : "swingL";
-    if (step() >= 2) { const c = pileC(); const r = Math.hypot(t[0] - c[0], t[2] - c[2]); if (r > PILE_R * 0.8) return "armOut"; }
+    if (step() >= 2) { const c = pileC(); const r = Math.hypot(t[0] - c[0], t[2] - c[2]); if (r > 1.9) return "armOut"; }
     if (!inSand()) return "boomDown";
     return step() >= 1 ? "curl" : "boomDown";
   }
@@ -669,7 +882,7 @@ function nextDo(): string {
 function sayDig() { rg.say(step() === 0 ? "rk_t_kaivuri3d" : step() === 1 ? "rk_t_kauha3d" : "rk_t_varsi3d"); }
 function hintDig() {
   const n = nextDo();
-  const id: any = { swingR: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", swingL: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", boomDown: "rk_t_laske_puomi", boomUp: "rk_t_vie_autoon", armOut: "rk_t_varsi3d", curl: "rk_t_kauha3d", open: "rk_t_kauha3d" };
+  const id: any = { swingR: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", swingL: full ? "rk_t_kaanna_autolle" : "rk_t_kaanna_hiekalle", boomDown: "rk_t_laske_puomi", boomUp: full ? "rk_t_vie_autoon" : "rk_t_nosta_puomi", armOut: "rk_t_varsi3d", curl: "rk_t_kauha3d", open: "rk_t_kauha3d" };
   rg.say(id[n]);
 }
 
