@@ -142,6 +142,45 @@ const TEXT: Record<string, T> = {
   rk_t_vie_autoon: ["Vie hiekka autoon.", "Take the sand to the truck.", "Lleva la arena al camión."],
   rk_t_valui: ["Hups, hiekka valui maahan.", "Oops, the sand spilled.", "¡Uy, la arena se cayó!"],
   rk_t_auto_taynna: ["Auto on täynnä hiekkaa!", "The truck is full of sand!", "¡El camión está lleno de arena!"],
+  // Työkalupakki
+  peli_tyokalupakki: ["Työkalupakki", "Toolbox", "Caja de herramientas"],
+  rk_k_mika: ["Mikä työkalu tähän tarvitaan?", "Which tool do we need?", "¿Qué herramienta necesitamos?"],
+  rk_k_etsi: ["Etsi", "Find the", "Busca"],
+  rk_k_tama_on: ["Tämä on", "This is the", "Esto es"],
+  rk_k_siivoa: ["Laita työkalut paikoilleen pakkiin. Katso varjoja.", "Put the tools back in the box. Look at the shadows.", "Guarda las herramientas. Mira las sombras."],
+  rk_k_vihje_siivoa: ["Jokaisella työkalulla on oma varjo. Vie työkalu sen muotoiseen paikkaan.", "Each tool has its own shadow. Put the tool on the shadow of the same shape.", "Cada herramienta tiene su sombra. Ponla en la de su forma."],
+  rk_k_ei_mahdu: ["Se ei mahdu tuohon.", "It doesn't fit there.", "No cabe ahí."],
+  rk_k_valmis: ["Pakki on siisti!", "The toolbox is tidy!", "¡La caja está ordenada!"],
+  rk_k_n_vasara: ["vasara.", "hammer.", "martillo."],
+  rk_k_n_risti: ["ristipäämeisseli.", "cross screwdriver.", "destornillador de estrella."],
+  rk_k_n_taltta: ["talttameisseli.", "flat screwdriver.", "destornillador plano."],
+  rk_k_n_avain: ["kiintoavain.", "spanner.", "llave fija."],
+  rk_k_n_saha: ["saha.", "saw.", "sierra."],
+  rk_k_n_pihdit: ["pihdit.", "pliers.", "alicates."],
+  rk_k_n_puristin: ["ruuvipuristin.", "clamp.", "sargento."],
+  rk_k_n_mitta: ["rullamitta.", "tape measure.", "metro."],
+  rk_k_n_vatupassi: ["vatupassi.", "spirit level.", "nivel."],
+  rk_k_n_pora: ["porakone.", "drill.", "taladro."],
+  rk_k_job_naula: ["Naula pitää lyödä puuhun.", "The nail must go into the wood.", "Hay que clavar el clavo."],
+  rk_k_job_risti: ["Ruuvissa on risti. Se pitää kiertää kiinni.", "The screw has a cross. It must be screwed in.", "El tornillo tiene una cruz. Hay que atornillarlo."],
+  rk_k_job_ura: ["Ruuvissa on suora viiva. Se pitää kiertää kiinni.", "The screw has a straight line. It must be screwed in.", "El tornillo tiene una raya. Hay que atornillarlo."],
+  rk_k_job_mutteri: ["Mutteri pitää kiristää.", "The nut must be tightened.", "Hay que apretar la tuerca."],
+  rk_k_job_poikki: ["Lauta pitää sahata poikki.", "The board must be cut in two.", "Hay que cortar la tabla."],
+  rk_k_job_lanka: ["Rautalanka pitää taivuttaa.", "The wire must be bent.", "Hay que doblar el alambre."],
+  rk_k_job_liima: ["Liimatut laudat pitää puristaa yhteen.", "The glued boards must be pressed together.", "Hay que apretar las tablas pegadas."],
+  rk_k_job_mittaa: ["Kuinka pitkä lauta on? Se pitää mitata.", "How long is the board? It must be measured.", "¿Cuánto mide la tabla? Hay que medirla."],
+  rk_k_job_hylly: ["Onko hylly suorassa?", "Is the shelf straight?", "¿Está recta la balda?"],
+  rk_k_job_reika: ["Seinään tarvitaan reikä.", "The wall needs a hole.", "La pared necesita un agujero."],
+  rk_k_vihje_naula: ["Naula lyödään vasaralla.", "A nail is hit with a hammer.", "El clavo se clava con el martillo."],
+  rk_k_vihje_risti: ["Ristiruuvi kierretään ristipäämeisselillä.", "A cross screw needs a cross screwdriver.", "El tornillo de cruz va con destornillador de estrella."],
+  rk_k_vihje_ura: ["Suora ura kierretään talttameisselillä.", "A straight slot needs a flat screwdriver.", "La ranura recta va con destornillador plano."],
+  rk_k_vihje_mutteri: ["Mutteri kiristetään kiintoavaimella.", "A nut is tightened with a spanner.", "La tuerca se aprieta con la llave."],
+  rk_k_vihje_poikki: ["Lauta sahataan sahalla.", "A board is cut with a saw.", "La tabla se corta con la sierra."],
+  rk_k_vihje_lanka: ["Rautalanka taivutetaan pihdeillä.", "Wire is bent with pliers.", "El alambre se dobla con los alicates."],
+  rk_k_vihje_liima: ["Ruuvipuristin pitää laudat yhdessä, kun liima kuivuu.", "A clamp holds the boards while the glue dries.", "El sargento sujeta las tablas mientras seca la cola."],
+  rk_k_vihje_mittaa: ["Pituus mitataan rullamitalla.", "Length is measured with a tape measure.", "La longitud se mide con el metro."],
+  rk_k_vihje_hylly: ["Vatupassin kupla näyttää, onko hylly suorassa.", "The spirit level's bubble shows if the shelf is straight.", "La burbuja del nivel dice si está recta."],
+  rk_k_vihje_reika: ["Reikä porataan porakoneella.", "A hole is made with a drill.", "El agujero se hace con el taladro."],
 };
 
 function clips(i: number): Record<string, string> {
@@ -150,7 +189,7 @@ function clips(i: number): Record<string, string> {
   return out;
 }
 
-const GAMES = ["ruuvit", "vasara", "jakoavain", "mittaus", "sahat", "pora", "tyomaa"];
+const GAMES = ["ruuvit", "vasara", "jakoavain", "mittaus", "sahat", "pora", "tyomaa", "tyokalupakki"];
 const fiPath = "voice/fi.json";
 const fi = JSON.parse(fs.readFileSync(fiPath, "utf8"));
 for (const k of Object.keys(fi.clips)) if (k.startsWith("rk_") || GAMES.some((g) => k === "peli_" + g)) delete fi.clips[k];
