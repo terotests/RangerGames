@@ -1,0 +1,30 @@
+{
+ "_comment": "Rahakauppa (games/raha): same ids as voice/fi.json.",
+ "lang": "es",
+ "clips": {
+  "peli_raha": "La tienda",
+  "rh_euro": "euro",
+  "rh_euroa": "euros",
+  "rh_senttia": "céntimos",
+  "rh_etsi": "Busca",
+  "rh_enemman": "¿Dónde hay más dinero?",
+  "rh_paljonko": "¿Cuánto dinero hay aquí?",
+  "rh_maksaa": "Esto cuesta",
+  "rh_maksa": "Paga el precio exacto.",
+  "rh_liikaa": "Demasiado dinero. Quita algo.",
+  "rh_puuttuu": "Todavía falta dinero.",
+  "rh_asiakas": "El cliente da",
+  "rh_takaisin": "¿Cuánto le devuelves?",
+  "rh_anna": "Dale el cambio.",
+  "rh_kiitos": "¡Gracias!",
+  "rh_halvempi": "¿Cuál es más barato?",
+  "rh_kalliimpi": "¿Cuál es más caro?",
+  "rh_riittaako": "¿Te llega el dinero?",
+  "rh_riittaa": "Sí, te llega.",
+  "rh_ei_riita": "No te llega el dinero.",
+  "rh_sinulla": "Tienes",
+  "rh_osta2": "Compra dos cosas.",
+  "rh_osta3": "Compra tres cosas.",
+  "rh_jaa": "¿Cuánto dinero te queda?"
+ }
+}
