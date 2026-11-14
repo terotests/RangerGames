@@ -10,7 +10,10 @@
 //!                      ground: { y, color } })            // an endless floor at height y
 //! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
-//! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star",
+//! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star"
+//!                             | "prism" | "roof" | "dome",   // prism: size [length (x), height, width (z)], base at y 0;
+//!                                                   // roof: the prism's two slopes only (an open gable roof);
+//!                                                   // dome: a half sphere, size [r], its flat bottom at y 0
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
 //!                      layer })                          // -1: flat on the floor, drawn first
 //! rg.three("set",    { id, x, y, z, rx, ry, rz, sx, sy, sz, color, visible })
@@ -158,6 +161,38 @@ fn mesh(shape: &str, size: &[f64], detail: usize) -> Mesh {
                     faces.push(vec![i * tube + j, ni * tube + j, ni * tube + nj, i * tube + nj]);
                 }
             }
+        }
+        "prism" | "roof" => {
+            // a triangular prism along x (a gable roof): its base the rectangle at y = 0,
+            // its ridge at y = size[1] over the middle (z = 0)
+            let (w, h, d) = (s(0, 1.0) / 2.0, s(1, 0.5), s(2, 1.0) / 2.0);
+            verts = vec![[-w, 0.0, d], [w, 0.0, d], [w, 0.0, -d], [-w, 0.0, -d], [-w, h, 0.0], [w, h, 0.0]];
+            faces = vec![vec![0, 1, 5, 4], vec![2, 3, 4, 5]];
+            if shape == "prism" {
+                faces.extend(vec![vec![1, 2, 5], vec![3, 0, 4], vec![3, 2, 1, 0]]);
+            }
+        }
+        "dome" => {
+            // the upper half of a sphere, standing on its flat bottom at y = 0
+            let r = s(0, 0.5);
+            let seg = detail.max(6);
+            let rings = (seg / 4).max(2);
+            verts.push([0.0, r, 0.0]);
+            for j in 1..=rings {
+                let phi = j as f64 / rings as f64 * std::f64::consts::FRAC_PI_2;
+                verts.extend(ring(r * phi.sin(), r * phi.cos(), seg, 0.0));
+            }
+            for i in 0..seg {
+                let n = (i + 1) % seg;
+                faces.push(vec![0, 1 + i, 1 + n]);
+                for j in 0..rings - 1 {
+                    let a = 1 + j * seg;
+                    let b = a + seg;
+                    faces.push(vec![a + i, b + i, b + n, a + n]);
+                }
+            }
+            let last = 1 + (rings - 1) * seg;
+            faces.push((0..seg).rev().map(|i| last + i).collect());
         }
         "star" => {
             // a star, flat in the XY plane, `size[1]` thick; `size[2]` points (5), `size[3]` inner radius share (0.45)
