@@ -1,11 +1,23 @@
-// node --experimental-strip-types tests/kortteli.ts — Korttelikauppa's rules:
+// node --experimental-strip-types tests/kortteli.ts — the rules of Mansepoli and Hesapoli:
 // the board is right, and thousands of games played by the phone's rules
 // (rolls, buying, building, rent, jail, cards) end, with no money lost or
 // made from nothing and no NaN.
 import { N, SQ, CARDS, START, JAIL, PARK, POLICE, PASS_BONUS, JAIL_FINE, KIOSK_FEE, MAX_LEVEL, newGame, rent, canBuild, buildCost, buy, build, pay, path,
-  stepsTo, drawCard, ranking, nextPlayer, aiBuy, aiBuild, aiPlan, aiJail, worth, wholeBlock, blockOf } from "../games/kortteli/lib/rules.ts";
+  stepsTo, drawCard, ranking, nextPlayer, aiBuy, aiBuild, aiPlan, aiJail, worth, wholeBlock, blockOf } from "../tools/kortteli/template/lib/rules.ts";
+import { THEME as MANSE } from "../games/mansepoli/lib/theme.ts";
+import { THEME as HESA } from "../games/hesapoli/lib/theme.ts";
+import * as fs from "node:fs";
 let bad = 0;
 const fail = (m: string) => { console.log(m); bad++; };
+// the two themed games: 16 different streets, every corner named, voice clips for each street
+const fiClips = JSON.parse(fs.readFileSync("voice/fi.json", "utf8")).clips;
+for (const th of [MANSE, HESA]) {
+  if (th.streets.length !== 16 || new Set(th.streets).size !== 16) fail(th.id + ": 16 different streets");
+  for (const k of ["start", "jail", "park", "police", "kiosk", "chance"]) if (!th.names[k] || th.names[k].length !== 3) fail(th.id + ": name of " + k);
+  for (let k = 0; k < 16; k++) if (!fiClips[th.voice + "_k_" + k]) fail(th.id + ": no clip " + th.voice + "_k_" + k);
+  if (!fiClips[th.kiosk.clip] || !fiClips["peli_" + th.id]) fail(th.id + ": kiosk or name clip");
+  for (const f of ["game.tsx", "style.css", "lib/rules.ts", "lib/house.ts"]) if (!fs.existsSync("games/" + th.id + "/" + f)) fail(th.id + ": run tools/kortteli/sync.sh");
+}
 if (SQ.length !== N) fail("24 squares");
 if (SQ.filter((s) => s.kind === "plot").length !== 16) fail("16 plots");
 for (let b = 0; b < 8; b++) if (blockOf(b).length !== 2) fail("block " + b + " should have 2 plots");

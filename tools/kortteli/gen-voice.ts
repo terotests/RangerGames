@@ -1,8 +1,12 @@
 // node --experimental-strip-types tools/kortteli/gen-voice.ts
-// Writes the speech of Korttelikauppa (games/kortteli): the kt_ clips and
-// peli_kortteli into voice/fi.json, and voice/en/kortteli.json, voice/es/kortteli.json.
+// Writes the speech of Mansepoli and Hesapoli (games/mansepoli, games/hesapoli):
+// the shared kt_ clips, each game's street clips (mp_k_N, hp_k_N, from the
+// game's lib/theme.ts), mp_kioski and peli_mansepoli, peli_hesapoli into
+// voice/fi.json, and voice/en/kortteli.json, voice/es/kortteli.json.
 // Numbers (the dice) are the shared clips n1…
 import * as fs from "node:fs";
+import { THEME as MANSE } from "../../games/mansepoli/lib/theme.ts";
+import { THEME as HESA } from "../../games/hesapoli/lib/theme.ts";
 
 type T = [string, string, string];   // fi, en, es
 const TOK: T[] = [["Auto", "Car", "El coche"], ["Raketti", "Rocket", "El cohete"], ["Ankka", "Duck", "El pato"], ["Kilpikonna", "Turtle", "La tortuga"]];
@@ -12,16 +16,6 @@ const RENT: T[] = [["Tontti on Auton. Maksa vuokraa.", "This plot is the Car's. 
   ["Tontti on Raketin. Maksa vuokraa.", "This plot is the Rocket's. Pay rent.", "El terreno es del cohete. Paga el alquiler."],
   ["Tontti on Ankan. Maksa vuokraa.", "This plot is the Duck's. Pay rent.", "El terreno es del pato. Paga el alquiler."],
   ["Tontti on Kilpikonnan. Maksa vuokraa.", "This plot is the Turtle's. Pay rent.", "El terreno es de la tortuga. Paga el alquiler."]];
-const STREET: Record<string, T> = {
-  siili: ["Siilipolku", "Hedgehog Path", "Senda del Erizo"], myyra: ["Myyräkuja", "Mole Lane", "Callejón del Topo"],
-  kala: ["Kalatie", "Fish Road", "Calle del Pez"], simpukka: ["Simpukkakuja", "Shell Lane", "Callejón de la Concha"],
-  perhonen: ["Perhoskuja", "Butterfly Lane", "Callejón Mariposa"], kukka: ["Kukkatie", "Flower Road", "Calle de las Flores"],
-  kettu: ["Kettukatu", "Fox Street", "Calle del Zorro"], orava: ["Oravatie", "Squirrel Road", "Calle de la Ardilla"],
-  mansikka: ["Mansikkakatu", "Strawberry Street", "Calle Fresa"], kirsikka: ["Kirsikkatie", "Cherry Road", "Calle Cereza"],
-  aurinko: ["Aurinkokatu", "Sun Street", "Calle del Sol"], banaani: ["Banaanitie", "Banana Road", "Calle Plátano"],
-  sammakko: ["Sammakkokatu", "Frog Street", "Calle de la Rana"], omena: ["Omenatie", "Apple Road", "Calle Manzana"],
-  valas: ["Valaskatu", "Whale Street", "Calle de la Ballena"], meri: ["Merikatu", "Sea Street", "Calle del Mar"],
-};
 const CARD: Record<string, T> = {
   loysit: ["Löysit kadulta viisikymmentä euroa!", "You found fifty euros in the street!", "¡Encontraste cincuenta euros en la calle!"],
   synttarit: ["Synttärit! Jokainen antaa sinulle kaksikymmentä euroa.", "Birthday! Everyone gives you twenty euros.", "¡Cumpleaños! Todos te dan veinte euros."],
@@ -35,7 +29,9 @@ const CARD: Record<string, T> = {
   jaatelo: ["Jäätelöä kaikille! Anna jokaiselle kymmenen euroa.", "Ice cream for everyone! Give everyone ten euros.", "¡Helado para todos! Da diez euros a cada uno."],
 };
 const TEXT: Record<string, T> = {
-  peli_kortteli: ["Korttelikauppa", "City Blocks", "Barrios"],
+  peli_mansepoli: ["Mansepoli", "Mansepoli", "Mansepoli"],
+  peli_hesapoli: ["Hesapoli", "Hesapoli", "Hesapoli"],
+  mp_kioski: ["Makkarakoju! Mustamakkara maksaa kaksikymmentä euroa.", "The sausage stand! A black sausage costs twenty euros.", "¡El puesto de morcilla! Una morcilla cuesta veinte euros."],
   kt_heita: ["Heitä nopat! Napauta noppia.", "Throw the dice! Tap them.", "¡Tira los dados! Tócalos."],
   kt_tuplat: ["Tuplat!", "Doubles!", "¡Dobles!"],
   kt_uudestaan: ["Tuplat! Heitä uudestaan.", "Doubles! Throw again.", "¡Dobles! Tira otra vez."],
@@ -76,7 +72,9 @@ for (let k = 0; k < 4; k++) {
   TEXT["kt_vuokra_" + k] = RENT[k];
   TEXT["kt_voitti_" + k] = [TOK[k][0] + " voitti!", "The " + TOK[k][1] + " wins!", "¡" + TOK[k][2] + " gana!"];
 }
-for (const id of Object.keys(STREET)) TEXT["kt_k_" + id] = STREET[id];
+// street names are Finnish in every language; the English and Spanish voices get them without ä and ö
+const ascii = (x: string) => x.replace(/ä/g, "a").replace(/ö/g, "o").replace(/Ä/g, "A").replace(/Ö/g, "O");
+for (const th of [MANSE, HESA]) th.streets.forEach((name: string, k: number) => { TEXT[th.voice + "_k_" + k] = [name, ascii(name), ascii(name)]; });
 for (const id of Object.keys(CARD)) TEXT["kt_y_" + id] = CARD[id];
 
 function clips(i: number): Record<string, string> {
@@ -86,11 +84,11 @@ function clips(i: number): Record<string, string> {
 }
 const fiPath = "voice/fi.json";
 const fi = JSON.parse(fs.readFileSync(fiPath, "utf8"));
-for (const k of Object.keys(fi.clips)) if (k.startsWith("kt_") || k === "peli_kortteli") delete fi.clips[k];
+for (const k of Object.keys(fi.clips)) if (/^(kt_|mp_k_|hp_k_|mp_kioski$)/.test(k) || ["peli_kortteli", "peli_mansepoli", "peli_hesapoli"].includes(k)) delete fi.clips[k];
 Object.assign(fi.clips, clips(0));
 fs.writeFileSync(fiPath, JSON.stringify(fi, null, 1) + "\n");
 ["en", "es"].forEach((lang, j) => {
-  const doc = { _comment: "Korttelikauppa (games/kortteli): generated by tools/kortteli/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
+  const doc = { _comment: "Mansepoli and Hesapoli (games/mansepoli, games/hesapoli): generated by tools/kortteli/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
   fs.writeFileSync("voice/" + lang + "/kortteli.json", JSON.stringify(doc, null, 1) + "\n");
 });
-console.log("kt clips:", Object.keys(TEXT).length, "per language");
+console.log("clips:", Object.keys(TEXT).length, "per language");
