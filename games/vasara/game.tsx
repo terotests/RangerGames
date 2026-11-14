@@ -11,6 +11,10 @@
 //                   head and push the handle down; the heel is the pivot, so
 //                   the claw lifts the nail (later: drag the bar to each nail,
 //                   long nails need two pulls)
+//   6 Taltta        cut a notch between two pencil lines: put the chisel
+//                   between the lines and hit its end with the hammer; each
+//                   hit takes a slice (later: a wider notch, the chisel has to
+//                   be moved, two notches and a tighter line)
 import { K, Level, setup, step, start, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, turn, rect, ngon } from "lib/kit";
 
 type Nail = { x: number; h: number; bent: number; fixT: number; held: boolean; fallen: number; placed: boolean; px: number; py: number };
@@ -33,6 +37,7 @@ const LEVELS: Level[] = [
   { name: rg.t("Pihdit", "Pliers", "Alicates"), color: "#2a9d8f", say: "rk_v_pihdit", pic: (x, y, s) => Pliers(x + 4 * s, y + 4 * s, s * 0.9, true).concat([Box(x - 40 * s, y + 26 * s, 80 * s, 18 * s, WOOD, 4)]) },
   { name: rg.t("Linnunpönttö", "Birdhouse", "Pajarera"), color: "#7b2cbf", say: "rk_v_ponto", pic: (x, y, s) => House(x, y + 6 * s, s * 0.55, 6) },
   { name: rg.t("Sorkkarauta", "Crowbar", "Palanca"), color: "#c1121f", say: "rk_v_sorkka", pic: (x, y, s) => [Box(x - 50 * s, y + 26 * s, 100 * s, 18 * s, WOOD, 4)].concat(NailPic(x - 18 * s, y + 26 * s, 30 * s, 0, false), Crowbar(x - 18 * s, y, x - 4 * s, y + 26 * s, 0.8, s * 0.32)) },
+  { name: rg.t("Taltta", "Chisel", "Formón"), color: "#457b9d", say: "rk_v_taltta", pic: (x, y, s) => [Box(x - 50 * s, y + 20 * s, 100 * s, 26 * s, WOOD, 4), Box(x - 12 * s, y + 20 * s, 24 * s, 12 * s, "#fff3d6", 0)].concat(Chisel(x, y + 20 * s, s * 0.5)) },
 ];
 
 let nails: Nail[] = [];
@@ -54,11 +59,20 @@ let bar = { x: 0, y: 0, on: -1, a: 0.45, a0: 0.45 };   // free bar's grip, hooke
 let barGrab = "";            // "move": carrying the bar, "lever": pushing the handle
 let lifted = false;
 const A0 = 0.42, A1 = 1.32;  // the handle: up, down on the board
+// the chisel level: the wood in columns of COL px, cut[i] px deep; notches to cut
+const COL = 6, CW = 30, DEEP = 30;     // column width, chisel blade width, notch depth
+type Notch = { a: number; b: number };  // first and last+1 column
+let cut: number[] = [];
+let notches: Notch[] = [];
+let chis = { x: 0, sx: 0, moved: false, grab: false };
+let chips: { x: number; y: number; vx: number; vy: number; t: number }[] = [];
+let perHit = 10;
 
 function instruct() {
   if (K.level === 2 && nails.some((n) => !n.placed)) rg.say("rk_v_vie_naula");
   else if (K.level === 2 && pliers.on < 0 && nails.some((n) => n.h > MAXH * 0.55)) rg.say("rk_v_pihdit");
   else if (K.level === 4) rg.say(bar.on >= 0 ? "rk_v_paina" : "rk_v_sorkka");
+  else if (K.level === 5) rg.say("rk_v_taltta");
   else rg.say(K.level === 1 ? "rk_v_osu" : K.level === 3 ? "rk_v_ponto" : "rk_v_naulaa");
 }
 
@@ -88,6 +102,22 @@ function next() {
     bar = { x: width - 130, y: height - 80, on: s === 0 ? 0 : -1, a: A0, a0: A0 };
     barGrab = "";
   }
+  if (K.level === 5) {
+    nails = [];
+    const nc = Math.floor((width - 28) / COL);
+    cut = new Array(nc).fill(0);
+    const w = [CW, CW * 2 + COL * 2, CW + COL * 3][s];
+    const cols = Math.round(w / COL);
+    notches = [];
+    const m = s === 2 ? 2 : 1;
+    for (let i = 0; i < m; i++) {
+      const c = Math.round(nc * (i + 1) / (m + 1)) - Math.floor(cols / 2) + rg.range(-3, 3);
+      notches.push({ a: c, b: c + cols });
+    }
+    perHit = DEEP / [2, 3, 3][s];
+    chis = { x: s === 0 ? colX(notches[0].a) + w / 2 : width - 60, sx: 0, moved: false, grab: false };
+    chips = [];
+  }
   target = -1;
   swingT = -10;
   hintT = -10;
@@ -114,6 +144,7 @@ function strike(i: number, x: number) {
 
 // the moment the hammer meets the nail
 function land() {
+  if (K.level === 5) { chiselLand(); return; }
   const n = nails[target];
   if (!n) return;
   rg.sound("hit");
@@ -152,6 +183,7 @@ function tolerance(): number { return [22, 16, 11][step()]; }
 function onPointerDown(x: number, y: number) {
   if (K.mode !== "play" || K.solved >= 0) return;
   if (K.level === 4) { barDown(x, y); return; }
+  if (K.level === 5) { chiselDown(x, y); return; }
   // the pliers, or a nail to put on its mark
   if (K.level === 2) {
     if (Math.abs(x - pliers.x) < 50 && Math.abs(y - pliers.y) < 60 && pliers.on < 0) { grab = "pliers"; rg.sound("click"); return; }
@@ -192,7 +224,54 @@ function drop() {
   grab = "";
 }
 
-function onPointerUp() { drop(); barUp(); }
+function onPointerUp() { drop(); barUp(); chiselUp(); }
+
+// ---- the chisel ------------------------------------------------------------------------
+function colX(i: number) { return 14 + i * COL; }
+// the columns under the chisel's blade
+function under(): number[] { const a = Math.round((chis.x - CW / 2 - 14) / COL); const r: number[] = []; for (let i = a; i < a + CW / COL; i++) if (i >= 0 && i < cut.length) r.push(i); return r; }
+// the blade tip rests on the highest wood under it
+function tipY() { const u = under(); let d = DEEP + 20; for (const i of u) d = Math.min(d, cut[i]); return BY + (u.length ? d : 0); }
+function inNotch(i: number) { return notches.some((n) => i >= n.a && i < n.b); }
+function chiselDown(x: number, y: number) {
+  if (y < 120) return;
+  const top = tipY() - 130;
+  if (step() > 0 && Math.abs(x - chis.x) < 44 && y > top - 30 && y < BY + 10) { chis.grab = true; chis.sx = x; chis.moved = false; return; }
+  if (step() === 0 || Math.abs(x - chis.x) < 70) strike(0, chis.x);
+}
+function chiselMove(x: number) {
+  if (Math.abs(x - chis.sx) > 8) chis.moved = true;
+  if (chis.moved) chis.x = Math.max(30, Math.min(width - 30, x));
+}
+function chiselUp() {
+  if (!chis.grab) return;
+  chis.grab = false;
+  if (!chis.moved) { strike(0, chis.x); return; }
+  // close to a notch: slide in between its lines
+  const snap = [0, 20, 8][step()];
+  for (const n of notches) {
+    const l = colX(n.a) + CW / 2, r = colX(n.b) - CW / 2;
+    if (chis.x > l - snap && chis.x < r + snap) { chis.x = Math.max(l, Math.min(r, chis.x)); rg.sound("click", { volume: 0.4 }); return; }
+  }
+}
+function chiselLand() {
+  const u = under();
+  rg.sound("hit"); rg.vibrate(30);
+  if (u.some((i) => !inNotch(i))) {
+    const n = miss();
+    hintT = K.t;
+    rg.say(n >= 2 ? ["rk_v_viiva", "rk_v_vihje_taltta"] : "rk_v_viiva");
+    return;
+  }
+  if (u.every((i) => cut[i] >= DEEP)) { rg.say("rk_v_siirra"); hintT = K.t; return; }
+  const top = tipY() - BY;
+  const d = Math.min(DEEP, top + perHit);
+  for (const i of u) cut[i] = Math.max(cut[i], d);
+  for (let k = 0; k < 7; k++) chips.push({ x: chis.x + rg.range(-14, 14), y: BY + top, vx: rg.range(-160, 160), vy: rg.range(-320, -140), t: K.t });
+  const left = notches.some((n) => cut.slice(n.a, n.b).some((c) => c < DEEP));
+  if (!left) { win(chis.x, BY - 60, ["rk_v_kolo"]); return; }
+  if (u.every((i) => cut[i] >= DEEP) && step() > 0) rg.say("rk_v_siirra");
+}
 
 // ---- the crowbar ----------------------------------------------------------------------
 const BAR_L = 200;
@@ -267,6 +346,11 @@ function tick(dt: number, input: any) {
   if (K.mode !== "play") return;
   if (before < 0.1 && K.t - swingT >= 0.1) land();
   if (K.level === 1 && K.t - swingT > 0.35) sway = Math.sin(K.t * [1.8, 2.6, 3.6][step()]) * 54;
+  if (K.level === 5) {
+    if (chis.grab && input && input.pointer) { if (input.pointer.down) chiselMove(input.pointer.x); else chiselUp(); }
+    for (const c of chips) { c.x += c.vx * dt; c.y += c.vy * dt; c.vy += 900 * dt; }
+    chips = chips.filter((c) => K.t - c.t < 1.2);
+  }
   if (barGrab && input && input.pointer) {
     if (input.pointer.down) barMove(input.pointer.x, input.pointer.y); else barUp();
   }
@@ -285,10 +369,11 @@ function hint() {
   else if (K.level === 2 && nails.some((n) => !n.placed)) rg.say("rk_v_vie_naula");
   else if (K.level === 2) rg.say("rk_v_pihdit");
   else if (K.level === 4) rg.say(bar.on >= 0 ? "rk_v_paina" : "rk_v_vihje_sorkka");
+  else if (K.level === 5) rg.say("rk_v_vihje_taltta");
   else rg.say("rk_v_vihje_naulaa");
 }
 
-function onBack() { grab = ""; barGrab = ""; back(); }
+function onBack() { grab = ""; barGrab = ""; chis.grab = false; back(); }
 
 // ---- drawing ----------------------------------------------------------------------
 function NailPic(x: number, base: number, h: number, bent: number, lying: boolean) {
@@ -335,6 +420,19 @@ function Crowbar(cx: number, cy: number, hx: number, hy: number, a: number, s: n
     Poly([[cx - 12 * s, cy - 2 * s], [cx - 2 * s, cy - 4 * s], [cx - 2 * s, cy + 6 * s]], "#343a40"),
   ];
 }
+// a chisel standing on its blade tip at (x, y): a steel blade with the bevel on
+// the right, a yellow handle and a steel cap on top
+function Chisel(x: number, y: number, s: number) {
+  const w = CW * s;
+  return [
+    Poly([[x - w / 2, y - 64 * s], [x + w / 2, y - 64 * s], [x + w / 2, y - 14 * s], [x - w / 2 + 3 * s, y], [x - w / 2, y]], "#ced4da", "#495057", 2 * s),
+    Poly([[x + w / 2, y - 14 * s], [x - w / 2 + 3 * s, y], [x + w / 2 - 6 * s, y - 14 * s]], "#adb5bd"),
+    Poly(rect(x - 5 * s, y - 80 * s, 10 * s, 18 * s), "#868e96", "#495057", 1.5 * s),
+    Poly([[x - 10 * s, y - 80 * s], [x + 10 * s, y - 80 * s], [x + 12 * s, y - 124 * s], [x - 12 * s, y - 124 * s]], "#ffb703", "#b07d00", 2 * s),
+    Poly(rect(x - 11 * s, y - 132 * s, 22 * s, 8 * s), "#6c757d", "#343a40", 1.5 * s),
+  ];
+}
+
 // the bar lying free, its claw at (x, y)
 function FreeBar(x: number, y: number) {
   return Crowbar(x, y, x + 18, y + 16, 1.15, 0.8);
@@ -383,12 +481,14 @@ function Play() {
     : K.level === 2 && nails.some((n) => !n.placed) ? rg.t("Vie naula merkkiin", "Put the nail on the mark", "Pon el clavo en la marca")
     : K.level === 2 && pliers.on < 0 && nails.some((n) => n.h > MAXH * 0.55) ? rg.t("Pidä naulaa pihdeillä", "Hold the nail with the pliers", "Sujeta el clavo con los alicates")
     : K.level === 3 ? rg.t("Rakenna linnunpönttö", "Build a birdhouse", "Construye una pajarera")
+    : K.level === 5 ? rg.t("Tee kolo taltalla", "Cut a notch with the chisel", "Haz una muesca con el formón")
     : K.level === 4 ? (bar.on >= 0 ? rg.t("Paina vartta alas", "Push the handle down", "Baja el mango") : rg.t("Vie sorkka naulaan", "Hook the nail", "Engancha el clavo"))
     : rg.t("Lyö naulat puuhun", "Hammer the nails in", "Clava los clavos");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
   if (K.level === 3) for (const e of House(width / 2, 210, 0.75, part + (K.solved >= 0 ? 1 : 0))) out.push(e);
   for (const e of Board()) out.push(e);
   if (K.level === 4) { PlayBar(out); return <div className="screen">{out}</div>; }
+  if (K.level === 5) { PlayChisel(out); return <div className="screen">{out}</div>; }
   const hinting = K.t - hintT < 5;
   nails.forEach((n, i) => {
     if (!n.placed) {
@@ -457,6 +557,40 @@ function PlayBar(out: any[]) {
   } else {
     for (const e of FreeBar(bar.x, bar.y)) out.push(e);
     if (barGrab !== "move" && K.solved < 0 && (K.question === 0 || hinting)) out.push(PointAt(bar.x + 20, bar.y - 40, "#f77f00"));
+  }
+}
+
+function PlayChisel(out: any[]) {
+  const hinting = K.t - hintT < 5;
+  // the cut wood: light inside the notch, column by column (runs of equal depth)
+  let i = 0;
+  while (i < cut.length) {
+    if (cut[i] <= 0) { i++; continue; }
+    let j = i;
+    while (j < cut.length && cut[j] === cut[i]) j++;
+    out.push(Box(colX(i), BY, (j - i) * COL, cut[i], "#fff3d6", 0));
+    out.push(Line([[colX(i), BY + cut[i]], [colX(j), BY + cut[i]]], WOOD2, 2));
+    i = j;
+  }
+  // pencil lines on the face and the depth line
+  for (const n of notches) {
+    const l = colX(n.a), r = colX(n.b);
+    out.push(Line([[l, BY - 16], [l, BY + DEEP]], "#343a40", 2));
+    out.push(Line([[r, BY - 16], [r, BY + DEEP]], "#343a40", 2));
+    out.push(Line([[l, BY + DEEP], [r, BY + DEEP]], "rgba(52,58,64,0.55)", 2));
+    const todo = cut.slice(n.a, n.b).some((c) => c < DEEP);
+    if (todo && (hinting || (K.question === 0 && step() > 0 && !chis.grab && K.misses > 0))) out.push(Box(l, BY - 4, r - l, DEEP + 4, "rgba(6,214,160,0.3)", 2));
+  }
+  for (const c of chips) out.push(Poly([[c.x, c.y], [c.x + 7, c.y - 2], [c.x + 5, c.y + 3]], "#e9c46a", WOOD2, 1));
+  // the chisel is held up a little between blows, so the lines and the cut show
+  const d = K.t - swingT;
+  const lift = chis.grab ? 40 : d < 0.1 ? 36 * (1 - d / 0.1) : d < 0.4 ? 0 : d < 0.6 ? 36 * (d - 0.4) / 0.2 : 36;
+  const ty = tipY() - (K.solved >= 0 ? 36 : lift);
+  for (const e of Chisel(chis.x, ty, 1)) out.push(e);
+  if (K.solved < 0) for (const e of Hammer(chis.x, ty - 132, hammerAngle(), chis.x > width * 0.62 ? -1 : 1)) out.push(e);
+  if (K.solved < 0 && !chis.grab && K.question === 0 && K.misses === 0) {
+    if (step() > 0 && under().some((q) => !inNotch(q))) out.push(PointAt(chis.x, ty - 180, "#f77f00"));
+    else if (step() === 0) out.push(PointAt(chis.x, ty - 200, "#f77f00"));
   }
 }
 
