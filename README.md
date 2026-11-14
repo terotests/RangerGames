@@ -47,7 +47,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | Peli | Mitä |
 | --- | --- |
 | `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Pienille sopiva: kolme sydäntä, putoamisesta pelastuspilvi, reunat ovat seiniä. Ohjaus: pupu hyppää sormen kohdalle, napautus riittää (tai nuolinäppäimet). |
-| `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella tai puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa). |
+| `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella, puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa) tai kahdella puhelimella Bluetoothin kautta (📱📱 Kaksi puhelinta: toinen aloittaa, toinen liittyy). |
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
 | `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
@@ -79,6 +79,8 @@ python3 -m http.server -d dist/web 8000   # avaa http://localhost:8000  (?game=p
 # playground: http://localhost:8000/playground.html – pelit Android-puhelimen
 # kehyksessä puhelimen omalla ruutukoolla (Huawei P20: 360 × 720), pelivalitsin,
 # hiiri sormena, ◁ takaisin, ○ valikko, värinä näkyy puhelimen tärinänä
+# kaksi puhelinta: http://localhost:8000/kaksi.html?game=ristinolla – kaksi ruutua
+# vierekkäin, jotka pelaavat yhdessä kuin kaksi puhelinta Bluetoothilla (rg.net)
 ```
 
 Testit:
@@ -139,6 +141,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `rg.random()`, `rg.range()`, `rg.pick()`, `rg.shuffle()` | siemenellinen satunnaisuus (sama kaikilla alustoilla kuin rg_core:n `Rng`) |
 | `rg.ease.*`, `rg.lerp`, `rg.clamp`, `rg.hit(a, b)` | apufunktiot |
 | `rg.launch(id)`, `rg.exit()` | pelistä toiseen / valikkoon |
+| `rg.net.host({max})`, `rg.net.find()`, `rg.net.join(id)`, `rg.net.send(data, to?)`, `rg.net.close()` | moninpeli usealla puhelimella: Androidissa Bluetooth (RFCOMM, ei nettiä eikä SIM-korttia, isäntä + enintään 7 vierasta, `android/…/Bluetooth.java`), selaimessa BroadcastChannel välilehtien välillä (`web/js/net.js`, `kaksi.html`). Tapahtumat `onNet(ev)`: `state`, `peers`, `join`, `leave`, `message`, `other-game`. Tila: `rg.net.state`, `role`, `peers`, `links`, `available`, `kind`. Viestit kulkevat vain saman pelin puhelimille; pelin vaihto sulkee yhteydet. Esimerkki: Ristinolla (isäntä pitää pelin tilan ja lähettää sen vieraalle) |
 
 ## Puhe (suomeksi)
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: AGPL-3.0-or-later -->
+<!-- Two phones side by side, for trying the two-phone games (rg.net) without
+     a second phone: both screens are index.html, and they talk through the
+     browser's BroadcastChannel as two Android phones do over Bluetooth.
+     kaksi.html?game=ristinolla opens that game on both. -->
+<html lang="fi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kaksi puhelinta · RangerGames</title>
+<style>
+  :root { color-scheme: dark; }
+  html, body { margin: 0; height: 100%; background: #14172e; color: #e8e6ff; font: 15px system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; }
+  header { padding: 10px 16px; text-align: center; }
+  header b { color: #ffd166; }
+  main { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; padding: 0 16px 16px; }
+  figure { margin: 0; text-align: center; }
+  figcaption { margin-bottom: 6px; color: #b9b4e6; }
+  iframe { width: 360px; height: 640px; border: 10px solid #2a2f55; border-radius: 28px; background: #1b1f3b; display: block; }
+</style>
+</head>
+<body>
+<header><b>Kaksi puhelinta</b>: toinen painaa <i>Aloita peli</i>, toinen <i>Liity kaverin peliin</i>.</header>
+<main>
+  <figure><figcaption>Puhelin 1</figcaption><iframe id="p1" title="Puhelin 1" allow="autoplay"></iframe></figure>
+  <figure><figcaption>Puhelin 2</figcaption><iframe id="p2" title="Puhelin 2" allow="autoplay"></iframe></figure>
+</main>
+<script>
+  var game = new URLSearchParams(location.search).get("game") || "ristinolla";
+  var src = "index.html?mode=mobile&game=" + encodeURIComponent(game);
+  document.getElementById("p1").src = src;
+  // the second one a moment later, so the two do not fight over the first load
+  setTimeout(function () { document.getElementById("p2").src = src; }, 300);
+</script>
+</body>
+</html>

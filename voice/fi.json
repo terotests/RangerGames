@@ -1862,6 +1862,14 @@
   "rk_k_vihje_liima": "Ruuvipuristin pitää laudat yhdessä, kun liima kuivuu.",
   "rk_k_vihje_mittaa": "Pituus mitataan rullamitalla.",
   "rk_k_vihje_hylly": "Vatupassin kupla näyttää, onko hylly suorassa.",
-  "rk_k_vihje_reika": "Reikä porataan porakoneella."
+  "rk_k_vihje_reika": "Reikä porataan porakoneella.",
+  "net_aloita_tai_liity": "Aloita peli, tai liity kaverin peliin.",
+  "net_odota": "Odotetaan kaveria.",
+  "net_etsi": "Etsitään kaverin puhelinta.",
+  "net_yhdistetty": "Kaveri tuli peliin!",
+  "net_katkesi": "Yhteys katkesi.",
+  "net_virhe": "Yhteys ei onnistunut. Kokeile uudestaan.",
+  "kaverin_vuoro": "Kaverin vuoro.",
+  "kaveri_voitti": "Kaveri voitti!"
  }
 }

@@ -12,7 +12,7 @@
 .small { width: 170px; }
 .again { background-color: #06d6a0; margin-top: 18px; }
 .spacer { height: 64px; margin-top: 18px; }
-.top { flex-direction: row; width: 100%; justify-content: space-between; padding: 18px; }
+.top { flex-direction: row; width: 100%; justify-content: space-between; padding: 18px; padding-right: 62px; }
 .score { font-size: 18px; font-weight: 700; padding: 8px; padding-left: 14px; padding-right: 14px; border-radius: 16px; color: #ffffff; }
 .tx { background-color: #ff5d8f; }
 .to { background-color: #4cc9f0; }
@@ -24,3 +24,13 @@
 .mark { align-items: center; justify-content: center; }
 .xbar { position: absolute; border-radius: 8px; background-color: #ff5d8f; }
 .oring { border-radius: 999px; border-color: #4cc9f0; }
+.two { background-color: #06d6a0; }
+.title.small { font-size: 30px; margin-bottom: 16px; width: 320px; justify-content: center; align-items: center; }
+.demo.small { font-size: 48px; margin-bottom: 10px; width: 300px; flex-direction: row; justify-content: center; }
+.bigicon { font-size: 80px; margin-top: 10px; margin-bottom: 10px; }
+.label { font-size: 24px; font-weight: 700; color: #ffffff; margin-bottom: 10px; }
+.hint { width: 300px; font-size: 16px; color: #d8c8ff; text-align: center; margin-top: 6px; }
+.note { font-size: 18px; color: #ffd166; text-align: center; margin-bottom: 8px; margin-left: 20px; margin-right: 20px; }
+.myname { font-size: 22px; font-weight: 700; color: #ffd166; margin-top: 10px; padding: 10px; padding-left: 18px; padding-right: 18px; border-radius: 18px; background-color: rgba(0,0,0,0.25); }
+.peers { align-items: center; }
+.peer { background-color: #4cc9f0; font-size: 19px; }
