@@ -22,7 +22,7 @@ type Shelf = { e: string; p: number };
 type Fly = { v: number; x0: number; y0: number; t0: number; back: boolean; x1: number; y1: number };
 
 const LEVELS = [
-  { name: rg.t("Tunnista rahat", "Know the money", "Conoce el dinero"), icon: "🪙", color: "#e9a23b" },
+  { name: rg.t("Tunnista rahat", "Know the money", "Conoce el dinero"), icon: "💶", color: "#e9a23b" },
   { name: rg.t("Laske rahat", "Count the money", "Cuenta el dinero"), icon: "🧮", color: "#2a9d8f" },
   { name: rg.t("Maksa tasan", "Pay exactly", "Paga exacto"), icon: "🛒", color: "#e76f51" },
   { name: rg.t("Vaihtorahat", "Give change", "El cambio"), icon: "🏪", color: "#7b5ea7" },
@@ -37,10 +37,10 @@ const LANG = rg.lang;
 const ITEMS: Item[] = [
   { e: "🍎", lo: 1, hi: 2 }, { e: "🍌", lo: 1, hi: 2 }, { e: "🥛", lo: 1, hi: 3 }, { e: "🍞", lo: 2, hi: 4 },
   { e: "🧃", lo: 1, hi: 3 }, { e: "🍦", lo: 2, hi: 5 }, { e: "🍪", lo: 2, hi: 4 }, { e: "🧀", lo: 3, hi: 7 },
-  { e: "✏️", lo: 1, hi: 3 }, { e: "🪀", lo: 2, hi: 6 }, { e: "🎲", lo: 3, hi: 9 }, { e: "🖍️", lo: 3, hi: 8 },
+  { e: "✏️", lo: 1, hi: 3 }, { e: "🍫", lo: 1, hi: 4 }, { e: "🎲", lo: 3, hi: 9 }, { e: "🖍️", lo: 3, hi: 8 },
   { e: "🌻", lo: 3, hi: 8 }, { e: "🍕", lo: 6, hi: 12 }, { e: "🚗", lo: 5, hi: 15 }, { e: "🎨", lo: 6, hi: 15 },
   { e: "🧤", lo: 5, hi: 15 }, { e: "🧩", lo: 8, hi: 20 }, { e: "🧢", lo: 8, hi: 20 }, { e: "⚽", lo: 10, hi: 25 },
-  { e: "📚", lo: 10, hi: 25 }, { e: "🪁", lo: 12, hi: 25 }, { e: "🧸", lo: 12, hi: 30 }, { e: "🎧", lo: 20, hi: 60 },
+  { e: "📚", lo: 10, hi: 25 }, { e: "🎸", lo: 15, hi: 40 }, { e: "🧸", lo: 12, hi: 30 }, { e: "🎧", lo: 20, hi: 60 },
   { e: "🎒", lo: 25, hi: 50 }, { e: "👟", lo: 30, hi: 70 }, { e: "🎮", lo: 30, hi: 60 }, { e: "🛹", lo: 40, hi: 90 },
 ];
 const CUSTOMERS = ["🐻", "🐰", "🦊", "🐷", "🐸", "🐼", "🐨", "🦔"];
