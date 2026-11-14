@@ -4,6 +4,8 @@
 //                  has to stop at the right number
 //   2 Betonimylly  put cement, sand and water in the mixer as the picture
 //                  recipe says, run it, and pour the concrete into the mould;
+//                  then smooth the mould's bumpy top with a trowel (seen from
+//                  above, 2D) until it is flat
 //                  the mixer is 3D (rg.three): the inside tumbles and turns grey,
 //                  it rumbles and the phone shakes while it turns
 //   3 Kaivuri      3D view from the excavator cab: two sticks turn the cab and
@@ -294,7 +296,7 @@ function rumble(dt: number) {
 
 function instruct() {
   if (K.level === 0) rg.say(["rk_t_lapio_n", rg.sayId.number(want), want === 1 ? "rk_t_lapiollinen" : "rk_t_lapiollista"]);
-  else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_mylly" : phase === "mix" ? "rk_t_kaynnista" : "rk_t_kaada");
+  else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_mylly" : phase === "mix" ? "rk_t_kaynnista" : phase === "smooth" ? "rk_t_tasoita" : "rk_t_kaada");
   else sayDig();
 }
 
@@ -317,7 +319,7 @@ function next() {
     ];
     phase = "fill";
     mixT = -10; pourT = -10;
-    bits = []; fly = []; mixK = 0; tiltNow = REST; drum = 0;
+    bits = []; fly = []; mixK = 0; tiltNow = REST; drum = 0; bump = []; trowel.on = false;
     build3d();
   } else {
     phase = "play";
@@ -337,6 +339,7 @@ function onPointerDown(x: number, y: number) {
     if (Math.abs(x - p.x) < 90 && y > p.y - 90 && y < p.y + 20) { grab = "shovel"; carrying = "hiekka"; hand = { x, y }; rg.sound("whoosh", { volume: 0.3 }); }
     return;
   }
+  if (K.level === 1 && phase === "smooth") { trowel = { x, y, on: true }; return; }
   if (K.level === 1 && phase === "fill") {
     recipe.forEach((r, i) => {
       const s = srcPos(i);
@@ -738,10 +741,10 @@ function tick(dt: number, input: any) {
         const m = mouthScreen(), t = project([MOULD[0] + (Math.random() - 0.5) * 0.5, 0.1, MOULD[2] + (Math.random() - 0.5) * 0.3]);
         spray(m[0], m[1] + 8, t[0], t[1], CONC, 18, 18);
       }
-      if (K.t - pourT > 2.2) { phase = "end"; bits = []; win(width / 2 - 60, GY() + 20, ["rk_t_betoni_valmis"]); }
+      if (K.t - pourT > 2.2) { bits = []; fly = []; startSmooth(); }
     }
-    tickFly(dt);
-    place3d();
+    if (phase === "smooth") { if (trowel.on && p) { if (p.down) smoothMove(p.x, p.y); else trowel.on = false; } }
+    else { tickFly(dt); place3d(); }
   }
   if (K.level === 2) {
     if (digGrab && p) { if (p.down) digMove(p.x, p.y); else digUp(); }
@@ -750,6 +753,7 @@ function tick(dt: number, input: any) {
 }
 
 function onPointerUp() {
+  trowel.on = false;
   digUp();
   if (grab === "shovel") dropShovel();
   if (grab === "ing") dropIng();
@@ -761,11 +765,120 @@ function hint() {
   hintT = K.t;
   rg.sound("click");
   if (K.level === 0) rg.say(["rk_t_vihje_lapio", rg.sayId.number(want)]);
-  else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_vihje_mylly" : phase === "mix" ? "rk_t_kaynnista" : "rk_t_kaada");
+  else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_vihje_mylly" : phase === "mix" ? "rk_t_kaynnista" : phase === "smooth" ? "rk_t_vihje_tasoita" : "rk_t_kaada");
   else hintDig();
 }
 
-function onBack() { grab = ""; digUp(); back(); }
+function onBack() { grab = ""; trowel.on = false; digUp(); back(); }
+
+// ---- 2b: smoothing the concrete with a trowel, seen from above ------------------------
+const CELL = 8;
+let bump: number[] = [];            // each cell's lump height, 0 = flat
+let gw = 0, gh = 0, bump0 = 1;
+let trowel = { x: 0, y: 0, on: false };
+let scrapeT = 0, smoothSig = "", smoothOut: any[] = [], smoothBuilt = -10;
+function mouldBox() { const l = 30, t = 170, w = width - 60, h = Math.min(320, height - 330); return { l, t, w, h }; }
+function startSmooth() {
+  phase = "smooth";
+  rg.three("clear");
+  speckle = "";
+  const m = mouldBox();
+  gw = Math.floor(m.w / CELL); gh = Math.floor(m.h / CELL);
+  bump = new Array(gw * gh).fill(0);
+  const n = [4, 7, 10][step()];
+  for (let k = 0; k < n; k++) {
+    const cx = Math.random() * gw, cy = Math.random() * gh, r = 3 + Math.random() * 4.5, a = 0.5 + Math.random() * 0.5;
+    for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+      const d = Math.hypot(i - cx, j - cy) / r;
+      if (d < 1.6) bump[j * gw + i] += a * Math.exp(-d * d * 1.2);
+    }
+  }
+  for (let q = 0; q < bump.length; q++) bump[q] = Math.min(1.2, bump[q] + Math.random() * 0.08);
+  bump0 = bump.reduce((a, b) => a + b, 0);
+  trowel = { x: width / 2, y: m.t + m.h + 70, on: false };
+  smoothSig = ""; smoothOut = [];
+  rg.say("rk_t_tasoita");
+}
+function trowelW() { return [150, 100, 76][step()]; }
+function smoothMove(x: number, y: number) {
+  const d = Math.hypot(x - trowel.x, y - trowel.y);
+  trowel.x = x; trowel.y = y;
+  if (d < 0.5) return;
+  const m = mouldBox(), tw = trowelW();
+  const i0 = Math.floor((x - tw / 2 - m.l) / CELL), i1 = Math.floor((x + tw / 2 - m.l) / CELL);
+  const j0 = Math.floor((y - 20 - m.t) / CELL), j1 = Math.floor((y + 20 - m.t) / CELL);
+  const k = Math.min(0.6, d * 0.012);
+  let touched = false;
+  for (let j = Math.max(0, j0); j <= Math.min(gh - 1, j1); j++) for (let i = Math.max(0, i0); i <= Math.min(gw - 1, i1); i++) {
+    const q = j * gw + i;
+    if (bump[q] > 0.005) { bump[q] *= 1 - k; touched = true; }
+  }
+  if (touched && K.t - scrapeT > 0.12) { scrapeT = K.t; rg.sound("whoosh", { pitch: 1.6 + Math.random() * 0.4, volume: 0.18 }); }
+  if (smoothLeft() <= 0.04) { trowel.on = false; phase = "end"; win(width / 2, m.t + m.h / 2, ["rk_t_tasainen"]); }
+}
+// the share of the lumps still left
+function smoothLeft() { let s = 0; for (const b of bump) s += b; return s / bump0; }
+function lumpiest(): number[] {
+  const m = mouldBox();
+  let best = 0, bq = 0;
+  for (let q = 0; q < bump.length; q++) if (bump[q] > best) { best = bump[q]; bq = q; }
+  return [m.l + (bq % gw) * CELL + CELL / 2, m.t + Math.floor(bq / gw) * CELL + CELL / 2];
+}
+// the concrete's top: each cell shaded by its slope towards the light (top left),
+// a few shades, one path each
+const SHADES = ["#67625b", "#706b64", "#79746d", "#837e76", "#8c877f", "#959088", "#9d988f", "#a6a197", "#afaaa0", "#b8b3a8", "#c1bcb1", "#cac5ba", "#d3cec3"];
+const MID = 6;
+// fine sand in the concrete: a fixed speckle over the top
+let speckle = "";
+function SmoothTop() {
+  const m = mouldBox();
+  if (smoothOut.length && K.t - smoothBuilt < 0.033) return smoothOut;
+  const sig = bump.map((b) => Math.round(b * 20)).join("");
+  if (sig === smoothSig) return smoothOut;
+  smoothBuilt = K.t;
+  smoothSig = sig;
+  const by: string[] = SHADES.map(() => "");
+  const at = (i: number, j: number) => bump[Math.max(0, Math.min(gh - 1, j)) * gw + Math.max(0, Math.min(gw - 1, i))];
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    const sl = (at(i - 1, j - 1) - at(i + 1, j + 1)) * 2.2 + at(i, j) * 0.25;
+    const lv = Math.max(0, Math.min(SHADES.length - 1, Math.round(MID + sl * 5)));
+    if (lv === MID) continue;
+    by[lv] += "M" + (m.l + i * CELL) + " " + (m.t + j * CELL) + "h" + CELL + "v" + CELL + "h-" + CELL + "z";
+  }
+  const paths: any[] = [<path d={"M" + m.l + " " + m.t + "h" + gw * CELL + "v" + gh * CELL + "h-" + gw * CELL + "z"} fill={SHADES[MID]} />];
+  by.forEach((d, i) => { if (d) paths.push(<path d={d} fill={SHADES[i]} />); });
+  if (!speckle) for (let k = 0; k < 500; k++) speckle += "M" + Math.floor(m.l + Math.random() * (gw * CELL - 2)) + " " + Math.floor(m.t + Math.random() * (gh * CELL - 2)) + (k % 3 ? "h1v1h-1z" : "h2v2h-2z");
+  paths.push(<path d={speckle} fill="rgba(60,55,50,0.35)" />);
+  smoothOut = [<svg style={fullS()} viewBox={vbox()}>{paths}</svg>];
+  return smoothOut;
+}
+// a finishing trowel from above: the steel plate and the wooden handle on its posts
+function Trowel(x: number, y: number, w: number) {
+  return [
+    Box(x - w / 2 + 3, y - 15, w, 36, "rgba(0,0,0,0.18)", 8),
+    Box(x - w / 2, y - 18, w, 36, "#495057", 8),
+    Box(x - w / 2 + 2, y - 16, w - 4, 32, "#dee2e6", 7),
+    Box(x - w / 2 + 6, y - 12, w - 12, 6, "#f8f9fa", 3),
+    Circle(x - w * 0.28, y, 4, "#343a40"),
+    Circle(x + w * 0.28, y, 4, "#343a40"),
+    Box(x - w * 0.34, y - 7, w * 0.68, 14, "#8d5524", 7),
+    Box(x - w * 0.32, y - 6, w * 0.64, 4, "#b07040", 2),
+  ];
+}
+function PlaySmooth(out: any[]) {
+  const m = mouldBox(), gwp = gw * CELL, ghp = gh * CELL;
+  out.push(Box(0, 120, width, height - 120, "#cdb892"));
+  out.push(Box(m.l - 14, m.t - 14, gwp + 28, ghp + 28, "#a0522d", 4));
+  for (const e of SmoothTop()) out.push(e);
+  // how smooth it is
+  const left = smoothLeft();
+  out.push(Box(40, 136, width - 80, 14, "rgba(0,0,0,0.12)", 7));
+  out.push(Box(40, 136, Math.max(14, (width - 80) * Math.min(1, (1 - left) / 0.96)), 14, "#06d6a0", 7));
+  const hinting = K.t - hintT < 5;
+  if (hinting && K.solved < 0) { const p = lumpiest(); out.push(Circle(p[0], p[1], 30, "rgba(247,127,0,0.25)", "#f77f00")); }
+  for (const e of Trowel(trowel.x, trowel.y, trowelW())) out.push(e);
+  if (!trowel.on && K.solved < 0 && left > 0.9) out.push(PointAt(trowel.x, trowel.y - 60, "#f77f00"));
+}
 
 // ---- drawing ------------------------------------------------------------------------
 function Mound(cx: number, by: number, w: number, h: number): number[][] {
@@ -868,6 +981,7 @@ function Play() {
   const out: any[] = [];
   const gy = GY();
   const text = K.level === 0 ? rg.t("Lapioi ", "Shovel ", "Echa ") + want + rg.t(" lapiollista", " loads", " paladas")
+    : K.level === 1 && (phase === "smooth" || (phase === "end" && bump.length)) ? rg.t("Tasoita betoni", "Smooth the concrete", "Alisa el hormigón")
     : K.level === 1 ? (phase === "fill" ? rg.t("Tee betonia", "Make concrete", "Haz hormigón") : phase === "mix" || phase === "mixing" ? rg.t("Käynnistä mylly ▶", "Start the mixer ▶", "Arranca ▶") : rg.t("Kaada muottiin", "Pour into the mould", "Vierte en el molde"))
     : rg.t("Täytä auto hiekalla", "Fill the truck with sand", "Llena el camión de arena");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
@@ -889,6 +1003,7 @@ function Play() {
     if (step() > 0) out.push(Button("ready", "✓", width / 2 - 60, height - 90, 120, "#06d6a0", () => ready()));
     out.push(<div className="big" style={{ left: b.x - 40, top: gy + 40, width: 80 }}>{String(have)}</div>);
   }
+  if (K.level === 1 && (phase === "smooth" || (phase === "end" && bump.length))) { PlaySmooth(out); return <div className="screen">{out}</div>; }
   if (K.level === 1) {
     for (const e of Mass()) out.push(e);
     for (const e of Grains(fly.map((f) => ({ x: f.x, y: f.y, s: f.r * 2, c: f.c })))) out.push(e);
@@ -917,5 +1032,6 @@ function view() {
   if (K.mode === "menu") body = Menu([]);
   else if (K.mode === "done") body = Done();
   else body = Play();
-  return <div className={K.mode === "play" && K.level >= 1 ? "root3d" : "root"}>{body}{Sparks()}</div>;
+  const flat = K.level === 1 && bump.length > 0;
+  return <div className={K.mode === "play" && K.level >= 1 && !flat ? "root3d" : "root"}>{body}{Sparks()}</div>;
 }

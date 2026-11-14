@@ -4,6 +4,12 @@
 //                   loose bit wobbles (last step: pick the bit first)
 //   3 Poraa         hold the button to drill and let go when the tape on the
 //                   bit touches the wood (the tape trick for the right depth)
+//   4 Materiaali    wood, metal or concrete: pick the bit made for it (wood bit
+//                   with a spike, gold metal bit, stone bit with a wide tip),
+//                   then drill; concrete needs the hammer mode (last step)
+//   5 Ruuvinväännin the cordless screwdriver: set the direction switch (in =
+//                   clockwise, out = anticlockwise) and hold the trigger; last
+//                   step: let go when the head touches the wood
 import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, TurnArrow, PointAt, rect } from "lib/kit";
 
 const BITS = [4, 6, 8, 10];   // mm
@@ -13,7 +19,10 @@ const LEVELS: Level[] = [
   { name: rg.t("Oikea terä", "Right bit", "La broca"), color: "#118ab2", say: "rk_p_valitse", pic: (x, y, s) => Bit(x - 20 * s, y - 40 * s, 8, 80 * s, s).concat(Plug(x + 22 * s, y - 20 * s, 8, s)) },
   { name: rg.t("Kiinnitä terä", "Fit the bit", "Pon la broca"), color: "#f77f00", say: "rk_p_kiinnita", pic: (x, y, s) => Drill(x - 10 * s, y + 4 * s, s * 0.55, 0).concat(Bit(x - 10 * s, y + 4 * s, 6, 40 * s, s)) },
   { name: rg.t("Poraa", "Drill", "Taladra"), color: "#2a9d8f", say: "rk_p_poraa", pic: (x, y, s) => [Box(x - 50 * s, y + 20 * s, 100 * s, 20 * s, "#d39150", 4)].concat(Drill(x - 10 * s, y - 6 * s, s * 0.5, 0)).concat(Bit(x - 10 * s, y - 6 * s, 6, 30 * s, s)) },
+  { name: rg.t("Materiaali", "Material", "Material"), color: "#6c757d", say: "rk_p_materiaali", pic: (x, y, s) => MatBit("puu", x - 30 * s, y - 40 * s, 70 * s, s).concat(MatBit("metalli", x, y - 40 * s, 70 * s, s), MatBit("betoni", x + 30 * s, y - 40 * s, 70 * s, s)) },
+  { name: rg.t("Ruuvinväännin", "Screwdriver", "Atornillador"), color: "#7b2cbf", say: "rk_p_ruuvaa_kiinni", pic: (x, y, s) => Drill(x - 14 * s, y - 4 * s, s * 0.5, 0).concat(DriverBit(x - 14 * s, y - 4 * s, 30 * s, s, 0), [Box(x - 50 * s, y + 30 * s, 100 * s, 16 * s, "#d39150", 4)]) },
 ];
+const MATS = ["puu", "metalli", "betoni"];
 
 let size = 6;
 let choices: number[] = [];
@@ -27,13 +36,25 @@ let tight = 0;            // turns of the chuck done
 let lastA = 0;
 let wobT = -10;
 let hintT = -10;
-let depth = 0, tape = 40, holding = false, dust: { x: number; y: number; vx: number; vy: number; t: number }[] = [];
+let depth = 0, tape = 40, holding = false, dust: { x: number; y: number; vx: number; vy: number; t: number; c?: string }[] = [];
 let tickAcc = 0;
+// materials and the screwdriver
+let mat = "puu";
+let matChoices: string[] = [];
+let hammer = false;          // the drill's hammer mode
+let hole = 0;                // how deep the hole is, 0..1
+let job = "in";              // the screwdriver: "in" or "out"
+let dir = "in";              // the direction switch
+let screwP = 0;              // the screw: 0 sticking out, 1 head on the wood (2 = sunk)
+let spin = 0;
+let wrongT = -10;
 
 function drillAt() { return { x: width / 2, y: Math.round(height * 0.42) }; }
 function WY() { return Math.round(height * 0.62); }      // the wood's top (drilling)
 
 function instruct() {
+  if (K.level === 3) { if (phase === "mpick") rg.say(["rk_p_valitse_mat", "rk_p_" + mat + "_x"]); else if (phase === "mdrill") rg.say(mat === "betoni" && step() === 2 && !hammer ? "rk_p_isku" : "rk_p_poraa_reika"); return; }
+  if (K.level === 4) { rg.say(job === "in" ? "rk_p_ruuvaa_kiinni" : "rk_p_ruuvaa_auki"); return; }
   if (phase === "pick") rg.say("rk_p_valitse");
   else if (phase === "fit") rg.say("rk_p_kiinnita");
   else if (phase === "tighten") rg.say("rk_p_kirista");
@@ -52,6 +73,23 @@ function next() {
   dust = [];
   size = rg.pick(BITS);
   bit = size;
+  if (K.level === 3) {
+    mat = rg.pick(s === 2 ? MATS : MATS.slice(0, s === 0 ? 2 : 3));
+    if (s === 2 && rg.range(0, 1)) mat = "betoni";
+    const others = MATS.filter((m) => m !== mat);
+    matChoices = rg.shuffle([mat].concat(rg.shuffle(others).slice(0, s === 0 ? 1 : 2)));
+    hammer = false; hole = 0; phase = "mpick";
+    instruct();
+    return;
+  }
+  if (K.level === 4) {
+    job = s === 0 ? "in" : rg.pick(["in", "out"]);
+    dir = s === 0 ? "in" : rg.pick(["in", "out"]);
+    screwP = job === "in" ? 0 : 1;
+    phase = "screw"; spin = 0; wrongT = -10;
+    instruct();
+    return;
+  }
   if (K.level === 0 || (K.level === 1 && s === 2)) {
     const n = K.level === 0 ? [2, 3, 4][s] : 2;
     let pool = BITS.filter((b) => b !== size);
@@ -83,6 +121,35 @@ function pickBit(i: number) {
 
 function buttonHit(x: number, y: number) { return Math.hypot(x - width / 2, y - (height - 80)) < 56; }
 
+// ---- 4: the right bit for the material ---------------------------------------------------
+function pickMat(i: number) {
+  if (phase !== "mpick" || wrong.indexOf(i) >= 0 || K.solved >= 0) return;
+  if (matChoices[i] === mat) {
+    phase = "mdrill"; hole = 0; rg.sound("pop");
+    if (mat === "betoni" && step() === 2) rg.say("rk_p_isku"); else rg.say("rk_p_poraa_reika");
+    return;
+  }
+  wrong.push(i);
+  shake = i; shakeT = K.t;
+  const n = miss();
+  if (n >= 2) { hintT = K.t; rg.say(["rk_p_vaara_tera", "rk_p_vihje_mat"]); } else rg.say("rk_p_vaara_tera");
+}
+function matSpeed() {
+  if (mat === "betoni" && step() === 2 && !hammer) return 0.03;
+  return mat === "puu" ? 0.55 : mat === "metalli" ? 0.32 : 0.28;
+}
+// ---- 5: the screwdriver ----------------------------------------------------------------------
+function screwRelease() {
+  if (!holding) return;
+  holding = false;
+  if (K.level !== 4 || K.solved >= 0) return;
+  if (dir !== job) { const n = miss(); hintT = K.t; rg.say(n >= 2 ? ["rk_p_suunta", "rk_p_vihje_suunta"] : "rk_p_suunta"); return; }
+  if (job === "in" && step() === 2) {
+    if (screwP >= 0.93 && screwP <= 1.06) { screwP = 1; win(width / 2, WY(), ["rk_p_ruuvi_kiinni"]); return; }
+    if (screwP > 1.06) { const n = miss(); hintT = K.t; rg.say(n >= 2 ? ["rk_p_liian_pitkaan", "rk_p_vihje_ruuvi"] : "rk_p_liian_pitkaan"); screwP = 0.5; }
+  }
+}
+
 function onPointerDown(x: number, y: number) {
   if (K.mode !== "play" || K.solved >= 0) return;
   const d = drillAt();
@@ -93,6 +160,14 @@ function onPointerDown(x: number, y: number) {
     return;
   }
   if (phase === "drill" && buttonHit(x, y)) { holding = true; }
+  if (phase === "mdrill") {
+    if (step() === 2 && mat === "betoni" && Math.hypot(x - (width - 60), y - (height - 80)) < 44) { hammer = !hammer; rg.sound("click"); return; }
+    if (buttonHit(x, y)) holding = true;
+  }
+  if (phase === "screw") {
+    if (step() > 0 && Math.hypot(x - 60, y - (height - 80)) < 44) { dir = dir === "in" ? "out" : "in"; rg.sound("click"); return; }
+    if (buttonHit(x, y)) holding = true;
+  }
 }
 
 function pressEarly() {
@@ -123,7 +198,7 @@ function release() {
   depth = 0;
 }
 
-function onPointerUp() { drop(); release(); }
+function onPointerUp() { drop(); if (K.level === 4) screwRelease(); else if (K.level === 3) holding = false; else release(); }
 
 function tick(dt: number, input: any) {
   update(dt);
@@ -147,6 +222,33 @@ function tick(dt: number, input: any) {
       if (tight >= 1) { grab = ""; phase = "end"; win(d.x, d.y, ["rk_p_kiinni"]); }
     }
   }
+  if (phase === "mdrill") {
+    if (holding && p && !p.down) holding = false;
+    if (holding) {
+      hole = Math.min(1, hole + matSpeed() * dt);
+      rg.vibrate(mat === "betoni" && hammer ? 30 : 15);
+      const c = mat === "puu" ? "#e9c46a" : mat === "metalli" ? "#ced4da" : "#adb5bd";
+      if (rg.random() < 0.7) dust.push({ x: width / 2 - 70, y: WY() - 10, vx: -40 - rg.random() * 120, vy: (rg.random() - 0.7) * 160, t: 0, c });
+      if (rg.random() < 0.3) rg.sound(mat === "betoni" && hammer ? "hit" : "tick", { volume: 0.3, pitch: mat === "metalli" ? 2.2 : mat === "betoni" ? 0.7 : 1.5 });
+      if (mat === "betoni" && step() === 2 && !hammer && K.t - wrongT > 3) { wrongT = K.t; rg.say("rk_p_isku"); hintT = K.t; }
+      if (hole >= 1) { holding = false; phase = "end"; win(width / 2 - 80, WY() - 10, ["rk_p_reika"]); }
+    }
+  }
+  if (phase === "screw") {
+    if (holding && p && !p.down) screwRelease();
+    if (holding) {
+      const sp = dir === "in" ? 1 : -1;
+      spin += sp * dt * 14;
+      rg.vibrate(10);
+      if (rg.random() < 0.35) rg.sound("tick", { volume: 0.25, pitch: 1.2 });
+      if (dir === job) {
+        screwP += (job === "in" ? 1 : -1) * [0.45, 0.5, 0.42][step()] * dt;
+        if (job === "out" && screwP <= 0) { screwP = 0; holding = false; win(width / 2, WY() - 60, ["rk_p_ruuvi_irti"]); }
+        if (job === "in" && step() < 2 && screwP >= 1) { screwP = 1; holding = false; win(width / 2, WY(), ["rk_p_ruuvi_kiinni"]); }
+        if (job === "in" && screwP > 1.25) screwRelease();
+      }
+    }
+  }
   if (phase === "drill") {
     if (holding && p && !p.down) release();
     if (holding) {
@@ -162,7 +264,9 @@ function tick(dt: number, input: any) {
 function hint() {
   hintT = K.t;
   rg.sound("click");
-  if (phase === "pick") rg.say("rk_p_vihje_valitse");
+  if (K.level === 3) rg.say(phase === "mpick" ? "rk_p_vihje_mat" : mat === "betoni" && step() === 2 && !hammer ? "rk_p_isku" : "rk_p_poraa_reika");
+  else if (K.level === 4) rg.say(dir !== job ? "rk_p_vihje_suunta" : step() === 2 && job === "in" ? "rk_p_vihje_ruuvi" : "rk_p_vihje_suunta");
+  else if (phase === "pick") rg.say("rk_p_vihje_valitse");
   else if (phase === "drill") rg.say("rk_p_vihje_poraa");
   else instruct();
 }
@@ -178,6 +282,50 @@ function Bit(x: number, y: number, mm: number, len: number, s: number, tapeAt?: 
   out.push(Poly(pts, "#adb5bd", "#495057", 1.5));
   if (!a) for (let yy = y + 10 * s; yy < y + len - w; yy += 9 * s) out.push(Line([[x - w / 2, yy], [x + w / 2, yy + 5 * s]], "#6c757d", 1.5));
   if (tapeAt !== undefined) out.push(Box(x - w / 2 - 2, y + len - tapeAt - 6, w + 4, 12, "#ef476f", 2));
+  return out;
+}
+
+// a bit for a material, hanging from (x, y), `len` long: wood = a sharp middle spike and two
+// spurs, metal = gold with a pointed tip, concrete (stone) = grey with a wide flat tip
+function MatBit(m: string, x: number, y: number, len: number, s: number) {
+  const w = 18 * s, out: any[] = [];
+  const col = m === "puu" ? "#8ecae6" : m === "metalli" ? "#e0a526" : "#adb5bd";
+  const edge = m === "puu" ? "#219ebc" : m === "metalli" ? "#9c6b00" : "#495057";
+  const end = y + len - 18 * s;
+  out.push(Poly(rect(x - w / 2, y, w, end - y), col, edge, 1.5));
+  for (let yy = y + 14 * s; yy < end - 6 * s; yy += 11 * s) out.push(Line([[x - w / 2, yy], [x + w / 2, yy + 7 * s]], edge, 2));
+  if (m === "puu") {
+    out.push(Poly([[x - w / 2, end], [x + w / 2, end], [x + w / 2, end + 8 * s], [x + w / 2 - 3 * s, end + 4 * s], [x + 2 * s, end + 4 * s], [x, end + 18 * s], [x - 2 * s, end + 4 * s], [x - w / 2 + 3 * s, end + 4 * s], [x - w / 2, end + 8 * s]], col, edge, 1.5));
+  } else if (m === "metalli") {
+    out.push(Poly([[x - w / 2, end], [x + w / 2, end], [x, end + 14 * s]], col, edge, 1.5));
+  } else {
+    out.push(Poly([[x - w / 2 - 6 * s, end - 4 * s], [x + w / 2 + 6 * s, end - 4 * s], [x + w / 2 + 6 * s, end + 6 * s], [x, end + 16 * s], [x - w / 2 - 6 * s, end + 6 * s]], "#6c757d", "#343a40", 1.5));
+  }
+  return out;
+}
+// a material sample: wood, a metal plate or a concrete block
+function Material(m: string, x: number, y: number, w: number, h: number) {
+  const out: any[] = [];
+  if (m === "puu") {
+    out.push(Box(x, y, w, h, "#d39150", 6));
+    for (let i = 1; i < 4; i++) out.push(Line([[x + 8, y + h * i / 4], [x + w * 0.5, y + h * i / 4 - 4], [x + w - 8, y + h * i / 4 + 2]], "#b5733a", 2));
+  } else if (m === "metalli") {
+    out.push(Box(x, y, w, h, "#adb5bd", 4));
+    out.push(Box(x + 4, y + 4, w - 8, h * 0.3, "rgba(255,255,255,0.35)", 3));
+    for (const cx of [x + 12, x + w - 12]) for (const cy of [y + 12, y + h - 12]) out.push(Circle(cx, cy, 4, "#6c757d"));
+  } else {
+    out.push(Box(x, y, w, h, "#8d99ae", 2));
+    for (let i = 0; i < 14; i++) out.push(Circle(x + 10 + ((i * 37) % (w - 20)), y + 10 + ((i * 53) % (h - 20)), 2 + (i % 3), "#6c757d"));
+  }
+  return out;
+}
+function MatName(m: string) { return m === "puu" ? rg.t("Puu", "Wood", "Madera") : m === "metalli" ? rg.t("Metalli", "Metal", "Metal") : rg.t("Betoni", "Concrete", "Hormigón"); }
+// the screwdriver bit in the chuck: a cross tip
+function DriverBit(x: number, y: number, len: number, s: number, rot: number) {
+  const out: any[] = [Poly(rect(x - 5 * s, y, 10 * s, len), "#adb5bd", "#495057", 1.5)];
+  const k = Math.cos(rot * 2);
+  out.push(Poly([[x - 5 * s, y + len], [x + 5 * s, y + len], [x + 1.5 * s, y + len + 9 * s], [x - 1.5 * s, y + len + 9 * s]], "#868e96", "#343a40", 1));
+  out.push(Line([[x - 4 * s * k, y + 6 * s], [x + 4 * s * k, y + len - 4 * s]], "#6c757d", 2));
   return out;
 }
 
@@ -219,7 +367,9 @@ function Cards() {
 
 function Play() {
   const out: any[] = [];
-  const text = phase === "pick" ? rg.t("Mikä terä sopii tulppaan?", "Which bit fits the plug?", "¿Qué broca para el taco?")
+  const text = K.level === 3 ? (phase === "mpick" ? rg.t("Mikä terä sopii?", "Which bit fits?", "¿Qué broca sirve?") : rg.t("Poraa reikä", "Drill the hole", "Haz el agujero"))
+    : K.level === 4 ? (job === "in" ? rg.t("Ruuvaa ruuvi kiinni", "Drive the screw in", "Atornilla") : rg.t("Irrota ruuvi", "Take the screw out", "Saca el tornillo"))
+    : phase === "pick" ? rg.t("Mikä terä sopii tulppaan?", "Which bit fits the plug?", "¿Qué broca para el taco?")
     : phase === "fit" ? rg.t("Vie terä istukkaan", "Put the bit in the chuck", "Pon la broca en el portabrocas")
     : phase === "tighten" ? rg.t("Kiristä istukka", "Tighten the chuck", "Aprieta el portabrocas")
     : K.level === 2 ? rg.t("Poraa teippiin asti", "Drill down to the tape", "Taladra hasta la cinta")
@@ -258,6 +408,8 @@ function Play() {
       }
     }
   }
+  if (K.level === 3) PlayMat(out, hinting);
+  if (K.level === 4) PlayScrew(out, hinting);
   if (K.level === 2) {
     const wy = WY();
     out.push(Box(10, wy, width - 20, 70, "#d39150", 6));
@@ -275,6 +427,77 @@ function Play() {
     if (K.question === 0 && depth === 0) out.push(<div className="label" style={{ left: 20, top: height - 170, width: width - 40 }}>{rg.t("Pidä nappia pohjassa", "Hold the button down", "Mantén pulsado el botón")}</div>);
   }
   return <div className="screen">{out}</div>;
+}
+
+function PlayMat(out: any[], hinting: boolean) {
+  const wy = WY();
+  if (phase === "mpick" || (phase === "end" && hole < 1)) {
+    for (const e of Material(mat, width / 2 - 110, 150, 220, 110)) out.push(e);
+    out.push(<div className="label" style={{ left: width / 2 - 110, top: 268, width: 220 }}>{MatName(mat)}</div>);
+    const n = matChoices.length, cw = 86, ch = 170;
+    const x0 = width / 2 - (n * (cw + 10) - 10) / 2, y = height - ch - 20;
+    matChoices.forEach((m, i) => {
+      const sh = shake === i ? Math.sin((K.t - shakeT) * 50) * 8 * Math.max(0, 1 - (K.t - shakeT) / 0.4) : 0;
+      const x = x0 + i * (cw + 10) + sh;
+      out.push(<div className={wrong.indexOf(i) >= 0 ? "card off" : "card"} style={{ left: x, top: y, width: cw, height: ch }} />);
+      for (const e of MatBit(m, x + cw / 2, y + 16, ch - 40, 1.4)) out.push(e);
+      if (hinting && m === mat) out.push(Circle(x + cw / 2, y + ch - 20, 18, "rgba(6,214,160,0.35)", "#06d6a0"));
+      out.push(<div className="hit" id={"mb" + i} onClick={() => pickMat(i)} style={{ left: x, top: y, width: cw, height: ch }} />);
+    });
+    return;
+  }
+  // drilling into the side of the material, the drill lying on its side
+  const mx = width / 2 - 80, mw = 150;
+  for (const e of Material(mat, mx - mw, wy - 120, mw, 200)) out.push(e);
+  const depthPx = hole * 60;
+  if (hole > 0) out.push(Box(mx - depthPx, wy - 22, depthPx, 24, "#2b2d31", 3));
+  // the bit and drill, pointing left at the material
+  const bx = mx - depthPx + 6;
+  out.push(Poly([[bx, wy - 10], [bx + 14, wy - 18], [bx + 120, wy - 18], [bx + 120, wy - 2], [bx + 14, wy - 2]], mat === "metalli" ? "#e0a526" : mat === "puu" ? "#8ecae6" : "#adb5bd", "#495057", 1.5));
+  const dx = bx + 120 + (holding ? Math.sin(K.t * 60) * 1.5 : 0);
+  out.push(Poly(rect(dx, wy - 26, 36, 32), "#343a40"));
+  out.push(Poly(rect(dx + 36, wy - 40, 120, 56), "#f77f00", "#b5540a", 2));
+  out.push(Poly([[dx + 90, wy + 16], [dx + 124, wy + 16], [dx + 130, wy + 90], [dx + 98, wy + 90]], "#343a40"));
+  for (const q of dust) out.push(Box(q.x, q.y, 4, 4, q.c || "#e9c46a", 1));
+  // progress
+  out.push(Box(40, 150, width - 80, 14, "rgba(0,0,0,0.12)", 7));
+  out.push(Box(40, 150, Math.max(14, (width - 80) * hole), 14, "#06d6a0", 7));
+  out.push(<div className="btn" id="trigger" style={{ left: width / 2 - 56, top: height - 136, width: 112, height: 112, borderRadius: 56, backgroundColor: holding ? "#06d6a0" : "#2a9d8f" }}><div className="btext">{holding ? "●" : "▶"}</div></div>);
+  if (step() === 2 && mat === "betoni") {
+    out.push(<div className="btn" id="hammer" style={{ left: width - 104, top: height - 124, width: 88, height: 88, borderRadius: 44, backgroundColor: hammer ? "#ffd166" : "#dee2e6" }}><div className="btext">🔨</div></div>);
+    if (!hammer && (hinting || holding)) out.push(PointAt(width - 60, height - 134, "#f77f00"));
+  }
+}
+
+function PlayScrew(out: any[], hinting: boolean) {
+  const wy = WY();
+  out.push(Box(10, wy, width - 20, 80, "#d39150", 6));
+  out.push(Line([[20, wy + 26], [width - 20, wy + 22]], "#b5733a", 2));
+  const SL = 70, cx = width / 2;
+  const above = Math.max(-8, (1 - screwP) * SL);
+  const headY = wy - above;
+  // the screw: thread under the head, the part in the wood hidden
+  const vis = Math.max(0, above);
+  if (vis > 0) {
+    out.push(Poly(rect(cx - 5, headY, 10, vis), "#adb5bd", "#6c757d", 1));
+    for (let yy = headY + 4 + ((spin * 3) % 6 + 6) % 6; yy < wy - 2; yy += 6) out.push(Line([[cx - 6, yy], [cx + 6, yy + 3]], "#6c757d", 2));
+  }
+  out.push(Poly([[cx - 15, headY - 6], [cx + 15, headY - 6], [cx + 12, headY], [cx - 12, headY]], screwP > 1.06 ? "#495057" : "#868e96", "#495057", 1.5));
+  if (screwP > 1.06) out.push(Poly([[cx - 22, wy], [cx + 22, wy], [cx + 14, wy + 6], [cx - 14, wy + 6]], "#8d5524"));
+  // the screwdriver on the head
+  const top = headY - 6 - 40;
+  for (const e of Drill(cx, top, 0.9, holding ? Math.sin(K.t * 50) * 1 : 0)) out.push(e);
+  for (const e of DriverBit(cx, top, 34, 1, spin)) out.push(e);
+  // the turning arrow while held
+  if (holding) for (const e of TurnArrow(cx, headY - 20, 46, dir === "in" ? 1 : -1, dir === job ? "rgba(6,214,160,0.8)" : "rgba(230,57,70,0.8)")) out.push(e);
+  // the direction switch
+  if (step() > 0) {
+    out.push(<div className="btn" id="dir" style={{ left: 16, top: height - 124, width: 88, height: 88, borderRadius: 44, backgroundColor: dir === "in" ? "#06d6a0" : "#ffd166" }}><div className="btext">{dir === "in" ? "↻" : "↺"}</div></div>);
+    out.push(<div className="label" style={{ left: 6, top: height - 34, width: 108, fontSize: 13 }}>{dir === "in" ? rg.t("kiinni", "in", "dentro") : rg.t("irti", "out", "fuera")}</div>);
+    if (dir !== job && (hinting || K.question === 0)) out.push(PointAt(60, height - 134, "#f77f00"));
+  }
+  if (step() === 2 && job === "in" && hinting) out.push(Line([[cx - 50, wy], [cx + 50, wy]], "#ef476f", 3));
+  out.push(<div className="btn" id="trigger" style={{ left: width / 2 - 56, top: height - 136, width: 112, height: 112, borderRadius: 56, backgroundColor: holding ? "#06d6a0" : "#7b2cbf" }}><div className="btext">{holding ? "●" : "▶"}</div></div>);
 }
 
 setup(rg.t("Porakone", "Drill", "Taladro"), LEVELS, 6, next);
