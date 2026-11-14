@@ -3,7 +3,9 @@
 //                  dots show (counting); later steps end with ✓, so the child
 //                  has to stop at the right number
 //   2 Betonimylly  put cement, sand and water in the mixer as the picture
-//                  recipe says, run it, and pour the concrete into the mould
+//                  recipe says, run it, and pour the concrete into the mould;
+//                  the mixer is 3D (rg.three): the inside tumbles and turns grey,
+//                  it rumbles and the phone shakes while it turns
 //   3 Kaivuri      move the excavator's arm to dig sand into the truck: first
 //                  by tapping, then with a lever, then lever and bucket button
 import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, turn, rect, ngon, Button } from "lib/kit";
@@ -42,6 +44,199 @@ let spill = -10;
 
 function GY() { return Math.round(height * 0.68); }
 
+// ---- the concrete mixer in 3D ---------------------------------------------------------
+// The drum hangs on a pivot between two posts: the hand wheel tilts it, the
+// motor turns it round its own axis. What is inside tumbles as small balls
+// that turn grey as they mix. Our own drawing (a photo was only a reference).
+type M3 = number[][];
+function rx(a: number): M3 { const c = Math.cos(a), s = Math.sin(a); return [[1, 0, 0], [0, c, -s], [0, s, c]]; }
+function ry(a: number): M3 { const c = Math.cos(a), s = Math.sin(a); return [[c, 0, s], [0, 1, 0], [-s, 0, c]]; }
+function rz(a: number): M3 { const c = Math.cos(a), s = Math.sin(a); return [[c, -s, 0], [s, c, 0], [0, 0, 1]]; }
+function mm(a: M3, b: M3): M3 {
+  const o: M3 = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) o[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j];
+  return o;
+}
+function mv(a: M3, v: number[]): number[] { return [a[0][0] * v[0] + a[0][1] * v[1] + a[0][2] * v[2], a[1][0] * v[0] + a[1][1] * v[1] + a[1][2] * v[2], a[2][0] * v[0] + a[2][1] * v[1] + a[2][2] * v[2]]; }
+// the engine's rx, ry, rz (three.js XYZ order: M = Rx·Ry·Rz)
+function euler(m: M3): number[] {
+  const s = Math.max(-1, Math.min(1, m[0][2]));
+  const b = Math.asin(s);
+  if (Math.abs(s) < 0.99999) return [Math.atan2(-m[1][2], m[2][2]), b, Math.atan2(-m[0][1], m[0][0])];
+  return [Math.atan2(m[2][1], m[1][1]), b, 0];
+}
+const CAM = [3.9, 4.4, 9.0], LOOK = [-0.2, 1.05, 0.5], FOV = 31;
+function sub(a: number[], b: number[]) { return [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; }
+function dot(a: number[], b: number[]) { return a[0] * b[0] + a[1] * b[1] + a[2] * b[2]; }
+function cross(a: number[], b: number[]) { return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]; }
+function unit(a: number[]) { const l = Math.sqrt(dot(a, a)) || 1; return [a[0] / l, a[1] / l, a[2] / l]; }
+function project(p: number[]): number[] {
+  const f = unit(sub(LOOK, CAM)), r = unit(cross(f, [0, 1, 0])), u = cross(r, f);
+  const focal = (height / 2) / Math.tan(FOV * Math.PI / 360);
+  const v = sub(p, CAM), z = dot(v, f);
+  return [width / 2 + dot(v, r) / z * focal, height / 2 - dot(v, u) / z * focal];
+}
+function hex(c: string): number[] { return [parseInt(c.slice(1, 3), 16), parseInt(c.slice(3, 5), 16), parseInt(c.slice(5, 7), 16)]; }
+function mix(a: string, b: string, k: number): string {
+  const x = hex(a), y = hex(b);
+  return "#" + [0, 1, 2].map((i) => Math.round(x[i] + (y[i] - x[i]) * k).toString(16).padStart(2, "0")).join("");
+}
+
+const PIVOT = [0, 1.22, 0];
+const REST = 0.72, POUR = 2.05;          // the drum's tilt: mixing, pouring
+const MOULD = [-0.15, 0, 1.25];
+const ORANGE = "#f26b1d", ORANGE2 = "#c9500f", CONCRETE = "#8b8f94";
+const ING_C: any = { sementti: ["#c9ccd1", "#9aa0a6"], hiekka: ["#e9c46a", "#c9a227"], vesi: ["#3a86ff", "#4cc9f0"] };
+const NP = 36;
+type Bit = { c: string; r: number; off: number; sp: number; h: number };
+let bits: Bit[] = [];
+let tiltNow = REST;
+let mixK = 0;                            // 0 = separate, 1 = concrete
+type Fly = { x: number; y: number; vx: number; vy: number; c: string; t: number; r: number };
+let fly: Fly[] = [];
+let rumbleT = 0;
+
+// drum parts: [id, shape, size, local position (pivot at 0), colour, extra turn]
+const DRUM: any[] = [
+  ["dBot", "cylinder", [0.6, 0.3, 0.32], [0, -0.36, 0], ORANGE],
+  ["dMid", "cylinder", [0.6, 0.6, 0.4], [0, 0, 0], ORANGE],
+  ["dTop", "cylinder", [0.34, 0.6, 0.56], [0, 0.48, 0], ORANGE],
+  ["dLip", "torus", [0.35, 0.035], [0, 0.76, 0], ORANGE2, rx(Math.PI / 2)],
+  ["dGear", "torus", [0.62, 0.04], [0, -0.1, 0], "#5c3d2e", rx(Math.PI / 2)],
+];
+function partSet(id: string, M: M3, local: number[], extra: M3 | null, jig: number[], vis?: boolean) {
+  const w = mv(M, local);
+  const e = euler(extra ? mm(M, extra) : M);
+  const o: any = { id, x: PIVOT[0] + w[0] + jig[0], y: PIVOT[1] + w[1] + jig[1], z: PIVOT[2] + w[2] + jig[2], rx: e[0], ry: e[1], rz: e[2] };
+  if (vis !== undefined) o.visible = vis;
+  rg.three("set", o);
+}
+
+function build3d() {
+  rg.three("clear");
+  rg.three("scene", { background: ["#a9d6f5", "#e8f4fc"], ground: { y: 0, color: "#6f9a3e" } });
+  rg.three("camera", { x: CAM[0], y: CAM[1], z: CAM[2], lookAt: LOOK, fov: FOV });
+  rg.three("light", { id: "sun", type: "directional", x: -2, y: 6, z: 4, intensity: 0.55 });
+  rg.three("light", { id: "amb", type: "ambient", intensity: 0.45 });
+  // gravel under the mixer
+  rg.three("add", { id: "gravel", shape: "cylinder", size: [1.5, 1.5, 0.02], detail: 16, color: "#8f877a", x: 0, y: 0.01, z: 0.2, layer: -1 });
+  // the stand: a base, two posts with legs, the axle, wheels
+  rg.three("add", { id: "base", shape: "box", size: [1.9, 0.08, 0.1], color: ORANGE, x: 0, y: 0.2, z: 0.45 });
+  rg.three("add", { id: "base2", shape: "box", size: [1.9, 0.08, 0.1], color: ORANGE, x: 0, y: 0.2, z: -0.45 });
+  for (const sx of [-1, 1]) {
+    const n = sx < 0 ? "L" : "R";
+    rg.three("add", { id: "post" + n, shape: "box", size: [0.09, 1.1, 0.09], color: ORANGE, x: sx * 0.86, y: 0.72, z: 0 });
+    rg.three("add", { id: "legF" + n, shape: "box", size: [0.08, 0.62, 0.08], color: ORANGE, x: sx * 0.86, y: 0.32, z: 0.24, rx: 0.9 });
+    rg.three("add", { id: "legB" + n, shape: "box", size: [0.08, 0.62, 0.08], color: ORANGE, x: sx * 0.86, y: 0.32, z: -0.24, rx: -0.9 });
+    rg.three("add", { id: "foot" + n, shape: "box", size: [0.12, 0.05, 1.0], color: ORANGE2, x: sx * 0.86, y: 0.03, z: 0 });
+  }
+  rg.three("add", { id: "wheelR", shape: "cylinder", size: [0.2, 0.2, 0.1], detail: 12, color: "#212529", x: 1.02, y: 0.2, z: 0.45, rz: Math.PI / 2 });
+  rg.three("add", { id: "wheelR2", shape: "cylinder", size: [0.2, 0.2, 0.1], detail: 12, color: "#212529", x: 1.02, y: 0.2, z: -0.45, rz: Math.PI / 2 });
+  rg.three("add", { id: "axle", shape: "cylinder", size: [0.05, 0.05, 1.85], detail: 8, color: "#6c757d", x: 0, y: PIVOT[1], z: 0, rz: Math.PI / 2 });
+  // the motor box on the right post
+  rg.three("add", { id: "motor", shape: "box", size: [0.26, 0.5, 0.42], color: "#343a40", x: 1.05, y: PIVOT[1] - 0.05, z: 0 });
+  rg.three("add", { id: "motorCap", shape: "cylinder", size: [0.2, 0.2, 0.08], detail: 12, color: "#495057", x: 1.2, y: PIVOT[1] - 0.05, z: 0, rz: Math.PI / 2 });
+  rg.three("add", { id: "label", shape: "box", size: [0.16, 0.12, 0.01], color: "#ffd166", x: 1.05, y: PIVOT[1] + 0.08, z: 0.215 });
+  rg.three("add", { id: "switch", shape: "box", size: [0.07, 0.07, 0.03], color: "#e63946", x: 1.05, y: PIVOT[1] - 0.15, z: 0.22 });
+  // the hand wheel on the left: a ring and spokes, it turns as the drum tilts
+  rg.three("add", { id: "hw", shape: "torus", size: [0.36, 0.028], detail: 20, color: ORANGE });
+  for (let i = 0; i < 3; i++) rg.three("add", { id: "hs" + i, shape: "box", size: [0.03, 0.72, 0.03], color: ORANGE });
+  rg.three("add", { id: "hhub", shape: "cylinder", size: [0.06, 0.06, 0.08], detail: 8, color: ORANGE2 });
+  // the yoke that holds the drum, turning with the tilt
+  rg.three("add", { id: "yL", shape: "box", size: [0.07, 0.62, 0.07], color: ORANGE });
+  rg.three("add", { id: "yR", shape: "box", size: [0.07, 0.62, 0.07], color: ORANGE });
+  rg.three("add", { id: "yB", shape: "box", size: [1.5, 0.07, 0.07], color: ORANGE });
+  // the drum, its ribs, the dark inside and what is in it
+  for (const d of DRUM) rg.three("add", { id: d[0], shape: d[1], size: d[2], detail: d[1] === "torus" ? 22 : 16, color: d[4] });
+  for (let i = 0; i < 4; i++) rg.three("add", { id: "rib" + i, shape: "box", size: [0.04, 0.36, 0.05], color: ORANGE2 });
+  rg.three("add", { id: "inside", shape: "cylinder", size: [0.32, 0.32, 0.01], detail: 16, color: "#2b2d31", layer: 1 });
+  for (let i = 0; i < NP; i++) rg.three("add", { id: "p" + i, shape: "sphere", size: [0.06], detail: 6, color: "#ffffff", layer: 2, visible: false });
+  // the mould in front: four planks and the concrete that fills it
+  const [mx, , mz] = MOULD;
+  rg.three("add", { id: "mF", shape: "box", size: [0.9, 0.16, 0.05], color: "#a0522d", x: mx, y: 0.08, z: mz + 0.3 });
+  rg.three("add", { id: "mB", shape: "box", size: [0.9, 0.16, 0.05], color: "#a0522d", x: mx, y: 0.08, z: mz - 0.3 });
+  rg.three("add", { id: "mL", shape: "box", size: [0.05, 0.16, 0.6], color: "#8b4513", x: mx - 0.45, y: 0.08, z: mz });
+  rg.three("add", { id: "mR", shape: "box", size: [0.05, 0.16, 0.6], color: "#8b4513", x: mx + 0.45, y: 0.08, z: mz });
+  rg.three("add", { id: "mFill", shape: "box", size: [0.85, 0.14, 0.55], color: CONCRETE, x: mx, y: 0.075, z: mz, layer: -1, visible: false });
+  place3d();
+}
+
+function drumM(): M3 { return mm(rx(tiltNow), ry(drum)); }
+function mouthWorld(): number[] { const w = mv(rx(tiltNow), [0, 0.78, 0]); return [PIVOT[0] + w[0], PIVOT[1] + w[1], PIVOT[2] + w[2]]; }
+function mouthScreen(): number[] { return project(mouthWorld()); }
+
+function place3d() {
+  const T = rx(tiltNow), D = drumM();
+  const shaking = phase === "mixing";
+  const jig = shaking ? [Math.sin(K.t * 53) * 0.008, Math.sin(K.t * 71) * 0.008, 0] : [0, 0, 0];
+  for (const d of DRUM) partSet(d[0], D, d[3], d[5] || null, jig);
+  for (let i = 0; i < 4; i++) {
+    const a = i * Math.PI / 2;
+    partSet("rib" + i, mm(D, ry(a)), mv(ry(a), [0, 0, 0.61]), null, jig);
+  }
+  partSet("yL", T, [-0.72, -0.31, 0], null, jig);
+  partSet("yR", T, [0.72, -0.31, 0], null, jig);
+  partSet("yB", T, [0, -0.6, 0], null, jig);
+  // the hand wheel turns three times as much as the drum tilts
+  const W = mm(rx(tiltNow * 3), ry(Math.PI / 2));
+  const hwp = [-1.02, PIVOT[1], 0];
+  rg.three("set", { id: "hw", x: hwp[0], y: hwp[1], z: hwp[2], rx: euler(W)[0], ry: euler(W)[1], rz: euler(W)[2] });
+  for (let i = 0; i < 3; i++) { const e = euler(rx(tiltNow * 3 + i * Math.PI / 3)); rg.three("set", { id: "hs" + i, x: hwp[0], y: hwp[1], z: hwp[2], rx: e[0], ry: e[1], rz: e[2] }); }
+  const eh = euler(rz(Math.PI / 2));
+  rg.three("set", { id: "hhub", x: hwp[0] + 0.02, y: hwp[1], z: hwp[2], rx: eh[0], ry: eh[1], rz: eh[2] });
+  // the inside and what is in it show while the mouth faces the camera
+  const mw = mouthWorld();
+  const up = mv(T, [0, 1, 0]);
+  const seen = dot(up, unit(sub(CAM, mw))) > 0.12;
+  partSet("inside", T, [0, 0.765, 0], null, jig, seen);
+  rg.three("set", { id: "inside", color: bits.length === 0 ? "#2b2d31" : mix("#3a3631", "#5f6266", mixK) });
+  // the balls lie in the low side of the opening; turning lifts them round and they fall back
+  const turning = phase === "mixing" || phase === "pouring";
+  for (let i = 0; i < NP; i++) {
+    const b = bits[i];
+    if (!b || !seen) { rg.three("set", { id: "p" + i, visible: false }); continue; }
+    let px: number, pz: number;
+    if (turning) {
+      const a = b.off + drum * b.sp;
+      const lift = Math.max(0, Math.sin(a));
+      px = Math.cos(a) * b.r;
+      pz = 0.2 - lift * 0.3 * b.r / 0.24 + (1 - lift) * 0.02;
+    } else {
+      px = Math.cos(b.off) * b.r;
+      pz = 0.13 + Math.abs(Math.sin(b.off)) * 0.1 - b.h * 0.05;
+    }
+    partSet("p" + i, T, [px, 0.79 + b.h * 0.02, pz], null, jig, true);
+    rg.three("set", { id: "p" + i, color: mix(b.c, CONCRETE, mixK) });
+  }
+  // the mould fills while it is poured
+  const pf = phase === "pouring" ? Math.min(1, (K.t - pourT) / 1.6) : phase === "end" ? 1 : 0;
+  rg.three("set", { id: "mFill", visible: pf > 0.02, sy: Math.max(0.05, pf), y: 0.01 + 0.07 * pf });
+}
+
+function addBits(id: string) {
+  const c = ING_C[id];
+  for (let i = 0; i < 5 && bits.length < NP; i++) bits.push({ c: c[i % 2], r: 0.06 + Math.random() * 0.2, off: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 0.5, h: Math.random() });
+}
+function spray(x: number, y: number, tx: number, ty: number, c: string[], n: number, spread: number) {
+  for (let i = 0; i < n; i++) {
+    const T = 0.35 + Math.random() * 0.2;
+    fly.push({ x: x + (Math.random() - 0.5) * spread, y: y + (Math.random() - 0.5) * spread, vx: (tx - x) / T, vy: (ty - y) / T - 300 * T / 2, c: c[i % c.length], t: T, r: 3 + Math.random() * 3 });
+  }
+}
+function tickFly(dt: number) {
+  for (const f of fly) { f.x += f.vx * dt; f.y += f.vy * dt; f.vy += 300 * dt; f.t -= dt; }
+  fly = fly.filter((f) => f.t > 0);
+}
+// the mixer rumbles: low knocks of the gravel, a hum, and the phone shakes
+function rumble(dt: number) {
+  rumbleT -= dt;
+  if (rumbleT > 0) return;
+  rumbleT = 0.13 + Math.random() * 0.12;
+  rg.sound("hit", { pitch: 0.3 + Math.random() * 0.25, volume: 0.22 + Math.random() * 0.15 });
+  if (Math.random() < 0.35) rg.sound("whoosh", { pitch: 0.18, volume: 0.25 });
+  rg.vibrate(35);
+}
+
 function instruct() {
   if (K.level === 0) rg.say(["rk_t_lapio_n", rg.sayId.number(want), want === 1 ? "rk_t_lapiollinen" : "rk_t_lapiollista"]);
   else if (K.level === 1) rg.say(phase === "fill" ? "rk_t_mylly" : phase === "mix" ? "rk_t_kaynnista" : "rk_t_kaada");
@@ -55,6 +250,7 @@ function next() {
   carrying = "";
   have = 0;
   if (K.level === 0) {
+    rg.three("clear");
     const r = [[1, 3], [2, 5], [3, 7]][s];
     want = rg.range(r[0], r[1]);
     phase = "play";
@@ -66,7 +262,10 @@ function next() {
     ];
     phase = "fill";
     mixT = -10; pourT = -10;
+    bits = []; fly = []; mixK = 0; tiltNow = REST; drum = 0;
+    build3d();
   } else {
+    rg.three("clear");
     want = 3;
     loads = 0;
     boom = -1.6; goal = -1.6;
@@ -124,12 +323,12 @@ function ready() {
 }
 
 // ---- 2: mixer ------------------------------------------------------------------------
-function mixerPos() { return { x: width / 2 + 40, y: GY() - 90 }; }
+function mixerPos() { const m = mouthScreen(); return { x: m[0], y: m[1] }; }
 function srcPos(i: number) { return { x: 50 + i * 0 , y: 170 + i * 92 }; }
 
 function dropIng() {
   const m = mixerPos();
-  if (Math.hypot(hand.x - m.x, hand.y - m.y) > 90) { rg.sound("click"); return; }
+  if (Math.hypot(hand.x - m.x, hand.y - m.y) > 100) { rg.sound("click"); return; }
   const r = recipe.filter((q) => q.id === carrying)[0];
   if (r.have >= r.want) {
     bounce = { id: r.id, t: K.t };
@@ -140,6 +339,8 @@ function dropIng() {
   }
   r.have++;
   rg.sound(r.id === "vesi" ? "pop" : "hit", { volume: 0.6 });
+  spray(hand.x, hand.y, m.x, m.y + 6, ING_C[r.id], 14, 26);
+  addBits(r.id);
   rg.say(rg.sayId.number(r.have));
   if (recipe.every((q) => q.have >= q.want)) { phase = "mix"; rg.say("rk_t_kaynnista"); }
 }
@@ -148,7 +349,8 @@ function startMix() {
   if (phase !== "mix") return;
   phase = "mixing";
   mixT = K.t;
-  rg.sound("whoosh");
+  rumbleT = 0;
+  rg.sound("whoosh", { pitch: 0.4 });
 }
 
 function pour() {
@@ -221,8 +423,24 @@ function tick(dt: number, input: any) {
     else { if (grab === "shovel") dropShovel(); if (grab === "ing") dropIng(); grab = ""; carrying = ""; }
   }
   if (K.level === 1) {
-    if (phase === "mixing") { drum += dt * 6; if (K.t - mixT > 2.2) { phase = "pour"; rg.say("rk_t_kaada"); } }
-    if (phase === "pouring" && K.t - pourT > 1.6) { phase = "end"; win(width / 2 - 60, GY() + 20, ["rk_t_betoni_valmis"]); }
+    if (phase === "mixing") {
+      drum += dt * 5;
+      mixK = Math.min(1, Math.max(0, (K.t - mixT - 0.6) / 2.4));
+      rumble(dt);
+      if (K.t - mixT > 3.4) { phase = "pour"; mixK = 1; rg.say("rk_t_kaada"); }
+    }
+    if (phase === "pouring") {
+      drum += dt * 3;
+      tiltNow = Math.min(POUR, REST + (K.t - pourT) * 2.2);
+      // the concrete runs from the mouth into the mould once the drum leans over
+      if (tiltNow > 1.7 && Math.random() < 0.8) {
+        const m = mouthScreen(), t = project([MOULD[0] + (Math.random() - 0.5) * 0.5, 0.1, MOULD[2] + (Math.random() - 0.5) * 0.3]);
+        spray(m[0], m[1] + 8, t[0], t[1], ["#8b8f94", "#6c757d", "#9aa0a6"], 2, 14);
+      }
+      if (K.t - pourT > 2.2) { phase = "end"; bits = []; win(width / 2 - 60, GY() + 20, ["rk_t_betoni_valmis"]); }
+    }
+    tickFly(dt);
+    place3d();
   }
   if (K.level === 2) {
     const sp = 2.2 * dt;
@@ -289,20 +507,30 @@ function Ingredient(id: string, x: number, y: number, s: number) {
   return [Poly([[x - 24 * s, y - 24 * s], [x + 24 * s, y - 24 * s], [x + 18 * s, y + 28 * s], [x - 18 * s, y + 28 * s]], "#118ab2", "#073b4c", 2), Poly(rect(x - 22 * s, y - 24 * s, 44 * s, 10 * s), "#8ecae6")];
 }
 
+// the menu picture of the mixer: a tilted orange drum on a stand with the hand wheel
 function Mixer(x: number, y: number, s: number, rot: number, tilt: number, fill: number) {
   const out: any[] = [];
-  out.push(Poly([[x - 50 * s, y + 70 * s], [x - 30 * s, y + 10 * s], [x + 30 * s, y + 10 * s], [x + 50 * s, y + 70 * s], [x + 40 * s, y + 70 * s], [x, y + 20 * s], [x - 40 * s, y + 70 * s]], "#495057"));
-  out.push(Circle(x - 44 * s, y + 74 * s, 10 * s, "#343a40"));
-  const drumPts = turn([[x - 40 * s, y - 40 * s], [x + 20 * s, y - 56 * s], [x + 56 * s, y - 30 * s], [x + 56 * s, y + 20 * s], [x + 20 * s, y + 40 * s], [x - 40 * s, y + 26 * s]], x, y, -tilt);
-  out.push(Poly(drumPts, "#f77f00", "#b5540a", 2));
+  const O = "#f26b1d", O2 = "#c9500f";
+  // stand: legs and a post
+  out.push(Line([[x - 50 * s, y + 70 * s], [x - 34 * s, y + 4 * s], [x - 18 * s, y + 70 * s]], O, 6 * s));
+  out.push(Line([[x + 30 * s, y + 70 * s], [x + 46 * s, y + 4 * s], [x + 62 * s, y + 70 * s]], O, 6 * s));
+  out.push(Line([[x - 50 * s, y + 52 * s], [x + 62 * s, y + 52 * s]], O2, 5 * s));
+  out.push(Circle(x + 62 * s, y + 70 * s, 9 * s, "#212529"));
+  // drum: a rounded body leaning to the left, its open mouth up
+  const body = turn([[x - 30 * s, y - 34 * s], [x + 30 * s, y - 34 * s], [x + 44 * s, y - 6 * s], [x + 40 * s, y + 26 * s], [x + 14 * s, y + 42 * s], [x - 14 * s, y + 42 * s], [x - 40 * s, y + 26 * s], [x - 44 * s, y - 6 * s]], x, y, -0.35 - tilt);
+  out.push(Poly(body, O, O2, 2));
   for (let i = 0; i < 3; i++) {
-    const k = ((rot * 0.5 + i / 3) % 1);
-    const xx = x - 30 * s + k * 80 * s;
-    out.push(Line(turn([[xx, y - 46 * s + k * 10 * s], [xx + 8 * s, y + 30 * s - k * 6 * s]], x, y, -tilt), "#ffd166", 4 * s));
+    const k = ((rot * 0.3 + i / 3) % 1) * 2 - 1;
+    out.push(Line(turn([[x + k * 34 * s, y - 20 * s], [x + k * 30 * s, y + 30 * s]], x, y, -0.35 - tilt), O2, 3 * s));
   }
-  const mouth = turn([[x + 56 * s, y - 30 * s], [x + 70 * s, y - 24 * s], [x + 70 * s, y + 14 * s], [x + 56 * s, y + 20 * s]], x, y, -tilt);
-  out.push(Poly(mouth, "#343a40"));
-  if (fill > 0) out.push(Poly(turn(rect(x + 58 * s, y - 20 * s, 10 * s, 30 * s * fill), x, y, -tilt), "#8d99ae"));
+  const m = turn([[x, y - 40 * s]], x, y, -0.35 - tilt)[0];
+  out.push(Poly(turn(ngon(m[0], m[1], 1, 16, 0).map((p) => [m[0] + (p[0] - m[0]) * 26 * s, m[1] + (p[1] - m[1]) * 10 * s]), m[0], m[1], -0.35 - tilt), "#2b2d31", O2, 3 * s));
+  // hand wheel and motor
+  out.push(Poly(ngon(x - 46 * s, y + 4 * s, 17 * s, 14, 0), O)); out.push(Poly(ngon(x - 46 * s, y + 4 * s, 12 * s, 14, 0), "#6c757d"));
+  out.push(Line([[x - 62 * s, y + 4 * s], [x - 30 * s, y + 4 * s]], O, 3 * s));
+  out.push(Line([[x - 46 * s, y - 12 * s], [x - 46 * s, y + 20 * s]], O, 3 * s));
+  out.push(Poly(rect(x + 40 * s, y - 14 * s, 18 * s, 28 * s), "#343a40"));
+  out.push(Poly(rect(x + 44 * s, y - 8 * s, 10 * s, 7 * s), "#ffd166"));
   return out;
 }
 
@@ -349,8 +577,10 @@ function Play() {
     : K.level === 1 ? (phase === "fill" ? rg.t("Tee betonia", "Make concrete", "Haz hormigón") : phase === "mix" || phase === "mixing" ? rg.t("Käynnistä mylly ▶", "Start the mixer ▶", "Arranca ▶") : rg.t("Kaada muottiin", "Pour into the mould", "Vierte en el molde"))
     : rg.t("Täytä auto hiekalla", "Fill the truck with sand", "Llena el camión de arena");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
-  out.push(Box(0, gy, width, height - gy, "#a7c957"));
-  out.push(Box(0, gy, width, 10, "#6a994e"));
+  if (K.level !== 1) {
+    out.push(Box(0, gy, width, height - gy, "#a7c957"));
+    out.push(Box(0, gy, width, 10, "#6a994e"));
+  }
   const hinting = K.t - hintT < 5;
   if (K.level === 0) {
     const p = pilePos(), b = barrowPos();
@@ -366,14 +596,7 @@ function Play() {
     out.push(<div className="big" style={{ left: b.x - 40, top: gy + 40, width: 80 }}>{String(have)}</div>);
   }
   if (K.level === 1) {
-    const m = mixerPos();
-    // the mould
-    const pf = phase === "pouring" ? Math.min(1, (K.t - pourT) / 1.4) : phase === "end" ? 1 : 0;
-    out.push(Poly(rect(m.x - 170, gy - 10, 110, 40), "#8d5524"));
-    if (pf > 0) out.push(Box(m.x - 164, gy + 26 - 30 * pf, 98, 30 * pf, "#8d99ae", 2));
-    if (phase === "pouring") out.push(Line([[m.x - 90, gy - 60], [m.x - 110, gy + 20 - 30 * pf]], "#8d99ae", 8));
-    const tilt = phase === "pouring" || phase === "end" ? Math.min(1.1, (K.t - pourT) * 2) : 0;
-    for (const e of Mixer(m.x, m.y, 1, drum, -tilt, 0)) out.push(e);
+    for (const f of fly) out.push(Circle(f.x, f.y, f.r, f.c));
     // the recipe: each ingredient, its dots, and the place to drag it from
     recipe.forEach((r, i) => {
       const s = srcPos(i);
@@ -418,5 +641,5 @@ function view() {
   if (K.mode === "menu") body = Menu([]);
   else if (K.mode === "done") body = Done();
   else body = Play();
-  return <div className="root">{body}{Sparks()}</div>;
+  return <div className={K.mode === "play" && K.level === 1 ? "root3d" : "root"}>{body}{Sparks()}</div>;
 }
