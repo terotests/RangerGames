@@ -160,11 +160,13 @@ fn mesh(shape: &str, size: &[f64], detail: usize) -> Mesh {
             }
         }
         "star" => {
-            // a five-pointed star, flat in the XY plane, `size[1]` thick
+            // a star, flat in the XY plane, `size[1]` thick; `size[2]` points (5), `size[3]` inner radius share (0.45)
             let (r, d) = (s(0, 0.5), s(1, 0.2) / 2.0);
-            let pts: Vec<(f64, f64)> = (0..10).map(|i| {
-                let a = std::f64::consts::FRAC_PI_2 + i as f64 * std::f64::consts::PI / 5.0;
-                let rr = if i % 2 == 0 { r } else { r * 0.45 };
+            let k = (s(2, 5.0).round() as usize).clamp(3, 12);
+            let inner = s(3, 0.45);
+            let pts: Vec<(f64, f64)> = (0..2 * k).map(|i| {
+                let a = std::f64::consts::FRAC_PI_2 + i as f64 * std::f64::consts::PI / k as f64;
+                let rr = if i % 2 == 0 { r } else { r * inner };
                 (a.cos() * rr, a.sin() * rr)
             }).collect();
             verts.push([0.0, 0.0, d * 1.6]);
@@ -173,8 +175,8 @@ fn mesh(shape: &str, size: &[f64], detail: usize) -> Mesh {
                 verts.push([p.0, p.1, 0.0]);
             }
             // two shallow pyramids: front and back
-            for i in 0..10 {
-                let n = (i + 1) % 10;
+            for i in 0..2 * k {
+                let n = (i + 1) % (2 * k);
                 faces.push(vec![0, 2 + i, 2 + n]);
                 faces.push(vec![1, 2 + n, 2 + i]);
             }
