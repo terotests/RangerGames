@@ -41,6 +41,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private final Sound sound = new Sound();
     private Sensors sensors;
     private Camera camera;
+    private Bluetooth bluetooth;
     private SharedPreferences saves;
     private Thread thread;
     private volatile boolean running;
@@ -60,6 +61,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         painter = new Painter(getAssets());
         sensors = new Sensors(this, input);
         camera = new Camera(this, input);
+        bluetooth = new Bluetooth(this, input);
         view = new SurfaceView(this);
         view.getHolder().addCallback(this);
         view.setOnTouchListener(new View.OnTouchListener() {
@@ -128,12 +130,18 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
         if (code == Sensors.PERMISSION_REQUEST) sensors.permissionResult(granted);
         else if (code == Camera.REQ_PERM) camera.permissionResult(granted);
+        else if (code == Bluetooth.REQ_PERM) {
+            boolean all = results.length > 0;
+            for (int r : results) if (r != PackageManager.PERMISSION_GRANTED) all = false;
+            bluetooth.permissionResult(all);
+        }
     }
 
     @Override
     protected void onActivityResult(int code, int result, Intent data) {
         super.onActivityResult(code, result, data);
         if (code == Camera.REQ_SHOT) camera.result(result);
+        else if (code == Bluetooth.REQ_ENABLE || code == Bluetooth.REQ_VISIBLE) bluetooth.activityResult(code, result);
     }
 
     @Override
@@ -149,6 +157,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onDestroy() {
         super.onDestroy();
         running = false;
+        bluetooth.destroy();
         if (thread != null) {
             try {
                 thread.join(1000);
@@ -306,6 +315,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "sensor": sensors.set(name, !Boolean.FALSE.equals(args)); break;
             case "camera": camera.take(name); break;
             case "photo-delete": camera.delete(name); break;
+            case "net": bluetooth.command(name, opts); break;
             case "persist":
                 saves.edit().putString(name, args instanceof String ? (String) args : String.valueOf(args)).apply();
                 break;

@@ -1,0 +1,14 @@
+{
+ "_comment": "Clips for playing on two phones (rg.net, Ristinolla over Bluetooth): the same ids as voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "net_aloita_tai_liity": "Start a game, or join your friend's game.",
+  "net_odota": "Waiting for your friend.",
+  "net_etsi": "Looking for your friend's phone.",
+  "net_yhdistetty": "Your friend joined the game!",
+  "net_katkesi": "The connection was lost.",
+  "net_virhe": "Could not connect. Try again.",
+  "kaverin_vuoro": "Your friend's turn.",
+  "kaveri_voitti": "Your friend won!"
+ }
+}

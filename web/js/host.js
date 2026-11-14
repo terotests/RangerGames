@@ -29,6 +29,7 @@
     var self = this;
     this.audio = new RgAudio(function (p) { return self.readFile(p); });
     this.three = new RgThree(this.canvas3d, function (p) { return self.texture(p); });
+    this.net = global.RgNet ? new RgNet(function (ev) { self.sendSensor("net", ev); }) : null;
   }
 
   Host.prototype.boot = function (wasmUrl, packUrl) {
@@ -325,6 +326,7 @@
       case "title": document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView(); break;
       case "three": this.three.command(name, args); break;
       case "sensor": this.sensor(name, args !== false); break;
+      case "net": if (this.net) this.net.command(name, args); break;
       case "camera": this.camera(name); break;
       case "photo-delete": try { localStorage.removeItem("rgimg:/save/photos/" + name + ".jpg"); localStorage.removeItem("rgimg:/save/photos/" + name + "_t.jpg"); } catch (e) { } break;
       case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;
