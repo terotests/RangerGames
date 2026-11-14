@@ -90,7 +90,7 @@ function say(ids: any) { rg.say(ids); }
 // ---- the board in the world ----------------------------------------------------
 // the ring road's middle line is R from the middle; corners at (±R, ±R); the
 // squares go round anticlockwise seen from above: from the start (R, R) towards -x
-const R = 10, STEPW = 20 / 6, HOUSE_OUT = 2.9;
+const R = 10, STEPW = 20 / 6, HOUSE_OUT = 3.6;
 const NORM = [[0, 1], [-1, 0], [0, -1], [1, 0]];        // out from the board on each side
 const TANG = [[-1, 0], [0, -1], [1, 0], [0, 1]];        // the way of going on each side
 const YAW = [Math.PI, Math.PI / 2, 0, -Math.PI / 2];    // a house's turn: its front to the road
@@ -146,50 +146,129 @@ function setHouse(i: number, drop: boolean) {
   for (const o of objs) { o.vis = visible(o, CAM); addObj(o, a, i + 1, drop ? 5 : 0); }
 }
 
+const ROAD = 1.25, WALK = 0.55;   // half the road's width, the pavement
+const FOG = [15, 38], HAZE = "#dde9f1";
 function scene() {
   rg.three("clear");
-  rg.three("scene", { background: ["#7cc8f5", "#e3f6ff"], ground: { y: 0, color: "#86c95f" } });
+  // the far town fades into the haze
+  rg.three("scene", { background: ["#7cc0ee", HAZE], ground: { y: 0, color: "#8cc56a" }, fog: FOG, fogColor: HAZE });
   rg.three("light", { id: "sun", type: "directional", x: 4, y: 8, z: 3, intensity: 0.65 });
   rg.three("light", { id: "ambient", type: "ambient", intensity: 0.45 });
-  // the ring road and its square lines
-  const L = 2 * R + 1.8;
-  rg.three("add", { id: "rd0", shape: "box", size: [L, 0.02, 1.8], color: "#5c636a", x: 0, y: 0.01, z: R, layer: -1 });
-  rg.three("add", { id: "rd2", shape: "box", size: [L, 0.02, 1.8], color: "#5c636a", x: 0, y: 0.01, z: -R, layer: -1 });
-  rg.three("add", { id: "rd1", shape: "box", size: [1.8, 0.02, L], color: "#5c636a", x: -R, y: 0.01, z: 0, layer: -1 });
-  rg.three("add", { id: "rd3", shape: "box", size: [1.8, 0.02, L], color: "#5c636a", x: R, y: 0.01, z: 0, layer: -1 });
+  // the ring road (under everything) and its pavements
+  const L = 2 * R + 2 * ROAD, LW = 2 * R + 2 * (ROAD + WALK);
+  for (let s = 0; s < 4; s++) {
+    const horiz = s % 2 === 0, nn = NORM[s];
+    const at = (d: number) => [nn[0] * d, nn[1] * d];
+    const p0 = at(R), pIn = at(R - ROAD - WALK / 2), pOut = at(R + ROAD + WALK / 2);
+    rg.three("add", { id: "rd" + s, shape: "box", size: horiz ? [L, 0.02, 2 * ROAD] : [2 * ROAD, 0.02, L], color: "#3d4248", x: p0[0], y: 0.01, z: p0[1], layer: -2 });
+    rg.three("add", { id: "wi" + s, shape: "box", size: horiz ? [LW - 2 * WALK - 2 * ROAD, 0.02, WALK] : [WALK, 0.02, LW - 2 * WALK - 2 * ROAD], color: "#c9c4b8", x: pIn[0], y: 0.01, z: pIn[1], layer: -2 });
+    rg.three("add", { id: "wo" + s, shape: "box", size: horiz ? [LW, 0.02, WALK] : [WALK, 0.02, LW], color: "#c9c4b8", x: pOut[0], y: 0.01, z: pOut[1], layer: -2 });
+  }
+  // the squares of the board as tiles on the street; a plot's tile has its block's colour on the plot's side
+  const TILE: any = { start: "#b7e4c7", jail: "#ced4da", park: "#95d5b2", police: "#a9c7f0", chance: "#d7c3f7", kiosk: "#ffc8dd", plot: "#f6efdc" };
   for (let i = 0; i < N; i++) {
-    const s = sideOf(i), j = i % 6;
-    if (j === 0) continue;
-    // a white line before and after each side square
-    for (const h of [-0.5, 0.5]) {
-      if ((j === 1 && h < 0) || (j === 5 && h > 0)) continue;
-      const p = sqXZ(i + h), tg = TANG[s];
-      rg.three("add", { id: "ln" + i + "_" + h, shape: "box", size: tg[0] ? [0.08, 0.02, 1.7] : [1.7, 0.02, 0.08], color: "#e9ecef", x: p[0], y: 0.02, z: p[1], layer: -1 });
-    }
-    const p = sqXZ(i), n = NORM[s], tg = TANG[s];
-    const sq = SQ[i];
-    // the plot: a sand-coloured yard and a stripe of the block's colour by the road
-    const w = STEPW - 0.25, d = 3.5;
-    const yard = sq.kind === "plot" ? "#d8c79a" : sq.kind === "chance" ? "#ffe8a3" : "#f6d0e0";
-    const cx = p[0] + n[0] * (0.9 + d / 2 + 0.1), cz = p[1] + n[1] * (0.9 + d / 2 + 0.1);
-    rg.three("add", { id: "yd" + i, shape: "box", size: tg[0] ? [w, 0.02, d] : [d, 0.02, w], color: yard, x: cx, y: 0.015, z: cz, layer: -1 });
+    const s = sideOf(i), j = i % 6, p = sqXZ(i), n = NORM[s], tg = TANG[s], sq = SQ[i];
+    const along = j === 0 ? 2 * ROAD - 0.12 : STEPW - 0.12, across = 2 * ROAD - 0.12;
     if (sq.kind === "plot") {
-      const sx = p[0] + n[0] * 1.15, sz = p[1] + n[1] * 1.15;
-      rg.three("add", { id: "st" + i, shape: "box", size: tg[0] ? [w, 0.03, 0.42] : [0.42, 0.03, w], color: BLOCK_COLORS[sq.block], x: sx, y: 0.025, z: sz, layer: -1 });
+      const band = 0.5, cw = across - band;
+      const c = [p[0] - n[0] * band / 2, p[1] - n[1] * band / 2], bc = [p[0] + n[0] * cw / 2, p[1] + n[1] * cw / 2];
+      rg.three("add", { id: "tl" + i, shape: "box", size: tg[0] ? [along, 0.02, cw] : [cw, 0.02, along], color: TILE.plot, x: c[0], y: 0.02, z: c[1], layer: -1 });
+      rg.three("add", { id: "tb" + i, shape: "box", size: tg[0] ? [along, 0.02, band] : [band, 0.02, along], color: BLOCK_COLORS[sq.block], x: bc[0], y: 0.02, z: bc[1], layer: -1 });
+    } else rg.three("add", { id: "tl" + i, shape: "box", size: tg[0] ? [along, 0.02, across] : [across, 0.02, along], color: TILE[sq.kind], x: p[0], y: 0.02, z: p[1], layer: -1 });
+    if (j === 0) continue;
+    // the yard beside the street
+    const w = STEPW - 0.2, d = 3.6, yo = ROAD + WALK + d / 2;
+    const yard = sq.kind === "plot" ? "#d8c79a" : sq.kind === "chance" ? "#ffe8a3" : "#f6d0e0";
+    const cx = p[0] + n[0] * yo, cz = p[1] + n[1] * yo;
+    rg.three("add", { id: "yd" + i, shape: "box", size: tg[0] ? [w, 0.02, d] : [d, 0.02, w], color: yard, x: cx, y: 0.015, z: cz, layer: -2 });
+    if (sq.kind === "plot") {
       // the owner's flag at the corner of the plot
-      const fx = p[0] + n[0] * 1.5 + tg[0] * (w / 2 - 0.2), fz = p[1] + n[1] * 1.5 + tg[1] * (w / 2 - 0.2);
+      const fo = ROAD + WALK + 0.25, fx = p[0] + n[0] * fo + tg[0] * (w / 2 - 0.2), fz = p[1] + n[1] * fo + tg[1] * (w / 2 - 0.2);
       rg.three("add", { id: "fp" + i, shape: "cylinder", size: [0.04, 0.04, 1.3], color: "#495057", x: fx, y: 0.65, z: fz, detail: 6, visible: false });
       rg.three("add", { id: "ff" + i, shape: "box", size: [0.55, 0.36, 0.04], color: "#ffffff", x: fx - tg[0] * 0.3, y: 1.1, z: fz - tg[1] * 0.3, wy: YAW[s], visible: false });
     } else if (sq.kind === "chance") gift("gf" + i, cx, cz, YAW[s]);
     else if (sq.kind === "kiosk") kiosk(cx, cz, YAW[s]);
   }
   corners();
-  middle();
+  city();
   houses = []; builtLevel = []; dropT = [];
   for (let i = 0; i < N; i++) { houses.push(null); builtLevel.push(0); dropT.push(-10); }
   for (let i = 0; i < N; i++) if (g.level[i]) setHouse(i, false);
   flags();
   for (let k = 0; k < g.players.length; k++) pieceAdd(k);
+  lastCull = [999, 999, 999];
+}
+
+// ---- the town round the board: simple houses in rows, more of them behind ----
+let town: any[] = [];         // { objs, x, z }: culled like the board's houses
+let seedT = 7;
+function tr(): number { seedT = (seedT * 48271) % 2147483647; return seedT / 2147483647; }
+const WALLC = ["#5b8fb9", "#e9a46a", "#f2e2c4", "#c9ced6", "#d9705f", "#f6d55c", "#9cc5a1", "#b9a3d0", "#e8e1d7", "#8fa9c7"];
+const ROOFC = ["#7a2e22", "#4a4a4a", "#8a5a3b", "#2f5d50"];
+function ob(id: string, shape: string, size: number[], color: string, x: number, y: number, z: number, o: any): Obj {
+  const r: Obj = { cat: "", id, shape, size, color, x, y, z, rx: 0, ry: 0, rz: 0, sx: 1, sy: 1, sz: 1, layer: 0, detail: 8, face: 99, vis: false };
+  if (o) for (const k of Object.keys(o)) (r as any)[k] = o[k];
+  return r;
+}
+// a town house at (cx, cz), its front turned by a: "flat" (a block with window rows),
+// "gable" (a pointed roof and a chimney), "shop" (low, with a striped awning)
+function townHouse(kind: string, w: number, h: number, d: number, cx: number, cz: number, a: number) {
+  const id = "tw" + town.length + "_", wc = WALLC[Math.floor(tr() * WALLC.length)], out: Obj[] = [];
+  out.push(ob(id + "b", "box", [w, h, d], wc, 0, h / 2, 0, null));
+  const glass = tr() < 0.5 ? "#8ecae6" : "#4d6a86";
+  if (kind === "gable") {
+    const hr = w * 0.38, rc = ROOFC[Math.floor(tr() * ROOFC.length)];
+    out.push(ob(id + "g", "prism", [d, hr, w], wc, 0, h, 0, { ry: Math.PI / 2 }));
+    out.push(ob(id + "r", "roof", [d + 0.3, hr + 0.12, w + 0.36], rc, 0, h - 0.05, 0, { ry: Math.PI / 2, layer: 2 }));
+    out.push(ob(id + "c", "box", [0.3, 0.8, 0.3], "#8d4a3a", w * 0.22, h + hr * 0.5, -d * 0.15, { layer: 3 }));
+    const fl = Math.max(1, Math.floor(h / 1.1));
+    for (let f = 0; f < fl; f++) for (const u of [-0.27, 0.27]) out.push(ob(id + "w" + f + u, "box", [0.42, 0.5, 0.04], glass, u * w, 0.75 + f * 1.1, d / 2 + 0.02, { layer: 1, face: 0 }));
+    out.push(ob(id + "d", "box", [0.45, 0.8, 0.04], "#6b4226", 0, 0.4, d / 2 + 0.02, { layer: 1, face: 0 }));
+  } else {
+    out.push(ob(id + "t", "box", [w + 0.12, 0.14, d + 0.12], "#6c757d", 0, h + 0.07, 0, { layer: 2 }));
+    const fl = Math.min(7, Math.floor((h - 0.4) / 1.0));
+    for (let f = kind === "shop" ? 0 : 1; f < fl; f++) out.push(ob(id + "w" + f, "box", [w * 0.82, 0.38, 0.04], glass, 0, 0.7 + f * 1.0, d / 2 + 0.02, { layer: 1, face: 0 }));
+    if (kind === "shop" || h > 2) {
+      // a shop on the ground floor: a window, a door and a red and white awning
+      out.push(ob(id + "s", "box", [w * 0.55, 0.6, 0.04], "#bde0fe", -w * 0.12, 0.55, d / 2 + 0.02, { layer: 1, face: 0 }));
+      out.push(ob(id + "d", "box", [0.42, 0.8, 0.04], "#2b4c6f", w * 0.3, 0.4, d / 2 + 0.02, { layer: 1, face: 0 }));
+      const aw = w * 0.8;
+      for (let k = 0; k < 4; k++) out.push(ob(id + "a" + k, "box", [aw / 4, 0.06, 0.45], k % 2 ? "#ffffff" : "#e63946", -aw / 2 + (k + 0.5) * aw / 4, 1.05, d / 2 + 0.22, { layer: 2, face: 0, rx: 0 }));
+    }
+  }
+  for (const o of out) turnObj(o, cx, cz, a);
+  const g1 = 300 + town.length;
+  for (const o of out) addObj(o, a, g1, 0);
+  town.push({ objs: out, x: cx, z: cz });
+}
+function townTree(cx: number, cz: number, s: number) {
+  const id = "tt" + town.length + "_";
+  const out = [ob(id + "s", "cylinder", [0.1 * s, 0.13 * s, 0.7 * s], "#7a4f2a", cx, 0.35 * s, cz, null),
+    ob(id + "c", "cone", [0.6 * s, 1.5 * s], tr() < 0.5 ? "#2d6a4f" : "#40916c", cx, 0.7 * s + 0.75 * s, cz, null)];
+  for (const o of out) addObj(o, 0, 0, 0);
+  town.push({ objs: out, x: cx, z: cz });
+}
+function city() {
+  town = []; seedT = 7;
+  for (let s = 0; s < 4; s++) {
+    const n = NORM[s], aIn = Math.atan2(n[0], n[1]), aOut = YAW[s];
+    const at = (j: number, off: number) => { const p = sqXZ(s * 6 + j); return [p[0] + n[0] * off, p[1] + n[1] * off]; };
+    // inside the ring: a row of houses along the street, trees on the pavement, taller ones behind
+    for (let j = 2; j <= 4; j++) {
+      // low ones, so that the camera on the street sees over them
+      const kind = tr() < 0.6 ? "gable" : "shop";
+      const h = kind === "gable" ? 1.6 + tr() * 0.6 : 1.4 + tr() * 0.4;
+      const p = at(j, -(ROAD + WALK + 2.6));
+      townHouse(kind, 2.7 + tr() * 0.3, h, 2.3, p[0], p[1], aIn);
+    }
+    { const p = at(3, -(ROAD + WALK + 5.6)); townHouse("flat", 3.6, 4.5 + tr() * 3.5, 2.2, p[0], p[1], aIn); }
+    // outside: rows behind the plots, higher and higher into the haze
+    for (let j = 0.5; j <= 5.6; j += 1) {
+      const p = at(j, ROAD + WALK + 5.9), kind = tr() < 0.4 ? "gable" : "flat";
+      townHouse(kind, 3.0, kind === "gable" ? 2.6 + tr() * 1.5 : 3.5 + tr() * 3, 2.6, p[0], p[1], aOut);
+    }
+    for (let j = 0; j < 6; j += 1.25) { const p = at(j, ROAD + WALK + 9.6); townHouse("flat", 3.4, 6 + tr() * 5, 3, p[0], p[1], aOut); }
+  }
 }
 // a present box on a surprise square
 function gift(id: string, x: number, z: number, a: number) {
@@ -232,12 +311,14 @@ function corners() {
   rg.three("add", { id: "pc_s", shape: "box", size: [0.62, 0.1, 1.12], color: "#1d4e89", x: pc[0], y: 0.22, z: pc[1] });
   rg.three("add", { id: "pc_c", shape: "box", size: [0.5, 0.22, 0.55], color: "#1d4e89", x: pc[0], y: 0.48, z: pc[1] - 0.05 });
   rg.three("add", { id: "pc_l", shape: "box", size: [0.3, 0.08, 0.12], color: "#3a86ff", x: pc[0], y: 0.63, z: pc[1] - 0.05, emissive: true });
-  // the start: a gate over the road
+  // the start: a chequered line on the start square and a tall flag at the corner
   const S = sqXZ(START);
-  for (const d of [-1, 1]) rg.three("add", { id: "sg" + d, shape: "cylinder", size: [0.12, 0.12, 2.4], color: "#ffffff", x: S[0] + d * 1.2 * 0.707, y: 1.2, z: S[1] - d * 1.2 * 0.707, detail: 8 });
-  rg.three("add", { id: "sg_t", shape: "box", size: [2.8, 0.5, 0.12], color: "#06d6a0", x: S[0], y: 2.4, z: S[1], wy: Math.PI / 4 });
-  for (let k = 0; k < 6; k++) rg.three("add", { id: "sg_c" + k, shape: "box", size: [0.42, 0.42, 0.02], color: k % 2 ? "#212529" : "#ffffff", x: S[0] + (k - 2.5) * 0.42 * 0.707, y: 2.4, z: S[1] - (k - 2.5) * 0.42 * 0.707 + 0.0, wy: Math.PI / 4, layer: 1 });
-  rg.three("add", { id: "sg_g", shape: "box", size: [2.6, 0.03, 2.6], color: "#e9ecef", x: S[0] + 2.2, y: 0.02, z: S[1] + 2.2, layer: -1 });
+  for (let k = 0; k < 8; k++) for (let r = 0; r < 2; r++) {
+    const u = (k - 3.5) * 0.3, v = (r - 0.5) * 0.3 - 0.6;
+    rg.three("add", { id: "sg_c" + k + "_" + r, shape: "box", size: [0.3, 0.02, 0.3], color: (k + r) % 2 ? "#212529" : "#ffffff", x: S[0] + v, y: 0.03, z: S[1] + u, layer: 0 });
+  }
+  rg.three("add", { id: "sg_p", shape: "cylinder", size: [0.06, 0.06, 3.2], color: "#dee2e6", x: R + ROAD + WALK + 0.6, y: 1.6, z: R + ROAD + WALK + 0.6, detail: 6 });
+  rg.three("add", { id: "sg_f", shape: "box", size: [1.0, 0.6, 0.04], color: "#06d6a0", x: R + ROAD + WALK + 0.6 - 0.5, y: 2.9, z: R + ROAD + WALK + 0.6, wy: 0 });
   // the park: trees and a fountain
   const Pk = [-R - 2.5, -R - 2.5];
   rg.three("add", { id: "pk_g", shape: "box", size: [3.6, 0.02, 3.6], color: "#5cb85c", x: Pk[0], y: 0.02, z: Pk[1], layer: -1 });
@@ -252,20 +333,6 @@ function tree(id: string, x: number, z: number, s: number) {
   rg.three("add", { id: id + "s", shape: "cylinder", size: [0.12 * s, 0.16 * s, 0.8 * s], color: "#7a4f2a", x, y: 0.4 * s, z, detail: 6 });
   rg.three("add", { id: id + "c", shape: "cone", size: [0.7 * s, 1.6 * s], color: "#2d6a4f", x, y: 0.8 * s + 0.8 * s, z, detail: 8 });
 }
-// the middle of the town: a pond, trees and flowers
-function middle() {
-  rg.three("add", { id: "md_p", shape: "cylinder", size: [3.2, 3.2, 0.02], color: "#48cae4", x: 0, y: 0.02, z: 0, detail: 18, layer: -1 });
-  rg.three("add", { id: "md_s", shape: "cylinder", size: [3.6, 3.6, 0.02], color: "#e9d8a6", x: 0, y: 0.01, z: 0, detail: 18, layer: -1 });
-  // low bushes and flower beds (nothing tall: the camera looks over the middle)
-  const B = [[-5.5, -5.5], [5.5, -5.5], [-5.5, 5.5], [5.5, 5.5], [0, -6.0], [-6.0, 0], [6.0, 0], [0, 6.0]];
-  B.forEach((p, k) => {
-    rg.three("add", { id: "md_b" + k, shape: "sphere", size: [0.45], color: k % 2 ? "#52b788" : "#40916c", x: p[0], y: 0.25, z: p[1], sy: 0.6, detail: 8 });
-    rg.three("add", { id: "md_f" + k, shape: "cylinder", size: [0.9, 0.9, 0.02], color: ["#ffafcc", "#ffd166", "#cdb4db", "#ff8fab"][k % 4], x: p[0] * 0.75, y: 0.02, z: p[1] * 0.75, detail: 10, layer: -1 });
-  });
-  // a duck in the pond
-  rg.three("add", { id: "md_d", shape: "sphere", size: [0.22], color: "#ffffff", x: -1.2, y: 0.12, z: 1.0, sz: 1.3, detail: 8 });
-  rg.three("add", { id: "md_h", shape: "sphere", size: [0.13], color: "#ffffff", x: -1.2, y: 0.33, z: 1.25, detail: 8 });
-}
 // the owners' flags
 function flags() {
   for (let i = 0; i < N; i++) {
@@ -277,7 +344,7 @@ function flags() {
 }
 
 // ---- the pieces ---------------------------------------------------------------
-const PS = 1.5;
+const PS = 1.25;
 // [shape, size, color, x, y, z, rx, rz] facing +z
 const PARTS: any[] = [
   [["box", [0.5, 0.22, 0.8], "#e63946", 0, 0.2, 0, 0, 0], ["box", [0.42, 0.2, 0.42], "#a8dadc", 0, 0.41, -0.05, 0, 0],
@@ -341,9 +408,11 @@ function piecePos(k: number): number[] {
 function jailMates(): number[] { const out: number[] = []; g.players.forEach((p, j) => { if (p.jail > 0 && !p.out) out.push(j); }); return out; }
 
 // ---- the camera --------------------------------------------------------------------
-const FOV = 50, TOPH = 64, BOTH = 150;
+// From the street, behind the piece, looking along the road; when the piece has
+// stopped, the camera turns a little towards the plot beside it.
+const FOV = 58, BOTH = 176, MAP = 118;
 let CAM = [0, 30, 20], LOOK = [0, 0, 0];
-let camYaw = 0, camSet = false, userYaw = 0;
+let camYaw = 0, camSet = false, userYaw = 0, lean = 0;
 let camPos = [0, 30, 20], camLook = [0, 0, 0];
 function focusQ(): number {
   const p = P();
@@ -353,46 +422,57 @@ function focusQ(): number {
 function camStep(dt: number) {
   let tc: number[], tl: number[];
   if (overview) {
-    tc = [0, 56, 29]; tl = [0, 0, 1.5];
+    tc = [0, 50, 30]; tl = [0, 0, 2];
   } else {
     const q = focusQ();
     let want = yawAt(q) + userYaw;
     while (want - camYaw > Math.PI) want -= Math.PI * 2;
     while (want - camYaw < -Math.PI) want += Math.PI * 2;
     camYaw = camSet ? camYaw + (want - camYaw) * (1 - Math.exp(-dt * 3)) : want;
-    const p = sqXZ(q), n = [Math.sin(camYaw), Math.cos(camYaw)];
-    tl = [p[0] + n[0] * 3.0, 1.0, p[1] + n[1] * 3.0];
-    tc = [p[0] - n[0] * 10.5, 6.4, p[1] - n[1] * 10.5];
+    // the camera stays on the street; at a stop it looks towards the plot (or the jail)
+    const stopped = step === "dialog" || step === "wait", jailed = P().jail > 0 && step !== "moving";
+    const wl = jailed || stopped ? 1 : 0;
+    lean += (wl - lean) * (1 - Math.exp(-dt * 2.5));
+    const n = [Math.sin(camYaw), Math.cos(camYaw)], tg = [-n[1], n[0]];
+    const p = sqXZ(q);
+    // the camera stands on the road a little behind the piece (round a corner too),
+    // and looks at the road ahead
+    const back = q - 1.9 - lean * 0.9, bn = NORM[sideOf(Math.floor(((back % N) + N) % N))];
+    const bp = sqXZ(back), fp = sqXZ(q + 1.5);
+    const side = jailed ? 2.2 : 3.2, ahead = [fp[0], 0.7, fp[1]], qi = Math.round(((q % N) + N) % N) % N, pn = jailed ? [-0.707, 0.707] : NORM[sideOf(qi)], pt = TANG[sideOf(qi)];
+    const plot = [p[0] + pn[0] * side, 1.5, p[1] + pn[1] * side];
+    tl = [ahead[0] + (plot[0] - ahead[0]) * lean, ahead[1] + (plot[1] - ahead[1]) * lean, ahead[2] + (plot[2] - ahead[2]) * lean];
+    tc = [bp[0] - bn[0] * 0.5 * (1 + lean), 4.5 + lean * 0.5, bp[1] - bn[1] * 0.5 * (1 + lean)];
   }
   const a = camSet ? 1 - Math.exp(-dt * 6) : 1;
   for (let k = 0; k < 3; k++) { camPos[k] += (tc[k] - camPos[k]) * a; camLook[k] += (tl[k] - camLook[k]) * a; }
   camSet = true;
-  // the view is between the top bar and the bottom panel: the look point is moved
-  // so that it shows in the middle of that space
   CAM = camPos.slice(); LOOK = camLook.slice();
   rg.three("camera", { x: CAM[0], y: CAM[1], z: CAM[2], lookAt: shiftLook(), fov: FOV });
   cull();
 }
+// the 3D view is above the bottom panel: the look point is moved so that it
+// shows in the middle of that space
 function shiftLook(): number[] {
-  const want = (TOPH + height - BOTH) / 2, dy = height / 2 - want;   // pixels the middle is above the screen's middle
+  const want = (height - BOTH) / 2, dy = height / 2 - want;
   const f = [LOOK[0] - CAM[0], LOOK[1] - CAM[1], LOOK[2] - CAM[2]];
   const dist = Math.sqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
   const focal = (height / 2) / Math.tan(FOV * Math.PI / 360);
-  // looking a little lower moves the world up on the screen
   return [LOOK[0], LOOK[1] - dy * dist / focal, LOOK[2]];
 }
-// buildings out of sight are not drawn, nor the things on walls that face away
+// buildings out of sight or lost in the haze are not drawn, nor the things on
+// walls that face away
 let lastCull = [999, 999, 999];
 function cull() {
   const moved = Math.abs(CAM[0] - lastCull[0]) + Math.abs(CAM[1] - lastCull[1]) + Math.abs(CAM[2] - lastCull[2]);
-  if (moved < 0.15) return;
+  if (moved < 0.12) return;
   lastCull = CAM.slice();
   const f = [LOOK[0] - CAM[0], LOOK[2] - CAM[2]], fl = Math.sqrt(f[0] * f[0] + f[1] * f[1]) || 1;
-  const fx = f[0] / fl, fz = f[1] / fl;
+  const fx = f[0] / fl, fz = f[1] / fl, far = overview ? 999 : FOG[1] + 3;
   const check = (h: any) => {
     const dx = h.x - CAM[0], dz = h.z - CAM[2];
     const z = dx * fx + dz * fz, side = Math.abs(dx * -fz + dz * fx);
-    const on = overview || (z > -3 && z < 30 && side < z * 0.75 + 5);
+    const on = overview || (z > -3 && z < far && side < z * 0.62 + 4);
     for (const o of h.objs) {
       const v = on && visible(o, CAM);
       if (v !== o.vis) { o.vis = v; rg.three("set", { id: o.id, visible: v }); }
@@ -400,6 +480,7 @@ function cull() {
   };
   for (const h of houses) if (h) check(h);
   for (const h of fixed) check(h);
+  for (const h of town) check(h);
 }
 
 // ---- the game's flow -----------------------------------------------------------------
@@ -763,7 +844,7 @@ for (let v = 1; v <= 6; v++) {
   }
   BASE.push(best);
 }
-function dieHome(): number[] { return [width / 2, TOPH + (height - TOPH - BOTH) * 0.55]; }
+function dieHome(): number[] { return [width / 2, (height - BOTH) * 0.58]; }
 function n1(x: number) { return x.toFixed(1); }
 function DieView(cx: number, cy: number, h: number, m: number[], lift: number, onTap: any, id: string) {
   const S = Math.ceil(h * 3.2), f = 6;
@@ -833,7 +914,7 @@ function Dice3() {
 // ---- input and time ---------------------------------------------------------------
 let drag = { on: false, x: 0, moved: false };
 function onPointerDown(x: number, y: number) {
-  if (phase !== "play" || y < TOPH || y > height - BOTH || dlg) return;
+  if (phase !== "play" || (x < MAP + 12 && y < MAP + 12) || y > height - BOTH || dlg) return;
   drag = { on: true, x, moved: false };
 }
 function onPointerUp() { drag.on = false; }
@@ -905,13 +986,13 @@ function housePic(l: number, x: number, y: number, w: number, h: number): any[] 
 }
 
 function Panels() {
-  const n = g.players.length, w = (width - 58 - 4 * n) / n;
+  const n = g.players.length, w = (width - 8 - 4 * (n - 1)) / n, py = height - 58;
   const out: any[] = [];
   g.players.forEach((p, k) => {
     const on = k === g.cur && phase === "play";
     const tk = TOK[p.tok];
     out.push(
-      <div className={"panel" + (on ? " on" : "") + (p.out ? " out" : "")} style={{ left: 4 + k * (w + 4), width: w, backgroundColor: tk.color }}>
+      <div className={"panel" + (on ? " on" : "") + (p.out ? " out" : "")} style={{ left: 4 + k * (w + 4), top: py, width: w, backgroundColor: tk.color }}>
         <div className="pemoji">{tk.emoji}</div>
         <div className="pcol">
           <div className="money">{p.money + " €"}</div>
@@ -921,9 +1002,31 @@ function Panels() {
     );
   });
   floats.forEach((f) => {
-    const u = (t - f.t) / 1.6, w2 = (width - 58 - 4 * n) / n;
-    out.push(<div className="float" style={{ left: 4 + f.k * (w2 + 4), width: w2, top: TOPH - 6 + u * 40, color: f.color, opacity: String(1 - u * u) }}>{f.text}</div>);
+    const u = (t - f.t) / 1.6;
+    out.push(<div className="float" style={{ left: 4 + f.k * (w + 4), width: w, top: py - 24 - u * 50, color: f.color, opacity: String(1 - u * u) }}>{f.text}</div>);
   });
+  return out;
+}
+
+// the board from above, in the corner: the squares, owners, buildings and pieces
+function MiniMap() {
+  const c = MAP / 7, out: any[] = [];
+  const cell = (i: number) => { const s = sideOf(i), j = i % 6; return s === 0 ? [6 - j, 6] : s === 1 ? [0, 6 - j] : s === 2 ? [j, 0] : [6, j]; };
+  const COL: any = { start: "#52b788", jail: "#868e96", park: "#2d6a4f", police: "#3a6ea5", chance: "#9b5de5", kiosk: "#f15bb5" };
+  out.push(<div className="map" id="minimap" style={{ left: 8, top: 8, width: MAP, height: MAP }} onClick={() => { overview = !overview; lastCull = [999, 999, 999]; rg.sound("click"); }} />);
+  for (let i = 0; i < N; i++) {
+    const q = cell(i), sq = SQ[i], x = 8 + q[0] * c, y = 8 + q[1] * c, o = g.owner[i];
+    out.push(<div className="mcell" style={{ left: x + 1, top: y + 1, width: c - 2, height: c - 2, backgroundColor: sq.kind === "plot" ? BLOCK_COLORS[sq.block] : COL[sq.kind] }} />);
+    if (o >= 0) out.push(<div className="mown" style={{ left: x + c * 0.25, top: y + c * 0.25, width: c * 0.5, height: c * 0.5, borderRadius: c * 0.25, backgroundColor: TOK[g.players[o].tok].color }}>{g.level[i] ? String(g.level[i]) : ""}</div>);
+  }
+  g.players.forEach((p, k) => {
+    if (p.out) return;
+    const q = cell(p.jail > 0 ? JAIL : Math.round(shown[k]) % N), r = c * 0.36;
+    const ox = (k % 2) * c * 0.5 - c * 0.25, oy = Math.floor(k / 2) * c * 0.5 - c * 0.25;
+    const on = k === g.cur && Math.floor(t * 3) % 2 === 0;
+    out.push(<div className="mpiece" style={{ left: 8 + (q[0] + 0.5) * c + ox - r, top: 8 + (q[1] + 0.5) * c + oy - r, width: r * 2, height: r * 2, borderRadius: r, backgroundColor: TOK[p.tok].color, borderColor: on ? "#ffffff" : "#212529" }} />);
+  });
+  out.push(<div className="mlabel" style={{ left: 8 + c, top: 8 + c * 2.6, width: c * 5 }}>{overview ? "🔍" : "🗺️"}</div>);
   return out;
 }
 
@@ -975,7 +1078,7 @@ const DW = 316;
 function Dialog() {
   if (!dlg) return null;
   const d = dlg, human = !P().ai;
-  const x = (width - DW) / 2, y = TOPH + 14;
+  const x = (width - DW) / 2, y = Math.max(8, Math.min(MAP + 16, height - BOTH - 350));
   const body: any[] = [];
   if (d.icon) body.push(<div className="dicon">{d.icon}</div>);
   if (d.kind === "deed") for (const e of Deed(d.sq)) body.push(e);
@@ -1005,10 +1108,9 @@ function Dialog() {
 function Play() {
   return (
     <div className="screen">
-      {Panels()}
-      {overview ? null : <div className="zoombtn" id="map" style={{ left: 8, top: TOPH + 8 }} onClick={() => { overview = true; rg.sound("click"); }}>{"🗺️"}</div>}
-      {overview ? <div className="zoombtn" id="unmap" style={{ left: 8, top: TOPH + 8 }} onClick={() => { overview = false; rg.sound("click"); }}>{"🔍"}</div> : null}
+      {MiniMap()}
       {Bottom()}
+      {Panels()}
       {Dialog()}
       {Dice3()}
     </div>
