@@ -19,6 +19,7 @@ import { N, SQ, START, JAIL, PARK, POLICE, KIOSK, PASS_BONUS, JAIL_FINE, KIOSK_F
   ranking, nextPlayer, aiBuy, aiBuild, aiPlan, aiJail, owned } from "lib/rules";
 import { Spec, CATS, objects, visible, front, extent, Obj, Pic } from "lib/house";
 import { THEME } from "lib/theme";
+import { SAYLEN } from "lib/saylen";
 
 // ---- names and pictures ----------------------------------------------------
 // street and corner names come from the game's lib/theme.ts
@@ -29,13 +30,31 @@ function sqName(i: number): string {
   const s = THEME.names[SQ[i].kind]; return rg.t(s[0], s[1], s[2]);
 }
 function tt(a: string[]): string { return rg.t(a[0], a[1], a[2]); }
-const TOK: any[] = [
-  { id: "auto", color: "#e63946", emoji: "🚗", name: ["Auto", "Car", "Coche"], turn: ["Auton vuoro", "Car's turn", "Turno del coche"] },
-  { id: "raketti", color: "#3a86ff", emoji: "🚀", name: ["Raketti", "Rocket", "Cohete"], turn: ["Raketin vuoro", "Rocket's turn", "Turno del cohete"] },
-  { id: "ankka", color: "#f4b400", emoji: "🦆", name: ["Ankka", "Duck", "Pato"], turn: ["Ankan vuoro", "Duck's turn", "Turno del pato"] },
-  { id: "kilpikonna", color: "#2a9d8f", emoji: "🐢", name: ["Kilpikonna", "Turtle", "Tortuga"], turn: ["Kilpikonnan vuoro", "Turtle's turn", "Turno de la tortuga"] },
+// the players are pawns; each picks a colour. p.tok is the colour's number.
+const COLS: any[] = [
+  { id: "punainen", color: "#e63946", ink: "#ffffff", name: ["Punainen", "Red", "Rojo"] },
+  { id: "sininen", color: "#3a86ff", ink: "#ffffff", name: ["Sininen", "Blue", "Azul"] },
+  { id: "keltainen", color: "#f4c20d", ink: "#1d3557", name: ["Keltainen", "Yellow", "Amarillo"] },
+  { id: "vihrea", color: "#2a9d4f", ink: "#ffffff", name: ["Vihreä", "Green", "Verde"] },
+  { id: "pinkki", color: "#f15bb5", ink: "#ffffff", name: ["Pinkki", "Pink", "Rosa"] },
+  { id: "musta", color: "#2b2d42", ink: "#ffffff", name: ["Musta", "Black", "Negro"] },
+  { id: "violetti", color: "#8e44ad", ink: "#ffffff", name: ["Violetti", "Purple", "Morado"] },
+  { id: "oranssi", color: "#f77f00", ink: "#ffffff", name: ["Oranssi", "Orange", "Naranja"] },
 ];
-function tokName(t: number): string { const n = TOK[t].name; return rg.t(n[0], n[1], n[2]); }
+function defName(k: number, ai: boolean): string { return (ai ? rg.t("Puhelin", "Phone", "Teléfono") : rg.t("Pelaaja", "Player", "Jugador")) + " " + (k + 1); }
+// player k's name: the one they typed, or "Pelaaja 1"
+function pName(k: number): string { const p = g.players[k]; return p.name || defName(k, p.ai); }
+function pCol(k: number): any { return COLS[g.players[k].tok]; }
+// a pawn picture of colour c, s pixels high
+function Pawn(c: string, s: number, id: string, onClick: any) {
+  return (
+    <div className="pawn" id={id} onClick={onClick} style={{ width: s * 0.8, height: s }}>
+      <div style={{ width: s * 0.4, height: s * 0.4, borderRadius: s * 0.2, backgroundColor: c, borderWidth: 1, borderColor: "rgba(255,255,255,0.7)" }} />
+      <div style={{ width: s * 0.3, height: s * 0.08, borderRadius: s * 0.04, backgroundColor: c, marginTop: -s * 0.03 }} />
+      <div style={{ width: s * 0.66, height: s * 0.48, borderRadius: s * 0.2, backgroundColor: c, marginTop: -s * 0.01, borderWidth: 1, borderColor: "rgba(255,255,255,0.7)" }} />
+    </div>
+  );
+}
 const LEVEL_NAME: any[] = [["Tontti", "Plot", "Terreno"], ["Maja", "Hut", "Cabaña"], ["Talo", "House", "Casa"], ["Kerrostalo", "Flats", "Edificio"], ["Hotelli", "Hotel", "Hotel"]];
 function levelName(l: number): string { const n = LEVEL_NAME[l]; return rg.t(n[0], n[1], n[2]); }
 // the buildings of the levels, as Talot houses
@@ -77,7 +96,15 @@ let extra = false;              // doubles: the same player throws again
 let shown: number[] = [];      // each player's position on screen (a float while moving)
 let move: any = { path: [], i: 0, u: 0, fly: false, from: 0, then: "" };
 let floats: any[] = [];        // "+150 €" texts rising from the panels
-let setupN = 2, setupAi = [false, true, true, true], setupRounds = 10;
+let setupN = 2, setupAi = [false, false, false, false], setupRounds = 10;
+let setupCol = [0, 1, 2, 3], setupName = ["", "", "", ""];
+let pick: any = null;      // the setup's open chooser: { kind: "color" | "name", k }
+function loadSetup() {
+  try {
+    const s = JSON.parse(rg.load("setup", "") || "null");
+    if (s) { setupN = s.n; setupAi = s.ai; setupCol = s.col; setupName = s.name; setupRounds = s.rounds; }
+  } catch (e) { }
+}
 let builtLevel: number[] = []; // the levels drawn in 3D
 let dropT: number[] = [];
 let overview = false;
@@ -85,7 +112,19 @@ let saidRoll = 0;
 
 function P() { return g.players[g.cur]; }
 function rnd(): number { return rg.random(); }
-function say(ids: any) { rg.say(ids); }
+// speech, and when it ends: the game waits for it before going on by itself
+// (SAYLEN: each clip's length in seconds, estimated by tools/kortteli/gen-voice.ts).
+// queue: said after what is playing instead of cutting it.
+let sayUntil = 0;
+function say(ids: any, queue?: boolean) {
+  const a = Array.isArray(ids) ? ids : [ids];
+  let len = 0;
+  for (const id of a) if (id) len += SAYLEN[id] || 0.9;
+  if (!rg.speechOn()) len = 0;
+  if (queue && t < sayUntil) { if (len) rg.say(a, { queue: true }); sayUntil += len; }
+  else { rg.say(a); sayUntil = t + len; }
+}
+function quiet(): boolean { return t >= sayUntil; }
 
 // ---- the board in the world ----------------------------------------------------
 // the ring road's middle line is R from the middle; corners at (±R, ±R); the
@@ -355,37 +394,28 @@ function flags() {
     if (SQ[i].kind !== "plot") continue;
     const o = g.owner[i];
     rg.three("set", { id: "fp" + i, visible: o >= 0 });
-    rg.three("set", { id: "ff" + i, visible: o >= 0, color: o >= 0 ? TOK[g.players[o].tok].color : "#ffffff" });
+    rg.three("set", { id: "ff" + i, visible: o >= 0, color: o >= 0 ? pCol(o).color : "#ffffff" });
   }
 }
 
 // ---- the pieces ---------------------------------------------------------------
 const PS = 1.25;
 // [shape, size, color, x, y, z, rx, rz] facing +z
-const PARTS: any[] = [
-  [["box", [0.5, 0.22, 0.8], "#e63946", 0, 0.2, 0, 0, 0], ["box", [0.42, 0.2, 0.42], "#a8dadc", 0, 0.41, -0.05, 0, 0],
-   ["cylinder", [0.12, 0.12, 0.08], "#212529", 0.27, 0.12, 0.26, 0, Math.PI / 2], ["cylinder", [0.12, 0.12, 0.08], "#212529", -0.27, 0.12, 0.26, 0, Math.PI / 2],
-   ["cylinder", [0.12, 0.12, 0.08], "#212529", 0.27, 0.12, -0.26, 0, Math.PI / 2], ["cylinder", [0.12, 0.12, 0.08], "#212529", -0.27, 0.12, -0.26, 0, Math.PI / 2]],
-  [["cylinder", [0.16, 0.16, 0.55], "#3a86ff", 0, 0.42, 0, 0, 0], ["cone", [0.16, 0.3], "#e63946", 0, 0.84, 0, 0, 0],
-   ["box", [0.5, 0.22, 0.04], "#e63946", 0, 0.24, 0, 0, 0], ["box", [0.04, 0.22, 0.5], "#e63946", 0, 0.24, 0, 0, 0],
-   ["sphere", [0.07], "#ffffff", 0, 0.52, 0.14, 0, 0]],
-  [["sphere", [0.26], "#ffd60a", 0, 0.28, -0.04, 0, 0], ["sphere", [0.17], "#ffd60a", 0, 0.6, 0.14, 0, 0],
-   ["cone", [0.07, 0.18], "#f77f00", 0, 0.58, 0.36, Math.PI / 2, 0], ["sphere", [0.035], "#212529", 0.08, 0.66, 0.28, 0, 0], ["sphere", [0.035], "#212529", -0.08, 0.66, 0.28, 0, 0]],
-  [["cylinder", [0.34, 0.34, 0.08], "#8ac926", 0, 0.08, 0, 0, 0], ["dome", [0.32], "#2a9d8f", 0, 0.1, 0, 0, 0],
-   ["sphere", [0.12], "#8ac926", 0, 0.18, 0.4, 0, 0], ["sphere", [0.08], "#8ac926", 0.24, 0.06, 0.22, 0, 0], ["sphere", [0.08], "#8ac926", -0.24, 0.06, 0.22, 0, 0],
-   ["sphere", [0.08], "#8ac926", 0.24, 0.06, -0.22, 0, 0], ["sphere", [0.08], "#8ac926", -0.24, 0.06, -0.22, 0, 0]],
+// a pawn: [shape, size, x, y, z]
+const PAWN: any[] = [
+  ["cylinder", [0.26, 0.3, 0.09], 0, 0.045, 0], ["cylinder", [0.09, 0.25, 0.6], 0, 0.39, 0],
+  ["cylinder", [0.15, 0.15, 0.05], 0, 0.71, 0], ["sphere", [0.17], 0, 0.86, 0],
 ];
 function pieceAdd(k: number) {
-  const parts = PARTS[g.players[k].tok];
-  parts.forEach((q: any, j: number) => rg.three("add", { id: "pc" + k + "_" + j, shape: q[0], size: q[1].map((v: number) => v * PS), color: q[2], rx: q[6], rz: q[7], detail: 8 }));
+  PAWN.forEach((q: any, j: number) => rg.three("add", { id: "pc" + k + "_" + j, shape: q[0], size: q[1].map((v: number) => v * PS), color: pCol(k).color, detail: 12 }));
   piecePlace(k, 0, 0, 0, 0);
 }
 function piecePlace(k: number, x: number, y: number, z: number, h: number) {
-  const parts = PARTS[g.players[k].tok], c = Math.cos(h), s = Math.sin(h);
+  const c = Math.cos(h), s = Math.sin(h);
   const vis = !g.players[k].out;
-  parts.forEach((q: any, j: number) => {
-    const lx = q[3] * PS, lz = q[5] * PS;
-    rg.three("set", { id: "pc" + k + "_" + j, x: x + lx * c + lz * s, y: y + q[4] * PS, z: z - lx * s + lz * c, wy: h, visible: vis });
+  PAWN.forEach((q: any, j: number) => {
+    const lx = q[2] * PS, lz = q[4] * PS;
+    rg.three("set", { id: "pc" + k + "_" + j, x: x + lx * c + lz * s, y: y + q[3] * PS, z: z - lx * s + lz * c, wy: h, visible: vis });
   });
 }
 function heading(q: number): number { const tg = TANG[sideOf(Math.floor(((q % N) + N) % N))]; return Math.atan2(tg[0], tg[1]); }
@@ -507,8 +537,10 @@ function cull() {
 // ---- the game's flow -----------------------------------------------------------------
 function startGame() {
   const toks: number[] = [], ais: boolean[] = [];
-  for (let k = 0; k < setupN; k++) { toks.push(k); ais.push(setupAi[k]); }
+  for (let k = 0; k < setupN; k++) { toks.push(setupCol[k]); ais.push(setupAi[k]); }
   g = rulesNew(toks, ais, setupRounds, rnd);
+  g.players.forEach((p, k) => { if (setupName[k]) p.name = setupName[k]; });
+  rg.save("setup", JSON.stringify({ n: setupN, ai: setupAi, col: setupCol, name: setupName, rounds: setupRounds }));
   shown = g.players.map(() => START);
   phase = "play"; overT = 0; floats = []; saidRoll = 0; camSet = false; overview = false; userYaw = 0;
   scene();
@@ -536,11 +568,11 @@ function startTurn() {
   if (p.jail > 0) {
     step = "dialog";
     jailDialog();
-    say(["kt_vuoro_" + p.tok, "kt_vankilassa"]);
+    say(["kt_vuoro_" + COLS[p.tok].id, "kt_vankilassa"], true);
   } else {
     step = "turn";
-    msg = T3(TOK[p.tok].turn) + ": " + rg.t("heitä nopat!", "throw the dice!", "¡tira los dados!");
-    say(saidRoll++ < 2 && !p.ai ? ["kt_vuoro_" + p.tok, "kt_heita"] : "kt_vuoro_" + p.tok);
+    msg = pName(g.cur) + ": " + rg.t("heitä nopat!", "throw the dice!", "¡tira los dados!");
+    say(saidRoll++ < 2 && !p.ai ? ["kt_vuoro_" + COLS[p.tok].id, "kt_heita"] : "kt_vuoro_" + COLS[p.tok].id, true);
   }
   save();
 }
@@ -688,9 +720,9 @@ function arrive() {
       }
     } else {
       const r = rent(g, i), ow = g.players[o];
-      dlg = { kind: "deed", sq: i, title: sqName(i), text: rg.t(tokName(ow.tok) + " omistaa tontin. Maksa vuokraa " + r + " €.", tokName(ow.tok) + " owns this plot. Pay " + r + " € rent.", "El terreno es de " + tokName(ow.tok) + ". Paga " + r + " € de alquiler."), icon: "", color: BLOCK_COLORS[sq.block],
+      dlg = { kind: "deed", sq: i, title: sqName(i), text: rg.t(pName(o) + " omistaa tontin. Maksa vuokraa " + r + " €.", pName(o) + " owns this plot. Pay " + r + " € rent.", "El terreno es de " + pName(o) + ". Paga " + r + " € de alquiler."), icon: "", color: BLOCK_COLORS[sq.block],
         btns: [{ id: "rent", label: "💶 " + rg.t("Maksa", "Pay", "Pagar") + " " + r + " €", cls: "open", act: () => { payTo(g.cur, o, r); endTurn(); } }], ai: 0 };
-      say(["kt_vuokra_" + ow.tok]);
+      say(["kt_vuokra_" + COLS[ow.tok].id]);
     }
     return;
   }
@@ -752,7 +784,7 @@ function jailDialog() {
   const a = aiJail(g, g.cur);
   dlg = { kind: "info", sq: -1, title: rg.t("Vankilassa", "In jail", "En la cárcel"), text: rg.t("Pääset pois tuplilla, vapaakortilla tai maksamalla " + JAIL_FINE + " €.", "Get out with doubles, a free card or by paying " + JAIL_FINE + " €.", "Sales con dobles, una tarjeta libre o pagando " + JAIL_FINE + " €."), icon: "🔒", color: "#6c757d",
     btns, ai: btns.findIndex((b) => b.id === (a === "free" ? "jfree" : a === "pay" ? "jpay" : "jroll")) };
-  msg = T3(TOK[p.tok].turn);
+  msg = rg.t("Vuorossa: " + pName(g.cur), pName(g.cur) + "'s turn", "Turno de " + pName(g.cur));
 }
 
 function doBuy(i: number) {
@@ -791,7 +823,7 @@ function endTurn() {
     extra = false;
     step = "turn"; dice = [0, 0];
     msg = rg.t("Tuplat! Heitä uudestaan.", "Doubles! Throw again.", "¡Dobles! Tira otra vez.");
-    say("kt_uudestaan");
+    say("kt_uudestaan", true);
     aiClock = 0;
     return;
   }
@@ -804,7 +836,7 @@ function gameOver() {
   phase = "over"; overT = 0; dlg = null;
   rg.save("game", "");
   const w = ranking(g)[0];
-  say(["kt_peli_loppui", "kt_voitti_" + g.players[w].tok]);
+  say(["kt_peli_loppui", "kt_voitti_" + COLS[g.players[w].tok].id]);
   rg.celebrate(width / 2, height / 3, { big: true });
 }
 // the build menu: every plot of the player that can be built on
@@ -958,10 +990,10 @@ function tick(dt: number, input: any) {
       if (before < ROLL_T && Math.floor(rollClock / ROLL_T * 3) !== Math.floor(before / ROLL_T * 3)) { rg.sound("hit", { pitch: 1.3, volume: 0.5 }); rg.vibrate(12); }
       if (rollClock >= ROLL_T + HOLD_T) rolled();
     } else if (step === "moving") moveStep(dt);
-    else if (step === "wait") { waitT -= dt; if (waitT <= 0) endTurn(); }
+    else if (step === "wait") { waitT -= dt; if (waitT <= 0 && quiet()) endTurn(); }
     if (P().ai && (step === "turn" || step === "dialog")) {
       aiClock += dt;
-      if (aiClock > 1.1) { aiClock = 0; aiStep(); }
+      if (aiClock > (step === "dialog" ? 2.2 : 1.2) && quiet()) { aiClock = 0; aiStep(); }
     }
   }
   // the pieces and the buildings that drop into place
@@ -981,7 +1013,8 @@ function tick(dt: number, input: any) {
   camStep(dt);
 }
 function onBack() {
-  if (phase === "setup" || phase === "rules") { phase = "menu"; rg.stopSay(); }
+  if (phase === "setup" && pick) pick = null;
+  else if (phase === "setup" || phase === "rules") { phase = "menu"; rg.stopSay(); }
   else if (phase === "play" || phase === "over") { save(); phase = "menu"; rg.three("clear"); }
   else rg.exit();
 }
@@ -1011,13 +1044,14 @@ function Panels() {
   const out: any[] = [];
   g.players.forEach((p, k) => {
     const on = k === g.cur && phase === "play";
-    const tk = TOK[p.tok];
+    const tk = COLS[p.tok];
     out.push(
       <div className={"panel" + (on ? " on" : "") + (p.out ? " out" : "")} style={{ left: 4 + k * (w + 4), top: py, width: w, backgroundColor: tk.color }}>
-        <div className="pemoji">{tk.emoji}</div>
-        <div className="pcol">
-          <div className="money">{p.money + " €"}</div>
-          <div className="pinfo">{(p.ai ? "📱 " : "") + owned(g, k).length + "🏠" + (p.jail > 0 ? " 🔒" : "") + (p.free > 0 ? " 🔑" : "")}</div>
+        {Pawn("#ffffff", 30, "", null)}
+        <div className="pcol" style={{ width: w - 40 }}>
+          <div className="pname" style={{ color: tk.ink }}>{pName(k)}</div>
+          <div className="money" style={{ color: tk.ink }}>{p.money + " €"}</div>
+          <div className="pinfo" style={{ color: tk.ink }}>{(p.ai ? "📱 " : "") + owned(g, k).length + "🏠" + (p.jail > 0 ? " 🔒" : "") + (p.free > 0 ? " 🔑" : "")}</div>
         </div>
       </div>
     );
@@ -1037,15 +1071,19 @@ function MiniMap() {
   out.push(<div className="map" id="minimap" style={{ left: 8, top: 8, width: MAP, height: MAP }} onClick={() => { overview = !overview; lastCull = [999, 999, 999]; rg.sound("click"); }} />);
   for (let i = 0; i < N; i++) {
     const q = cell(i), sq = SQ[i], x = 8 + q[0] * c, y = 8 + q[1] * c, o = g.owner[i];
-    out.push(<div className="mcell" style={{ left: x + 1, top: y + 1, width: c - 2, height: c - 2, backgroundColor: sq.kind === "plot" ? BLOCK_COLORS[sq.block] : COL[sq.kind] }} />);
-    if (o >= 0) out.push(<div className="mown" style={{ left: x + c * 0.25, top: y + c * 0.25, width: c * 0.5, height: c * 0.5, borderRadius: c * 0.25, backgroundColor: TOK[g.players[o].tok].color }}>{g.level[i] ? String(g.level[i]) : ""}</div>);
+    // a plot is grey until someone buys it, then the owner's colour (the block's colour on its inner edge)
+    if (sq.kind !== "plot") { out.push(<div className="mcell" style={{ left: x + 1, top: y + 1, width: c - 2, height: c - 2, backgroundColor: COL[sq.kind] }} />); continue; }
+    out.push(<div className="mcell" style={{ left: x + 1, top: y + 1, width: c - 2, height: c - 2, backgroundColor: o >= 0 ? pCol(o).color : "#8d939a", color: o >= 0 ? pCol(o).ink : "#ffffff" }}>{g.level[i] ? String(g.level[i]) : ""}</div>);
+    const s4 = sideOf(i), bw = 3;
+    const bar = s4 === 0 ? [x + 1, y + 1, c - 2, bw] : s4 === 1 ? [x + c - 1 - bw, y + 1, bw, c - 2] : s4 === 2 ? [x + 1, y + c - 1 - bw, c - 2, bw] : [x + 1, y + 1, bw, c - 2];
+    out.push(<div className="mbar" style={{ left: bar[0], top: bar[1], width: bar[2], height: bar[3], backgroundColor: BLOCK_COLORS[sq.block] }} />);
   }
   g.players.forEach((p, k) => {
     if (p.out) return;
     const q = cell(p.jail > 0 ? JAIL : Math.round(shown[k]) % N), r = c * 0.36;
     const ox = (k % 2) * c * 0.5 - c * 0.25, oy = Math.floor(k / 2) * c * 0.5 - c * 0.25;
     const on = k === g.cur && Math.floor(t * 3) % 2 === 0;
-    out.push(<div className="mpiece" style={{ left: 8 + (q[0] + 0.5) * c + ox - r, top: 8 + (q[1] + 0.5) * c + oy - r, width: r * 2, height: r * 2, borderRadius: r, backgroundColor: TOK[p.tok].color, borderColor: on ? "#ffffff" : "#212529" }} />);
+    out.push(<div className="mpiece" style={{ left: 8 + (q[0] + 0.5) * c + ox - r, top: 8 + (q[1] + 0.5) * c + oy - r, width: r * 2, height: r * 2, borderRadius: r, backgroundColor: COLS[p.tok].color, borderColor: on ? "#ffffff" : "#212529" }} />);
   });
   out.push(<div className="mlabel" style={{ left: 8 + c, top: 8 + c * 2.6, width: c * 5 }}>{overview ? "🔍" : "🗺️"}</div>);
   return out;
@@ -1092,7 +1130,7 @@ function Deed(i: number) {
   }
   out.push(<div className="rrow">{cols}</div>);
   out.push(<div className="rnote">{rg.t("Vuokra: tontti, maja, talo, kerrostalo, hotelli. Koko kortteli: tontin vuokra tuplana.", "Rent: plot, hut, house, flats, hotel. Whole block: double plot rent.", "Alquiler: terreno, cabaña, casa, edificio, hotel. Manzana entera: doble.")}</div>);
-  if (o >= 0) out.push(<div className="rowner">{rg.t("Omistaja", "Owner", "Dueño") + ": " + TOK[g.players[o].tok].emoji + " " + tokName(g.players[o].tok)}</div>);
+  if (o >= 0) out.push(<div className="rowner">{rg.t("Omistaja", "Owner", "Dueño") + ": " + pName(o)}</div>);
   return out;
 }
 const DW = 316;
@@ -1142,20 +1180,20 @@ function Over() {
   const order = ranking(g);
   const rows: any[] = [];
   order.forEach((k, n) => {
-    const p = g.players[k], tk = TOK[p.tok];
+    const p = g.players[k], tk = COLS[p.tok];
     rows.push(
       <div className="rank" style={{ backgroundColor: tk.color }}>
         <div className="rpos">{n === 0 ? "🏆" : String(n + 1) + "."}</div>
-        <div className="pemoji">{tk.emoji}</div>
-        <div className="rname">{tokName(p.tok) + (p.out ? " 💸" : "")}</div>
+        {Pawn("#ffffff", 30, "", null)}
+        <div className="rname" style={{ color: tk.ink }}>{pName(k) + (p.out ? " 💸" : "")}</div>
         <div className="rworth">{worth(g, k) + " €"}</div>
       </div>
     );
   });
-  const w = g.players[order[0]];
+  const wn = pName(order[0]);
   return (
     <div className="screen overbox">
-      <div className="wintitle" style={{ marginTop: 40 + Math.sin(overT * 3) * 6 }}>{TOK[w.tok].emoji + " " + rg.t(tokName(w.tok) + " voitti!", tokName(w.tok) + " wins!", "¡" + tokName(w.tok) + " gana!")}</div>
+      <div className="wintitle" style={{ marginTop: 40 + Math.sin(overT * 3) * 6 }}>{"🏆 " + rg.t(wn + " voitti!", wn + " wins!", "¡" + wn + " gana!")}</div>
       <div className="winsub">{rg.t("Rikkain voittaa: rahat, tontit ja talot yhteensä.", "The richest wins: money, plots and houses together.", "Gana el más rico: dinero, terrenos y casas.")}</div>
       {rows}
       {overT > 1 ? <div className="btn go wide" id="again" onClick={() => { phase = "setup"; rg.three("clear"); rg.sound("click"); }}>{rg.t("Uusi peli", "New game", "Nueva partida")}</div> : null}
@@ -1174,23 +1212,25 @@ function Menu() {
       <div className="menupics">{pics}</div>
       <div className="title">{tt(THEME.title)}</div>
       <div className="subtitle">{tt(THEME.subtitle)}</div>
-      <div className="tokrow">{TOK.map((tk) => <div className="tokball" style={{ backgroundColor: tk.color }}>{tk.emoji}</div>)}</div>
+      <div className="tokrow">{COLS.slice(0, 5).map((c: any) => Pawn(c.color, 50, "", null))}</div>
       {saved ? <div className="btn go wide" id="resume" onClick={resume}>{"▶ " + rg.t("Jatka peliä", "Continue", "Continuar")}</div> : null}
-      <div className="btn open wide" id="new" onClick={() => { phase = "setup"; rg.sound("click"); say("kt_kuka_pelaa"); }}>{"🎲 " + rg.t("Uusi peli", "New game", "Nueva partida")}</div>
+      <div className="btn open wide" id="new" onClick={() => { loadSetup(); pick = null; phase = "setup"; rg.sound("click"); say("kt_kuka_pelaa"); }}>{"🎲 " + rg.t("Uusi peli", "New game", "Nueva partida")}</div>
       <div className="btn back wide" id="rules" onClick={() => { phase = "rules"; rg.sound("click"); say("kt_ohje"); }}>{"❓ " + rg.t("Säännöt", "Rules", "Reglas")}</div>
     </div>
   );
 }
 
+// the setup: how many play, each one's colour (tap the pawn), name (tap the name) and
+// whether a child or the phone plays
 function Setup() {
   const rows: any[] = [];
   for (let k = 0; k < 4; k++) {
-    const tk = TOK[k], on = k < setupN;
+    const c = COLS[setupCol[k]], on = k < setupN;
     rows.push(
-      <div className={"srow" + (on ? "" : " off")} style={{ backgroundColor: on ? tk.color : "#495057" }}>
-        <div className="pemoji">{tk.emoji}</div>
-        <div className="sname">{tokName(k)}</div>
-        {on ? <div className="stoggle" id={"who" + k} onClick={() => { setupAi[k] = !setupAi[k]; rg.sound("click"); }}>{setupAi[k] ? "📱 " + rg.t("Puhelin", "Phone", "Teléfono") : "🧒 " + rg.t("Pelaaja", "Player", "Jugador")}</div> : null}
+      <div className={"srow" + (on ? "" : " off")} style={{ backgroundColor: on ? c.color : "#495057" }}>
+        {Pawn("#ffffff", 40, "col" + k, on ? () => { pick = { kind: "color", k }; rg.sound("click"); } : null)}
+        <div className="sname" id={"name" + k} style={{ color: on ? c.ink : "#ffffff" }} onClick={on ? () => { pick = { kind: "name", k }; rg.sound("click"); } : null}>{(setupName[k] || defName(k, setupAi[k])) + (on ? " ✏️" : "")}</div>
+        {on ? <div className="stoggle" id={"who" + k} onClick={() => { setupAi[k] = !setupAi[k]; rg.sound("click"); }}>{setupAi[k] ? "📱 " + rg.t("Puhelin", "Phone", "Teléfono") : "🧒 " + rg.t("Ihminen", "Person", "Persona")}</div> : null}
       </div>
     );
   }
@@ -1200,11 +1240,67 @@ function Setup() {
       <div className="title small">{rg.t("Kuka pelaa?", "Who plays?", "¿Quién juega?")}</div>
       <div className="nrow">{[2, 3, 4].map((n) => <div className={"nbtn" + (n === setupN ? " on" : "")} id={"n" + n} onClick={() => { setupN = n; rg.sound("click"); }}>{String(n)}</div>)}</div>
       {rows}
+      <div className="shint">{rg.t("Napauta nappulaa: vaihda väri. Napauta nimeä: kirjoita oma nimi.", "Tap the pawn to change its colour, the name to type your own.", "Toca la ficha para cambiar el color, el nombre para escribir el tuyo.")}</div>
       <div className="lenrow">{len.map((l: any) => <div className={"lbtn" + (l[0] === setupRounds || (l[0] === 0 && setupRounds === 0) ? " on" : "")} id={"len" + l[0]} onClick={() => { setupRounds = l[0]; rg.sound("click"); }}>{l[1] + (l[0] ? " " + l[0] : "")}</div>)}</div>
       <div className="btn go wide" id="start" onClick={startGame}>{"▶ " + rg.t("Aloita", "Start", "Empezar")}</div>
       <div className="btn back wide" id="sback" onClick={() => { phase = "menu"; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
+      {pick ? Picker() : null}
     </div>
   );
+}
+// the colour palette or the letter keyboard over the setup
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZÅÄÖ";
+function typeKey(ch: string) {
+  const k = pick.k;
+  if (ch === "<") setupName[k] = setupName[k].slice(0, -1);
+  else if (ch === "ok") pick = null;
+  else if (setupName[k].length < 10) setupName[k] += setupName[k] ? ch.toLowerCase() : ch;
+  rg.sound("click");
+}
+function Picker() {
+  const k = pick.k, c = COLS[setupCol[k]];
+  const pw = Math.min(340, width - 16), x = (width - pw) / 2;
+  if (pick.kind === "color") {
+    const taken = setupCol.filter((_, j) => j !== k && j < setupN);
+    const cells = COLS.map((cc: any, n: number) => {
+      const used = taken.indexOf(n) >= 0;
+      return (
+        <div className={"pcell" + (used ? " off" : "") + (n === setupCol[k] ? " on" : "")} id={"pc_" + cc.id}
+          onClick={used ? null : () => { setupCol[k] = n; pick = null; rg.sound("pop"); }}>
+          {Pawn(cc.color, 44, "", null)}
+          <div className="pclabel">{T3(cc.name)}</div>
+        </div>
+      );
+    });
+    return (
+      <div className="picker" style={{ left: x, top: 90, width: pw }}>
+        <div className="ptitle">{rg.t("Valitse nappulan väri", "Pick the pawn's colour", "Elige el color de la ficha")}</div>
+        <div className="pgrid">{cells}</div>
+        <div className="btn back" id="pclose" onClick={() => { pick = null; rg.sound("click"); }}>{rg.t("← Takaisin", "← Back", "← Atrás")}</div>
+      </div>
+    );
+  }
+  const keys: any[] = [];
+  for (const ch of LETTERS) keys.push(<div className="key" id={"key" + ch} onClick={() => typeKey(ch)}>{ch}</div>);
+  keys.push(<div className="key wide2" id="keyback" onClick={() => typeKey("<")}>{"⌫"}</div>);
+  return (
+    <div className="picker" style={{ left: x, top: 70, width: pw }}>
+      <div className="ptitle">{rg.t("Kirjoita nimi", "Type the name", "Escribe el nombre")}</div>
+      <div className="nameshow" style={{ backgroundColor: c.color, color: c.ink }}>{setupName[k] || defName(k, setupAi[k])}</div>
+      <div className="kgrid">{keys}</div>
+      <div className="krow">
+        <div className="btn back half" id="kclear" onClick={() => { setupName[k] = ""; rg.sound("click"); }}>{rg.t("Tyhjennä", "Clear", "Borrar")}</div>
+        <div className="btn go half" id="kok" onClick={() => typeKey("ok")}>{"✓ " + rg.t("Valmis", "Done", "Listo")}</div>
+      </div>
+    </div>
+  );
+}
+// a keyboard on the web types the name too
+function onKeyDown(key: string) {
+  if (phase !== "setup" || !pick || pick.kind !== "name") return;
+  if (key === "Backspace") typeKey("<");
+  else if (key === "Enter" || key === "Escape") typeKey("ok");
+  else if (key.length === 1 && LETTERS.indexOf(key.toUpperCase()) >= 0) typeKey(key.toUpperCase());
 }
 
 function Rule(icon: string, text: string) {
