@@ -1,0 +1,30 @@
+{
+ "_comment": "Rahakauppa (games/raha): same ids as voice/fi.json.",
+ "lang": "en",
+ "clips": {
+  "peli_raha": "Money shop",
+  "rh_euro": "euro",
+  "rh_euroa": "euros",
+  "rh_senttia": "cents",
+  "rh_etsi": "Find",
+  "rh_enemman": "Which has more money?",
+  "rh_paljonko": "How much money is here?",
+  "rh_maksaa": "This costs",
+  "rh_maksa": "Pay the exact amount.",
+  "rh_liikaa": "Too much money. Take some back.",
+  "rh_puuttuu": "Some money is still missing.",
+  "rh_asiakas": "The customer gives",
+  "rh_takaisin": "How much change do you give?",
+  "rh_anna": "Give the change.",
+  "rh_kiitos": "Thank you!",
+  "rh_halvempi": "Which one is cheaper?",
+  "rh_kalliimpi": "Which one costs more?",
+  "rh_riittaako": "Do you have enough money?",
+  "rh_riittaa": "You have enough.",
+  "rh_ei_riita": "That is not enough money.",
+  "rh_sinulla": "You have",
+  "rh_osta2": "Buy two things.",
+  "rh_osta3": "Buy three things.",
+  "rh_jaa": "How much money is left?"
+ }
+}
