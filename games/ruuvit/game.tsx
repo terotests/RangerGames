@@ -172,16 +172,17 @@ function build() {
   rg.three("add", { id: "head", shape: "cylinder", size: [0.42, 0.42, 0.16], detail: 18, color: "#d9dee4" });
   if (kind === "ura") rg.three("add", { id: "mark0", shape: "box", size: [0.7, 0.06, 0.1], color: "#343a40" });
   if (kind === "risti") { rg.three("add", { id: "mark0", shape: "box", size: [0.56, 0.06, 0.1], color: "#343a40" }); rg.three("add", { id: "mark1", shape: "box", size: [0.1, 0.06, 0.56], color: "#343a40" }); }
-  if (kind === "torx") rg.three("add", { id: "mark0", shape: "star", size: [0.24, 0.05], color: "#343a40" });
+  // torx: a six-pointed star like the tip picture
+  if (kind === "torx") rg.three("add", { id: "mark0", shape: "star", size: [0.27, 0.04, 6, 0.55], color: "#343a40", layer: 1 });
   if (kind === "kolo") rg.three("add", { id: "mark0", shape: "cylinder", size: [0.17, 0.17, 0.06], detail: 6, color: "#343a40" });
   rg.three("add", { id: "shaft", shape: "cylinder", size: [0.13, 0.13, 1], detail: 12, color: "#b8c0ca" });
   rg.three("add", { id: "tip", shape: "cone", size: [0.13, 0.3], detail: 12, color: "#b8c0ca" });
   for (let i = 0; i < BUMPS; i++) rg.three("add", { id: "b" + i, shape: "box", size: [0.08, 0.05, 0.08], color: "#8e98a5" });
   // the screwdriver (shown when it is on the screw)
-  rg.three("add", { id: "dshaft", shape: "cylinder", size: [0.06, 0.06, 0.75], detail: 8, color: "#adb5bd", visible: false });
-  rg.three("add", { id: "dhandle", shape: "cylinder", size: [0.25, 0.22, 0.85], detail: 12, color: DRIVER_C[kind], visible: false });
-  rg.three("add", { id: "dcap", shape: "sphere", size: [0.25], detail: 10, color: DRIVER_C[kind], visible: false });
-  for (let i = 0; i < 4; i++) rg.three("add", { id: "ds" + i, shape: "box", size: [0.07, 0.7, 0.07], color: "#ffffff", visible: false });
+  rg.three("add", { id: "dshaft", shape: "cylinder", size: [0.06, 0.06, 0.75], detail: 8, color: "#adb5bd", visible: false, layer: 1 });
+  rg.three("add", { id: "dhandle", shape: "cylinder", size: [0.25, 0.22, 0.85], detail: 12, color: DRIVER_C[kind], visible: false, layer: 1 });
+  rg.three("add", { id: "dcap", shape: "sphere", size: [0.25], detail: 10, color: DRIVER_C[kind], visible: false, layer: 1 });
+  for (let i = 0; i < 4; i++) rg.three("add", { id: "ds" + i, shape: "box", size: [0.07, 0.7, 0.07], color: "#ffffff", visible: false, layer: 1 });
   if (needHolder) {
     rg.three("add", { id: "hl", shape: "box", size: [0.28, 0.44, 0.7], color: "#ff9f1c" });
     rg.three("add", { id: "hr", shape: "box", size: [0.28, 0.44, 0.7], color: "#ff9f1c" });
@@ -205,8 +206,7 @@ function place() {
   const M = mm(rz(-tilt), ry(spin));
   const show = (y: number) => lying || tilt > 0.05 || y >= dp - 0.02;
   setPart("head", M, base, [0, L + 0.08, 0], null, true);
-  const flat = kind === "torx" ? rx(-Math.PI / 2) : null;
-  setPart("mark0", M, base, [0, L + 0.165, 0], flat, true);
+  setPart("mark0", M, base, [0, L + 0.165, 0], kind === "torx" ? rx(-Math.PI / 2) : null, true);
   if (kind === "risti") setPart("mark1", M, base, [0, L + 0.165, 0], null, true);
   const from = lying || tilt > 0.05 ? 0.28 : Math.max(dp, 0.28);
   const len = Math.max(0.01, L - from);
