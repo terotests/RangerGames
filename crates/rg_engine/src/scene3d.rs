@@ -15,8 +15,12 @@
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
 //!                                                   // dome: a half sphere, size [r], its flat bottom at y 0
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
-//!                      layer })                          // -1: flat on the floor, drawn first
-//! rg.three("set",    { id, x, y, z, rx, ry, rz, sx, sy, sz, color, visible })
+//!                      layer,                            // -1: flat on the floor, drawn first
+//!                      wy,                               // a turn round world y after rx, ry, rz
+//!                      group })                          // objects of one group (a house) are sorted
+//!                                                        // as one thing by the group's middle, and by
+//!                                                        // layer only among themselves
+//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible })
 //! rg.three("remove", { id })
 //! rg.three("clear")
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
@@ -245,6 +249,10 @@ struct Obj {
     /// drawn before the higher layers whatever the depth: flat things on the
     /// floor (a road, a shadow) use -1 so that nothing standing on them sinks in
     layer: i32,
+    /// a turn round world y applied after the object's own rx, ry, rz
+    wy: f64,
+    /// 0: none; objects of one group sort against others as one thing
+    group: i32,
 }
 
 struct Light {
@@ -305,6 +313,11 @@ impl Planet {
 }
 
 struct Poly {
+    /// the sort key: (outer layer, outer depth, group, layer, depth); a poly
+    /// of no group has its own layer and depth as the outer ones
+    olayer: i32,
+    odepth: f64,
+    group: i32,
     layer: i32,
     depth: f64,
     pts: Vec<f32>,
@@ -433,6 +446,8 @@ impl Scene {
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
                     layer: a.get("layer").as_num(0.0) as i32,
+                    wy: a.get("wy").as_num(0.0),
+                    group: a.get("group").as_num(0.0) as i32,
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -442,6 +457,7 @@ impl Scene {
                 if let Some(o) = self.objs.iter_mut().find(|x| x.id == id) {
                     o.pos = get3(a, ["x", "y", "z"], o.pos);
                     o.rot = get3(a, ["rx", "ry", "rz"], o.rot);
+                    o.wy = a.get("wy").as_num(o.wy);
                     o.scale = get3(a, ["sx", "sy", "sz"], o.scale);
                     if !a.get("color").is_null() {
                         o.color = color(&a.get("color"), o.color);
@@ -656,6 +672,17 @@ impl Scene {
             }
         }
 
+        // the middle of each group, as the mean depth of its objects
+        let mut groups: Vec<(i32, f64, f64)> = Vec::new();
+        for o in self.objs.iter() {
+            if o.group != 0 && o.visible {
+                let z = to_view(o.pos)[2];
+                match groups.iter_mut().find(|g| g.0 == o.group) {
+                    Some(g) => { g.1 += z; g.2 += 1.0; }
+                    None => groups.push((o.group, z, 1.0)),
+                }
+            }
+        }
         let mut polys: Vec<Poly> = Vec::new();
         for o in self.objs.iter() {
             if !o.visible {
@@ -664,12 +691,15 @@ impl Scene {
             let (sx, cx) = o.rot[0].sin_cos();
             let (sy, cy) = o.rot[1].sin_cos();
             let (sz, cz) = o.rot[2].sin_cos();
-            // three.js's XYZ order: v' = Rx * Ry * Rz * (scale * v)
+            let (sw, cw) = o.wy.sin_cos();
+            let gdepth = groups.iter().find(|g| g.0 == o.group).map(|g| g.1 / g.2);
+            // three.js's XYZ order: v' = Rx * Ry * Rz * (scale * v), then the world turn wy
             let world: Vec<V3> = o.mesh.verts.iter().map(|v| {
                 let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
                 let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
                 let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
                 let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
+                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
                 add(p, o.pos)
             }).collect();
             for face in o.mesh.faces.iter() {
@@ -709,10 +739,13 @@ impl Scene {
                 let lit = if o.emissive { o.color } else { self.shade(n, centre, o.color) };
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
-                polys.push(Poly { layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist) });
+                let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
+                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist) });
             }
         }
-        polys.sort_by(|a, b| a.layer.cmp(&b.layer).then(b.depth.partial_cmp(&a.depth).unwrap_or(std::cmp::Ordering::Equal)));
+        let far = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
+        polys.sort_by(|a, b| a.olayer.cmp(&b.olayer).then(far(a.odepth, b.odepth)).then(a.group.cmp(&b.group))
+            .then(a.layer.cmp(&b.layer)).then(far(a.depth, b.depth)));
         // neighbouring faces of one colour go out as one path of several rings
         let mut i = 0;
         while i < polys.len() {
