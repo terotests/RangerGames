@@ -1,0 +1,1 @@
+{ "name": "Nälkäiset eläimet", "description": "Anna eläimille oikeat ruoat", "icon": "🥕", "color": "#e76f51", "players": "1", "width": 360, "order": 121, "i18n": { "en": { "name": "Hungry Animals", "description": "Give the animals the right food" }, "es": { "name": "Animales hambrientos", "description": "Dale a cada animal su comida" } } }

@@ -1,0 +1,79 @@
+{
+ "_comment": "Valitut ruokakuvat fetch_commons.py:n ehdokkaista (raw/<ruoka>/c<N>.jpg). crop = [x, y, w, h] kuvan osuuksina; ilman sitä keskeltä neliö. pad = täytetään neliöksi valkoisella. draw = oma piirros (build.py piirtää).",
+ "heina": {
+  "c": 1
+ },
+ "porkkana": {
+  "c": 5,
+  "crop": [
+   0.0,
+   0.2,
+   1.0,
+   0.6
+  ],
+  "pad": true
+ },
+ "omena": {
+  "c": 0,
+  "pad": true
+ },
+ "salaatti": {
+  "c": 8
+ },
+ "pahkina": {
+  "c": 3
+ },
+ "kapy": {
+  "c": 3,
+  "pad": true
+ },
+ "banaani": {
+  "c": 8,
+  "pad": true
+ },
+ "oksa": {
+  "c": 8,
+  "crop": [
+   0.0,
+   0.0,
+   1.0,
+   0.6
+  ],
+  "pad": true
+ },
+ "mustikka": {
+  "c": 6
+ },
+ "hunaja": {
+  "c": 2
+ },
+ "jyvat": {
+  "c": 5,
+  "crop": [
+   0.0,
+   0.55,
+   1.0,
+   0.45
+  ]
+ },
+ "luu": {
+  "draw": "bone"
+ },
+ "liha": {
+  "c": 6
+ },
+ "kala": {
+  "c": 0,
+  "pad": true
+ },
+ "simpukka": {
+  "c": 1
+ },
+ "mato": {
+  "c": 3
+ },
+ "karpanen": {
+  "c": 0,
+  "pad": true
+ }
+}
