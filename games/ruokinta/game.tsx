@@ -169,7 +169,8 @@ function feed(j: number, k: number, x: number, y: number) {
     fed[k] = f;
     fly.push({ f: j, x0: x, y0: y, x1: c[0], y1: c[1], t0: t, eat: true, a: k });
     rg.sound("whoosh", { pitch: 1.6 });
-    const done = used.every((u) => u);
+    // done when every food that belongs to someone is eaten (level 0 leaves the two wrong foods)
+    const done = answer.every((k, i) => k < 0 || used[i]);
     rg.say(done && level === 2 ? ["ru_nam", "ru_" + A[a].id + "_" + F[f].id, "ru_kiitos"] : ["ru_nam", "ru_" + A[a].id + "_" + F[f].id]);
     if (done) solved = t + 0.4;
   } else {
