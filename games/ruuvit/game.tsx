@@ -424,17 +424,48 @@ function picDriver(x: number, y: number, s: number, k: Kind, ang: number) {
   return out;
 }
 
-function Cards() {
-  const n = choices.length, cw = Math.min(82, (width - 30) / n - 8), ch = 128;
-  const x0 = width / 2 - (n * (cw + 8) - 8) / 2, y = height - ch - 18;
+// a screwdriver lying on its side, the tip at (x, y) pointing left, `len`
+// long: a long thin shaft, a collar, and a waisted handle with a grip insert
+// and a rounded end with a hanging hole
+function SideDriver(x: number, y: number, len: number, k: Kind, s: number) {
   const out: any[] = [];
+  const tipL = 22 * s, shaftL = len * 0.44, hx = x + shaftL, hl = len - shaftL;
+  const metal = "#5c636a", edge = "#343a40";
+  // the tip, from the side: each kind has its own shape
+  if (k === "ura") out.push(Poly([[x, y - 8 * s], [x + 5 * s, y - 8 * s], [x + tipL, y - 3.5 * s], [x + tipL, y + 3.5 * s], [x + 5 * s, y + 8 * s], [x, y + 8 * s]], metal, edge, 1.5));
+  if (k === "risti") { out.push(Poly([[x, y], [x + 8 * s, y - 6 * s], [x + tipL, y - 4 * s], [x + tipL, y + 4 * s], [x + 8 * s, y + 6 * s]], metal, edge, 1.5)); out.push(Line([[x + 4 * s, y], [x + tipL - 2 * s, y]], "#adb5bd", 2)); }
+  if (k === "torx") { out.push(Poly([[x, y - 5 * s], [x + tipL, y - 5 * s], [x + tipL, y + 5 * s], [x, y + 5 * s]], metal, edge, 1.5)); out.push(Line([[x + 2 * s, y - 2 * s], [x + tipL, y - 2 * s]], "#adb5bd", 1.5)); out.push(Line([[x + 2 * s, y + 2 * s], [x + tipL, y + 2 * s]], "#adb5bd", 1.5)); }
+  if (k === "kolo") { out.push(Poly([[x, y - 6 * s], [x + tipL, y - 6 * s], [x + tipL, y + 6 * s], [x, y + 6 * s]], metal, edge, 1.5)); out.push(Line([[x, y], [x + tipL, y]], "#adb5bd", 2)); }
+  out.push(Poly(rect(x + tipL, y - 3.5 * s, shaftL - tipL, 7 * s), "#868e96", "#5c636a", 1));
+  out.push(Poly(rect(hx - 4 * s, y - 9 * s, 6 * s, 18 * s), "#ffd166"));                            // collar
+  const c = DRIVER_C[k];
+  const prof = (k2: number) => [
+    [hx, y - 16 * s * k2], [hx + hl * 0.14, y - 20 * s * k2], [hx + hl * 0.42, y - 13 * s * k2], [hx + hl * 0.62, y - 19 * s * k2],
+    [hx + hl * 0.86, y - 19 * s * k2], [hx + hl * 0.96, y - 14 * s * k2], [hx + hl, y - 4 * s * k2],
+    [hx + hl, y + 4 * s * k2], [hx + hl * 0.96, y + 14 * s * k2], [hx + hl * 0.86, y + 19 * s * k2], [hx + hl * 0.62, y + 19 * s * k2],
+    [hx + hl * 0.42, y + 13 * s * k2], [hx + hl * 0.14, y + 20 * s * k2], [hx, y + 16 * s * k2]];
+  out.push(Poly(prof(1), "#2b2d42", "#1b1c2a", 1.5));                                                 // the soft black grip
+  out.push(Poly([[hx + hl * 0.62, y - 19 * s], [hx + hl * 0.86, y - 19 * s], [hx + hl * 0.96, y - 14 * s], [hx + hl, y - 4 * s], [hx + hl, y + 4 * s], [hx + hl * 0.96, y + 14 * s], [hx + hl * 0.86, y + 19 * s], [hx + hl * 0.62, y + 19 * s]], c));   // the coloured end
+  out.push(Box(hx + hl * 0.36, y - 6 * s, hl * 0.5, 12 * s, c, 6 * s));                                 // the insert
+  out.push(Box(hx + hl * 0.78, y - 3.5 * s, hl * 0.12, 7 * s, "#ffffff", 3.5 * s));                       // the hole
+  return out;
+}
+
+// the screwdrivers to pick from, lying in rows like a set on the wall, the
+// end of each tip big in a black circle beside it (as on a chart of tips)
+function Cards() {
+  const n = choices.length;
+  const out: any[] = [];
+  const shk = (i: number) => shakeCard === i ? Math.sin((K.t - shakeT) * 50) * 10 * Math.max(0, 1 - (K.t - shakeT) / 0.4) : 0;
+  const rh = Math.min(76, Math.floor((height - 370) / n) - 6), w = width - 20, y0 = height - n * (rh + 6) - 10;
   choices.forEach((k, i) => {
-    const sh = shakeCard === i ? Math.sin((K.t - shakeT) * 50) * 10 * Math.max(0, 1 - (K.t - shakeT) / 0.4) : 0;
-    const x = x0 + i * (cw + 8) + sh;
-    const off = wrongCards.indexOf(i) >= 0;
-    out.push(<div className={off ? "card off" : "card"} style={{ left: x, top: y, width: cw, height: ch }} />);
-    for (const e of picDriver(x + cw / 2, y + ch / 2 + 6, 1.15, k, 0)) out.push(e);
-    out.push(<div className="hit" id={"card" + i} onClick={() => pickCard(i)} style={{ left: x, top: y, width: cw, height: ch }} />);
+    const x = 10 + shk(i), y = y0 + i * (rh + 6), cy = y + rh / 2;
+    out.push(<div className={wrongCards.indexOf(i) >= 0 ? "card off" : "card"} style={{ left: x, top: y, width: w, height: rh }} />);
+    const r = rh * 0.4;
+    out.push(Circle(x + 10 + r, cy, r, "#1d1d1d"));
+    out.push(Head(x + 10 + r, cy, r * 0.74, k, "#ffffff", 1));
+    for (const e of SideDriver(x + 24 + r * 2, cy, w - 34 - r * 2, k, Math.min(1.25, rh / 54))) out.push(e);
+    out.push(<div className="hit" id={"card" + i} onClick={() => pickCard(i)} style={{ left: x, top: y, width: w, height: rh }} />);
   });
   return out;
 }
@@ -449,8 +480,9 @@ function Play() {
   // the screw's head, big, in the corner: what the tip has to fit
   if (phase === "pick" || K.level === 1) {
     const hx = width - 52, hy = 156, glow = K.t - hintT < 5 && Math.floor(K.t * 4) % 2 === 0;
-    out.push(Circle(hx, hy, 36, glow ? "#ffd166" : "#e9ecef", "#868e96"));
-    out.push(Head(hx, hy, 24, kind, "#343a40", 1));
+    out.push(Circle(hx, hy, 38, glow ? "#ffd166" : "#ffffff", "#868e96"));
+    out.push(Circle(hx, hy, 30, "#1d1d1d"));
+    out.push(Head(hx, hy, 22, kind, "#ffffff", 1));
   }
   if (hasArrow()) {
     const c = screwScreen();
