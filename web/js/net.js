@@ -38,11 +38,14 @@
   // a command from the game: ["net", op, args]
   RgNet.prototype.command = function (op, a) {
     a = a || {};
-    if (op === "close") {
-      this.close(false);
-      this.emit({ type: "info", available: !!this.ch, kind: "web", name: this.name });
+    if (op === "info") {
+      // a game started: the links stay up, the game gets them
+      var links = [];
+      for (var k in this.links) links.push({ id: k, name: this.links[k].name });
+      this.emit({ type: "info", available: !!this.ch, kind: "web", name: this.name, state: this.mode, role: this.role(), links: links });
       return;
     }
+    if (op === "close") { this.close(false); return; }
     if (!this.ch) { this.state("error", "no-network"); return; }
     if (op === "host") {
       this.close(true);
@@ -69,11 +72,15 @@
     }
   };
 
+  RgNet.prototype.role = function () {
+    return this.hosting ? "host" : Object.keys(this.links).length ? "guest" : "";
+  };
+
   RgNet.prototype.open = function (id, name) {
     this.links[id] = { id: id, name: name || "", seen: Date.now() };
     // a guest is connected; a host is when it is full
     if (this.mode !== "hosting" || Object.keys(this.links).length >= this.max) this.state("connected");
-    this.emit({ type: "open", peer: { id: id, name: name || "" } });
+    this.emit({ type: "open", role: this.role(), peer: { id: id, name: name || "" } });
   };
 
   RgNet.prototype.drop = function (id) {

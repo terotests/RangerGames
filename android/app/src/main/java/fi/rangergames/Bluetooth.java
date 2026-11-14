@@ -113,9 +113,13 @@ final class Bluetooth {
         }
     }
 
+    private synchronized String role() {
+        return hosting ? "host" : links.isEmpty() ? "" : "guest";
+    }
+
     private void peerEvent(String type, String id, String name) {
         try {
-            emit(new JSONObject().put("type", type).put("peer", new JSONObject().put("id", id).put("name", name)));
+            emit(new JSONObject().put("type", type).put("role", role()).put("peer", new JSONObject().put("id", id).put("name", name)));
         } catch (Exception ignored) {
         }
     }
@@ -157,12 +161,24 @@ final class Bluetooth {
     }
 
     private void handle(String op, JSONObject a) {
-        if (op.equals("close")) {
-            close(false);
+        if (op.equals("info")) {
+            // a game started: the links stay up, the game gets them
             try {
-                emit(new JSONObject().put("type", "info").put("available", adapter != null).put("kind", "bluetooth").put("name", myName()));
+                JSONArray ls = new JSONArray();
+                String m, role;
+                synchronized (this) {
+                    for (Link l : links.values()) ls.put(new JSONObject().put("id", l.id).put("name", l.name));
+                    m = mode;
+                    role = role();
+                }
+                emit(new JSONObject().put("type", "info").put("available", adapter != null).put("kind", "bluetooth")
+                        .put("name", myName()).put("state", m).put("role", role).put("links", ls));
             } catch (Exception ignored) {
             }
+            return;
+        }
+        if (op.equals("close")) {
+            close(false);
             return;
         }
         if (op.equals("send")) {
