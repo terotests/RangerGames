@@ -87,9 +87,15 @@ const REST = 0.72, POUR = 2.05;          // the drum's tilt: mixing, pouring
 const MOULD = [-0.15, 0, 1.25];
 const ORANGE = "#f26b1d", ORANGE2 = "#c9500f", CONCRETE = "#8b8f94";
 const ING_C: any = { sementti: ["#c9ccd1", "#9aa0a6"], hiekka: ["#e9c46a", "#c9a227"], vesi: ["#3a86ff", "#4cc9f0"] };
-const NP = 36;
-type Bit = { c: string; r: number; off: number; sp: number; h: number };
-let bits: Bit[] = [];
+// what is inside: up to MAXG fine grains, drawn in 2D over the drum's mouth as a
+// few paths (one per colour), so thousands of them cost only a handful of draws
+const MAXG = 760, PER_DROP = 95;
+const CONC = ["#8b8f94", "#6f747a", "#a3a7ab"];
+type Grain = { rho: number; th: number; sp: number; c: string; k: number; v: number; s: number };
+let bits: Grain[] = [];
+let massSeen = false;
+let massT: M3 = rx(REST);
+let massJig = [0, 0, 0];
 let tiltNow = REST;
 let mixK = 0;                            // 0 = separate, 1 = concrete
 type Fly = { x: number; y: number; vx: number; vy: number; c: string; t: number; r: number };
@@ -150,7 +156,6 @@ function build3d() {
   for (const d of DRUM) rg.three("add", { id: d[0], shape: d[1], size: d[2], detail: d[1] === "torus" ? 22 : 16, color: d[4] });
   for (let i = 0; i < 4; i++) rg.three("add", { id: "rib" + i, shape: "box", size: [0.04, 0.36, 0.05], color: ORANGE2 });
   rg.three("add", { id: "inside", shape: "cylinder", size: [0.32, 0.32, 0.01], detail: 16, color: "#2b2d31", layer: 1 });
-  for (let i = 0; i < NP; i++) rg.three("add", { id: "p" + i, shape: "sphere", size: [0.06], detail: 6, color: "#ffffff", layer: 2, visible: false });
   // the mould in front: four planks and the concrete that fills it
   const [mx, , mz] = MOULD;
   rg.three("add", { id: "mF", shape: "box", size: [0.9, 0.16, 0.05], color: "#a0522d", x: mx, y: 0.08, z: mz + 0.3 });
@@ -189,25 +194,8 @@ function place3d() {
   const up = mv(T, [0, 1, 0]);
   const seen = dot(up, unit(sub(CAM, mw))) > 0.12;
   partSet("inside", T, [0, 0.765, 0], null, jig, seen);
-  rg.three("set", { id: "inside", color: bits.length === 0 ? "#2b2d31" : mix("#3a3631", "#5f6266", mixK) });
-  // the balls lie in the low side of the opening; turning lifts them round and they fall back
-  const turning = phase === "mixing" || phase === "pouring";
-  for (let i = 0; i < NP; i++) {
-    const b = bits[i];
-    if (!b || !seen) { rg.three("set", { id: "p" + i, visible: false }); continue; }
-    let px: number, pz: number;
-    if (turning) {
-      const a = b.off + drum * b.sp;
-      const lift = Math.max(0, Math.sin(a));
-      px = Math.cos(a) * b.r;
-      pz = 0.2 - lift * 0.3 * b.r / 0.24 + (1 - lift) * 0.02;
-    } else {
-      px = Math.cos(b.off) * b.r;
-      pz = 0.13 + Math.abs(Math.sin(b.off)) * 0.1 - b.h * 0.05;
-    }
-    partSet("p" + i, T, [px, 0.79 + b.h * 0.02, pz], null, jig, true);
-    rg.three("set", { id: "p" + i, color: mix(b.c, CONCRETE, mixK) });
-  }
+  rg.three("set", { id: "inside", color: "#2b2d31" });
+  massSeen = seen; massT = T; massJig = jig;
   // the mould fills while it is poured
   const pf = phase === "pouring" ? Math.min(1, (K.t - pourT) / 1.6) : phase === "end" ? 1 : 0;
   rg.three("set", { id: "mFill", visible: pf > 0.02, sy: Math.max(0.05, pf), y: 0.01 + 0.07 * pf });
@@ -215,12 +203,88 @@ function place3d() {
 
 function addBits(id: string) {
   const c = ING_C[id];
-  for (let i = 0; i < 5 && bits.length < NP; i++) bits.push({ c: c[i % 2], r: 0.06 + Math.random() * 0.2, off: Math.random() * Math.PI * 2, sp: 0.5 + Math.random() * 0.5, h: Math.random() });
+  for (let i = 0; i < PER_DROP && bits.length < MAXG; i++) {
+    bits.push({ rho: Math.sqrt(Math.random()), th: Math.random() * Math.PI * 2, sp: 0.6 + Math.random() * 0.8, c: c[i % 2], k: Math.random() * 0.6, v: i % 3, s: 1.3 + Math.random() * 1.5 });
+  }
+}
+
+// a grain's colour: its own, turning grey as the mixing goes on (some sooner than others),
+// rounded to a few steps so that the grains share few paths
+function grainColor(g: Grain): string {
+  const q = Math.max(0, Math.min(1, Math.round((mixK * 1.6 - g.k) * 4) / 4));
+  return q <= 0 ? g.c : q >= 1 ? CONC[g.v] : mix(g.c, CONC[g.v], q);
+}
+function vbox() { return "0 0 " + width + " " + height; }
+function fullS() { return { position: "absolute", left: 0, top: 0, width, height }; }
+// squares of whole-pixel side s at (x, y), many to one path per colour: whole numbers
+// and short relative steps keep the path text small, which is what costs
+const TAILS = ["h1v1h-1z", "h2v2h-2z", "h3v3h-3z", "h4v4h-4z"];
+function Grains(list: { x: number; y: number; s: number; c: string }[]) {
+  const by: any = {};
+  for (const g of list) {
+    const p = "M" + Math.round(g.x) + " " + Math.round(g.y) + TAILS[Math.max(0, Math.min(3, Math.round(g.s) - 1))];
+    const a = by[g.c];
+    if (a) a.push(p); else by[g.c] = [p];
+  }
+  const out: any[] = [];
+  for (const c in by) out.push(<path d={by[c].join("")} fill={c} viewBox={vbox()} style={fullS()} />);
+  return out;
+}
+
+// the mass in the drum seen through its mouth: the grains go round a loop in the low
+// side of the opening; turning tilts the surface and keeps them flowing round
+// it is built again only when something changed, and at most 30 times a second while
+// turning, because building the paths is the costly part on an old phone
+let massSig = "", massOut: any[] = [];
+function Mass() {
+  const turning = phase === "mixing" || phase === "pouring";
+  const sig = bits.length + "|" + massSeen + "|" + phase + "|" + Math.round(mixK * 8) + "|" + Math.round(tiltNow * 100) + "|" + (turning ? Math.floor(K.t * 30) : 0);
+  if (sig !== massSig) { massSig = sig; massOut = buildMass(); }
+  return massOut;
+}
+function buildMass() {
+  if (!massSeen || bits.length === 0) return [];
+  const pf = phase === "pouring" ? Math.min(1, (K.t - pourT) / 1.6) : 0;
+  const n = Math.round(bits.length * (1 - pf));
+  if (n <= 0) return [];
+  const R = 0.29;
+  const f = bits.length / MAXG;
+  const D = 2 * R * (0.55 + 0.3 * f) * (1 - pf * 0.7);
+  const cw = R - D / 2;
+  const Ru = Math.sqrt(Math.max(0.01, R * R - cw * cw)) * 0.92 + 0.02;
+  const turning = phase === "mixing" || phase === "pouring";
+  const slope = turning ? 0.38 : 0;
+  const cs = Math.cos(slope), sn = Math.sin(slope);
+  // the mouth plane on the screen: its middle and the screen steps of local x and z
+  const at = (u: number, w: number) => { const p = mv(massT, [u, 0.775, w]); return project([PIVOT[0] + p[0] + massJig[0], PIVOT[1] + p[1] + massJig[1], PIVOT[2] + p[2] + massJig[2]]); };
+  const C = at(0, 0), Pu = at(0.1, 0), Pw = at(0, 0.1);
+  const ux = (Pu[0] - C[0]) * 10, uy = (Pu[1] - C[1]) * 10, wx = (Pw[0] - C[0]) * 10, wy = (Pw[1] - C[1]) * 10;
+  const local = (rho: number, th: number) => {
+    let u = rho * Ru * Math.cos(th), w = rho * (D / 2) * Math.sin(th);
+    const u2 = u * cs - w * sn, w2 = u * sn + w * cs;
+    u = u2; w = w2 + cw;
+    const l = Math.sqrt(u * u + w * w);
+    if (l > R) { u *= R / l; w *= R / l; }
+    return [C[0] + u * ux + w * wx, C[1] + u * uy + w * wy];
+  };
+  // a dark wet bed under the grains, so that no holes show
+  const bed: number[][] = [];
+  for (let i = 0; i < 20; i++) bed.push(local(1.04, i / 20 * Math.PI * 2));
+  const out: any[] = [Poly(bed, mix("#8c7a55", "#767a80", mixK))];
+  const list: { x: number; y: number; s: number; c: string }[] = [];
+  const spin = turning ? drum : 0;
+  for (let i = 0; i < n; i++) {
+    const g = bits[i];
+    const p = local(g.rho, g.th + spin * g.sp);
+    list.push({ x: p[0], y: p[1], s: g.s, c: grainColor(g) });
+  }
+  for (const e of Grains(list)) out.push(e);
+  return out;
 }
 function spray(x: number, y: number, tx: number, ty: number, c: string[], n: number, spread: number) {
   for (let i = 0; i < n; i++) {
     const T = 0.35 + Math.random() * 0.2;
-    fly.push({ x: x + (Math.random() - 0.5) * spread, y: y + (Math.random() - 0.5) * spread, vx: (tx - x) / T, vy: (ty - y) / T - 300 * T / 2, c: c[i % c.length], t: T, r: 3 + Math.random() * 3 });
+    fly.push({ x: x + (Math.random() - 0.5) * spread, y: y + (Math.random() - 0.5) * spread, vx: (tx - x) / T + (Math.random() - 0.5) * 40, vy: (ty - y) / T - 300 * T / 2, c: c[i % c.length], t: T, r: 1 + Math.random() * 1.3 });
   }
 }
 function tickFly(dt: number) {
@@ -339,7 +403,7 @@ function dropIng() {
   }
   r.have++;
   rg.sound(r.id === "vesi" ? "pop" : "hit", { volume: 0.6 });
-  spray(hand.x, hand.y, m.x, m.y + 6, ING_C[r.id], 14, 26);
+  spray(hand.x, hand.y, m.x, m.y + 6, ING_C[r.id], 90, 30);
   addBits(r.id);
   rg.say(rg.sayId.number(r.have));
   if (recipe.every((q) => q.have >= q.want)) { phase = "mix"; rg.say("rk_t_kaynnista"); }
@@ -433,9 +497,9 @@ function tick(dt: number, input: any) {
       drum += dt * 3;
       tiltNow = Math.min(POUR, REST + (K.t - pourT) * 2.2);
       // the concrete runs from the mouth into the mould once the drum leans over
-      if (tiltNow > 1.7 && Math.random() < 0.8) {
+      if (tiltNow > 1.7) {
         const m = mouthScreen(), t = project([MOULD[0] + (Math.random() - 0.5) * 0.5, 0.1, MOULD[2] + (Math.random() - 0.5) * 0.3]);
-        spray(m[0], m[1] + 8, t[0], t[1], ["#8b8f94", "#6c757d", "#9aa0a6"], 2, 14);
+        spray(m[0], m[1] + 8, t[0], t[1], CONC, 18, 18);
       }
       if (K.t - pourT > 2.2) { phase = "end"; bits = []; win(width / 2 - 60, GY() + 20, ["rk_t_betoni_valmis"]); }
     }
@@ -596,7 +660,8 @@ function Play() {
     out.push(<div className="big" style={{ left: b.x - 40, top: gy + 40, width: 80 }}>{String(have)}</div>);
   }
   if (K.level === 1) {
-    for (const f of fly) out.push(Circle(f.x, f.y, f.r, f.c));
+    for (const e of Mass()) out.push(e);
+    for (const e of Grains(fly.map((f) => ({ x: f.x, y: f.y, s: f.r * 2, c: f.c })))) out.push(e);
     // the recipe: each ingredient, its dots, and the place to drag it from
     recipe.forEach((r, i) => {
       const s = srcPos(i);
