@@ -29,6 +29,9 @@
     var self = this;
     this.audio = new RgAudio(function (p) { return self.readFile(p); });
     this.three = new RgThree(this.canvas3d, function (p) { return self.texture(p); });
+    // the engine's own 3D scene, depth-tested with WebGL (gl3d.js); without
+    // WebGL the engine paints it into the draw stream as before
+    this.gl3d = global.RgGl3D && opts.canvasGl ? new RgGl3D(opts.canvasGl) : null;
     this.net = global.RgNet ? new RgNet(function (ev) { self.sendSensor("net", ev); }) : null;
   }
 
@@ -82,6 +85,9 @@
         if (n < 0) throw new Error("the games pack is not a pack");
         self.restoreSaves();
         self.x.rg_seed(Date.now() % 2147483647);
+        // ?nogl: the old painter-sorted 3D, for comparing
+        if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
+        else self.gl3d = null;
         self.attach();
         self.resize();
         var first = params.get("game") || "";
@@ -161,6 +167,7 @@
     this.canvas.height = Math.round(h * dpr);
     this.canvas.style.width = w + "px";
     this.canvas.style.height = h + "px";
+    if (this.gl3d && this.gl3d.canvas) { this.gl3d.canvas.style.width = w + "px"; this.gl3d.canvas.style.height = h + "px"; }
     this.x.rg_resize(w, h);
     this.readView();
     this.three.size = "";
@@ -405,8 +412,10 @@
       i += 23 + (nums[i + 22] | 0);
     }
     this.three.render(this.view, this.dpr);
+    var gl = false;
+    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr(), x.rg_tris_len()), this.view, this.dpr, this.background);
     if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
-    this.painter.paint(nums, strings, this.view, this.dpr, this.three.active ? null : this.background);
+    this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
     var ms = performance.now() - t0;
     this.frameMs = this.frameMs * 0.95 + ms * 0.05;
     if (DEBUG && (this.frames++ % 15 === 0)) {

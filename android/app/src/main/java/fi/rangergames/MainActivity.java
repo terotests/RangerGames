@@ -7,6 +7,9 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Canvas;
+import android.graphics.PixelFormat;
+import android.graphics.PorterDuff;
+import android.opengl.GLSurfaceView;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
@@ -17,6 +20,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.view.WindowManager;
+import android.widget.FrameLayout;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -34,11 +38,14 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * on a game thread, and this activity paints each frame's draw stream on a
  * SurfaceView's Canvas ({@link Painter}), plays the sounds ({@link Sound}),
  * vibrates, keeps the saves and passes touches and the Back button to the
- * game. No WebView and no WebAssembly, so it runs on old phones as well.
+ * game. A game's 3D scene goes under it on a GLSurfaceView with a depth
+ * buffer ({@link Gl3D}). No WebView and no WebAssembly, so it runs on old phones as well.
  */
 public class MainActivity extends Activity implements SurfaceHolder.Callback, Runnable {
     private static final String TAG = "RangerGames";
     private SurfaceView view;
+    private GLSurfaceView glView;
+    private final Gl3D gl3d = new Gl3D();
     private Painter painter;
     private final Sound sound = new Sound();
     private Sensors sensors;
@@ -51,6 +58,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private volatile SurfaceHolder surface;
     private volatile int width, height;
     private float density = 1;
+    /** the GL view shows a 3D scene (game thread only) */
+    private boolean glShown;
     /** touches and keys for the game thread: {kind, id, x, y} or a key name */
     private final ConcurrentLinkedQueue<Object> input = new ConcurrentLinkedQueue<>();
 
@@ -64,7 +73,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         sensors = new Sensors(this, input);
         camera = new Camera(this, input);
         bluetooth = new Bluetooth(this, input);
+        // the 3D scene (GLES, depth-tested) under the 2D view, which is
+        // transparent where nothing is painted
+        glView = new GLSurfaceView(this);
+        glView.setEGLContextClientVersion(2);
+        glView.setEGLConfigChooser(new Gl3D.Config());
+        glView.setRenderer(gl3d);
+        glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
         view = new SurfaceView(this);
+        view.setZOrderMediaOverlay(true);
+        view.getHolder().setFormat(PixelFormat.TRANSLUCENT);
         view.getHolder().addCallback(this);
         view.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -73,7 +91,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                 return true;
             }
         });
-        setContentView(view);
+        FrameLayout root = new FrameLayout(this);
+        root.addView(glView);
+        root.addView(view);
+        setContentView(root);
         immersive();
         // one game thread for the activity's life: the engine lives on it
         running = true;
@@ -122,6 +143,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onResume() {
         super.onResume();
         paused = false;
+        glView.onResume();
         sound.start();
         sound.setPaused(false);
         sensors.resume();
@@ -150,6 +172,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onPause() {
         super.onPause();
         paused = true;
+        glView.onPause();
         sound.setPaused(true);
         sound.stop();
         sensors.pause();
@@ -245,6 +268,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             return;
         }
         int lastW = 0, lastH = 0;
+        boolean glOn = false;
         long last = System.nanoTime();
         while (running) {
             SurfaceHolder h = surface;
@@ -280,16 +304,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             long t = System.nanoTime();
             double dt = Math.min(100, (t - last) / 1e6);
             last = t;
+            // the 3D scene as triangles for the GL view once its context works
+            if (gl3d.ready != glOn) {
+                glOn = gl3d.ready;
+                Engine.gl3d(glOn);
+            }
             Engine.frame(dt);
             afterCall();
+            float[] tris = glOn ? Engine.tris() : null;
+            boolean has3d = tris != null && tris.length > 0;
             float[] nums = Engine.draw();
             String strings = Engine.strings();
             double[] v = {Engine.view(0), Engine.view(1), Engine.view(2), Engine.view(3), Engine.view(4)};
+            if (has3d || glShown) {
+                gl3d.submit(has3d ? tris : null, v, density);
+                glView.requestRender();
+                glShown = has3d;
+            }
             Canvas c = null;
             try {
                 c = Build.VERSION.SDK_INT >= 26 ? h.getSurface().lockHardwareCanvas() : h.lockCanvas();
                 if (c != null) {
-                    painter.paint(c, nums != null ? nums : new float[0], strings != null ? strings.split("\u0000", -1) : new String[0], v, density, 0xff000000);
+                    // over the 3D the 2D view is cleared to transparent
+                    if (has3d) c.drawColor(0, PorterDuff.Mode.CLEAR);
+                    painter.paint(c, nums != null ? nums : new float[0], strings != null ? strings.split("\u0000", -1) : new String[0], v, density, has3d ? 0 : 0xff000000);
                 }
             } catch (Exception e) {
                 Log.w(TAG, "paint", e);
