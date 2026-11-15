@@ -422,7 +422,9 @@ impl Engine {
                 let cmds = json::parse(&text);
                 self.script = Some(s);
                 self.take_commands(&cmds);
-                self.commands.push(HostCommand { kind: "title".into(), name: info.name.clone(), args: Json::Null });
+                // args: the game's id ("" for the launcher), for hosts that put it in the address (web ?game=)
+                let id = if info.id == self.launcher { String::new() } else { info.id.clone() };
+                self.commands.push(HostCommand { kind: "title".into(), name: info.name.clone(), args: Json::Str(id) });
                 Ok(())
             }
             Err(e) => self.fail(e),

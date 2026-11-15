@@ -348,6 +348,18 @@
     this.free(a); this.free(b);
   };
 
+  // the running game in the address (?game=id), so the address bar is a
+  // direct link to it; not inside the playground's iframe (it does its own)
+  Host.prototype.syncAddress = function () {
+    if (global.top !== global || !global.history || !global.history.replaceState) return;
+    try {
+      var u = new URL(global.location.href);
+      if (this.game) u.searchParams.set("game", this.game); else u.searchParams.delete("game");
+      var h = u.href.replace(/=(&|$|#)/g, "$1");   // ?nogl, not ?nogl=
+      if (h !== global.location.href) global.history.replaceState(null, "", h);
+    } catch (e) { }
+  };
+
   Host.prototype.command = function (kind, name, args) {
     switch (kind) {
       case "sound": this.audio.play(name, args); break;
@@ -356,7 +368,11 @@
       case "stop": this.audio.stopMusic(); break;
       case "vibrate": this.vibrate(args); break;
       case "persist": try { localStorage.setItem("rg:" + name, typeof args === "string" ? args : JSON.stringify(args)); } catch (e) { } break;
-      case "title": document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView(); break;
+      case "title":
+        document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView();
+        this.game = typeof args === "string" ? args : "";
+        this.syncAddress();
+        break;
       case "three": this.three.command(name, args); break;
       case "sensor": this.sensor(name, args !== false); break;
       case "net": if (this.net) this.net.command(name, args); break;

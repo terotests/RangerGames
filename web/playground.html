@@ -15,6 +15,7 @@
       var t = new URLSearchParams();
       t.set("mode", "mobile");
       if (q.get("game")) t.set("game", q.get("game"));
+      ["nogl", "debug"].forEach(function (k) { if (q.has(k)) t.set(k, q.get(k)); });
       location.replace("index.html?" + t.toString());
     }
   })();
@@ -125,6 +126,7 @@
     <button id="fit" aria-pressed="true" title="Sovita puhelin ikkunaan / oikea koko">Sovita</button>
     <button id="reload" title="Käynnistä puhelin uudelleen">↻ Uudelleen</button>
     <button id="full" title="Avaa peli koko ikkunaan">⛶ Koko ruutu</button>
+    <button id="link" title="Kopioi suora linkki tähän peliin">🔗 Kopioi linkki</button>
   </div>
   <div id="stage">
     <div id="phone">
@@ -166,6 +168,21 @@
   var phone = $("phone"), frame = $("screen"), stage = $("stage");
   var list = $("games"), sel = $("device");
   var games = [];
+  // flags that go on to the phone's screen (index.html): ?nogl, ?debug
+  var PASS = ["nogl", "debug"];
+  function screenUrl() {
+    var q = new URLSearchParams();
+    if (state.game) q.set("game", state.game);
+    PASS.forEach(function (k) { if (params.has(k)) q.set(k, params.get(k)); });
+    var t = q.toString();
+    return "index.html" + (t ? "?" + t.replace(/=(&|$)/g, "$1") : "");
+  }
+  // the playground's own address follows the running game
+  function syncAddress() {
+    var u = new URL(location.href);
+    if (state.game) u.searchParams.set("game", state.game); else u.searchParams.delete("game");
+    history.replaceState(null, "", u.href.replace(/=(&|$|#)/g, "$1"));
+  }
 
   DEVICES.forEach(function (d) {
     var o = document.createElement("option");
@@ -246,16 +263,14 @@
   function start(id) {
     state.game = id;
     mark();
-    var u = new URL(location.href);
-    if (id) u.searchParams.set("game", id); else u.searchParams.delete("game");
-    history.replaceState(null, "", u);
+    syncAddress();
     if (ready()) { host().start(id); frame.focus(); }
     else boot();
   }
 
   // (re)load the phone's screen; the game starts from ?game=
   function boot() {
-    frame.src = "index.html" + (state.game ? "?game=" + encodeURIComponent(state.game) : "");
+    frame.src = screenUrl();
   }
   frame.addEventListener("load", function () {
     var w = frame.contentWindow, h = host();
@@ -269,9 +284,10 @@
       if (kind === "quit") { start(""); return; }   // Back in the menu would close the app
       cmd.call(h, kind, name, args);
       if (kind === "title") {
-        var g = games.filter(function (x) { return x.name === name; })[0];
-        var id = g ? g.id : "";
-        if (id !== state.game) { state.game = id; mark(); }
+        // args: the game's id ("" = the menu); older engines sent only the name
+        var id = typeof args === "string" ? args
+          : ((games.filter(function (x) { return x.name === name; })[0] || {}).id || "");
+        if (id !== state.game) { state.game = id; mark(); syncAddress(); }
       }
     };
     // keys pressed outside the phone go to it as well
@@ -301,7 +317,23 @@
   function setFit() { fitBtn.setAttribute("aria-pressed", state.fit ? "true" : "false"); fitBtn.textContent = state.fit ? "Sovita" : "1 : 1"; }
   fitBtn.addEventListener("click", function () { state.fit = !state.fit; store.set("fit", state.fit ? "1" : "0"); setFit(); fit(); });
   $("reload").addEventListener("click", boot);
-  $("full").addEventListener("click", function () { location.href = "index.html" + (state.game ? "?game=" + encodeURIComponent(state.game) : ""); });
+  $("full").addEventListener("click", function () { location.href = screenUrl(); });
+  // a direct link: playground.html?game=id opens the game in the phone frame
+  // on a computer and full screen on a phone (see the redirect at the top)
+  var linkBtn = $("link"), linkTimer = 0;
+  linkBtn.addEventListener("click", function () {
+    var u = new URL(location.href);
+    u.search = state.game ? "?game=" + encodeURIComponent(state.game) : "";
+    u.hash = "";
+    var said = function (t) {
+      linkBtn.textContent = t; clearTimeout(linkTimer);
+      linkTimer = setTimeout(function () { linkBtn.textContent = "🔗 Kopioi linkki"; }, 1800);
+    };
+    var fallback = function () { window.prompt("Suora linkki:", u.href); };
+    if (navigator.clipboard && navigator.clipboard.writeText)
+      navigator.clipboard.writeText(u.href).then(function () { said("✓ Kopioitu"); }, fallback);
+    else fallback();
+  });
   window.addEventListener("resize", fit);
 
   setFit(); layout();
