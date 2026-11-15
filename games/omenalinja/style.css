@@ -94,3 +94,12 @@
 .etext.res.no { color: #d62828; }
 .ctext { font-size: 16px; font-weight: 700; color: #1d3557; text-align: center; }
 .lvicon { font-size: 22px; }
+.stlabel { position: absolute; font-size: 13px; font-weight: 700; color: #ffffff; text-align: center; justify-content: center; align-items: center; }
+.stlabel.ask { color: #ffd166; }
+.stlabel.plus { font-size: 20px; color: rgba(47,75,85,0.45); }
+.kw.dim { font-size: 14px; color: #a8c5da; }
+.help { position: absolute; font-size: 20px; font-weight: 700; color: #1d4e89; text-align: center; justify-content: center; align-items: center; }
+.ptitle { position: absolute; font-size: 15px; font-weight: 700; color: #1d3557; justify-content: center; align-items: flex-start; }
+.opt.row { flex-direction: row; }
+.optmid { font-size: 20px; }
+.optlabel.pad6 { margin-left: 8px; font-size: 15px; }
