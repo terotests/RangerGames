@@ -1,27 +1,30 @@
-// Omenalinjasto: apples come along a production line and a robot filter
-// decides which go on to the slicer and which go to the bin. The child
-// writes the filter's rule; the rule is shown as code. Then the line runs,
-// the boss looks at what came out and says how it went, and the child goes
-// back to fix the filter (the same batch again, like a test). Levels:
-//   1 Käsin      the child is the filter: ✅ on or 🗑️ off for each apple
-//   2 Väri       the first rule: jos väri = punainen → eteenpäin, muuten → pois
-//   3 Madot      both colours are needed (red to the shop, green to jam),
-//                but no worms: two conditions
-//   4 Paino      too small apples are faulty and a pumpkin jams the slicer:
-//                heavier than a tennis ball, lighter than a pumpkin
-//   5 Kaikki     a shoe and a banana got on the line too: only apples
-// While the line runs, the row of the rule that stops an item lights up
-// red, so the child sees where the line noticed it.
-import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, star, Robot } from "lib/kit";
-import { Item, Rule, VALUES, rowsFor, emptyRule, check, wanted, verdict, solution, batch, jams } from "lib/rules";
+// Omenalinjasto: things come along a production line and a robot filter
+// decides which go on to the slicer and which the claw takes off. The child
+// writes the filter's rule from parts (property, comparison, value), and the
+// rule can also be shown as code. The line can be run, paused and stepped one
+// thing at a time, and any thing can be tapped to see what the sensors measured
+// and how each row of the rule judged it: debugging. At the end the boss looks
+// at what came out, and the child fixes the rule and runs the same batch again.
+//
+// The game starts with the line running by itself while the parts are
+// explained, then "Aloita". Each challenge has three orders from the boss:
+//   1 Väri    the colour you see (red, then green, then yellow)
+//   2 Koko    compared with a cherry, a tennis ball or a melon
+//   3 Paino   foam balls look like apples, only the scale tells; pumpkins jam the slicer
+//   4 Ja      two rows at once
+//   5 Ei      "everything but the green ones" needs "ei ole"
+import { K, Level, setup, step, start, win, miss, update, back, Header, Done, Sparks, Poly, Line, Circle, Box, PointAt, star } from "lib/kit";
+import { Item, Cond, Rule, Order, ORDERS, SIZE, WEIGHT, propsFor, maxRows, opsFor, valuesFor, complete, holds, check, wanted, verdict, jams, judge, batch, apple } from "lib/rules";
 
+const ICON: any = { vari: "🎨", koko: "📏", paino: "⚖️" };
 const LEVELS: Level[] = [
-  { name: rg.t("Käsin", "By hand", "A mano"), color: "#e63946", say: "ol_l1", pic: (x, y, s) => AppleArt(x - 22 * s, y + 6 * s, 20 * s, true, false).concat([<div className="emoji" style={{ left: x + 2 * s, top: y - 16 * s, width: 44 * s, height: 44 * s, fontSize: Math.round(30 * s) }}>👆</div>]) },
-  { name: rg.t("Väri", "Colour", "Color"), color: "#2a9d8f", say: "ol_l2", pic: (x, y, s) => AppleArt(x - 22 * s, y + 6 * s, 18 * s, true, false).concat(AppleArt(x + 22 * s, y + 6 * s, 18 * s, false, false)) },
-  { name: rg.t("Madot", "Worms", "Gusanos"), color: "#8338ec", say: "ol_l3", pic: (x, y, s) => AppleArt(x, y + 6 * s, 24 * s, true, true) },
-  { name: rg.t("Paino", "Weight", "Peso"), color: "#f77f00", say: "ol_l4", pic: (x, y, s) => [<div className="emoji" style={{ left: x - 40 * s, top: y - 22 * s, width: 80 * s, height: 50 * s, fontSize: Math.round(30 * s) }}>🎾 🎃</div>] },
-  { name: rg.t("Kaikki", "Everything", "Todo"), color: "#3a86ff", say: "ol_l5", pic: (x, y, s) => [<div className="emoji" style={{ left: x - 46 * s, top: y - 22 * s, width: 92 * s, height: 50 * s, fontSize: Math.round(28 * s) }}>👟 🍌</div>] },
+  { name: rg.t("Väri", "Colour", "Color"), color: "#e63946", say: "ol_l1", pic: () => [] },
+  { name: rg.t("Koko", "Size", "Tamaño"), color: "#2a9d8f", say: "ol_l2", pic: () => [] },
+  { name: rg.t("Paino", "Weight", "Peso"), color: "#f77f00", say: "ol_l3", pic: () => [] },
+  { name: rg.t("Ja", "And", "Y"), color: "#8338ec", say: "ol_l4", pic: () => [] },
+  { name: rg.t("Ei", "Not", "No"), color: "#3a86ff", say: "ol_l5", pic: () => [] },
 ];
+const LEVEL_ICON = ["🎨", "📏", "⚖️", "➕", "🚫"];
 
 // ---- layout ---------------------------------------------------------------------
 const BY = 272;                        // the belt's top
@@ -32,30 +35,40 @@ function EX() { return width - 14; }   // the end of the belt
 const BIN_Y = BY + 34;
 
 // ---- state ----------------------------------------------------------------------
-type Thing = { it: Item; x: number; y: number; vy: number; state: string; sliced: boolean; why: string; to: string };
+type Thing = { it: Item; x: number; y: number; vy: number; state: string; sliced: boolean; why: string; row: number };
 let items: Item[] = [];               // the batch: the same on a retry
 let things: Thing[] = [];
-let rule: Rule = emptyRule();
-let goalRed = true;
-let noWorms = false;
-let phase = "edit";                   // edit | run | boss
+let rule: Rule = [];
+let order: Order = ORDERS[0][0];
+let phase = "edit";                   // order (the boss tells) | edit | run | boss
 let spawned = 0;
 let speed = 70;
 let jamT = -10;
-let flash = { row: "", ok: true, t: -10 };
+let flash: any = { row: -1, ok: true, t: -10, th: null };
 let bossT = -10;
 let bossSay = "";
 let counts: any = {};
 let hintT = -10;
-let hintRow = "";
+let hintRow = -1;                      // -2 = the "+ ja" button
 let code = false;                      // show the rule as real code
-let waiting = -1;                      // level 1: the thing waiting at the filter
+let paused = false;
+let stepping = false;                  // stop every thing at the filter
+let insp: Thing | null = null;         // the thing being looked at
+let picker: any = null;                // { row, part } while choosing a part of a row
+let demo = false;                      // the start screen's line runs by itself
+let introT = 0;
+let introSaid = -1;
+let cleared: number[] = rg.load("cleared", [0, 0, 0, 0, 0]);
+let doneMarked = false;
+const DEMO_RULE: Rule = [{ p: "vari", op: "on", v: "punainen" }];
 
 // ---- pictures ----------------------------------------------------------------------
 
-function AppleArt(x: number, y: number, r: number, red: boolean, worm: boolean): any[] {
+const COLOR: any = { punainen: ["#e63946", "#a4161a"], vihrea: ["#8ac926", "#5a8f17"], keltainen: ["#ffd23f", "#c9a227"], oranssi: ["#f77f00", "#b85c00"] };
+
+function AppleArt(x: number, y: number, r: number, color: string): any[] {
   const out: any[] = [];
-  const c = red ? "#e63946" : "#8ac926", d = red ? "#a4161a" : "#5a8f17";
+  const c = COLOR[color][0], d = COLOR[color][1];
   out.push(Circle(x - r * 0.3, y, r * 0.78, c));
   out.push(Circle(x + r * 0.3, y, r * 0.78, c));
   out.push(Circle(x, y + r * 0.12, r * 0.8, c));
@@ -63,30 +76,37 @@ function AppleArt(x: number, y: number, r: number, red: boolean, worm: boolean):
   out.push(Line([[x, y - r * 0.55], [x + r * 0.1, y - r * 1.05]], "#6c584c", Math.max(2, r * 0.14)));
   out.push(Poly([[x + r * 0.1, y - r * 0.85], [x + r * 0.55, y - r * 1.1], [x + r * 0.5, y - r * 0.8]], "#2d6a4f"));
   out.push(Box(x - r * 0.05, y + r * 0.62, r * 0.1, r * 0.1, d, 1));
-  if (worm) {
-    out.push(Circle(x + r * 0.35, y + r * 0.15, r * 0.2, "#6c584c"));
-    out.push(Line([[x + r * 0.35, y + r * 0.15], [x + r * 0.7, y - r * 0.05], [x + r * 0.95, y + r * 0.2], [x + r * 1.15, y - r * 0.05]], "#f4978e", Math.max(3, r * 0.26)));
-    out.push(Circle(x + r * 1.17, y - r * 0.07, r * 0.16, "#f08080"));
-    out.push(Circle(x + r * 1.2, y - r * 0.1, Math.max(1, r * 0.05), "#3d405b"));
-  }
   return out;
 }
 
-function ThingArt(it: Item, x: number, y: number, r: number, sliced: boolean): any[] {
+// px per cm on the line, so sizes can be compared by eye
+const PX = 1.9;
+function ThingArt(it: Item, x: number, y: number, s: number, sliced: boolean): any[] {
+  const r = Math.max(3, it.cm * PX * s);
   if (it.kind === "omena") {
-    const rr = it.small ? r * 0.6 : r;
-    if (!sliced) return AppleArt(x, y, rr, it.red, it.worm);
-    // two halves with the white inside showing
-    const c = it.red ? "#e63946" : "#8ac926";
-    return [Circle(x - rr * 0.5, y, rr * 0.7, c), Circle(x - rr * 0.45, y, rr * 0.55, "#fff3d6"), Circle(x + rr * 0.5, y, rr * 0.7, c), Circle(x + rr * 0.45, y, rr * 0.55, "#fff3d6")];
+    if (!sliced) return AppleArt(x, y, r, it.color);
+    const c = COLOR[it.color][0];
+    return [Circle(x - r * 0.5, y, r * 0.7, c), Circle(x - r * 0.45, y, r * 0.55, "#fff3d6"), Circle(x + r * 0.5, y, r * 0.7, c), Circle(x + r * 0.45, y, r * 0.55, "#fff3d6")];
   }
-  const e = it.kind === "kenka" ? "👟" : it.kind === "banaani" ? "🍌" : "🎃";
-  const f = it.kind === "kurpitsa" ? r * 2.3 : r * 1.7;
-  return [<div className="emoji" style={{ left: x - f, top: y - f * 0.75, width: f * 2, height: f * 1.5, fontSize: Math.round(f * 1.1) }}>{e}</div>];
+  if (it.kind === "kirsikka") {
+    const k = Math.max(3, r * 1.1);
+    return [Line([[x - k * 0.6, y], [x + k * 0.2, y - k * 2.2], [x + k * 0.9, y]], "#6c584c", 2), Circle(x - k * 0.6, y, k, "#c1121f"), Circle(x + k * 0.9, y, k, "#c1121f"), Circle(x - k * 0.9, y - k * 0.3, k * 0.3, "rgba(255,255,255,0.5)")];
+  }
+  if (it.kind === "pallo") {
+    // a foam ball: as red and big as an apple, but no stem and soft dimples
+    const rr = r * 0.85;
+    return [Circle(x, y, rr, "#e63946"), Circle(x - rr * 0.35, y - rr * 0.35, rr * 0.25, "rgba(255,255,255,0.45)"), Circle(x + rr * 0.3, y + rr * 0.2, rr * 0.12, "#c1121f"), Circle(x - rr * 0.1, y + rr * 0.45, rr * 0.1, "#c1121f"), Circle(x + rr * 0.45, y - rr * 0.25, rr * 0.1, "#c1121f")];
+  }
+  // a pumpkin: too big for the belt picture, so drawn a bit smaller than the scale says
+  const f = Math.min(r * 0.7, 30 * s + 6);
+  return [Circle(x - f * 0.45, y + f * 0.05, f * 0.7, "#e85d04"), Circle(x + f * 0.45, y + f * 0.05, f * 0.7, "#e85d04"), Circle(x, y, f * 0.75, "#f48c06"), Box(x - f * 0.1, y - f * 0.95, f * 0.2, f * 0.3, "#386641", 2)];
 }
 
 function Cross(x: number, y: number, r: number) {
   return [Line([[x - r, y - r], [x + r, y + r]], "#d62828", 4), Line([[x + r, y - r], [x - r, y + r]], "#d62828", 4)];
+}
+function Tick(x: number, y: number, r: number) {
+  return [Line([[x - r, y], [x - r * 0.3, y + r * 0.7], [x + r, y - r * 0.7]], "#06d6a0", 4)];
 }
 
 const TEAL = "#2f4b55", MINT = "#8fd3c7", ORANGE = "#f4a24a", PLUM = "#8e2a6b";
@@ -100,15 +120,15 @@ function Bin(x: number, y: number, w: number, kind: string, n: number) {
     out.push(Circle(x - w / 4, y + 40, 6, "#1f363e")); out.push(Circle(x + w / 4, y + 40, 6, "#1f363e"));
     out.push(Circle(x - w / 4, y + 40, 2, MINT)); out.push(Circle(x + w / 4, y + 40, 2, MINT));
   } else {
-    // a stack of boxes (shop) or jars (jam) that grows
+    // a stack of boxes (shop) or bottles (juice) that grows
     const k = Math.min(6, n);
     for (let i = 0; i < Math.max(1, k); i++) {
-      const bx = x - 16 + (i % 2) * 18 - (i >= 2 && i < 4 ? 0 : 0), by = y + 30 - Math.floor(i / 2) * 15;
-      if (kind === "kauppa") { out.push(Box(bx - 8, by, 17, 14, i < k ? "#d4a373" : "rgba(212,163,115,0.3)", 2)); if (i < k) out.push(<div className="tick" style={{ left: bx - 8, top: by, width: 17, height: 14 }}>✓</div>); }
-      else { out.push(Box(bx - 7, by + 2, 15, 12, i < k ? MINT : "rgba(143,211,199,0.3)", 4)); out.push(Box(bx - 7, by, 15, 4, i < k ? ORANGE : "rgba(244,162,74,0.3)", 2)); }
+      const bx = x - 16 + (i % 2) * 18, by = y + 30 - Math.floor(i / 2) * 15;
+      if (kind === "kauppa") out.push(Box(bx - 8, by, 17, 14, i < k ? "#d4a373" : "rgba(212,163,115,0.3)", 2));
+      else { out.push(Box(bx - 6, by + 2, 13, 12, i < k ? "#ffb703" : "rgba(255,183,3,0.3)", 4)); out.push(Box(bx - 3, by - 2, 6, 5, i < k ? MINT : "rgba(143,211,199,0.3)", 2)); }
     }
   }
-  const label = kind === "pois" ? "🗑️" : kind === "kauppa" ? "🛒" : "🍯";
+  const label = kind === "pois" ? "🗑️" : kind === "kauppa" ? "🛒" : "🧃";
   out.push(<div className="emoji" style={{ left: x - 14, top: y + (kind === "pois" ? 8 : -10), width: 28, height: 22, fontSize: 15 }}>{label}</div>);
   if (n > 0) out.push(<div className="tiny" style={{ left: x - w / 2, top: y + 46, width: w, height: 16 }}>{String(n)}</div>);
   return out;
@@ -122,39 +142,45 @@ function Hall() {
   out.push(Circle(width * 0.8, BY - 6, 84, "#d3e6df"));
   out.push(Box(0, BY + 20, width, 64, "#e6eeeb", 0));
   for (let k = 0; k < 6; k++) out.push(Box(14 + k * 62, 120 + (k % 2) * 30, 26, 12, "#d9e3e0", 3));
-  // the pipe down to the slicer
   out.push(Box(width - 60, 112, 14, BY - 200, TEAL, 7));
   out.push(Box(width - 92, BY - 96, 46, 14, TEAL, 7));
-  // the truss the claw runs on
   const ty = 172;
   out.push(Box(10, ty, CX + 50, 5, TEAL, 2)); out.push(Box(10, ty + 13, CX + 50, 5, TEAL, 2));
   const pts: number[][] = [];
   for (let x = 10; x <= CX + 60; x += 14) pts.push([x, (x / 14) % 2 < 1 ? ty + 3 : ty + 15]);
   out.push(Line(pts, TEAL, 2));
-  // lamps
   for (const lx of [30, width - 130, width - 24]) { out.push(Line([[lx, 112], [lx, 128]], TEAL, 2)); out.push(Poly([[lx - 8, 134], [lx + 8, 134], [lx + 4, 128], [lx - 4, 128]], TEAL)); out.push(Circle(lx, 136, 4, ORANGE)); }
-  // the floor
   out.push(Box(0, BY + 80, width, 6, TEAL, 0));
   return out;
 }
 
-// the control panel that checks each thing against the rule
+function props(): string[] { return demo ? ["vari", "koko", "paino"] : propsFor(K.level); }
+function curRule(): Rule { return demo ? DEMO_RULE : rule; }
+function dest(): string { return demo ? "kauppa" : order.dest; }
+
+// the control panel: its screen says what the last check said, and a lamp
+// for each sensor (colour camera, size gate, scale) lights while it measures
 function Panel(x: number) {
   const out: any[] = [];
   const top = BY - 92;
   const bulbs = ["#9be564", PLUM, ORANGE];
   for (let i = 0; i < 3; i++) out.push(Box(x + (i - 1) * 16 - 5, top - 9, 10, 10, bulbs[i], 5));
   out.push(Box(x - 30, top, 60, 90, TEAL, 8));
-  // the screen: what the last check said
-  const fresh = phase === "run" && K.t - flash.t < 0.6;
+  const fresh = (phase === "run" || demo) && K.t - flash.t < 0.6 || paused && insp && insp === flash.th;
   out.push(Box(x - 22, top + 8, 44, 26, fresh ? (flash.ok ? "#b7efc5" : "#ffb3c1") : MINT, 4));
-  out.push(<div className="emoji" style={{ left: x - 22, top: top + 8, width: 44, height: 26, fontSize: 18 }}>{fresh ? (flash.ok ? "✓" : "✗") : waiting >= 0 ? "?" : "…"}</div>);
-  for (let k = 0; k < 6; k++) { const on = phase === "run" && Math.sin(K.t * 5 + k * 1.3) > 0; out.push(Circle(x - 15 + (k % 3) * 15, top + 46 + Math.floor(k / 3) * 12, 4, on ? (k % 2 ? ORANGE : PLUM) : "#4f6d78")); }
+  out.push(<div className="emoji" style={{ left: x - 22, top: top + 8, width: 44, height: 26, fontSize: 18 }}>{fresh ? (flash.ok ? "✓" : "✗") : "…"}</div>);
+  const ps = props();
+  ps.forEach((p, k) => {
+    const sx = x - 28 + k * 19;
+    out.push(Box(sx, top + 42, 18, 18, fresh ? "#ffd166" : "#4f6d78", 4));
+    out.push(<div className="emoji" style={{ left: sx, top: top + 42, width: 18, height: 18, fontSize: 11 }}>{ICON[p]}</div>);
+  });
   out.push(Box(x - 18, top + 70, 36, 10, MINT, 3));
+  // the scale under the belt at the filter
+  if (ps.indexOf("paino") >= 0) { out.push(Box(x - 20, BY + 22, 40, 8, "#4f6d78", 2)); out.push(Box(x - 4, BY + 30, 8, 10, "#4f6d78", 0)); }
   return out;
 }
 
-// the claw on the truss; it holds a rejected thing while it carries it
 function Claw(t: Thing | null) {
   const out: any[] = [];
   const x = CX, y = t ? t.y - 22 : BY - 78;
@@ -183,7 +209,6 @@ function Boss(x: number, y: number, happy: boolean) {
   return out;
 }
 
-// the slicer: an orange hopper on a mint machine with hazard stripes
 function Slicer(x: number, y: number) {
   const out: any[] = [];
   const shake = K.t - jamT < 2 ? Math.sin(K.t * 60) * 3 : 0;
@@ -195,157 +220,236 @@ function Slicer(x: number, y: number) {
   for (let k = 0; k < 6; k++) out.push(Poly([[x - 30 + k * 11, y - 18], [x - 24 + k * 11, y - 18], [x - 30 + k * 11 + 4, y - 8], [x - 36 + k * 11 + 4, y - 8]], "#1f363e"));
   out.push(Box(x - 32, y - 18, 64, 10, "rgba(244,162,74,0.55)", 0));
   out.push(Circle(x, y - 46, 15, TEAL));
-  const a = phase === "run" && K.t - jamT > 2 ? K.t * 12 : 0;
+  const a = (phase === "run" || demo) && !paused && K.t - jamT > 2 ? K.t * 12 : 0;
   out.push(Poly(star(x, y - 46, 12, 4, 4, a), "#e9ecef"));
   out.push(Circle(x + 22, y - 62, 5, K.t - jamT < 2 ? "#d62828" : "#9be564"));
   if (K.t - jamT < 3) for (let k = 0; k < 4; k++) { const t = (K.t * 0.8 + k * 0.25) % 1; out.push(Circle(x - 10 + k * 7 + Math.sin(t * 6 + k) * 6, y - 110 - t * 50, 8 + t * 10, "rgba(108,117,125," + (0.6 - t * 0.5).toFixed(2) + ")")); }
   return out;
 }
 
-// ---- the rule as code ------------------------------------------------------------------
+// ---- the parts of a rule ----------------------------------------------------------------
 
-const NAME: any = {
-  vari: [rg.t("väri: mikä vain", "colour: any", "color: cualquiera"), rg.t("väri = punainen", "colour = red", "color = rojo"), rg.t("väri = vihreä", "colour = green", "color = verde")],
-  mato: [rg.t("mato: ei väliä", "worm: any", "gusano: da igual"), rg.t("ei matoa", "no worm", "sin gusano")],
-  yli: [rg.t("paino > –", "weight > –", "peso > –"), rg.t("paino > 🍒", "weight > 🍒", "peso > 🍒"), rg.t("paino > 🎾", "weight > 🎾", "peso > 🎾")],
-  alle: [rg.t("paino < –", "weight < –", "peso < –"), rg.t("paino < 🎾", "weight < 🎾", "peso < 🎾"), rg.t("paino < 🎃", "weight < 🎃", "peso < 🎃")],
-  omena: [rg.t("mikä tahansa", "anything", "cualquier cosa"), rg.t("on omena", "is an apple", "es una manzana")],
+const PNAME: any = { vari: rg.t("väri", "colour", "color"), koko: rg.t("koko", "size", "tamaño"), paino: rg.t("paino", "weight", "peso") };
+const OPNAME: any = { on: rg.t("on", "is", "es"), ei: rg.t("ei ole", "is not", "no es"), yli: rg.t("suurempi kuin", "more than", "más que"), alle: rg.t("pienempi kuin", "less than", "menos que") };
+const VNAME: any = {
+  punainen: "🔴 " + rg.t("punainen", "red", "rojo"), vihrea: "🟢 " + rg.t("vihreä", "green", "verde"), keltainen: "🟡 " + rg.t("keltainen", "yellow", "amarillo"),
+  kirsikka: "🍒 " + rg.t("kirsikka", "cherry", "cereza"), tennis: "🎾 " + rg.t("tennispallo", "tennis ball", "pelota"), meloni: "🍉 " + rg.t("meloni", "melon", "melón"), kurpitsa: "🎃 " + rg.t("kurpitsa", "pumpkin", "calabaza"),
 };
-const CODE: any = {
-  vari: ["", "o.vari == \"punainen\"", "o.vari == \"vihrea\""], mato: ["", "!o.mato"],
-  yli: ["", "o.paino > KIRSIKKA", "o.paino > TENNISPALLO"], alle: ["", "o.paino < TENNISPALLO", "o.paino < KURPITSA"], omena: ["", "o.onOmena"],
-};
-const SAYVAL: any = {
-  vari: ["ol_c_mika", "ol_c_punainen", "ol_c_vihrea"], mato: ["ol_c_ei_valia", "ol_c_eimatoa"],
-  yli: ["ol_c_ei", "ol_c_yli_kirsikka", "ol_c_yli_tennis"], alle: ["ol_c_ei", "ol_c_alle_tennis", "ol_c_alle_kurpitsa"], omena: ["ol_c_mika_tahansa", "ol_c_omena"],
-};
+const VICON: any = { punainen: "🔴", vihrea: "🟢", keltainen: "🟡", kirsikka: "🍒", tennis: "🎾", meloni: "🍉", kurpitsa: "🎃" };
+const OPICON: any = { on: "=", ei: "≠", yli: ">", alle: "<" };
+const CNAME: any = { kirsikka: "KIRSIKKA", tennis: "TENNISPALLO", meloni: "MELONI", kurpitsa: "KURPITSA" };
 
-function cycle(row: string) {
-  if (phase === "run" || K.solved >= 0) return;
-  const r: any = rule;
-  r[row] = (r[row] + 1) % VALUES[row];
+function refText(p: string, v: string): string {
+  if (p === "koko") return SIZE[v] + " cm";
+  if (p === "paino") return WEIGHT[v] >= 1000 ? WEIGHT[v] / 1000 + " kg" : WEIGHT[v] + " g";
+  return "";
+}
+function measure(it: Item, p: string): string {
+  if (p === "vari") return VNAME[it.color] || "🟠 " + rg.t("oranssi", "orange", "naranja");
+  if (p === "koko") return it.cm.toFixed(1).replace(".0", "") + " cm";
+  return it.g >= 1000 ? (it.g / 1000).toFixed(1) + " kg" : it.g + " g";
+}
+function condCode(c: Cond): string {
+  if (c.p === "vari") return "o.vari " + (c.op === "on" ? "==" : "!=") + " \"" + c.v + "\"";
+  return "o." + c.p + " " + OPICON[c.op] + " " + CNAME[c.v] + "." + c.p;
+}
+function condShort(c: Cond): string {
+  return ICON[c.p] + " " + OPICON[c.op] + " " + VICON[c.v] + (c.p === "vari" ? "" : " " + refText(c.p, c.v));
+}
+
+function editable(): boolean { return (phase === "edit" || phase === "boss") && K.solved < 0; }
+
+function openPicker(row: number, part: string) {
+  if (!editable()) return;
+  if (part !== "p" && rule[row].p === "") part = "p";
+  picker = { row, part };
+  rg.sound("click");
+  rg.say(part === "p" ? "ol_k_mika" : part === "op" ? "ol_k_miten" : "ol_k_mihin");
+}
+
+function pick(val: string) {
+  const c = rule[picker.row];
   rg.sound("click"); rg.vibrate(10);
-  rg.say(SAYVAL[row][r[row]]);
+  if (picker.part === "p") {
+    if (c.p !== val) { c.p = val; const ops = opsFor(val, K.level); c.op = ops.length === 1 ? ops[0] : ""; c.v = ""; }
+  } else if (picker.part === "op") c.op = val;
+  else c.v = val;
+  rg.say("ol_c_" + val);
+  if (phase === "boss") phase = "edit";
+  // go on to the next empty part of the row
+  picker = c.op === "" ? { row: picker.row, part: "op" } : c.v === "" ? { row: picker.row, part: "v" } : null;
+}
+
+function addRow() {
+  if (!editable() || rule.length >= maxRows(K.level)) return;
+  rule.push({ p: "", op: "", v: "" });
+  rg.sound("pop");
+  openPicker(rule.length - 1, "p");
+}
+
+function delRow(i: number) {
+  if (!editable()) return;
+  rule.splice(i, 1);
+  if (!rule.length) rule.push({ p: "", op: "", v: "" });
+  rg.sound("whoosh");
   if (phase === "boss") phase = "edit";
 }
 
 function RuleCard(y: number) {
   const out: any[] = [];
-  const rows = rowsFor(K.level), lh = rows.length > 4 ? 35 : 40;
-  const h = rows.length * lh + 82;
+  const lh = 44, n = rule.length;
+  const h = n * lh + 102;
   out.push(<div className="card" style={{ left: 12, top: y, width: width - 24, height: h, backgroundColor: "#1d3557" }} />);
-  out.push(<div className="pad" id="code" onClick={() => { code = !code; rg.sound("click"); }} style={{ left: width - 64, top: y + 6, width: 44, height: 28, backgroundColor: code ? "#ffd166" : "#457b9d" }}><div className="tiny" style={{ left: 0, top: 5, width: 44, height: 18, color: code ? "#1d3557" : "#ffffff" }}>{"</>"}</div></div>);
-  const lit = phase === "run" && K.t - flash.t < 0.7 ? flash : null;
+  const lit = phase === "run" && (K.t - flash.t < 0.7 || paused && insp === flash.th) ? flash : null;
+  const by = y + 10 + n * lh;
+  out.push(<div className="pad" id="code" onClick={() => { code = !code; picker = null; rg.sound("click"); }} style={{ left: width - 70, top: by, width: 50, height: 30, backgroundColor: code ? "#ffd166" : "#457b9d" }}><div className="tiny" style={{ left: 0, top: 6, width: 50, height: 18, color: code ? "#1d3557" : "#ffffff" }}>{"</>"}</div></div>);
   if (code) {
-    const conds = rows.filter((r) => (rule as any)[r] > 0).map((r) => CODE[r][(rule as any)[r]]);
+    const conds = rule.filter((c) => complete(c)).map(condCode);
     const lines = ["function suodatin(o) {", "  if (" + (conds.length ? conds.join(" &&\n      ") : "true") + ")", "    return ETEENPAIN", "  return POIS", "}"];
-    let ly = y + 10;
+    let ly = y + 8;
     for (const l of lines) for (const part of l.split("\n")) {
       let sp = 0;
       while (part.charAt(sp) === " ") sp++;
-      out.push(<div className="codeline" style={{ left: 22 + sp * 8, top: ly, width: width - 60 - sp * 8, height: 20 }}>{part.substring(sp)}</div>);
+      out.push(<div className="codeline" style={{ left: 22 + sp * 7, top: ly, width: width - 44 - sp * 7, height: 20 }}>{part.substring(sp)}</div>);
       ly += 20;
     }
     return out;
   }
-  rows.forEach((row, i) => {
+  const x0 = 50, x1 = width - 50, gap = 4, tw = x1 - x0 - gap * 2;
+  const w0 = Math.floor(tw * 0.29), w1 = Math.floor(tw * 0.36), w2 = tw - w0 - w1;
+  rule.forEach((c, i) => {
     const ry = y + 10 + i * lh;
-    const v = (rule as any)[row];
-    const red = lit && lit.row === row && !lit.ok;
-    out.push(<div className="kw" style={{ left: 20, top: ry + 6, width: 40, height: 24 }}>{i === 0 ? rg.t("jos", "if", "si") : rg.t("ja", "and", "y")}</div>);
-    out.push(<div className={red ? "chip bad" : v > 0 ? "chip on" : "chip"} id={"r" + row} onClick={() => cycle(row)} style={{ left: 64, top: ry, width: width - 140, height: lh - 6 }}><div className="chiptext">{NAME[row][v]}</div></div>);
-    if (row === "vari" && v > 0) out.push(Circle(width - 92, ry + 17, 9, v === 1 ? "#e63946" : "#8ac926"));
-    if (row === "mato" && v > 0) for (const e of Cross(width - 92, ry + 17, 8)) out.push(e);
-    if (K.t - hintT < 6 && hintRow === row) out.push(PointAt(width - 60, ry + 4, "#ffd166"));
+    const red = lit && lit.row === i;
+    out.push(<div className="kw" style={{ left: 18, top: ry + 8, width: 32, height: 24 }}>{i === 0 ? rg.t("jos", "if", "si") : rg.t("ja", "and", "y")}</div>);
+    const tok = (part: string, x: number, w: number, text: string) => {
+      const sel = picker && picker.row === i && picker.part === part;
+      const cls = red ? "chip bad" : sel ? "chip sel" : text === "?" ? "chip ask" : "chip on";
+      out.push(<div className={cls} id={"t" + i + part} onClick={() => openPicker(i, part)} style={{ left: x, top: ry, width: w, height: lh - 6 }}><div className={text.length > 10 ? "chiptext small" : "chiptext"}>{text}</div></div>);
+    };
+    tok("p", x0, w0, c.p ? ICON[c.p] + " " + PNAME[c.p] : "?");
+    tok("op", x0 + w0 + gap, w1, c.op ? OPNAME[c.op] : "?");
+    tok("v", x0 + w0 + w1 + gap * 2, w2, c.v ? VNAME[c.v] : "?");
+    if (n > 1 || complete(c)) out.push(<div className="pad" id={"del" + i} onClick={() => delRow(i)} style={{ left: x1 + 4, top: ry + 5, width: 28, height: 28, backgroundColor: "#457b9d" }}><div className="tiny" style={{ left: 0, top: 4, width: 28, height: 20, color: "#ffffff" }}>✕</div></div>);
+    if (K.t - hintT < 6 && hintRow === i) {
+      const k = !complete(c) ? (c.p === "" ? 0 : c.op === "" ? 1 : 2) : 0;
+      out.push(PointAt(x0 + [w0 / 2, w0 + w1 / 2, w0 + w1 + w2 / 2][k], ry + 4, "#ffd166"));
+    }
   });
-  const ay = y + 10 + rows.length * lh;
+  if (n < maxRows(K.level)) {
+    out.push(<div className="pad" id="add" onClick={() => addRow()} style={{ left: 50, top: by, width: 110, height: 30, backgroundColor: "#457b9d" }}><div className="tiny" style={{ left: 0, top: 6, width: 110, height: 18, color: "#ffffff" }}>{"+ " + rg.t("ja …", "and …", "y …")}</div></div>);
+    if (K.t - hintT < 6 && hintRow === -2) out.push(PointAt(105, by, "#ffd166"));
+  }
+  const ay = by + 36;
   const pass = lit && lit.ok;
-  out.push(<div className={pass ? "kw ok" : "kw"} style={{ left: 30, top: ay + 4, width: width - 60, height: 26 }}>{"→ " + rg.t("eteenpäin ✅", "go on ✅", "adelante ✅")}</div>);
-  out.push(<div className={lit && !lit.ok ? "kw no" : "kw"} style={{ left: 30, top: ay + 32, width: width - 60, height: 26 }}>{rg.t("muuten → pois 🗑️", "else → bin 🗑️", "si no → fuera 🗑️")}</div>);
+  out.push(<div className={pass ? "kw ok" : "kw"} style={{ left: 30, top: ay, width: width - 60, height: 26 }}>{"→ " + rg.t("eteenpäin ✅", "go on ✅", "adelante ✅")}</div>);
+  out.push(<div className={lit && !lit.ok ? "kw no" : "kw"} style={{ left: 30, top: ay + 28, width: width - 60, height: 26 }}>{rg.t("muuten → pois 🗑️", "else → off 🗑️", "si no → fuera 🗑️")}</div>);
+  return out;
+}
+
+// the choices for one part of a row, just above the row
+function Picker() {
+  if (!picker) return [];
+  const out: any[] = [];
+  const c = rule[picker.row];
+  const opts = picker.part === "p" ? propsFor(K.level) : picker.part === "op" ? opsFor(c.p, K.level) : valuesFor(c.p);
+  out.push(<div className="hit" id="pkclose" onClick={() => { picker = null; }} style={{ left: 0, top: 0, width, height }} />);
+  const py = BY + 10 + picker.row * 44;
+  out.push(<div className="card" style={{ left: 12, top: py, width: width - 24, height: 88, backgroundColor: "#fff8e1" }} />);
+  const n = opts.length, w = Math.floor((width - 40 - (n - 1) * 8) / n);
+  opts.forEach((o, k) => {
+    const x = 20 + k * (w + 8);
+    const on = picker.part === "p" ? c.p === o : picker.part === "op" ? c.op === o : c.v === o;
+    const big = picker.part === "p" ? ICON[o] : picker.part === "op" ? OPICON[o] : VICON[o];
+    const label = picker.part === "p" ? PNAME[o] : picker.part === "op" ? OPNAME[o] : VNAME[o].substring(VNAME[o].indexOf(" ") + 1);
+    out.push(<div className="opt" id={"o" + o} onClick={() => pick(o)} style={{ left: x, top: py + 8, width: w, height: 72, backgroundColor: on ? "#ffd166" : "#ffffff" }}>
+      <div className="optbig">{big}</div>
+      <div className="optlabel">{label}</div>
+      {picker.part === "v" && c.p !== "vari" ? <div className="optref">{refText(c.p, o)}</div> : null}
+    </div>);
+  });
   return out;
 }
 
 // ---- the line ---------------------------------------------------------------------------
 
-function goalSay(): string[] {
-  if (K.level === 0) return [noWorms ? "ol_l1_mato" : "ol_l1"];
-  if (K.level === 1) return ["ol_l2", goalRed ? "ol_goal_red" : "ol_goal_green"];
-  return [["", "", "ol_l3", "ol_l4", "ol_l5"][K.level]];
-}
-
-function instruct() { rg.say(goalSay()); }
+function sayOrder() { rg.say(K.question === 0 ? ["ol_l" + (K.level + 1), "ol_o_" + order.id] : ["ol_o_" + order.id]); }
 
 function next() {
   const s = step();
-  goalRed = K.level !== 1 || rg.random() < 0.5;
-  noWorms = K.level === 0 && s > 0;
-  items = batch(K.level, s, () => rg.random());
+  demo = false;
+  order = ORDERS[K.level][K.question % 3];
+  items = batch(order, s, () => rg.random());
   speed = [62, 74, 88][s];
-  // the rule stays from batch to batch on a level; a new level starts empty
-  if (K.question === 0) rule = emptyRule();
-  hintT = -10; K.wait = 3.4;
+  // the rule stays from order to order on a challenge, so it is changed, not rewritten
+  if (K.question === 0) rule = [{ p: "", op: "", v: "" }];
+  hintT = -10; K.wait = 3.4; picker = null; code = false; doneMarked = false;
   reset();
-  instruct();
+  phase = "order"; bossT = K.t;
+  sayOrder();
 }
 
 function reset() {
-  things = []; spawned = 0; phase = "edit"; jamT = -10; bossT = -10; waiting = -1;
-  counts = { pois: 0, kauppa: 0, hillo: 0 };
+  things = []; spawned = 0; jamT = -10; paused = false; insp = null;
+  counts = { pois: 0, kauppa: 0, mehu: 0 };
 }
 
-function run() {
-  if (phase === "run" || K.solved >= 0) return;
+function incomplete(): number {
+  for (let i = 0; i < rule.length; i++) if (!complete(rule[i])) return i;
+  return -1;
+}
+
+function run(step1: boolean) {
+  if (K.solved >= 0) return;
+  if (phase === "run") {
+    // while running: ▶ pauses and goes on, 👣 goes on to the next thing at the filter
+    if (step1) { stepping = true; paused = false; insp = null; }
+    else if (paused) { paused = false; stepping = false; insp = null; }
+    else paused = true;
+    rg.sound("click");
+    return;
+  }
+  picker = null;
+  const bad = incomplete();
+  if (bad >= 0) { hintRow = bad; hintT = K.t; rg.say("ol_v_kesken"); rg.sound("wrong"); return; }
   reset();
-  phase = "run";
+  phase = "run"; stepping = step1;
   rg.sound("whoosh");
 }
 
-function decide(t: Thing, pass: boolean) {
-  t.state = pass ? "on" : "reject";
-  rg.sound(pass ? "tick" : "wrong");
+function inspect(t: Thing) {
+  insp = t;
+  if (phase === "run") paused = true;
+  rg.sound("click");
 }
 
-// level 1: the child's tap
-function manual(pass: boolean) {
-  if (phase !== "run" || waiting < 0) return;
-  const t = things[waiting];
-  waiting = -1;
-  flash = { row: "", ok: pass, t: K.t };
-  rg.say(pass ? "ol_eteen" : "ol_pois");
-  decide(t, pass);
-}
-
-function tick(dt: number, input: any) {
-  update(dt);
-  if (K.mode !== "play" || phase !== "run") return;
-  if (K.t - jamT < 2.2) return;                       // jammed: the line has stopped
+function sim(dt: number) {
+  if (demo) { introT += dt; if (K.mode !== "menu") return; }
+  else if (K.mode !== "play" || phase !== "run") return;
+  if (paused) return;
+  if (K.t - jamT < 2.2) return;
   if (jamT > 0) { finish(); return; }
-  // a new thing on the belt when there is room
+  if (demo && spawned >= items.length) { items = demoBatch(); spawned = 0; }
   const room = things.every((t) => t.state !== "belt" || t.x > 58);
-  if (spawned < items.length && room && waiting < 0) { things.push({ it: items[spawned], x: -20, y: BY - 18, vy: 0, state: "belt", sliced: false, why: "", to: "" }); spawned++; }
-  const rows = rowsFor(K.level);
-  for (let i = 0; i < things.length; i++) {
-    const t = things[i];
+  if (spawned < items.length && room) { things.push({ it: items[spawned], x: -20, y: BY - 18, vy: 0, state: "belt", sliced: false, why: "", row: -1 }); spawned++; }
+  for (const t of things) {
     if (t.state === "belt" || t.state === "on" || t.state === "reject") {
-      if (waiting >= 0 && t.state === "belt") continue;   // the line waits for the child
       const before = t.x;
       t.x += speed * dt;
       if (t.state === "belt" && before < FX && t.x >= FX) {
         t.x = FX;
-        if (K.level === 0) { waiting = i; continue; }
-        const row = check(t.it, rule, rows);
-        flash = { row, ok: row === "", t: K.t };
-        decide(t, row === "");
+        const row = check(t.it, curRule());
+        t.row = row;
+        flash = { row, ok: row < 0, t: K.t, th: t };
+        t.state = row < 0 ? "on" : "reject";
+        rg.sound(row < 0 ? "tick" : "wrong");
+        if (stepping && !demo) { paused = true; insp = t; rg.say(row < 0 ? "ol_eteen" : "ol_pois"); return; }
       }
       if (t.state === "reject" && before < CX && t.x >= CX) { t.x = CX; t.state = "grab"; t.vy = 0; rg.sound("click"); continue; }
       if (t.state === "on" && before < SX() && t.x >= SX()) {
         if (jams(t.it)) { jamT = K.t; t.x = SX(); t.state = "jam"; rg.sound("hit"); rg.vibrate(200); return; }
         t.sliced = true; rg.sound("hit");
       }
-      if (t.state === "on" && t.x >= EX()) {
-        t.state = "fall"; t.vy = 0;
-        t.to = K.level >= 2 ? (t.it.red ? "kauppa" : "hillo") : (goalRed ? "kauppa" : "hillo");
-      }
+      if (t.state === "on" && t.x >= EX()) { t.state = "fall"; t.vy = 0; }
     } else if (t.state === "grab") {
       // vy is the claw's clock: up off the belt, then down in front of it into the cart
       t.vy += dt;
@@ -355,155 +459,277 @@ function tick(dt: number, input: any) {
       else { counts.pois++; t.state = "inbin"; rg.sound("pop"); }
     } else if (t.state === "fall") {
       t.vy += 900 * dt; t.y += t.vy * dt;
-      if (t.state === "fall") t.x = Math.max(binX(t.to), t.x - 140 * dt);
-      if (t.y > BIN_Y + 10) { counts[t.to]++; t.state = "out"; }
+      t.x = Math.max(binX(), t.x - 140 * dt);
+      if (t.y > BIN_Y + 10) { counts[dest()]++; t.state = "out"; }
     }
   }
+  if (demo) { things = things.filter((t) => t.state !== "inbin" && t.state !== "out"); if (counts.pois > 9) counts = { pois: 0, kauppa: 0, mehu: 0 }; return; }
   if (spawned >= items.length && things.every((t) => t.state === "inbin" || t.state === "out")) finish();
 }
 
-function binX(to: string) { return to === "kauppa" ? width - 92 : width - 36; }
+function binX() { return width - 60; }
+
+function demoBatch(): Item[] {
+  const out: Item[] = [];
+  for (let k = 0; k < 6; k++) out.push(apple(rg.pick(["punainen", "punainen", "vihrea", "keltainen"]), rg.random() < 0.3, rg.random()));
+  return out;
+}
+
+// where to point for a complaint: the row about that property, or "+ ja"
+function rowFor(worst: string, list: Item[]): number {
+  if (worst === "hukka") {
+    const it = list.find((it) => wanted(it, order) && check(it, rule) >= 0);
+    return it ? check(it, rule) : -1;
+  }
+  const p = worst === "jumi" ? "paino" : worst;
+  const i = rule.findIndex((c) => c.p === p);
+  if (i >= 0) return i;
+  return rule.length < maxRows(K.level) ? -2 : 0;
+}
 
 // the boss comes to look at what came out
 function finish() {
-  phase = "boss"; bossT = K.t;
-  // only the things that were decided count (after a jam the rest never got there)
-  let worst = "";
+  phase = "boss"; bossT = K.t; paused = false; stepping = false; insp = null;
   const found: string[] = [];
   for (const t of things) {
     if (t.state !== "inbin" && t.state !== "out" && t.state !== "jam") continue;
-    const v = verdict(t.it, t.state !== "inbin", K.level, goalRed, noWorms);
-    t.why = v;
-    if (v) found.push(v);
+    t.why = verdict(t.it, t.state !== "inbin", order);
+    if (t.why) found.push(t.why);
   }
-  for (const w of ["jumi", "mato", "pieni", "vari", "hukka"]) if (!worst && found.indexOf(w) >= 0) worst = w;
+  let worst = "";
+  for (const w of ["jumi", "paino", "koko", "vari", "hukka"]) if (!worst && found.indexOf(w) >= 0) worst = w;
   bossSay = worst;
   if (!worst) { win(width / 2, 180, ["ol_pomo_hyva"]); return; }
   const n = miss();
   const say = ["ol_pomo_" + worst];
-  if (n >= 2 && K.level > 0) {
-    const sol: any = solution(K.level, goalRed);
-    hintRow = "";
-    for (const row of rowsFor(K.level)) if (!hintRow && (rule as any)[row] !== sol[row]) hintRow = row;
-    if (hintRow) { hintT = K.t + 3; say.push(hintSay()); }
-  } else if (n >= 2) { hintT = K.t + 3; say.push("ol_v_k1"); }
+  if (n >= 2) { hintRow = rowFor(worst, items); hintT = K.t + 3; say.push("ol_v_" + worst); }
   say.push("ol_korjaa");
   rg.say(say);
 }
 
-function hintSay(): string {
-  const sol: any = solution(K.level, goalRed);
-  if (hintRow === "vari") return sol.vari === 1 ? "ol_v_vari_red" : sol.vari === 2 ? "ol_v_vari_green" : "ol_v_vari_any";
-  return "ol_v_" + hintRow;
-}
-
+// the hint is about the symptom: what would go wrong with this batch
 function hint() {
   rg.sound("click");
-  if (K.level === 0) { hintT = K.t; rg.say(noWorms ? "ol_l1_mato" : "ol_v_k1"); return; }
-  const sol: any = solution(K.level, goalRed);
-  hintRow = "";
-  for (const row of rowsFor(K.level)) if (!hintRow && (rule as any)[row] !== sol[row]) hintRow = row;
+  if (phase === "order") { sayOrder(); return; }
+  const bad = incomplete();
   hintT = K.t;
-  if (hintRow) rg.say(hintSay()); else rg.say("ol_v_valmis");
+  if (bad >= 0) { hintRow = bad; rg.say("ol_v_kesken"); return; }
+  const worst = judge(items, rule, order);
+  if (!worst) { hintRow = -1; rg.say("ol_v_valmis"); return; }
+  hintRow = rowFor(worst, items);
+  rg.say("ol_v_" + worst);
 }
 
-function onBack() { phase = "edit"; back(); }
+function onBack() {
+  if (picker) { picker = null; return; }
+  if (insp) { insp = null; return; }
+  phase = "edit"; back();
+}
 
 // ---- screens -----------------------------------------------------------------------------
+
+// what the boss wants, shown with things from this batch: a good one ✓, and
+// one each that the order's rows stop ✗
+function examples(): { it: Item; ok: boolean }[] {
+  const out: { it: Item; ok: boolean }[] = [];
+  const good = items.find((it) => wanted(it, order));
+  if (good) out.push({ it: good, ok: true });
+  for (const c of order.conds) { const it = items.find((it) => !holds(it, c) && out.every((e) => e.it !== it)); if (it) out.push({ it, ok: false }); }
+  return out;
+}
 
 function Goal() {
   const out: any[] = [];
   out.push(<div className="card" style={{ left: 12, top: 116, width: width - 24, height: 48 }} />);
   out.push(<div className="tiny" style={{ left: 16, top: 120, width: 70, height: 40 }}>{rg.t("Pomo haluaa:", "Boss wants:", "El jefe quiere:")}</div>);
-  let x = 104;
-  const put = (f: (x: number) => any[], no: boolean) => { for (const e of f(x)) out.push(e); if (no) for (const e of Cross(x, 140, 13)) out.push(e); x += 44; };
-  if (K.level <= 1) { put((x) => AppleArt(x, 142, 14, goalRed, false), false); put((x) => AppleArt(x, 142, 14, !goalRed, false), true); if (noWorms) put((x) => AppleArt(x - 4, 142, 12, true, true), true); }
-  else {
-    put((x) => AppleArt(x, 142, 13, true, false), false); put((x) => AppleArt(x, 142, 13, false, false), false); put((x) => AppleArt(x - 4, 142, 12, true, true), true);
-    if (K.level >= 3) { put((x) => AppleArt(x, 144, 8, true, false), true); put((x) => ThingArt({ kind: "kurpitsa", red: false, worm: false, small: false, g: 0 }, x, 142, 7, false), true); }
-    if (K.level >= 4) { put((x) => ThingArt({ kind: "kenka", red: false, worm: false, small: false, g: 0 }, x, 142, 8, false), true); }
+  let x = 106;
+  for (const e of examples()) {
+    for (const el of ThingArt(e.it, x, 142, 0.75, false)) out.push(el);
+    for (const el of e.ok ? Tick(x + 12, 152, 6) : Cross(x + 12, 152, 6)) out.push(el);
+    x += 48;
   }
+  out.push(<div className="emoji" style={{ left: width - 56, top: 124, width: 36, height: 32, fontSize: 22 }}>{order.dest === "kauppa" ? "🛒" : "🧃"}</div>);
+  out.push(<div className="hit" id="goal" onClick={() => sayOrder()} style={{ left: 12, top: 116, width: width - 24, height: 48 }} />);
   return out;
 }
 
 function LineView() {
   const out: any[] = [];
   for (const e of Hall()) out.push(e);
-  // the belt: orange-edged, on rollers
   out.push(Box(4, BY - 2, width - 8, 24, ORANGE, 12));
   out.push(Box(6, BY, width - 12, 20, "#26333d", 10));
-  const spin = phase === "run" && K.t - jamT > 2.2 ? K.t * speed / 9 : 0;
+  const spin = (phase === "run" || demo) && !paused && K.t - jamT > 2.2 ? K.t * speed / 9 : 0;
   for (let x = 20; x < width - 14; x += 30) {
     out.push(Circle(x, BY + 10, 7, "#6b8a96"));
     out.push(Circle(x + Math.cos(spin) * 3.5, BY + 10 + Math.sin(spin) * 3.5, 2, "#e6eeeb"));
   }
-  // the bins on the floor
   for (const e of Bin(CX, BIN_Y, 50, "pois", counts.pois || 0)) out.push(e);
-  if (K.level >= 2 || goalRed) for (const e of Bin(binX("kauppa"), BIN_Y, 48, "kauppa", counts.kauppa || 0)) out.push(e);
-  if (K.level >= 2 || !goalRed) for (const e of Bin(binX("hillo"), BIN_Y, 48, "hillo", counts.hillo || 0)) out.push(e);
+  for (const e of Bin(binX(), BIN_Y, 48, dest(), counts[dest()] || 0)) out.push(e);
   for (const e of Slicer(SX(), BY)) out.push(e);
   out.push(<div className="tag" style={{ left: SX() - 40, top: BY - 77, width: 80, height: 14 }}>{rg.t("leikkuri", "slicer", "cortadora")}</div>);
-  // the panel behind the belt where things are checked
   for (const e of Panel(FX)) out.push(e);
   out.push(<div className="tag" style={{ left: FX - 40, top: BY - 23, width: 80, height: 16 }}>{rg.t("suodatin", "filter", "filtro")}</div>);
-  // the things on the belt (and falling into the boxes)
-  let held: Thing | null = null;
+  let held: any = null;
   for (const t of things) {
     if (t.state === "inbin" || t.state === "out") continue;
-    if (t.state === "grab") held = t;
-    for (const e of ThingArt(t.it, t.x, t.y, 15, t.sliced)) out.push(e);
+    if (t.state === "grab") { held = t; continue; }
+    for (const e of ThingArt(t.it, t.x, t.y, 1, t.sliced)) out.push(e);
+    if (insp === t) out.push(Circle(t.x, t.y + 22, 4, "#ffd166"));
   }
   for (const e of Claw(held)) out.push(e);
-  if (held) for (const e of ThingArt(held.it, held.x, held.y, 15, false)) out.push(e);
-  return out;
-}
-
-function BossView() {
-  const out: any[] = [];
-  const a = Math.min(1, (K.t - bossT) * 3);
-  out.push(<div style={{ position: "absolute", left: 0, top: 112, width, height: BY - 40, backgroundColor: "rgba(255,255,255," + (0.85 * a).toFixed(2) + ")" }} />);
-  const bx = -40 + 100 * a;
-  for (const e of Boss(bx, 170, !bossSay)) out.push(e);
-  out.push(<div className="bubble" style={{ left: 104, top: 124, width: width - 116, height: 128 }} />);
-  // what came out: the things that went wrong, marked
-  const bad = things.filter((t) => t.why);
-  if (!bad.length) out.push(<div className="big" style={{ left: 104, top: 140, width: width - 116, height: 90 }}>👍 ✨</div>);
-  bad.slice(0, 6).forEach((t, i) => {
-    const x = 132 + (i % 3) * 66, y = 160 + Math.floor(i / 3) * 52;
-    for (const e of ThingArt(t.it, x, y, 13, false)) out.push(e);
-    out.push(<div className="emoji" style={{ left: x + 8, top: y - 4, width: 26, height: 24, fontSize: 16 }}>{t.why === "hukka" ? "🗑️" : "❗"}</div>);
+  if (held) for (const e of ThingArt(held.it, held.x, held.y, 1, false)) out.push(e);
+  // tapping a thing on the line shows what the filter thinks of it
+  if (!demo) things.forEach((t, i) => {
+    if (t.state === "inbin" || t.state === "out") return;
+    out.push(<div className="hit" id={"th" + i} onClick={() => inspect(t)} style={{ left: t.x - 20, top: t.y - 24, width: 40, height: 44 }} />);
   });
   return out;
 }
 
-function ManualPads(y: number) {
+// the thing being looked at: what the sensors say and how each row judges it
+function Inspector() {
+  const t = insp;
+  if (!t) return [];
   const out: any[] = [];
-  const w = (width - 44) / 2, on = phase === "run" && waiting >= 0;
-  out.push(<div className="pad" id="yes" onClick={() => manual(true)} style={{ left: 16, top: y, width: w, height: 110, backgroundColor: on ? "#06d6a0" : "#b7e4c7" }}><div className="padbig">✅</div><div className="padlabel">{rg.t("Eteenpäin", "Go on", "Adelante")}</div></div>);
-  out.push(<div className="pad" id="no" onClick={() => manual(false)} style={{ left: 28 + w, top: y, width: w, height: 110, backgroundColor: on ? "#ef476f" : "#f4c2cc" }}><div className="padbig">🗑️</div><div className="padlabel">{rg.t("Pois", "Bin", "Fuera")}</div></div>);
-  if (K.t - hintT < 5 && on) { const it = things[waiting].it; const yes = wanted(it, 0, goalRed, noWorms); out.push(PointAt(yes ? 16 + w / 2 : 28 + w * 1.5, y, "#f77f00")); }
+  const y0 = 114, h = 132;
+  out.push(<div className="card" style={{ left: 8, top: y0, width: width - 16, height: h, backgroundColor: "#fffdf5" }} />);
+  for (const e of ThingArt(t.it, 40, y0 + 50, Math.min(1.6, 26 / (t.it.cm * PX)), false)) out.push(e);
+  props().forEach((p, k) => {
+    out.push(<div className="mtext" style={{ left: 74, top: y0 + 8 + k * 24, width: 112, height: 22 }}>{ICON[p] + " " + measure(t.it, p)}</div>);
+  });
+  const r = curRule();
+  let fail = -1;
+  r.forEach((c, i) => {
+    if (!complete(c)) return;
+    const after = fail >= 0;              // the filter stopped looking already
+    const ok = holds(t.it, c);
+    if (!ok && fail < 0) fail = i;
+    out.push(<div className={after ? "etext off" : ok ? "etext" : "etext bad"} style={{ left: 186, top: y0 + 8 + i * 24, width: width - 230, height: 22 }}>{condShort(c) + (after ? "" : ok ? " ✓" : " ✗")}</div>);
+  });
+  const ly = y0 + 8 + Math.max(1, r.length) * 24 + 4;
+  out.push(<div className={fail < 0 ? "etext res" : "etext res no"} style={{ left: 186, top: ly, width: width - 200, height: 24 }}>{fail < 0 ? "→ ✅ " + rg.t("eteenpäin", "go on", "adelante") : "→ 🗑️ " + rg.t("pois", "off", "fuera")}</div>);
+  if (t.why) out.push(<div className="etext bad" style={{ left: 20, top: y0 + h - 28, width: width - 40, height: 22 }}>{t.why === "hukka" ? rg.t("😟 Pomo olisi halunnut tämän", "😟 The boss wanted this one", "😟 El jefe quería esta") : rg.t("😟 Tämän ei olisi pitänyt mennä läpi", "😟 This should not have gone through", "😟 Esta no debía pasar")}</div>);
+  out.push(<div className="pad" id="iclose" onClick={() => { insp = null; rg.sound("click"); }} style={{ left: width - 44, top: y0 + 6, width: 30, height: 30, backgroundColor: "#adb5bd" }}><div className="tiny" style={{ left: 0, top: 5, width: 30, height: 20, color: "#ffffff" }}>✕</div></div>);
+  return out;
+}
+
+// the boss: first telling the order, then judging what came out
+function BossView() {
+  const out: any[] = [];
+  const a = Math.min(1, (K.t - bossT) * 3);
+  out.push(<div style={{ position: "absolute", left: 0, top: 112, width, height: BY - 40, backgroundColor: "rgba(255,255,255," + (0.88 * a).toFixed(2) + ")" }} />);
+  const bx = -40 + 100 * a;
+  for (const e of Boss(bx, 170, phase === "order" || !bossSay)) out.push(e);
+  out.push(<div className="bubble" style={{ left: 104, top: 120, width: width - 116, height: 132 }} />);
+  if (phase === "order") {
+    // the order as pictures: the good thing goes to the shop, the others are taken off
+    examples().forEach((e, i) => {
+      const x = 134 + (i % 3) * 64, y = 160;
+      for (const el of ThingArt(e.it, x, y, 1.1, false)) out.push(el);
+      for (const el of e.ok ? Tick(x + 16, y + 20, 8) : Cross(x + 16, y + 20, 8)) out.push(el);
+    });
+    out.push(<div className="tiny" style={{ left: 112, top: 208, width: width - 132, height: 36 }}>{"✓ → " + (order.dest === "kauppa" ? "🛒" : "🧃") + "     ✗ → 🗑️"}</div>);
+    out.push(<div className="pad" id="ok" onClick={() => { phase = "edit"; rg.sound("click"); }} style={{ left: width / 2 - 70, top: BY - 12, width: 140, height: 44, backgroundColor: "#06d6a0" }}><div className="padtext">👍</div></div>);
+    return out;
+  }
+  const bad = things.filter((t) => t.why);
+  if (!bad.length) out.push(<div className="big" style={{ left: 104, top: 140, width: width - 116, height: 90 }}>👍 ✨</div>);
+  bad.slice(0, 6).forEach((t, i) => {
+    const x = 134 + (i % 3) * 64, y = 156 + Math.floor(i / 3) * 52;
+    for (const e of ThingArt(t.it, x, y, 0.9, false)) out.push(e);
+    out.push(<div className="emoji" style={{ left: x + 8, top: y - 4, width: 26, height: 24, fontSize: 16 }}>{t.why === "hukka" ? "🗑️" : t.why === "jumi" ? "💥" : "❗"}</div>);
+    out.push(<div className="hit" id={"bad" + i} onClick={() => inspect(t)} style={{ left: x - 24, top: y - 24, width: 50, height: 48 }} />);
+  });
+  return out;
+}
+
+function Controls() {
+  const out: any[] = [];
+  if (K.solved >= 0 || phase === "order") return out;
+  const y = height - 66, w2 = 96, w1 = width - 36 - w2;
+  let label = "▶ " + rg.t("Aja", "Run", "Marcha");
+  if (phase === "run") label = paused ? "▶ " + rg.t("Jatka", "Go on", "Sigue") : "⏸ " + rg.t("Tauko", "Pause", "Pausa");
+  else if (phase === "boss") label = "▶ " + rg.t("Uudestaan", "Again", "Otra vez");
+  out.push(<div className="pad" id="run" onClick={() => run(false)} style={{ left: 12, top: y, width: w1, height: 54, backgroundColor: phase === "run" && !paused ? "#ffb703" : "#06d6a0" }}><div className="padtext">{label}</div></div>);
+  out.push(<div className="pad" id="step" onClick={() => run(true)} style={{ left: 24 + w1, top: y, width: w2, height: 54, backgroundColor: "#118ab2" }}><div className="padtext">👣</div></div>);
   return out;
 }
 
 function Play() {
   const out: any[] = [];
-  const text = K.level === 0 ? rg.t("Sinä olet suodatin", "You are the filter", "Tú eres el filtro") : rg.t("Kirjoita suodattimen sääntö", "Write the filter's rule", "Escribe la regla del filtro");
-  for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
+  const text = phase === "order" ? rg.t("Pomo kertoo", "The boss says", "El jefe dice") : rg.t("Kirjoita suodattimen sääntö", "Write the filter's rule", "Escribe la regla del filtro");
+  for (const e of Header(text, () => sayOrder(), () => hint())) out.push(e);
   for (const e of LineView()) out.push(e);
   for (const e of Goal()) out.push(e);
-  if (phase === "boss") for (const e of BossView()) out.push(e);
-  if (K.level === 0) for (const e of ManualPads(BY + 110)) out.push(e);
-  else for (const e of RuleCard(BY + 98)) out.push(e);
-  const label = phase === "run" ? "…" : phase === "boss" && K.solved < 0 ? rg.t("▶ Kokeile uudestaan", "▶ Try again", "▶ Otra vez") : "▶";
-  if (K.level > 0 || phase !== "run") out.push(<div className="pad" id="run" onClick={() => run()} style={{ left: 30, top: height - 70, width: width - 60, height: 56, backgroundColor: phase === "run" ? "#adb5bd" : "#06d6a0" }}><div className="padtext">{label}</div></div>);
+  if (phase === "order" || phase === "boss" && !insp) for (const e of BossView()) out.push(e);
+  for (const e of Inspector()) out.push(e);
+  for (const e of RuleCard(BY + 98)) out.push(e);
+  for (const e of Controls()) out.push(e);
+  for (const e of Picker()) out.push(e);
+  return <div className="screen">{out}</div>;
+}
+
+// ---- the start: the line runs by itself while its parts are explained -----------------------
+
+const INTRO = [
+  { t: 0, say: "ol_i1", x: () => 30, y: BY - 30, text: rg.t("Omenat tulevat hihnaa pitkin.", "Apples come along the belt.", "Las manzanas llegan por la cinta.") },
+  { t: 4.5, say: "ol_i2", x: () => FX, y: BY - 104, text: rg.t("Suodatin mittaa värin, koon ja painon.", "The filter measures colour, size and weight.", "El filtro mide color, tamaño y peso.") },
+  { t: 10, say: "ol_i3", x: () => width / 2, y: BY + 104, text: rg.t("Sääntö päättää: eteenpäin vai pois.", "The rule decides: on or off.", "La regla decide: adelante o fuera.") },
+  { t: 15, say: "ol_i4", x: () => CX, y: 168, text: rg.t("Koura nostaa pois hylätyt.", "The claw takes the rejected ones off.", "La garra quita las rechazadas.") },
+  { t: 19.5, say: "ol_i5", x: () => SX(), y: BY - 104, text: rg.t("Leikkuri pilkkoo omenat. Sinä teet säännön!", "The slicer cuts the apples. You make the rule!", "La cortadora corta las manzanas. ¡Tú haces la regla!") },
+];
+
+function startDemo() {
+  demo = true; introT = 0; introSaid = -1; things = []; spawned = 0; items = demoBatch(); speed = 60; phase = "edit";
+  counts = { pois: 0, kauppa: 0, mehu: 0 }; paused = false; insp = null; jamT = -10; flash = { row: -1, ok: true, t: -10, th: null };
+}
+
+function firstOpen(): number { for (let i = 0; i < LEVELS.length; i++) if (!cleared[i]) return i; return 0; }
+
+function Intro() {
+  if (!demo) startDemo();
+  const out: any[] = [];
+  out.push(<div className="titlebox" style={{ left: 0, top: 18, width }}><div className="title">{rg.t("Omenalinjasto", "Apple line", "Línea de manzanas")}</div></div>);
+  out.push(<div className="hintbtn" id="exit" onClick={() => rg.exit()} style={{ left: 10, top: 14 }}>←</div>);
+  for (const e of LineView()) out.push(e);
+  // the caption that goes with the part being explained
+  let k = 0;
+  for (let i = 0; i < INTRO.length; i++) if (introT >= INTRO[i].t) k = i;
+  const seg = INTRO[k];
+  if (introSaid !== k) { introSaid = k; rg.say(seg.say); }
+  out.push(<div className="bubble" style={{ left: 16, top: 66, width: width - 32, height: 44 }}><div className="ctext">{seg.text}</div></div>);
+  // the demo's rule, so the words above have a picture
+  const ry = BY + 98;
+  out.push(<div className="card" style={{ left: 12, top: ry, width: width - 24, height: 92, backgroundColor: "#1d3557" }} />);
+  out.push(<div className="kw" style={{ left: 22, top: ry + 14, width: 36, height: 24 }}>{rg.t("jos", "if", "si")}</div>);
+  const lit = K.t - flash.t < 0.7;
+  out.push(<div className={lit && !flash.ok ? "chip bad" : "chip on"} style={{ left: 60, top: ry + 8, width: width - 96, height: 36 }}><div className="chiptext">{"🎨 " + PNAME.vari + " " + OPNAME.on + " " + VNAME.punainen}</div></div>);
+  out.push(<div className={lit && flash.ok ? "kw ok" : "kw"} style={{ left: 30, top: ry + 54, width: width - 60, height: 26 }}>{"→ " + rg.t("eteenpäin ✅   muuten 🗑️", "go on ✅   else 🗑️", "adelante ✅   si no 🗑️")}</div>);
+  out.push(PointAt(seg.x(), seg.y, "#ffd166"));
+  // start, and the challenges done so far
+  const open = firstOpen();
+  out.push(<div className="pad" id="start" onClick={() => start(open)} style={{ left: 40, top: height - 150, width: width - 80, height: 64, backgroundColor: "#06d6a0" }}><div className="padtext">{"▶ " + rg.t("Aloita", "Start", "Empezar")}</div></div>);
+  const n = LEVELS.length, dw = 56, x0 = width / 2 - (n * dw) / 2;
+  for (let i = 0; i < n; i++) {
+    const can = i <= open || cleared[i] || (i > 0 && cleared[i - 1]);
+    const x = x0 + i * dw;
+    out.push(<div className="pad" id={"lv" + i} onClick={() => { if (can) start(i); }} style={{ left: x + 4, top: height - 74, width: dw - 8, height: 46, backgroundColor: cleared[i] ? "#06d6a0" : i === open ? "#3a86ff" : "#c6dcf2" }}><div className="lvicon">{LEVEL_ICON[i]}</div></div>);
+  }
   return <div className="screen">{out}</div>;
 }
 
 setup(rg.t("Omenalinjasto", "Apple line", "Línea de manzanas"), LEVELS, 3, next);
 
+function tick(dt: number, input: any) {
+  update(dt);
+  if (K.mode === "done" && !doneMarked) { doneMarked = true; cleared[K.level] = 1; rg.save("cleared", cleared); }
+  if (K.mode !== "menu" && demo) demo = false;
+  sim(dt);
+}
+
 function view() {
   let body;
-  if (K.mode === "menu") body = Menu(AppleArt(40, 44, 18, true, false));
+  if (K.mode === "menu") body = Intro();
   else if (K.mode === "done") body = Done();
   else body = Play();
   return <div className="root">{body}{Sparks()}</div>;
