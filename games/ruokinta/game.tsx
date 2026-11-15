@@ -15,7 +15,7 @@
 
 import { ANIMALS, FOODS, CREDITS } from "lib/data";
 
-type Mode = "menu" | "play" | "done" | "credits";
+type Mode = "menu" | "play" | "done" | "credits" | "zoo";
 type Animal = { id: string; name: string[]; img: string; eats: string[]; no: string[] };
 type Food = { id: string; name: string[]; img: string };
 type Fly = { f: number; x0: number; y0: number; x1: number; y1: number; t0: number; eat: boolean; a: number };
@@ -52,12 +52,19 @@ let shake = { k: -1, t: 0 };    // an animal shaking its head
 let chew = { k: -1, t: -9 };    // an animal eating
 let fly: Fly[] = [];
 let recent: number[] = [];
+let points = 0;                 // 10 for a task right at once, 5 after a miss, +1 for feeding again (EXTRA a task)
+let extra = 0;
+let gain = { n: 0, t: -9 };     // "+10" over the score
+let zoo: any = {};              // animal id -> times fed (saved): the animals in 🐾 Eläintarha
+let free = false;               // feeding an animal of the zoo: no task, no points
+const EXTRA = 3;
 
 type Drag = { on: boolean; j: number; x0: number; y0: number; x: number; y: number; dx: number; dy: number; moved: boolean };
 let drag: Drag = { on: false, j: -1, x0: 0, y0: 0, x: 0, y: 0, dx: 0, dy: 0, moved: false };
 
 function init() {
   best = rg.load("best", [0, 0, 0]);
+  zoo = rg.load("zoo", {});
   while (best.length < LEVELS.length) best.push(0);
 }
 
@@ -150,6 +157,7 @@ function next() {
   missed = false;
   solved = -1;
   selected = -1;
+  extra = 0;
   shake = { k: -1, t: 0 };
   chew = { k: -1, t: -9 };
   fly = [];
@@ -165,14 +173,23 @@ function feed(j: number, k: number, x: number, y: number) {
   const a = animals[k], f = foods[j];
   const c = centre(animalRect(k));
   if (answer[j] === k) {
-    used[j] = true;
+    // the food is not used up: it comes back to its plate, and an animal
+    // that has eaten can be fed again as often as the child likes
+    const again = fed[k] >= 0 || free;
     fed[k] = f;
     fly.push({ f: j, x0: x, y0: y, x1: c[0], y1: c[1], t0: t, eat: true, a: k });
     rg.sound("whoosh", { pitch: 1.6 });
-    // done when every food that belongs to someone is eaten (level 0 leaves the two wrong foods)
-    const done = answer.every((k, i) => k < 0 || used[i]);
+    zoo[A[a].id] = (zoo[A[a].id] || 0) + 1;
+    rg.save("zoo", zoo);
+    if (again) {
+      if (!free && extra < EXTRA) { extra++; addPoints(1); }
+      rg.say(["ru_nam", "ru_" + A[a].id + "_" + F[f].id]);
+      return;
+    }
+    // done when every food that belongs to someone has been eaten (level 0 leaves the two wrong foods)
+    const done = answer.every((kk, i) => kk < 0 || fed[kk] >= 0);
     rg.say(done && level === 2 ? ["ru_nam", "ru_" + A[a].id + "_" + F[f].id, "ru_kiitos"] : ["ru_nam", "ru_" + A[a].id + "_" + F[f].id]);
-    if (done) solved = t + 0.4;
+    if (done) { solved = t + 0.4; addPoints(missed ? 5 : 10); }
   } else {
     tried[j] = true;
     missed = true;
@@ -185,10 +202,12 @@ function feed(j: number, k: number, x: number, y: number) {
   }
 }
 
+function addPoints(n: number) { points += n; gain = { n: n, t: t }; }
+
 function flying(j: number) { return fly.some((q) => q.f === j && t - q.t0 < 0.35); }
 
 function onPointerDown(x: number, y: number) {
-  if (mode !== "play" || solved >= 0) return;
+  if (mode !== "play") return;
   for (let j = 0; j < foods.length; j++) {
     if (used[j] || flying(j)) continue;
     const r = foodRect(j);
@@ -201,7 +220,6 @@ function onPointerDown(x: number, y: number) {
   }
   for (let k = 0; k < animals.length; k++) {
     if (!inR(x, y, animalRect(k), 6)) continue;
-    if (fed[k] >= 0) { rg.say("ru_n_" + A[animals[k]].id); return; }
     // levels 1 and 2: a food chosen by tapping (level 1 has just one) goes to the tapped animal
     const j = level === 1 ? 0 : selected;
     if (level > 0 && j >= 0 && !used[j]) { const r = foodRect(j); feed(j, k, r.x + r.w / 2, r.y + r.h / 2); }
@@ -212,7 +230,7 @@ function onPointerDown(x: number, y: number) {
 }
 
 function dropOn(x: number, y: number): number {
-  for (let k = 0; k < animals.length; k++) if (fed[k] < 0 && inR(x, y, animalRect(k), level === 0 ? 30 : 16)) return k;
+  for (let k = 0; k < animals.length; k++) if (inR(x, y, animalRect(k), level === 0 ? 30 : 16)) return k;
   return -1;
 }
 
@@ -245,6 +263,8 @@ function startLevel(i: number) {
   level = i;
   task = 0;
   right = 0;
+  points = 0;
+  free = false;
   recent = [];
   mode = "play";
   rg.sound("click");
@@ -266,13 +286,37 @@ function tick(dt: number, input: any) {
       rg.vibrate(30);
     }
   }
+  fly = fly.filter((q) => t - q.t0 < 1);
   if (chew.k >= 0 && t - chew.t > 0.18 && t - chew.t < 0.18 + dt + 0.001) rg.sound("pop", { pitch: 0.65 });
-  if (solved >= 0 && t - solved > 2.2) {
-    if (!missed) right++;
-    task++;
-    if (task >= LEVELS[level].round) finish();
-    else next();
-  }
+}
+
+// ➜ after a task: the child goes on when done feeding
+function advance() {
+  if (solved < 0 || free) return;
+  rg.sound("click");
+  if (!missed) right++;
+  task++;
+  if (task >= LEVELS[level].round) finish();
+  else next();
+}
+
+// 🐾 Eläintarha: an animal fed before, with all of its own foods, fed as long as the child likes
+function zooList() { return A.map((_, i) => i).filter((i) => zoo[A[i].id] > 0); }
+function openZoo() { mode = "zoo"; free = false; page = 0; rg.stopMusic(); rg.sound("click"); rg.say("ru_zoo"); }
+function openFeed(i: number) {
+  level = 0;
+  free = true;
+  animals = [i];
+  foods = A[i].eats.map((id) => fi(id)).filter((f) => f >= 0).slice(0, 3);
+  answer = foods.map(() => 0);
+  fed = [-1];
+  used = foods.map(() => false);
+  tried = foods.map(() => false);
+  missed = false; solved = -1; selected = -1; fly = [];
+  shake = { k: -1, t: 0 }; chew = { k: -1, t: -9 };
+  mode = "play";
+  rg.sound("click");
+  rg.say("ru_mita_" + A[i].id);
 }
 
 function finish() {
@@ -285,7 +329,7 @@ function finish() {
 }
 
 function toMenu() { mode = "menu"; rg.stopMusic(); rg.stopSay(); rg.sound("click"); }
-function onBack() { if (mode === "menu") rg.exit(); else toMenu(); }
+function onBack() { if (mode === "menu") rg.exit(); else if (mode === "play" && free) openZoo(); else toMenu(); }
 
 // ---- drawing -----------------------------------------------------------------
 
@@ -342,13 +386,13 @@ function FoodTile(j: number) {
   for (const q of fly) {
     if (q.f !== j) continue;
     const e = Math.min(1, (t - q.t0) / 0.35);
-    if (e >= 1) { if (q.eat) show = false; continue; }
+    if (e >= 1) { if (q.eat && t - q.t0 < 0.9) show = false; continue; }
     const s = 1 - e * e * (q.eat ? 0.7 : 0);
     const cx = q.x0 + (q.x1 - q.x0) * e, cy = q.y0 + (q.y1 - q.y0) * e - Math.sin(e * Math.PI) * 40;
     w = r.w * s; h = r.h * s; x = cx - w / 2; y = cy - h / 2; show = true; op = 1;
   }
   if (drag.on && drag.j === j) { w = r.w * 1.1; h = r.h * 1.1; x = drag.x - drag.dx - w / 2; y = drag.y - drag.dy - h / 2; op = 1; }
-  if (!big) out.push(<div className="abs fname" style={{ left: r.x - 10, top: r.y + r.h + 2, width: r.w + 20, opacity: used[j] ? 0.3 : 1 }}>{cap(fn(foods[j]))}</div>);
+  if (!big) out.push(<div className="abs fname" style={{ left: r.x - 10, top: r.y + r.h + 2, width: r.w + 20 }}>{cap(fn(foods[j]))}</div>);
   if (selected === j && !used[j]) out.push(<div className="selring" style={{ left: r.x - 8, top: r.y - 8, width: r.w + 16, height: r.h + 16 }} />);
   return { base: out, top: show ? <img className="abs food" src={rg.asset(F[foods[j]].img)} style={{ left: x, top: y, width: w, height: h, opacity: op }} /> : null };
 }
@@ -358,7 +402,13 @@ function Play() {
     : level === 1 ? rg.t("Kuka syö?", "Who eats it?", "¿Quién lo come?")
     : rg.t("Anna jokaiselle oma ruoka", "Feed everyone", "Dale a cada uno su comida");
   const tiles = foods.map((_, j) => FoodTile(j));
-  const out = [<div className="abs head">{Progress()}<div className="ask" id="ask" onClick={() => ask()}>🔊 {q}</div></div>];
+  const g = t - gain.t < 1 ? gain : null;
+  const out = free
+    ? [<div className="abs head"><div className="progress" /><div className="ask" id="ask" onClick={() => ask()}>🔊 {q}</div></div>,
+       <div className="abs score" style={{ left: 8, top: 8 }}>❤️ {zoo[A[animals[0]].id] || 0}</div>]
+    : [<div className="abs head">{Progress()}<div className="ask" id="ask" onClick={() => ask()}>🔊 {q}</div></div>,
+       <div className="abs score" style={{ left: 8, top: 8 }}>⭐ {points}</div>];
+  if (g) out.push(<div className="abs gain" style={{ left: 70, top: 8 - (t - g.t) * 20, opacity: 1 - (t - g.t) }}>+{g.n}</div>);
   for (const ti of tiles) for (const b of ti.base) out.push(b);
   for (let k = 0; k < animals.length; k++) for (const e of AnimalCard(k)) out.push(e);
   if (level === 0) out.push(<div className="abs aname bigname" style={{ left: 30, top: 306, width: 300 }}>{cap(an(animals[0]))}</div>);
@@ -367,6 +417,9 @@ function Play() {
   // foods last, so a dragged one is on top of everything
   for (let j = 0; j < tiles.length; j++) if (!(drag.on && drag.j === j) && tiles[j].top) out.push(tiles[j].top);
   if (drag.on && tiles[drag.j] && tiles[drag.j].top) out.push(tiles[drag.j].top);
+  const ny = H() - 62;
+  if (free) out.push(<div className="abs next back" id="zback" onPointerDown={() => openZoo()} style={{ left: 70, top: ny }}><div className="nexttext">🐾</div></div>);
+  else if (solved >= 0 && t >= solved) out.push(<div className="abs next" id="next" onPointerDown={() => advance()} style={{ left: 70, top: ny }}><div className="nexttext">➜</div></div>);
   return <div className="screen">{out}</div>;
 }
 
@@ -383,6 +436,10 @@ function Menu() {
           <div className="lvbest">{best[i] > 0 ? "⭐ " + best[i] + "/" + L.round : ""}</div>
         </div>
       ))}
+      <div className={zooList().length > 0 ? "level zoo" : "level zoo off"} id="zoo" onClick={() => { if (zooList().length > 0) openZoo(); }}>
+        <div className="lvname">🐾 {rg.t("Eläintarha", "Zoo", "Zoo")}</div>
+        <div className="lvsub">{rg.t("Ruoki tuttuja eläimiä uudelleen", "Feed your animals again", "Vuelve a alimentar a tus animales")} · {zooList().length}/{A.length}</div>
+      </div>
       <div className="small" id="credits" onClick={() => { mode = "credits"; page = 0; rg.sound("click"); }}><div className="lvname">📷 {rg.t("Kuvat", "Photos", "Fotos")}</div></div>
       <div className="small back" id="exit" onClick={() => rg.exit()}><div className="lvname">{rg.t("← Valikkoon", "← Menu", "← Menú")}</div></div>
     </div>
@@ -413,6 +470,32 @@ function Credits() {
   );
 }
 
+function Zoo() {
+  const list = zooList();
+  const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
+  if (page >= pages) page = pages - 1;
+  const rows = list.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
+  return (
+    <div className="screen col">
+      <div className="ctitle">🐾 {rg.t("Eläintarha", "Zoo", "Zoo")}</div>
+      <div className="zgrid">
+        {rows.map((i) => (
+          <div className="zcard" id={"z" + i} onClick={() => openFeed(i)}>
+            <img className="zimg" src={rg.asset(A[i].img)} />
+            <div className="zname">{cap(an(i))} ❤️ {zoo[A[i].id]}</div>
+          </div>
+        ))}
+      </div>
+      <div className="pager">
+        <div className={page > 0 ? "pbtn" : "pbtnoff"} id="zprev" onClick={() => { if (page > 0) { page--; rg.sound("click"); } }}>◀</div>
+        <div className="pnum">{page + 1} / {pages}</div>
+        <div className={page < pages - 1 ? "pbtn" : "pbtnoff"} id="znext" onClick={() => { if (page < pages - 1) { page++; rg.sound("click"); } }}>▶</div>
+      </div>
+      <div className="small back" id="zmenu" onClick={() => toMenu()}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
+    </div>
+  );
+}
+
 function Done() {
   const n = LEVELS[level].round;
   const stars = [];
@@ -423,7 +506,9 @@ function Done() {
       <div className="lead">🐄 💖 🐿️ 💖 🐒</div>
       <div className="stars">{stars}</div>
       <div className="lead">{right} / {n} {rg.t("heti oikein", "right first time", "a la primera")}</div>
+      <div className="lead">⭐ {points} {rg.t("pistettä", "points", "puntos")}</div>
       <div className="level" id="again" onClick={() => startLevel(level)} style={{ backgroundColor: LEVELS[level].color }}><div className="lvname">{rg.t("Uudestaan!", "Again!", "¡Otra vez!")}</div></div>
+      <div className="level zoo" id="tozoo" onClick={() => openZoo()}><div className="lvname">🐾 {rg.t("Eläintarha", "Zoo", "Zoo")}</div></div>
       <div className="small back" id="menu" onClick={() => toMenu()}><div className="lvname">{rg.t("← Takaisin", "← Back", "← Atrás")}</div></div>
     </div>
   );
@@ -434,6 +519,7 @@ function view() {
   if (mode === "menu") body = Menu();
   else if (mode === "done") body = Done();
   else if (mode === "credits") body = Credits();
+  else if (mode === "zoo") body = Zoo();
   else body = Play();
   return <div className="root">{body}</div>;
 }
