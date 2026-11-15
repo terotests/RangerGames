@@ -1,6 +1,6 @@
 // node --experimental-strip-types tools/tietokoneet/gen-voice.ts
-// Writes the speech of the Tietokoneet games (robotti, tietokone,
-// robottitehdas): the tk_ clips and the games' names into voice/fi.json, and
+// Writes the speech of the Tietokoneet games (robotti, omenalinja): the tk_
+// and ol_ clips and the games' names into voice/fi.json, and
 // voice/en/tietokoneet.json, voice/es/tietokoneet.json. Numbers, praise and
 // "kokeile toista" are the shared clips (n1…, hyva, …).
 import * as fs from "node:fs";
@@ -8,8 +8,7 @@ import * as fs from "node:fs";
 type T = [string, string, string];   // fi, en, es
 const TEXT: Record<string, T> = {
   peli_robotti: ["Robotti", "Robot", "Robot"],
-  peli_tietokone: ["Tietokone", "Computer", "Ordenador"],
-  peli_robottitehdas: ["Robottitehdas", "Robot factory", "Fábrica de robots"],
+  peli_omenalinja: ["Omenalinjasto", "Apple line", "Línea de manzanas"],
 
   tk_ylos: ["Ylös.", "Up.", "Arriba."],
   tk_oikealle: ["Oikealle.", "Right.", "Derecha."],
@@ -30,112 +29,45 @@ const TEXT: Record<string, T> = {
   tk_r_vihje_toista: ["Katso violetteja pisteitä. Se on kuvio, joka toistuu. Tee se kerran, ja laske, montako kertaa se mahtuu matkalle.", "Look at the purple dots. That is the pattern that repeats. Make it once and count how many times it fits on the way.", "Mira los puntos morados. Es el patrón que se repite. Hazlo una vez y cuenta cuántas veces cabe en el camino."],
   tk_r_vihje_jos: ["Valkoinen nuoli näyttää, mihin polku jatkuu värillisen ruudun jälkeen.", "The white arrow shows where the path goes after the coloured square.", "La flecha blanca muestra adónde sigue el camino después de la casilla de color."],
 
-  // Tietokone
-  tk_t_mika: ["Mikä osa tekee tämän?", "Which part does this?", "¿Qué pieza hace esto?"],
-  tk_t_rakenna: ["Rakenna puhelin. Vedä osat varjojen päälle.", "Build a phone. Drag the parts onto their shadows.", "Arma un móvil. Arrastra las piezas a sus sombras."],
-  tk_t_missa: ["Pyöriikö se puhelimessa vai pilvessä?", "Does it run in the phone or in the cloud?", "¿Funciona en el móvil o en la nube?"],
-  tk_t_tama_on: ["Tämä on", "This is the", "Esto es"],
-  tk_t_ei_mahdu: ["Se ei kuulu tähän.", "It doesn't go here.", "No va aquí."],
-  tk_t_vihje_varjo: ["Katso varjon muotoa. Jokaisella osalla on oma paikkansa.", "Look at the shape of the shadow. Every part has its own place.", "Mira la forma de la sombra. Cada pieza tiene su sitio."],
-  tk_t_puhelin_valmis: ["Puhelin on valmis, ja se käynnistyy!", "The phone is ready, and it turns on!", "¡El móvil está listo y se enciende!"],
-  tk_t_ei_ihan: ["Ei ihan.", "Not quite.", "No exactamente."],
-  tk_t_vihje_p: ["Tähän ei tarvita nettiä. Puhelin osaa sen itse.", "This doesn't need the internet. The phone can do it by itself.", "Esto no necesita internet. El móvil lo hace solo."],
-  tk_t_vihje_c: ["Tähän tarvitaan tietoa koko maailmasta tai tosi iso tietokone. Ne ovat pilvessä.", "This needs information from all over the world or a really big computer. Those are in the cloud.", "Esto necesita información de todo el mundo o un ordenador enorme. Están en la nube."],
-
-  tk_t_n_cpu: ["suoritin, laitteen aivot.", "processor, the brain of the device.", "procesador, el cerebro del aparato."],
-  tk_t_n_ram: ["työmuisti.", "memory.", "memoria."],
-  tk_t_n_ssd: ["tallennustila.", "storage.", "almacenamiento."],
-  tk_t_n_akku: ["akku.", "battery.", "batería."],
-  tk_t_n_naytto: ["näyttö.", "screen.", "pantalla."],
-  tk_t_n_kaiutin: ["kaiutin.", "speaker.", "altavoz."],
-  tk_t_n_mikki: ["mikrofoni.", "microphone.", "micrófono."],
-  tk_t_n_kamera: ["kamera.", "camera.", "cámara."],
-  tk_t_n_antenni: ["antenni.", "antenna.", "antena."],
-
-  tk_t_job_cpu: ["Mikä osa laskee ja päättää, mitä tehdään? Se on laitteen aivot.", "Which part counts and decides what to do? It is the brain of the device.", "¿Qué pieza calcula y decide qué hacer? Es el cerebro del aparato."],
-  tk_t_job_ram: ["Mikä osa muistaa sen, mitä teet juuri nyt? Kun virta katkeaa, se unohtaa kaiken.", "Which part remembers what you are doing right now? When the power goes off, it forgets everything.", "¿Qué pieza recuerda lo que haces ahora mismo? Si se apaga, lo olvida todo."],
-  tk_t_job_ssd: ["Mikä osa säilyttää kuvat ja pelit, vaikka virta on pois?", "Which part keeps your photos and games, even when the power is off?", "¿Qué pieza guarda tus fotos y juegos aunque esté apagado?"],
-  tk_t_job_akku: ["Mikä osa antaa virtaa?", "Which part gives the power?", "¿Qué pieza da la energía?"],
-  tk_t_job_naytto: ["Mikä osa näyttää kuvat ja pelit?", "Which part shows pictures and games?", "¿Qué pieza muestra las imágenes y los juegos?"],
-  tk_t_job_kaiutin: ["Mikä osa soittaa musiikkia?", "Which part plays music?", "¿Qué pieza pone la música?"],
-  tk_t_job_mikki: ["Mikä osa kuulee, kun puhut?", "Which part hears you when you talk?", "¿Qué pieza te oye cuando hablas?"],
-  tk_t_job_kamera: ["Mikä osa ottaa valokuvan?", "Which part takes a photo?", "¿Qué pieza hace una foto?"],
-  tk_t_job_antenni: ["Mikä osa juttelee muiden laitteiden kanssa ilman johtoa?", "Which part talks with other devices without a wire?", "¿Qué pieza habla con otros aparatos sin cable?"],
-
-  tk_t_vihje_cpu: ["Etsi neliö, jonka reunoilla on kultaisia jalkoja.", "Find the square with golden legs on its sides.", "Busca el cuadrado con patitas doradas."],
-  tk_t_vihje_ram: ["Etsi pitkä vihreä kampa, jossa on mustia paloja.", "Find the long green stick with black pieces.", "Busca la tira verde larga con piezas negras."],
-  tk_t_vihje_ssd: ["Etsi violetti laatikko. Se on kuin muistikortti.", "Find the purple box. It is like a memory card.", "Busca la caja morada. Es como una tarjeta de memoria."],
-  tk_t_vihje_akku: ["Etsi vihreä, jossa on salama.", "Find the green one with a lightning bolt.", "Busca la verde con un rayo."],
-  tk_t_vihje_naytto: ["Etsi sininen ruutu, jossa on kasvot.", "Find the blue screen with a face.", "Busca la pantalla azul con una cara."],
-  tk_t_vihje_kaiutin: ["Etsi pyöreä musta, josta ääni tulee ulos.", "Find the round black one where the sound comes out.", "Busca el redondo negro por donde sale el sonido."],
-  tk_t_vihje_mikki: ["Etsi pieni harmaa, johon puhutaan.", "Find the little grey one you speak into.", "Busca el pequeño gris en el que se habla."],
-  tk_t_vihje_kamera: ["Etsi musta, jossa on silmä eli linssi.", "Find the black one with an eye, a lens.", "Busca el negro con un ojo, una lente."],
-  tk_t_vihje_antenni: ["Etsi tikku, josta lähtee aaltoja.", "Find the stick that sends out waves.", "Busca el palito que envía ondas."],
-
-  tk_t_th_laskin: ["Laskin.", "A calculator.", "Una calculadora."],
-  tk_t_th_lamppu: ["Taskulamppu.", "A torch.", "Una linterna."],
-  tk_t_th_videot: ["Videot koko maailmasta.", "Videos from all over the world.", "Vídeos de todo el mundo."],
-  tk_t_th_haku: ["Haku netistä.", "Searching the internet.", "Buscar en internet."],
-  tk_t_th_kello: ["Herätyskello.", "An alarm clock.", "Un despertador."],
-  tk_t_th_saa: ["Huomisen sää.", "Tomorrow's weather.", "El tiempo de mañana."],
-  tk_t_th_piirros: ["Piirustusohjelma.", "A drawing app.", "Una app de dibujo."],
-  tk_t_th_peli: ["Tämä peli.", "This game.", "Este juego."],
-  tk_t_th_viesti: ["Viesti kaverille.", "A message to a friend.", "Un mensaje a un amigo."],
-  tk_t_th_tekoaly: ["Iso tekoäly, jolta voi kysyä mitä vain.", "A big AI you can ask anything.", "Una IA grande a la que puedes preguntar de todo."],
-  tk_t_th_kuva: ["Valokuvan ottaminen.", "Taking a photo.", "Hacer una foto."],
-  tk_t_th_kartta: ["Reittiohjeet ja ruuhkat.", "Directions and traffic jams.", "Rutas y atascos."],
-
-  tk_t_s_laskin: ["Laskin pyörii puhelimessa. Suoritin laskee sen itse.", "The calculator runs in the phone. The processor works it out by itself.", "La calculadora funciona en el móvil. El procesador lo calcula solo."],
-  tk_t_s_lamppu: ["Taskulamppu on puhelimessa. Se sytyttää kameran vieressä olevan valon.", "The torch is in the phone. It turns on the light next to the camera.", "La linterna está en el móvil. Enciende la luz junto a la cámara."],
-  tk_t_s_videot: ["Videot ovat pilvessä, isoissa palvelinsaleissa. Siellä on tuhansia tietokoneita.", "The videos are in the cloud, in big server halls with thousands of computers.", "Los vídeos están en la nube, en grandes salas con miles de ordenadores."],
-  tk_t_s_haku: ["Haku pyörii pilvessä. Palvelimet ovat lukeneet valtavasti nettisivuja.", "Search runs in the cloud. The servers have read a huge number of web pages.", "La búsqueda funciona en la nube. Los servidores han leído muchísimas páginas."],
-  tk_t_s_kello: ["Kello pyörii puhelimessa. Se herättää, vaikka nettiä ei olisi.", "The clock runs in the phone. It wakes you even with no internet.", "El reloj funciona en el móvil. Te despierta aunque no haya internet."],
-  tk_t_s_saa: ["Sää lasketaan pilvessä. Sinne tulee tietoa sääasemilta ympäri maailmaa.", "The weather is worked out in the cloud, from weather stations all over the world.", "El tiempo se calcula en la nube con datos de estaciones de todo el mundo."],
-  tk_t_s_piirros: ["Piirustusohjelma pyörii puhelimessa. Kuva tallentuu tallennustilaan.", "The drawing app runs in the phone. The picture is saved in its storage.", "La app de dibujo funciona en el móvil. El dibujo se guarda en su almacenamiento."],
-  tk_t_s_peli: ["Tämä peli pyörii sinun puhelimessasi, ilman nettiä!", "This game runs in your phone, without the internet!", "¡Este juego funciona en tu móvil, sin internet!"],
-  tk_t_s_viesti: ["Viesti kulkee pilven kautta. Palvelin vie sen kaverin puhelimeen.", "The message goes through the cloud. A server takes it to your friend's phone.", "El mensaje pasa por la nube. Un servidor lo lleva al móvil de tu amigo."],
-  tk_t_s_tekoaly: ["Iso tekoäly pyörii pilvessä. Se tarvitsee monta isoa tietokonetta yhtä aikaa.", "A big AI runs in the cloud. It needs many big computers at once.", "Una IA grande funciona en la nube. Necesita muchos ordenadores a la vez."],
-  tk_t_s_kuva: ["Kuva otetaan puhelimessa. Kamera ja suoritin tekevät sen.", "The photo is taken in the phone, by the camera and the processor.", "La foto se hace en el móvil, con la cámara y el procesador."],
-  tk_t_s_kartta: ["Ruuhkat tulevat pilvestä. Se tietää, missä kaikki autot ovat juuri nyt.", "The traffic jams come from the cloud. It knows where all the cars are right now.", "Los atascos vienen de la nube. Sabe dónde están todos los coches ahora."],
-
-  // Robottitehdas
-  tk_f_kokoa: ["Keksitehtaan robotit tekevät kukin yhden työn. Laita ne oikeaan järjestykseen, ja käynnistä linja.", "Each robot in the cookie factory does one job. Put them in the right order and start the line.", "Cada robot de la fábrica hace un trabajo. Ponlos en orden y arranca la línea."],
-  tk_f_tarkastaja: ["Robotit tekevät joskus huonoja keksejä. Valitse, mitä tarkastaja katsoo. Huono keksi menee takaisin alkuun.", "Sometimes the robots make bad cookies. Choose what the inspector checks. A bad cookie goes back to the start.", "A veces los robots hacen galletas malas. Elige qué revisa el inspector. La galleta mala vuelve al inicio."],
-  tk_f_palaute: ["Tarkastaja löysi virheen. Kerro sille robotille, joka sen teki. Niin se oppii.", "The inspector found a mistake. Tell the robot that made it. That's how it learns.", "El inspector encontró un error. Díselo al robot que lo hizo. Así aprende."],
-  tk_f_pullonkaula: ["Tänään tulee paljon asiakkaita. Katso, missä keksit jonottavat, ja laita apurobotti sinne.", "Lots of customers today. See where the cookies pile up, and put a helper robot there.", "Hoy vienen muchos clientes. Mira dónde se amontonan las galletas y pon un robot ayudante allí."],
-  tk_f_n_sekoitus: ["Sekoittaja tekee taikinan.", "The mixer makes the dough.", "La mezcladora hace la masa."],
-  tk_f_n_muotti: ["Muotoilija tekee tähtiä.", "The shaper makes stars.", "La moldeadora hace estrellas."],
-  tk_f_n_uuni: ["Uuni paistaa.", "The oven bakes.", "El horno hornea."],
-  tk_f_n_koriste: ["Koristelija laittaa nonparelleja.", "The decorator adds sprinkles.", "La decoradora pone fideos de colores."],
-  tk_f_n_paketti: ["Pakkaaja laittaa keksin laatikkoon.", "The packer puts the cookie in a box.", "La empaquetadora mete la galleta en una caja."],
-  tk_f_tayta: ["Laita ensin robotit kaikille paikoille.", "First put robots in all the places.", "Primero pon robots en todos los sitios."],
-  tk_f_herkullinen: ["Herkullinen keksi!", "A delicious cookie!", "¡Una galleta deliciosa!"],
-  tk_f_ei_hyva: ["Hups, keksistä tuli outo.", "Oops, the cookie came out funny.", "¡Uy, la galleta salió rara!"],
-  tk_f_mieti: ["Mieti, mitä tehdään ensin.", "Think what is done first.", "Piensa qué se hace primero."],
-  tk_f_vihje_sekoitus: ["Ensin taikina sekoitetaan.", "First the dough is mixed.", "Primero se mezcla la masa."],
-  tk_f_vihje_muotti: ["Sitten taikinasta tehdään muotoja.", "Then the dough is made into shapes.", "Luego la masa se moldea."],
-  tk_f_vihje_uuni: ["Sitten keksit paistetaan uunissa.", "Then the cookies are baked in the oven.", "Luego las galletas se hornean."],
-  tk_f_vihje_koriste: ["Paistetut keksit koristellaan.", "The baked cookies are decorated.", "Las galletas horneadas se decoran."],
-  tk_f_vihje_paketti: ["Lopuksi keksit pakataan.", "Last, the cookies are packed.", "Al final, las galletas se empaquetan."],
-  tk_f_d_palanut: ["Palanut.", "Burnt.", "Quemada."],
-  tk_f_d_rikki: ["Rikki.", "Broken.", "Rota."],
-  tk_f_d_tyhja: ["Ei koristeita.", "No sprinkles.", "Sin adornos."],
-  tk_f_d_mytty: ["Möykky.", "Lumpy.", "Grumosa."],
-  tk_f_valitse_tarkastus: ["Valitse ensin, mitä tarkastaja katsoo.", "First choose what the inspector checks.", "Primero elige qué revisa el inspector."],
-  tk_f_vain_hyvia: ["Asiakkaat saivat vain hyviä keksejä!", "The customers got only good cookies!", "¡Los clientes solo recibieron galletas buenas!"],
-  tk_f_huono_paasi: ["Voi ei, huono keksi pääsi asiakkaalle.", "Oh no, a bad cookie got to a customer.", "¡Oh, no! Una galleta mala llegó al cliente."],
-  tk_f_vihje_tarkastus: ["Katso eilisiä keksejä. Millaisista asiakas ei pitänyt?", "Look at yesterday's cookies. Which ones did the customers not like?", "Mira las galletas de ayer. ¿Cuáles no gustaron?"],
-  tk_f_oppi: ["Robotti sai palautteen ja oppi!", "The robot got the feedback and learned!", "¡El robot recibió el comentario y aprendió!"],
-  tk_f_en_mina: ["En minä sitä tehnyt.", "It wasn't me.", "No fui yo."],
-  tk_f_vihje_palanut: ["Palanut keksi on ollut liian kauan kuumassa. Kuka paistaa?", "A burnt cookie was too long in the heat. Who bakes?", "Una galleta quemada estuvo mucho tiempo al calor. ¿Quién hornea?"],
-  tk_f_vihje_rikki: ["Tähti on mennyt rikki muotissa. Kuka tekee muodot?", "The star broke in the cutter. Who makes the shapes?", "La estrella se rompió en el molde. ¿Quién hace las formas?"],
-  tk_f_vihje_tyhja: ["Keksistä puuttuvat koristeet. Kuka koristelee?", "The cookie has no sprinkles. Who decorates?", "A la galleta le faltan adornos. ¿Quién decora?"],
-  tk_f_vihje_mytty: ["Taikina on möykkyistä. Kuka sekoittaa taikinan?", "The dough is lumpy. Who mixes the dough?", "La masa tiene grumos. ¿Quién mezcla la masa?"],
-  tk_f_katso_jono: ["Katso, missä keksit jonottivat. Siellä robotti on liian hidas. Laita sinne apurobotti.", "See where the cookies piled up. That robot is too slow. Put a helper robot there.", "Mira dónde se amontonaron. Ese robot es lento. Pon allí un ayudante."],
-  tk_f_liian_vahan: ["Keksejä ei tullut tarpeeksi.", "Not enough cookies came out.", "No salieron suficientes galletas."],
-  tk_f_vihje_jono: ["Apurobotti auttaa vain siellä, missä on jonoa. Linja on yhtä nopea kuin sen hitain robotti.", "A helper only helps where there is a queue. The line is only as fast as its slowest robot.", "Un ayudante solo sirve donde hay cola. La línea es tan rápida como su robot más lento."],
-  tk_f_kaikki_saivat: ["Kaikki asiakkaat saivat keksinsä!", "All the customers got their cookies!", "¡Todos los clientes tienen sus galletas!"],
-  tk_f_ei_enempaa: ["Apurobotit loppuivat. Siirrä jokin toiseen paikkaan.", "No more helpers. Move one to another place.", "No hay más ayudantes. Mueve uno a otro sitio."],
+  // Omenalinjasto
+  ol_l1: ["Omenat tulevat linjastoa pitkin. Sinä olet suodatin. Päästä punaiset omenat eteenpäin ja laita muut pois.", "Apples come along the line. You are the filter. Let the red apples go on and put the others in the bin.", "Las manzanas llegan por la línea. Tú eres el filtro. Deja pasar las rojas y tira las demás."],
+  ol_l1_mato: ["Pomo haluaa vain punaisia omenoita, joissa ei ole matoa. Päätä jokaisesta: eteenpäin vai pois.", "The boss wants only red apples with no worm. Decide for each one: on or in the bin.", "El jefe quiere solo manzanas rojas sin gusano. Decide con cada una: adelante o fuera."],
+  ol_eteen: ["Eteenpäin.", "On you go.", "Adelante."],
+  ol_pois: ["Pois.", "In the bin.", "Fuera."],
+  ol_l2: ["Nyt robotti on suodatin. Opeta sille sääntö: napauta sääntöä, valitse väri ja käynnistä linjasto.", "Now the robot is the filter. Teach it a rule: tap the rule, choose a colour and start the line.", "Ahora el robot es el filtro. Enséñale una regla: toca la regla, elige un color y arranca la línea."],
+  ol_goal_red: ["Tänään kauppaan tarvitaan punaisia omenoita.", "Today the shop needs red apples.", "Hoy la tienda necesita manzanas rojas."],
+  ol_goal_green: ["Tänään tehdään hilloa vihreistä omenoista.", "Today we make jam from green apples.", "Hoy hacemos mermelada con manzanas verdes."],
+  ol_l3: ["Nyt tarvitaan molempia: punaiset kauppaan ja vihreät hilloksi. Mutta matoisia omenoita ei haluta.", "Now we need both: red ones for the shop and green ones for jam. But no apples with worms.", "Ahora hacen falta las dos: rojas para la tienda y verdes para mermelada. Pero ninguna con gusano."],
+  ol_l4: ["Liian pienet omenat ovat viallisia, ja kurpitsa tukkii leikkurin. Lisää painosäännöt.", "Apples that are too small are faulty, and a pumpkin jams the slicer. Add weight rules.", "Las manzanas muy pequeñas están mal y una calabaza atasca la cortadora. Añade reglas de peso."],
+  ol_l5: ["Linjastolle on eksynyt kenkä ja banaani. Päästä eteenpäin vain hyvät omenat.", "A shoe and a banana got onto the line. Let only good apples go on.", "Un zapato y un plátano se han colado en la línea. Deja pasar solo las manzanas buenas."],
+  ol_pomo_hyva: ["Pomo sanoo: Hienoa! Kaikki omenat ovat juuri sopivia.", "The boss says: Great! All the apples are just right.", "El jefe dice: ¡Genial! Todas las manzanas están perfectas."],
+  ol_pomo_mato: ["Pomo sanoo: Joukossa oli matoisia omenoita!", "The boss says: Some apples had worms!", "El jefe dice: ¡Había manzanas con gusanos!"],
+  ol_pomo_pieni: ["Pomo sanoo: Joukossa oli liian pieniä omenoita.", "The boss says: Some apples were too small.", "El jefe dice: Había manzanas demasiado pequeñas."],
+  ol_pomo_vari: ["Pomo sanoo: Joukossa oli vääränvärisiä omenoita.", "The boss says: Some apples were the wrong colour.", "El jefe dice: Había manzanas del color equivocado."],
+  ol_pomo_jumi: ["Voi ei, leikkuri jumittui! Sinne pääsi jotain, mikä ei ole omena.", "Oh no, the slicer jammed! Something that is not an apple got in.", "¡Oh, no, la cortadora se atascó! Entró algo que no es una manzana."],
+  ol_pomo_hukka: ["Pomo sanoo: Hyviä omenoita heitettiin pois. Ne olisi tarvittu.", "The boss says: Good apples were thrown away. We needed them.", "El jefe dice: Se tiraron manzanas buenas. Las necesitábamos."],
+  ol_korjaa: ["Korjataan suodatin ja kokeillaan uudestaan.", "Let's fix the filter and try again.", "Arreglemos el filtro y probemos otra vez."],
+  ol_v_k1: ["Punainen omena eteenpäin, muut pois.", "Red apple on, the others in the bin.", "Manzana roja adelante, las demás fuera."],
+  ol_v_vari_red: ["Vaihda väriksi punainen.", "Change the colour to red.", "Cambia el color a rojo."],
+  ol_v_vari_green: ["Vaihda väriksi vihreä.", "Change the colour to green.", "Cambia el color a verde."],
+  ol_v_vari_any: ["Molempia värejä tarvitaan. Valitse väriksi mikä vain.", "Both colours are needed. Choose any colour.", "Hacen falta los dos colores. Elige cualquier color."],
+  ol_v_mato: ["Napauta matosääntöä: ei matoa.", "Tap the worm rule: no worm.", "Toca la regla del gusano: sin gusano."],
+  ol_v_yli: ["Pieni omena on kevyempi kuin tennispallo. Valitse: paino enemmän kuin tennispallo.", "A small apple is lighter than a tennis ball. Choose: weight more than a tennis ball.", "Una manzana pequeña pesa menos que una pelota de tenis. Elige: peso mayor que la pelota de tenis."],
+  ol_v_alle: ["Kurpitsa on liian painava. Valitse: paino vähemmän kuin kurpitsa.", "A pumpkin is too heavy. Choose: weight less than a pumpkin.", "Una calabaza pesa demasiado. Elige: peso menor que la calabaza."],
+  ol_v_omena: ["Napauta ylintä sääntöä: on omena.", "Tap the top rule: is an apple.", "Toca la primera regla: es una manzana."],
+  ol_v_valmis: ["Sääntö näyttää hyvältä. Käynnistä linjasto.", "The rule looks good. Start the line.", "La regla parece buena. Arranca la línea."],
+  ol_c_mika: ["Mikä väri vain.", "Any colour.", "Cualquier color."],
+  ol_c_punainen: ["Punainen.", "Red.", "Rojo."],
+  ol_c_vihrea: ["Vihreä.", "Green.", "Verde."],
+  ol_c_ei_valia: ["Matolla ei väliä.", "Worms don't matter.", "Los gusanos dan igual."],
+  ol_c_eimatoa: ["Ei matoa.", "No worm.", "Sin gusano."],
+  ol_c_ei: ["Ei painosääntöä.", "No weight rule.", "Sin regla de peso."],
+  ol_c_yli_kirsikka: ["Painaa enemmän kuin kirsikka.", "Heavier than a cherry.", "Pesa más que una cereza."],
+  ol_c_yli_tennis: ["Painaa enemmän kuin tennispallo.", "Heavier than a tennis ball.", "Pesa más que una pelota de tenis."],
+  ol_c_alle_tennis: ["Painaa vähemmän kuin tennispallo.", "Lighter than a tennis ball.", "Pesa menos que una pelota de tenis."],
+  ol_c_alle_kurpitsa: ["Painaa vähemmän kuin kurpitsa.", "Lighter than a pumpkin.", "Pesa menos que una calabaza."],
+  ol_c_mika_tahansa: ["Mikä tahansa esine.", "Any thing.", "Cualquier cosa."],
+  ol_c_omena: ["On omena.", "Is an apple.", "Es una manzana."],
 };
 
 function clips(i: number): Record<string, string> {
@@ -144,14 +76,14 @@ function clips(i: number): Record<string, string> {
   return out;
 }
 
-const GAMES = ["robotti", "tietokone", "robottitehdas"];
+const GAMES = ["robotti", "omenalinja", "tietokone", "robottitehdas"];
 const fiPath = "voice/fi.json";
 const fi = JSON.parse(fs.readFileSync(fiPath, "utf8"));
-for (const k of Object.keys(fi.clips)) if (k.startsWith("tk_") || GAMES.some((g) => k === "peli_" + g)) delete fi.clips[k];
+for (const k of Object.keys(fi.clips)) if (k.startsWith("tk_") || k.startsWith("ol_") || GAMES.some((g) => k === "peli_" + g)) delete fi.clips[k];
 Object.assign(fi.clips, clips(0));
 fs.writeFileSync(fiPath, JSON.stringify(fi, null, 1) + "\n");
 ["en", "es"].forEach((lang, j) => {
-  const doc = { _comment: "Tietokoneet (games/robotti, tietokone, robottitehdas): generated by tools/tietokoneet/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
+  const doc = { _comment: "Tietokoneet (games/robotti, omenalinja): generated by tools/tietokoneet/gen-voice.ts, same ids as voice/fi.json.", lang, clips: clips(j + 1) };
   fs.writeFileSync("voice/" + lang + "/tietokoneet.json", JSON.stringify(doc, null, 1) + "\n");
 });
 console.log("tk clips:", Object.keys(TEXT).length, "per language");
