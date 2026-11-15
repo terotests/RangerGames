@@ -245,6 +245,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
 
     /** The games' pack into the virtual directory, the saves back, the launcher started. */
     private void boot() throws Exception {
+        sound.setAssets(getAssets());
         int n = Engine.mount("/games", asset(this, "games.rgpk"));
         if (n < 0) throw new IllegalStateException("games.rgpk is not a pack");
         mountPrivate();

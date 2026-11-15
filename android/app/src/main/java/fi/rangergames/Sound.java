@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 package fi.rangergames;
 
+import android.content.res.AssetManager;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
@@ -8,6 +9,8 @@ import android.media.AudioTrack;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -206,12 +209,38 @@ final class Sound implements Runnable {
         }
     }
 
-    /** A WAV file of the virtual directory as samples at RATE (cached), or null. */
+    private volatile AssetManager assets;
+
+    /**
+     * The voice clips are APK assets (assets/voice/<lang>/<id>.wav), not in the
+     * game pack: hundreds of MB of clips in the pack, read into one array at
+     * boot, ran the phone out of memory. A clip is read when it is said.
+     */
+    void setAssets(AssetManager a) {
+        assets = a;
+    }
+
+    private byte[] voiceAsset(String path) {
+        AssetManager a = assets;
+        if (a == null) return null;
+        try (InputStream in = a.open("voice/" + path.substring("/games/_voice/".length()))) {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            return out.toByteArray();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** A WAV file of the virtual directory (or a voice clip asset) as samples at RATE (cached), or null. */
     private short[] file(String path) {
         if (files.containsKey(path)) return files.get(path);
         short[] pcm = null;
         try {
-            byte[] b = Engine.read(path);
+            byte[] b = path.startsWith("/games/_voice/") ? voiceAsset(path) : null;
+            if (b == null) b = Engine.read(path);
             if (b != null) pcm = decodeWav(b);
         } catch (Throwable ignored) {
         }
