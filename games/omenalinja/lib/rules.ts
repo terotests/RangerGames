@@ -1,72 +1,115 @@
 // Omenalinjasto's rules without pictures, so tests/omenalinja.ts can check them.
+//
+// The child builds the filter's rule from parts: each row is
+//   property  (väri, koko, paino)
+//   operator  (on / ei ole for a colour; suurempi kuin / pienempi kuin for size and weight)
+//   value     (a colour, or the thing to compare with: cherry, tennis ball, melon, pumpkin)
+// and the rows are joined with "ja": a thing goes on only when every row holds.
+// The boss's order for a challenge is written the same way, so the order is
+// also a right rule (other right rules are fine too: the boss judges what comes
+// out, not the rule).
 
-export type Item = { kind: string; red: boolean; worm: boolean; small: boolean; g: number };
-// the rule the child builds: 0 = no rule on that row
-//   vari  1 red, 2 green      mato 1 no worm      omena 1 apples only
-//   yli   heavier than 1 cherry, 2 tennis ball
-//   alle  lighter than 1 tennis ball, 2 pumpkin
-export type Rule = { omena: number; vari: number; mato: number; yli: number; alle: number };
-export const ROWS = ["omena", "vari", "mato", "yli", "alle"];
-export const REF: any = { kirsikka: 8, tennis: 58, kurpitsa: 4000 };
-const YLI = [0, REF.kirsikka, REF.tennis];
-const ALLE = [0, REF.tennis, REF.kurpitsa];
-export const VALUES: any = { omena: 2, vari: 3, mato: 2, yli: 3, alle: 3 };
+export type Item = { kind: string; color: string; cm: number; g: number };
+export type Cond = { p: string; op: string; v: string };   // "" = not chosen yet
+export type Rule = Cond[];
 
-// the rows a level shows (level 0 is sorting by hand)
-export function rowsFor(level: number): string[] {
-  if (level <= 1) return ["vari"];
-  if (level === 2) return ["vari", "mato"];
-  if (level === 3) return ["vari", "mato", "yli", "alle"];
-  return ["omena", "vari", "mato", "yli", "alle"];
+// what the measures are compared with
+export const SIZE: any = { kirsikka: 2, tennis: 7, meloni: 25 };        // cm
+export const WEIGHT: any = { kirsikka: 8, tennis: 58, kurpitsa: 4000 }; // g
+export const COLORS = ["punainen", "vihrea", "keltainen"];
+
+// the challenges, concrete first: colour you see, size you see next to a
+// reference, weight only the scale shows, then two rows at once, then "ei"
+export const LEVEL_IDS = ["vari", "koko", "paino", "ja", "ei"];
+
+// the properties a challenge offers (the ones learned so far), and the most rows
+export function propsFor(level: number): string[] {
+  if (level === 0) return ["vari"];
+  if (level === 1) return ["vari", "koko"];
+  return ["vari", "koko", "paino"];
+}
+export function maxRows(level: number): number { return level === 0 ? 1 : level === 1 ? 2 : 3; }
+export function opsFor(p: string, level: number): string[] {
+  if (p === "vari") return level >= 4 ? ["on", "ei"] : ["on"];
+  return ["yli", "alle"];
+}
+export function valuesFor(p: string): string[] {
+  if (p === "vari") return COLORS;
+  if (p === "koko") return ["kirsikka", "tennis", "meloni"];
+  return ["kirsikka", "tennis", "kurpitsa"];
 }
 
-export function emptyRule(): Rule { return { omena: 0, vari: 0, mato: 0, yli: 0, alle: 0 }; }
+export function complete(c: Cond): boolean { return c.p !== "" && c.op !== "" && c.v !== ""; }
 
-export function apple(red: boolean, worm: boolean, small: boolean, g: number): Item { return { kind: "omena", red, worm, small, g: small ? 35 + g * 10 : 140 + g * 60 }; }
-export function thing(kind: string): Item { return { kind, red: false, worm: false, small: false, g: kind === "kurpitsa" ? REF.kurpitsa : kind === "kenka" ? 350 : 120 }; }
-
-// the first row of the rule the item fails, "" if it goes on
-export function check(it: Item, r: Rule, rows: string[]): string {
-  for (const row of rows) {
-    if (row === "omena" && r.omena === 1 && it.kind !== "omena") return row;
-    if (row === "vari" && r.vari === 1 && !(it.kind === "omena" && it.red)) return row;
-    if (row === "vari" && r.vari === 2 && !(it.kind === "omena" && !it.red)) return row;
-    if (row === "mato" && r.mato === 1 && it.worm) return row;
-    if (row === "yli" && r.yli > 0 && !(it.g > YLI[r.yli])) return row;
-    if (row === "alle" && r.alle > 0 && !(it.g < ALLE[r.alle])) return row;
-  }
-  return "";
+// does the thing pass one row?
+export function holds(it: Item, c: Cond): boolean {
+  if (c.p === "vari") return c.op === "on" ? it.color === c.v : it.color !== c.v;
+  const m = c.p === "koko" ? it.cm : it.g, ref = c.p === "koko" ? SIZE[c.v] : WEIGHT[c.v];
+  return c.op === "yli" ? m > ref : m < ref;
 }
 
-// what the boss wants from the line on a level; goalRed for levels 0-1
-export function wanted(it: Item, level: number, goalRed: boolean, noWorms: boolean): boolean {
-  if (level <= 1) return it.kind === "omena" && it.red === goalRed && !(noWorms && it.worm);
-  if (level === 2) return it.kind === "omena" && !it.worm;
-  return it.kind === "omena" && !it.worm && !it.small;
+// the first row the thing fails (its index), -1 if it goes on
+export function check(it: Item, r: Rule): number {
+  for (let i = 0; i < r.length; i++) if (complete(r[i]) && !holds(it, r[i])) return i;
+  return -1;
 }
 
-// anything but an apple jams the slicer
-export function jams(it: Item): boolean { return it.kind !== "omena"; }
+// ---- the boss's orders -----------------------------------------------------------------
 
-// what went wrong with an item, "" if nothing: jumi, mato, pieni, vari, hukka
-export function verdict(it: Item, passed: boolean, level: number, goalRed: boolean, noWorms: boolean): string {
-  const w = wanted(it, level, goalRed, noWorms);
+export type Order = { id: string; conds: Rule; dest: string; colors: string[]; small: boolean; extra: string[] };
+const C = (p: string, op: string, v: string): Cond => ({ p, op, v });
+const RGY = ["punainen", "vihrea", "keltainen"];
+// dest is where the good things go: kauppa 🛒 or mehu 🧃
+export const ORDERS: Order[][] = [
+  [
+    { id: "vari_punainen", conds: [C("vari", "on", "punainen")], dest: "kauppa", colors: ["punainen", "vihrea"], small: false, extra: [] },
+    { id: "vari_vihrea", conds: [C("vari", "on", "vihrea")], dest: "kauppa", colors: RGY, small: false, extra: [] },
+    { id: "vari_keltainen", conds: [C("vari", "on", "keltainen")], dest: "kauppa", colors: RGY, small: false, extra: [] },
+  ],
+  [
+    { id: "koko_iso", conds: [C("koko", "yli", "tennis")], dest: "kauppa", colors: ["punainen", "vihrea"], small: true, extra: [] },
+    { id: "koko_pieni", conds: [C("koko", "alle", "tennis")], dest: "mehu", colors: ["punainen", "vihrea"], small: true, extra: [] },
+    { id: "koko_kirsikka", conds: [C("koko", "yli", "kirsikka"), C("koko", "alle", "tennis")], dest: "mehu", colors: ["punainen", "vihrea"], small: true, extra: ["kirsikka"] },
+  ],
+  [
+    { id: "paino_pallo", conds: [C("paino", "yli", "tennis")], dest: "kauppa", colors: ["punainen"], small: false, extra: ["pallo"] },
+    { id: "paino_kurpitsa", conds: [C("paino", "alle", "kurpitsa")], dest: "kauppa", colors: ["punainen", "vihrea"], small: false, extra: ["kurpitsa"] },
+    { id: "paino_molemmat", conds: [C("paino", "yli", "tennis"), C("paino", "alle", "kurpitsa")], dest: "kauppa", colors: ["punainen", "vihrea"], small: false, extra: ["pallo", "kurpitsa"] },
+  ],
+  [
+    { id: "ja_punainen_iso", conds: [C("vari", "on", "punainen"), C("koko", "yli", "tennis")], dest: "kauppa", colors: RGY, small: true, extra: [] },
+    { id: "ja_vihrea_pieni", conds: [C("vari", "on", "vihrea"), C("koko", "alle", "tennis")], dest: "mehu", colors: RGY, small: true, extra: [] },
+    { id: "ja_punainen_aito", conds: [C("vari", "on", "punainen"), C("paino", "yli", "tennis")], dest: "kauppa", colors: RGY, small: false, extra: ["pallo"] },
+  ],
+  [
+    { id: "ei_vihrea", conds: [C("vari", "ei", "vihrea")], dest: "kauppa", colors: RGY, small: false, extra: [] },
+    { id: "ei_punainen", conds: [C("vari", "ei", "punainen")], dest: "mehu", colors: RGY, small: false, extra: [] },
+    { id: "ei_vihrea_iso", conds: [C("vari", "ei", "vihrea"), C("koko", "yli", "tennis")], dest: "kauppa", colors: RGY, small: true, extra: [] },
+  ],
+];
+
+export function wanted(it: Item, o: Order): boolean { return o.conds.every((c) => holds(it, c)); }
+
+// anything but an apple jams the slicer if it is big and heavy (the pumpkin)
+export function jams(it: Item): boolean { return it.kind === "kurpitsa"; }
+
+// what went wrong with a thing, "" if nothing: jumi, then the property of the
+// order's first row it breaks (vari, koko, paino), or hukka (a good thing thrown away)
+export function verdict(it: Item, passed: boolean, o: Order): string {
+  const w = wanted(it, o);
   if (passed === w) return "";
   if (!passed) return "hukka";
   if (jams(it)) return "jumi";
-  if (it.worm) return "mato";
-  if (it.small) return "pieni";
-  return "vari";
+  for (const c of o.conds) if (!holds(it, c)) return c.p;
+  return "hukka";
 }
 
-// the boss's worst complaint about a batch run with the rule (order of importance)
-export const WORST = ["jumi", "mato", "pieni", "vari", "hukka"];
-export function judge(items: Item[], r: Rule, level: number, goalRed: boolean, noWorms: boolean): string {
-  const rows = rowsFor(level);
+export const WORST = ["jumi", "paino", "koko", "vari", "hukka"];
+// the boss's worst complaint about a batch run with the rule
+export function judge(items: Item[], r: Rule, o: Order): string {
   const found: string[] = [];
   for (const it of items) {
-    const passed = check(it, r, rows) === "";
-    const v = verdict(it, passed, level, goalRed, noWorms);
+    const v = verdict(it, check(it, r) < 0, o);
     if (v) found.push(v);
     if (v === "jumi") break;     // the line stops
   }
@@ -74,32 +117,47 @@ export function judge(items: Item[], r: Rule, level: number, goalRed: boolean, n
   return "";
 }
 
-// the rule that is right for a level (the hint points at the first row that differs)
-export function solution(level: number, goalRed: boolean): Rule {
-  const r = emptyRule();
-  if (level <= 1) { r.vari = goalRed ? 1 : 2; return r; }
-  r.mato = 1;
-  if (level >= 3) { r.yli = 2; r.alle = 2; }
-  // "on omena" also stops the pumpkin, so the upper weight row is not needed then
-  if (level >= 4) { r.omena = 1; r.alle = 0; }
-  return r;
+// ---- things on the line ---------------------------------------------------------------
+
+export function apple(color: string, small: boolean, k: number): Item {
+  const cm = small ? 4.5 + k * 1.5 : 7.6 + k * 1.8;
+  return { kind: "omena", color, cm: Math.round(cm * 10) / 10, g: Math.round(small ? 60 + k * 40 : 150 + k * 110) };
+}
+export function thing(kind: string, k: number): Item {
+  if (kind === "kirsikka") return { kind, color: "punainen", cm: 2 - 0.4 + k * 0.3, g: 6 + Math.round(k * 2) };
+  if (kind === "pallo") return { kind, color: "punainen", cm: Math.round((8 + k) * 10) / 10, g: 15 + Math.round(k * 10) };
+  return { kind, color: "oranssi", cm: 30 + Math.round(k * 10), g: 4200 + Math.round(k * 1500) };
 }
 
-// a batch of things on the line; step 0-2 makes it longer and more mixed
-export function batch(level: number, step: number, rnd: () => number): Item[] {
+function random(o: Order, rnd: () => number): Item {
+  const x = rnd();
+  const ex = o.extra.length ? 0.32 : 0;
+  if (x < ex) return thing(o.extra[Math.floor(rnd() * o.extra.length)], rnd());
+  return apple(o.colors[Math.floor(rnd() * o.colors.length)], o.small && rnd() < 0.45, rnd());
+}
+
+// a batch of things on the line; step 0-2 makes it longer
+export function batch(o: Order, step: number, rnd: () => number): Item[] {
   const n = [6, 8, 10][step];
   const out: Item[] = [];
-  const add = (it: Item) => out.push(it);
-  // the things a level must contain, so every row of its rule matters
-  add(apple(true, false, false, rnd())); add(apple(false, false, false, rnd()));
-  if (level === 0 && step > 0 || level >= 2) add(apple(rnd() < 0.5, true, false, rnd()));
-  if (level >= 3) { add(apple(rnd() < 0.5, false, true, rnd())); add(thing("kurpitsa")); }
-  if (level >= 4) { add(thing("kenka")); add(thing("banaani")); }
+  const find = (ok: (it: Item) => boolean) => { for (let k = 0; k < 400; k++) { const it = random(o, rnd); if (ok(it)) return it; } return null; };
+  // something good, and for every row something that only that row stops,
+  // so every row of the rule matters
+  const good = find((it) => wanted(it, o));
+  if (good) out.push(good);
+  o.conds.forEach((c, i) => {
+    const it = find((it) => !holds(it, c) && o.conds.every((d, j) => j === i || holds(it, d)));
+    if (it) out.push(it);
+  });
+  // every colour, kind and size the order speaks of
+  for (const k of o.extra) if (!out.some((it) => it.kind === k)) out.push(thing(k, rnd()));
+  for (const c of o.colors) if (!out.some((it) => it.color === c)) out.push(apple(c, false, rnd()));
+  if (o.small && !out.some((it) => it.kind === "omena" && it.cm < SIZE.tennis)) out.push(apple(o.colors[0], true, rnd()));
+  if (o.small && !out.some((it) => it.kind === "omena" && it.cm > SIZE.tennis)) out.push(apple(o.colors[0], false, rnd()));
   while (out.length < n) {
-    const k = rnd();
-    const worm = (level === 0 && step > 0 || level >= 2) && rnd() < 0.25;
-    const small = level >= 3 && rnd() < 0.2;
-    add(apple(k < 0.5, worm, small && !worm, rnd()));
+    // about half good things
+    const it = find((it) => wanted(it, o) === (rnd() < 0.5));
+    out.push(it || random(o, rnd));
   }
   // shuffle, but never start with a jam
   for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); const t = out[i]; out[i] = out[j]; out[j] = t; }

@@ -69,13 +69,28 @@
 .kw { position: absolute; font-size: 18px; font-weight: 700; color: #ffd166; justify-content: center; align-items: flex-start; }
 .kw.ok { color: #06d6a0; }
 .kw.no { color: #ff8fa3; }
-.chip { position: absolute; border-radius: 10px; background-color: #457b9d; justify-content: center; align-items: flex-start; padding-left: 12px; }
+.chip { position: absolute; border-radius: 10px; background-color: #457b9d; justify-content: center; align-items: flex-start; padding-left: 7px; }
 .chip.on { background-color: #e9f5ff; }
 .chip.bad { background-color: #ff8fa3; }
-.chiptext { text-align: left; font-size: 17px; font-weight: 700; color: #1d3557; }
+.chiptext { text-align: left; font-size: 15px; font-weight: 700; color: #1d3557; }
 .codeline { position: absolute; font-size: 14px; color: #caf0f8; text-align: left; justify-content: center; align-items: flex-start; }
 .tag { position: absolute; font-size: 12px; font-weight: 700; color: #1d4e89; text-align: center; justify-content: center; align-items: center; }
 .pad { flex-direction: column; }
 .padbig { font-size: 40px; }
 .padlabel { font-size: 20px; font-weight: 700; color: #ffffff; }
 .tick { position: absolute; font-size: 11px; font-weight: 700; color: #2d6a4f; text-align: center; justify-content: center; align-items: center; }
+.chip.sel { background-color: #ffd166; }
+.chip.ask { background-color: #fff3b0; }
+.chiptext.small { font-size: 13px; }
+.opt { position: absolute; border-radius: 12px; align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.15); shadow-offset-y: 3px; }
+.optbig { font-size: 26px; font-weight: 700; color: #1d3557; }
+.optlabel { font-size: 13px; font-weight: 700; color: #1d3557; text-align: center; }
+.optref { font-size: 11px; color: #6c757d; }
+.mtext { position: absolute; font-size: 15px; font-weight: 700; color: #1d3557; justify-content: center; align-items: flex-start; }
+.etext { position: absolute; font-size: 14px; font-weight: 700; color: #2d6a4f; justify-content: center; align-items: flex-start; }
+.etext.bad { color: #d62828; }
+.etext.off { color: #adb5bd; }
+.etext.res { font-size: 16px; color: #2d6a4f; }
+.etext.res.no { color: #d62828; }
+.ctext { font-size: 16px; font-weight: 700; color: #1d3557; text-align: center; }
+.lvicon { font-size: 22px; }
