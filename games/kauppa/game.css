@@ -1,0 +1,21 @@
+/* Oma kauppa: a warm shop theme over the kit (appended by tools/tietokoneet/sync.sh) */
+.root { width: 100%; height: 100%; background: linear-gradient(180deg, #fff6e0, #ffe0b8); }
+.title { font-size: 34px; font-weight: 700; color: #6a1b9a; }
+.dtitle { font-size: 42px; font-weight: 700; color: #6a1b9a; }
+.dot.now { background-color: #8338ec; }
+.sbar.on { background-color: #8338ec; }
+.card.bad { background-color: #ffe0e6; }
+.card.crowd { background-color: #f3ecff; }
+.coinmark.out { color: #9d0208; }
+.bagnum { position: absolute; font-weight: 700; color: #5c3d2e; text-align: center; justify-content: center; align-items: center; }
+.tagnum { position: absolute; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; align-items: center; }
+.mid { position: absolute; font-size: 22px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; align-items: center; }
+.mid.left { text-align: left; justify-content: flex-start; align-items: flex-start; }
+.mid.right { text-align: right; justify-content: flex-end; align-items: flex-end; }
+.sum { position: absolute; font-size: 22px; font-weight: 700; color: #06a77d; text-align: center; justify-content: center; align-items: center; }
+.rowlabel { position: absolute; font-size: 16px; font-weight: 700; color: #6a1b9a; }
+.shopname { position: absolute; font-size: 15px; font-weight: 700; color: #6a1b9a; text-align: center; justify-content: center; align-items: center; }
+.pad.small { border-radius: 12px; }
+.padtext.small { font-size: 20px; }
+.bigline { font-size: 40px; font-weight: 700; color: #06a77d; margin-top: 16px; }
+.bike { font-size: 70px; margin-top: 6px; }

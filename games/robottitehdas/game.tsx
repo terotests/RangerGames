@@ -1,6 +1,6 @@
 // Robottitehdas: a cookie factory run by robot helpers, for thinking about
 // how work flows, how it is checked and how it gets better ("loop building"),
-// how it scales and what it costs. Levels:
+// and how it scales. Levels:
 //   1 Kokoa linja   put the robots in order on the belt (mix, shape, bake,
 //                   decorate, pack) and run it: a wrong order makes a funny
 //                   wrong cookie, and the customer frowns
@@ -12,10 +12,8 @@
 //                   that made it. It learns, and the quality meter rises
 //   4 Pullonkaula   the customers want many cookies today. Watch where the
 //                   cookies pile up and put the helper robots there
-//   5 Kauppa        each cookie costs 1 € to bake and sells for 3 €: how many
-//                   to bake for the customers in the queue?
-import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, rect, star, ngon, Robot, Coin } from "lib/kit";
-import { ORDER, lineFor, Cookie, raw, apply, good, makeSim, stepSim, best, simulate, profit, COST, PRICE, Sim } from "lib/sim";
+import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, rect, star, ngon, Robot } from "lib/kit";
+import { ORDER, lineFor, Cookie, raw, apply, good, makeSim, stepSim, best, simulate, Sim } from "lib/sim";
 
 const COLOR: any = { sekoitus: "#f4a261", muotti: "#e76f51", uuni: "#d62828", koriste: "#c77dff", paketti: "#2a9d8f", tarkastaja: "#3a86ff" };
 const DEFECTS = ["palanut", "rikki", "tyhja", "mytty"];
@@ -27,7 +25,6 @@ const LEVELS: Level[] = [
   { name: rg.t("Tarkastaja", "Inspector", "Inspector"), color: "#3a86ff", say: "tk_f_tarkastaja", pic: (x, y, s) => Robot(x - 14 * s, y + 6 * s, s * 0.45, COLOR.tarkastaja, -1, "ok").concat(Lens(x + 24 * s, y - 4 * s, s * 0.9)) },
   { name: rg.t("Palaute", "Feedback", "Comentarios"), color: "#06a77d", say: "tk_f_palaute", pic: (x, y, s) => Meter(x - 34 * s, y + 24 * s, 68 * s, 46 * s, [0.3, 0.5, 0.7, 0.9]) },
   { name: rg.t("Pullonkaula", "Bottleneck", "Cuello de botella"), color: "#8338ec", say: "tk_f_pullonkaula", pic: (x, y, s) => { const o: any[] = []; for (let i = 0; i < 4; i++) for (const e of CookiePic(x - 8 * s + (i % 2) * 18 * s, y + 18 * s - Math.floor(i / 2) * 14 * s, 10 * s, done1())) o.push(e); return o.concat(Robot(x + 30 * s, y + 4 * s, s * 0.36, COLOR.uuni, -1, "sleep")); } },
-  { name: rg.t("Kauppa", "Shop", "Tienda"), color: "#ffb703", say: "tk_f_kauppa", pic: (x, y, s) => Coin(x - 16 * s, y + 6 * s, 18 * s).concat(Coin(x + 14 * s, y - 2 * s, 18 * s), CookiePic(x + 4 * s, y + 26 * s, 14 * s, done1())) },
 ];
 
 function done1(): Cookie { const c = raw(); c.mixed = true; c.shaped = true; c.baked = 1; c.deco = 1; return c; }
@@ -74,10 +71,6 @@ let goal = 0;
 let sim: Sim = makeSim([1], [1]);
 let tried = false;
 const DAY = 10, SPEED = 1.6;
-// level 5
-let customers: number[] = [];
-let baked = 0;
-let served = 0;
 
 // ---- pictures -------------------------------------------------------------------
 
@@ -545,92 +538,6 @@ function Play4() {
   return out;
 }
 
-// ---- level 5: the shop -----------------------------------------------------------------
-
-function demand() { let d = 0; for (const c of customers) d += c; return d; }
-
-function next5() {
-  const s = step();
-  const n = s === 0 ? rg.range(3, 5) : rg.range(3, 4);
-  customers = [];
-  for (let i = 0; i < n; i++) customers.push(s === 0 ? 1 : rg.range(1, s === 1 ? 2 : 3));
-  baked = 0; served = 0; phase = "set"; face = "";
-}
-
-function bake(d: number) {
-  if (phase === "run" || K.solved >= 0) return;
-  baked = rg.clamp(baked + d, 0, 12);
-  served = 0; phase = "set";
-  rg.sound(d > 0 ? "pop" : "click");
-  rg.say(rg.sayId.number(baked));
-}
-
-function run5() {
-  if (phase === "run" || K.solved >= 0) return;
-  if (baked === 0) { rg.sound("wrong"); rg.say("tk_f_leivo_ensin"); return; }
-  phase = "run"; served = 0; clock = 0.6;
-  rg.sound("whoosh");
-}
-
-function tick5(dt: number) {
-  if (phase !== "run") return;
-  clock -= dt;
-  if (clock > 0) return;
-  clock = 0.45;
-  if (served < Math.min(baked, demand())) { served++; rg.sound("coin"); return; }
-  phase = "end";
-  const p = profit(baked, demand()), top = profit(demand(), demand());
-  if (p >= top) { win(width / 2, 200, ["tk_f_voitto", rg.sayId.number(p), "tk_f_euroa"]); return; }
-  const k = miss();
-  const why = baked < demand() ? "tk_f_liian_vahan_kekseja" : "tk_f_liikaa_kekseja";
-  if (k >= 2) { hintT = K.t; rg.say([why, "tk_f_vihje_kauppa"]); } else rg.say(why);
-}
-
-function Play5() {
-  const out: any[] = [];
-  const d = demand();
-  // prices: making a cookie costs, selling one earns
-  const half = (width - 32) / 2;
-  out.push(<div className="card" style={{ left: 16, top: 120, width: width - 32, height: 64 }} />);
-  out.push(Box(16 + half - 1, 130, 2, 44, "#e3e8ef"));
-  for (const e of CookiePic(16 + half * 0.3, 146, 14, done1())) out.push(e);
-  out.push(<div className="num" style={{ left: 16 + half * 0.45, top: 132, width: half * 0.5, height: 28, color: "#d62828" }}>{"−" + COST + " €"}</div>);
-  out.push(<div className="tiny" style={{ left: 16, top: 162, width: half, height: 18 }}>{rg.t("leipominen", "baking", "hornear")}</div>);
-  for (const e of CookiePic(16 + half * 1.3, 146, 14, done1())) out.push(e);
-  out.push(<div className="num" style={{ left: 16 + half * 1.45, top: 132, width: half * 0.5, height: 28, color: "#06a77d" }}>{"+" + PRICE + " €"}</div>);
-  out.push(<div className="tiny" style={{ left: 16 + half, top: 162, width: half, height: 18 }}>{rg.t("myynti", "selling", "venta")}</div>);
-  // the queue of customers, centred, each with a bubble of the cookies they want
-  let given = served;
-  const n = customers.length, sp = Math.min(76, (width - 32) / n), x0 = width / 2 - (n - 1) * sp / 2;
-  customers.forEach((want, i) => {
-    const x = x0 + i * sp, y = 262;
-    const got = Math.min(want, Math.max(0, given));
-    given -= want;
-    const f = phase === "end" ? (got >= want ? "yum" : "sad") : got >= want ? "yum" : "";
-    const bw = Math.max(36, want * 16 + 12);
-    out.push(<div className="bubble" style={{ left: x - bw / 2, top: y - 74, width: bw, height: 30 }} />);
-    out.push(Poly([[x - 6, y - 45], [x + 6, y - 45], [x, y - 37]], "#ffffff"));
-    for (let k = 0; k < want; k++) for (const e of CookiePic(x - (want - 1) * 8 + k * 16, y - 59, 7, done1())) out.push(e);
-    for (const e of Customer(x, y, f)) out.push(e);
-  });
-  // the tray of baked cookies
-  out.push(<div className="card" style={{ left: 16, top: 300, width: width - 32, height: 100 }} />);
-  for (let k = served; k < baked; k++) for (const e of CookiePic(40 + (k % 8) * 38, 330 + Math.floor(k / 8) * 36, 14, done1())) out.push(e);
-  // − baked +
-  out.push(<div className="pad" id="less" onClick={() => bake(-1)} style={{ left: 40, top: 414, width: 70, height: 60, backgroundColor: "#9a8c98" }}><div className="padtext">−</div></div>);
-  out.push(<div className="big" style={{ left: 120, top: 414, width: width - 240, height: 60 }}>{String(baked)}</div>);
-  out.push(<div className="pad" id="more" onClick={() => bake(1)} style={{ left: width - 110, top: 414, width: 70, height: 60, backgroundColor: "#06d6a0" }}><div className="padtext">+</div></div>);
-  if (K.t - hintT < 5) out.push(PointAt(baked < d ? width - 75 : 75, 414, "#f77f00"));
-  // the money of the day
-  if (phase !== "set") {
-    const p = PRICE * served - COST * baked;
-    out.push(<div className="card" style={{ left: 16, top: 484, width: width - 32, height: 56 }} />);
-    out.push(<div className="num" style={{ left: 16, top: 496, width: width - 32, height: 30, color: p >= 0 ? "#06a77d" : "#d62828" }}>{"+" + PRICE * served + " €  −" + COST * baked + " €  =  " + p + " €"}</div>);
-  }
-  out.push(RunButton(() => run5()));
-  return out;
-}
-
 // ---- shared ----------------------------------------------------------------------------
 
 function RunButton(f: () => void) {
@@ -639,12 +546,12 @@ function RunButton(f: () => void) {
 }
 
 function instruct() {
-  rg.say(["tk_f_kokoa", "tk_f_tarkastaja", "tk_f_palaute", "tk_f_pullonkaula", "tk_f_kauppa"][K.level]);
+  rg.say(["tk_f_kokoa", "tk_f_tarkastaja", "tk_f_palaute", "tk_f_pullonkaula"][K.level]);
 }
 
 function next() {
   hintT = -10; K.wait = 2.2;
-  [next1, next2, next3, next4, next5][K.level]();
+  [next1, next2, next3, next4][K.level]();
   instruct();
 }
 
@@ -654,8 +561,7 @@ function hint() {
   if (K.level === 0) { let f = 0; while (f < need.length && slots[f] === need[f]) f++; rg.say("tk_f_vihje_" + need[Math.min(f, need.length - 1)]); }
   else if (K.level === 1) rg.say("tk_f_vihje_tarkastus");
   else if (K.level === 2) rg.say("tk_f_vihje_" + caught);
-  else if (K.level === 3) rg.say("tk_f_vihje_jono");
-  else rg.say("tk_f_vihje_kauppa");
+  else rg.say("tk_f_vihje_jono");
 }
 
 function tick(dt: number, input: any) {
@@ -664,7 +570,6 @@ function tick(dt: number, input: any) {
   if (K.level === 0) tick1(dt);
   else if (K.level === 1) tick2(dt);
   else if (K.level === 3) tick4(dt);
-  else if (K.level === 4) tick5(dt);
 }
 
 function onBack() { phase = "set"; back(); }
@@ -672,10 +577,9 @@ function onBack() { phase = "set"; back(); }
 function Play() {
   const out: any[] = [];
   const text = [rg.t("Laita robotit järjestykseen", "Put the robots in order", "Ordena los robots"), rg.t("Mitä tarkastaja katsoo?", "What does the inspector check?", "¿Qué revisa el inspector?"),
-    rg.t("Kuka teki virheen?", "Who made the mistake?", "¿Quién se equivocó?"), rg.t("Missä keksit jonottavat?", "Where do the cookies pile up?", "¿Dónde se amontonan?"),
-    rg.t("Montako keksiä leivotaan?", "How many cookies to bake?", "¿Cuántas galletas hornear?")][K.level];
+    rg.t("Kuka teki virheen?", "Who made the mistake?", "¿Quién se equivocó?"), rg.t("Missä keksit jonottavat?", "Where do the cookies pile up?", "¿Dónde se amontonan?")][K.level];
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
-  const body = [Play1, Play2, Play3, Play4, Play5][K.level]();
+  const body = [Play1, Play2, Play3, Play4][K.level]();
   for (const e of body) out.push(e);
   return <div className="screen">{out}</div>;
 }

@@ -81,7 +81,3 @@ export function best(times: number[], extra: number, day: number) {
   tryAll(0, extra, []);
   return { out: top, workers: where };
 }
-
-// ---- level 5: the shop ----------------------------------------------------------
-export const COST = 1, PRICE = 3;
-export function profit(baked: number, demand: number) { return PRICE * Math.min(baked, demand) - COST * baked; }

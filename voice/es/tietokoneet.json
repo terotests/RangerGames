@@ -86,7 +86,6 @@
   "tk_f_tarkastaja": "A veces los robots hacen galletas malas. Elige qué revisa el inspector. La galleta mala vuelve al inicio.",
   "tk_f_palaute": "El inspector encontró un error. Díselo al robot que lo hizo. Así aprende.",
   "tk_f_pullonkaula": "Hoy vienen muchos clientes. Mira dónde se amontonan las galletas y pon un robot ayudante allí.",
-  "tk_f_kauppa": "Hacer una galleta cuesta un euro y el cliente paga tres. ¿Cuántas horneamos?",
   "tk_f_n_sekoitus": "La mezcladora hace la masa.",
   "tk_f_n_muotti": "La moldeadora hace estrellas.",
   "tk_f_n_uuni": "El horno hornea.",
@@ -119,12 +118,6 @@
   "tk_f_liian_vahan": "No salieron suficientes galletas.",
   "tk_f_vihje_jono": "Un ayudante solo sirve donde hay cola. La línea es tan rápida como su robot más lento.",
   "tk_f_kaikki_saivat": "¡Todos los clientes tienen sus galletas!",
-  "tk_f_ei_enempaa": "No hay más ayudantes. Mueve uno a otro sitio.",
-  "tk_f_leivo_ensin": "Primero hornea galletas con el botón más.",
-  "tk_f_voitto": "¡Buen negocio! La ganancia fue de",
-  "tk_f_euroa": "euros.",
-  "tk_f_liian_vahan_kekseja": "Se acabaron las galletas y algunos clientes se quedaron sin. Podrías haber ganado más.",
-  "tk_f_liikaa_kekseja": "Sobraron galletas. Hacerlas costó dinero, pero nadie las compró.",
-  "tk_f_vihje_kauppa": "Cuenta cuántas galletas quieren los clientes en total. Hornea justo esas."
+  "tk_f_ei_enempaa": "No hay más ayudantes. Mueve uno a otro sitio."
  }
 }

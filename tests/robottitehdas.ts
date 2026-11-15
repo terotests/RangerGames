@@ -1,7 +1,7 @@
 // node --experimental-strip-types tests/robottitehdas.ts — the factory's rules:
 // only the right order makes a good cookie, and in every bottleneck puzzle
 // the helpers must go to the slow stations (every other placement makes less).
-import { lineFor, runLine, good, simulate, best, profit } from "../games/robottitehdas/lib/sim.ts";
+import { lineFor, runLine, good, simulate, best } from "../games/robottitehdas/lib/sim.ts";
 let bad = 0;
 function perms(a: string[]): string[][] { if (a.length <= 1) return [a]; const out: string[][] = []; a.forEach((x, i) => { for (const p of perms(a.slice(0, i).concat(a.slice(i + 1)))) out.push([x].concat(p)); }); return out; }
 for (const n of [3, 4, 5]) {
@@ -22,6 +22,5 @@ for (const [t, extra] of puzzles) {
   };
   rec(0, extra, []);
 }
-for (let d = 1; d < 10; d++) for (let b = 0; b <= 12; b++) if (b !== d && profit(b, d) >= profit(d, d)) { console.log("profit", b, d); bad++; }
 console.log(bad ? bad + " problems" : "robottitehdas ok");
 process.exit(bad ? 1 : 0);
