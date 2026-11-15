@@ -41,6 +41,20 @@ let settings = false;          // ⚙️: tiles turn speech on and off instead o
 let section = "";              // the open section, "" the front page
 let page = "";                 // "settings": the settings page
 let netNote = "";              // on the settings page: what went wrong last
+// Scrolling: a page taller than the screen moves with a finger or mouse drag
+// (a flick keeps it going a moment) and with the mouse wheel. A drag that
+// moved more than DRAG_SLOP is not a tap, so it does not open the tile it
+// started on.
+const DRAG_SLOP = 10;
+let scroll = 0;                // how far the page is scrolled, in pixels
+let scrollMax = 0;             // from the laid-out height of #content
+let scrollPage = "";           // the page the scroll belongs to
+let dragFrom = -1;             // the pointer's y when it went down, -1 when up
+let dragScroll = 0;            // `scroll` when it went down
+let dragging = false;          // past DRAG_SLOP: the page follows the pointer
+let dragged = false;           // the last press was a drag: no tap
+let flick = 0;                 // the speed after a flick, pixels per second
+let lastY = 0;
 
 const NET_ERRORS: { [k: string]: string[] } = {
   "no-bluetooth": ["Tässä laitteessa ei ole Bluetoothia.", "This device has no Bluetooth.", "Este dispositivo no tiene Bluetooth."],
@@ -57,6 +71,49 @@ function sectionOf(g: Game) {
 }
 function gamesIn(s: string) { return games.filter((g) => sectionOf(g) === s); }
 function sectionName(x: Section) { return rg.t(x.fi, x.en, x.es); }
+
+function onPointerDown(x: number, y: number) {
+  dragFrom = y; dragScroll = scroll; lastY = y;
+  dragging = false; dragged = false; flick = 0;
+}
+
+function onPointerUp(x: number, y: number) {
+  if (dragFrom >= 0 && Math.abs(y - dragFrom) > DRAG_SLOP) dragged = true;
+  if (dragged) pressed = "";
+  dragFrom = -1; dragging = false;
+}
+
+function onWheel(dy: number) {
+  scroll = rg.clamp(scroll + dy, 0, scrollMax);
+  flick = 0;
+}
+
+function scrollStep(dt: number, input: any) {
+  const key = page + "/" + section;
+  if (key !== scrollPage) { scrollPage = key; scroll = 0; flick = 0; }
+  const box = rg.box("content");
+  if (box) scrollMax = Math.max(0, Math.ceil(box.h + 16 - height));
+  const p = input.pointer;
+  if (dragFrom >= 0 && p.down) {
+    if (!dragging && Math.abs(p.y - dragFrom) > DRAG_SLOP) { dragging = true; dragged = true; pressed = ""; }
+    if (dragging) {
+      const next = rg.clamp(dragScroll - (p.y - dragFrom), 0, scrollMax);
+      if (dt > 0) flick = flick * 0.5 + ((lastY - p.y) / dt) * 0.5;
+      scroll = next;
+    }
+    lastY = p.y;
+  } else if (flick !== 0) {
+    scroll = rg.clamp(scroll + flick * dt, 0, scrollMax);
+    flick *= Math.exp(-4 * dt);
+    if (Math.abs(flick) < 20 || scroll <= 0 || scroll >= scrollMax) flick = 0;
+  }
+  if (scroll > scrollMax) scroll = scrollMax;
+}
+
+// a tap, not the end of a drag
+function tapped() { return !dragged; }
+// an onClick handler that a drag over the button does not set off
+function tap(f: () => any) { return () => { if (tapped()) f(); }; }
 
 function openSection(s: string) {
   section = s;
@@ -79,8 +136,9 @@ function init() {
   }
 }
 
-function tick(dt: number) {
+function tick(dt: number, input: any) {
   t += dt;
+  scrollStep(dt, input);
   for (const b of bubbles) {
     b.y -= b.v * dt;
     if (b.y < -b.r * 2) { b.y = height + b.r; b.x = rg.random() * width; }
@@ -112,7 +170,7 @@ function toggleSpeech(id: string) {
 
 function Gear() {
   return (
-    <div className={settings ? "flag on" : "flag"} id="settings" onClick={() => { settings = !settings; rg.sound("click"); rg.vibrate(15); }}>
+    <div className={settings ? "flag on" : "flag"} id="settings" onClick={tap(() => { settings = !settings; rg.sound("click"); rg.vibrate(15); })}>
       <div className="flagicon">{settings ? "✓" : "⚙️"}</div>
     </div>
   );
@@ -159,7 +217,7 @@ function NetPanel() {
         ? rg.t("Valitse peli, niin kaveri tulee samaan peliin.", "Choose a game and your friend comes along.", "Elige un juego y tu amigo viene contigo.")
         : rg.t("Kaveri valitsee pelin, ja tämä puhelin tulee mukaan.", "Your friend chooses the game, and this phone comes along.", "Tu amigo elige el juego y este teléfono le sigue.")}</div>,
       host && st === "hosting" ? <div className="nhint">{rg.t("Lisää kavereita voi vielä liittyä.", "More friends can still join.", "Todavía pueden unirse más amigos.")}</div> : null,
-      <div className="nbtn grey" id="net-off" onClick={() => netCancel()}>{rg.t("Katkaise yhteys", "Disconnect", "Desconectar")}</div>
+      <div className="nbtn grey" id="net-off" onClick={tap(() => netCancel())}>{rg.t("Katkaise yhteys", "Disconnect", "Desconectar")}</div>
     ];
   } else if (st === "hosting") {
     body = [
@@ -168,11 +226,11 @@ function NetPanel() {
       <div className="nhint">{rg.t("Kaveri painaa omassa puhelimessaan Liity ja valitsee tämän:", "Your friend taps Join on their phone and picks this one:", "Tu amigo pulsa Unirse en su teléfono y elige este:")}</div>,
       <div className="nname">📱 {rg.net.name}</div>,
       rg.net.kind === "web" ? <div className="nhint">{rg.t("(Selaimessa: avaa toinen välilehti tai kaksi.html.)", "(In a browser: open another tab or kaksi.html.)", "(En el navegador: abre otra pestaña o kaksi.html.)")}</div> : null,
-      <div className="nbtn grey" id="net-cancel" onClick={() => netCancel()}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
+      <div className="nbtn grey" id="net-cancel" onClick={tap(() => netCancel())}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
     ];
   } else if (st === "searching" || st === "connecting" || st === "connected") {
     const list = rg.net.peers.map((p: any, k: number) => (
-      <div className="nbtn blue" id={"peer" + k} onClick={() => { rg.sound("click"); rg.net.join(p.id); }}>📱 {p.name}{p.paired ? " ⭐" : ""}</div>
+      <div className="nbtn blue" id={"peer" + k} onClick={tap(() => { rg.sound("click"); rg.net.join(p.id); })}>📱 {p.name}{p.paired ? " ⭐" : ""}</div>
     ));
     const busy = st !== "searching";
     body = [
@@ -180,13 +238,13 @@ function NetPanel() {
       <div className="nlabel">{busy ? rg.t("Yhdistetään…", "Connecting…", "Conectando…") : list.length ? rg.t("Valitse kaverin puhelin", "Pick your friend's phone", "Elige el teléfono de tu amigo") : rg.t("Etsitään kaveria…", "Looking for your friend…", "Buscando a tu amigo…")}</div>,
       busy ? null : list,
       list.length || busy ? null : <div className="nhint">{rg.t("Kaverin puhelimessa pitää olla Aloita painettuna.", "Your friend's phone must have Start pressed.", "El teléfono de tu amigo debe tener pulsado Empezar.")}</div>,
-      <div className="nbtn grey" id="net-cancel" onClick={() => netCancel()}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
+      <div className="nbtn grey" id="net-cancel" onClick={tap(() => netCancel())}>{rg.t("Peru", "Cancel", "Cancelar")}</div>
     ];
   } else {
     body = [
       netNote ? <div className="nnote">{netNote}</div> : <div className="nicon">📱📡📱</div>,
-      <div className="nbtn pink" id="net-host" onClick={() => { rg.sound("click"); netNote = ""; rg.net.host(); rg.say("net_odota"); }}>🏠 {rg.t("Aloita", "Start", "Empezar")}</div>,
-      <div className="nbtn blue" id="net-join" onClick={() => { rg.sound("click"); netNote = ""; rg.net.find(); rg.say("net_etsi"); }}>🔍 {rg.t("Liity kaverin puhelimeen", "Join a friend's phone", "Unirse a un amigo")}</div>
+      <div className="nbtn pink" id="net-host" onClick={tap(() => { rg.sound("click"); netNote = ""; rg.net.host(); rg.say("net_odota"); })}>🏠 {rg.t("Aloita", "Start", "Empezar")}</div>,
+      <div className="nbtn blue" id="net-join" onClick={tap(() => { rg.sound("click"); netNote = ""; rg.net.find(); rg.say("net_etsi"); })}>🔍 {rg.t("Liity kaverin puhelimeen", "Join a friend's phone", "Unirse a un amigo")}</div>
     ];
   }
   return (
@@ -200,7 +258,7 @@ function NetPanel() {
 function Settings() {
   return [
     <div className="shead">
-      <div className="sback" id="back" onClick={() => onBack()}>←</div>
+      <div className="sback" id="back" onClick={tap(() => onBack())}>←</div>
       <div className="stitle">⚙️ {rg.t("Asetukset", "Settings", "Ajustes")}</div>
     </div>,
     <div className="panel">
@@ -237,7 +295,7 @@ function chooseLang(l: string) {
 function Flag(l: string) {
   const on = rg.lang === l;
   return (
-    <div className={on ? "flag on" : "flag"} id={"lang-" + l} onClick={() => chooseLang(l)}>
+    <div className={on ? "flag on" : "flag"} id={"lang-" + l} onClick={tap(() => chooseLang(l))}>
       <div className="flagicon">{rg.flags[l]}</div>
     </div>
   );
@@ -247,7 +305,7 @@ function SectionTile(x: Section, i: number) {
   const bob = Math.sin(t * 2 + i) * 2;
   const n = gamesIn(x.id).length;
   return (
-    <div className="stile" id={"s-" + x.id} onClick={() => openSection(x.id)} style={{ backgroundColor: x.color, marginTop: 6 + bob }}>
+    <div className="stile" id={"s-" + x.id} onClick={tap(() => openSection(x.id))} style={{ backgroundColor: x.color, marginTop: 6 + bob }}>
       <div className="sicon">{x.icon}</div>
       <div className="sname">{sectionName(x)}</div>
       <div className="players">{n === 1 ? rg.t("1 peli", "1 game", "1 juego") : rg.t(n + " peliä", n + " games", n + " juegos")}</div>
@@ -259,7 +317,7 @@ function Tile(g: Game, i: number) {
   const bob = Math.sin(t * 2 + i) * 2;
   const down = pressed === g.id && leaving !== "";
   return (
-    <div className="tile" id={"g-" + g.id} onClick={() => open(g.id)}
+    <div className="tile" id={"g-" + g.id} onClick={tap(() => open(g.id))}
       style={{ backgroundColor: g.color, marginTop: bob, transform: down ? "scale(0.94)" : "none", opacity: settings && !rg.speechOn(g.id) ? 0.55 : 1 }}>
       {g.image ? <img className="iconimg" src={g.image} /> : <div className="icon">{g.icon}</div>}
       <div className={nameOf(g).length > 11 ? "name long" : "name"}>{nameOf(g)}</div>
@@ -268,35 +326,45 @@ function Tile(g: Game, i: number) {
   );
 }
 
+// the page's content, moved up by the scroll; #content's laid-out height
+// gives how far it can scroll
+function scrolled(children: any) {
+  return <div className="content" id="content" style={{ marginTop: -Math.round(scroll) }}>{children}</div>;
+}
+
 function view() {
   const bg = bubbles.map((b) => <div className="bubble" style={{ left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, backgroundColor: b.c }} />);
-  if (page === "settings") return <div className="screen">{bg}{Settings()}</div>;
+  if (page === "settings") return <div className="screen">{bg}{scrolled(Settings())}</div>;
   if (section) {
     let sec = SECTIONS[SECTIONS.length - 1];
     for (const x of SECTIONS) if (x.id === section) sec = x;
     return (
       <div className="screen">
         {bg}
-        <div className="shead">
-          <div className="sback" id="back" onClick={() => onBack()}>←</div>
-          <div className="stitle">{sec.icon + " " + sectionName(sec)}</div>
-          {Gear()}
-        </div>
-        {settings ? <div className="sub">{rg.t("Napauta peliä: puhe päälle tai pois", "Tap a game: speech on or off", "Toca un juego: voz sí o no")}</div> : null}
-        <div className="grid">{gamesIn(section).map((g, i) => Tile(g, i))}</div>
+        {scrolled([
+          <div className="shead">
+            <div className="sback" id="back" onClick={tap(() => onBack())}>←</div>
+            <div className="stitle">{sec.icon + " " + sectionName(sec)}</div>
+            {Gear()}
+          </div>,
+          settings ? <div className="sub">{rg.t("Napauta peliä: puhe päälle tai pois", "Tap a game: speech on or off", "Toca un juego: voz sí o no")}</div> : null,
+          <div className="grid">{gamesIn(section).map((g, i) => Tile(g, i))}</div>
+        ])}
       </div>
     );
   }
   return (
     <div className="screen">
       {bg}
-      <div className="header">
-        <div className="logo">RangerGames</div>
-        <div className="sub">{rg.t("Valitse peli!", "Choose a game!", "¡Elige un juego!")}</div>
-        <div className="flags">{rg.langs.map((l) => Flag(l))}<div className="flag" id="open-settings" onClick={() => openSettings()}><div className="flagicon">⚙️</div></div></div>
-        {rg.net.connected() ? <div className="linked">📱📱 {rg.net.links.map((l: any) => l.name).join(", ")}</div> : null}
-      </div>
-      <div className="grid">{SECTIONS.filter((x) => gamesIn(x.id).length > 0).map((x, i) => SectionTile(x, i))}</div>
+      {scrolled([
+        <div className="header">
+          <div className="logo">RangerGames</div>
+          <div className="sub">{rg.t("Valitse peli!", "Choose a game!", "¡Elige un juego!")}</div>
+          <div className="flags">{rg.langs.map((l) => Flag(l))}<div className="flag" id="open-settings" onClick={tap(() => openSettings())}><div className="flagicon">⚙️</div></div></div>
+          {rg.net.connected() ? <div className="linked">📱📱 {rg.net.links.map((l: any) => l.name).join(", ")}</div> : null}
+        </div>,
+        <div className="grid">{SECTIONS.filter((x) => gamesIn(x.id).length > 0).map((x, i) => SectionTile(x, i))}</div>
+      ])}
     </div>
   );
 }

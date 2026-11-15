@@ -148,6 +148,10 @@ pub struct Engine {
     pub scene: scene3d::Scene,
     /// the game's water and sand (rg.sim), drawn over the 3D and under the 2D view
     pub fluid: fluid::Sim,
+    /// rg.box: the ids the script asked to measure this frame, and the
+    /// boxes of the ids asked last frame, laid out
+    measure: Vec<String>,
+    boxes: Json,
 }
 
 impl Engine {
@@ -161,6 +165,8 @@ impl Engine {
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
             fluid: fluid::Sim::new(),
+            measure: Vec::new(),
+            boxes: Json::Obj(Vec::new()),
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -320,6 +326,8 @@ impl Engine {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();
         self.fluid = fluid::Sim::new();
+        self.measure = Vec::new();
+        self.boxes = Json::Obj(Vec::new());
         // the last game's sensors off (GPS uses the battery)
         self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
@@ -434,6 +442,12 @@ impl Engine {
                 self.fluid.command(&cmd.name, &cmd.args);
                 continue;
             }
+            if cmd.kind == "measure" {
+                if !self.measure.contains(&cmd.name) {
+                    self.measure.push(cmd.name.clone());
+                }
+                continue;
+            }
             if cmd.kind == "three" {
                 self.scene.command(&cmd.name, &cmd.args);
                 continue;
@@ -522,6 +536,7 @@ impl Engine {
             member("input", json::parse(&self.input.state_json())),
             member("events", Json::Arr(evs)),
             member("sim", self.fluid.state()),
+            member("boxes", self.boxes.clone()),
         ]);
         let r = self.script.as_mut().unwrap().call("__frame", arg.write());
         let out = self.script.as_mut().unwrap().take_output();
@@ -535,6 +550,8 @@ impl Engine {
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.ui.render(&tree, &mut self.draw);
+                let ids = std::mem::take(&mut self.measure);
+                self.boxes = self.ui.boxes(&ids);
                 self.launch_pending();
                 Ok(())
             }

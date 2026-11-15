@@ -176,15 +176,41 @@
       return [(e.clientX - r.left) * k, (e.clientY - r.top) * k];
     };
     var unlock = function () { self.audio.unlock(); self.audio.resumeWanted(); };
+    // which pointers are down: a release the canvas never heard (the mouse
+    // let go outside the page or the playground's frame) is sent when the
+    // next move shows no button held, so the game does not keep dragging
+    var held = {}, last = {};
     c.addEventListener("pointerdown", function (e) {
       e.preventDefault(); unlock();
       try { c.setPointerCapture(e.pointerId); } catch (err) { }
-      var p = at(e); self.x.rg_pointer(0, pid(e), p[0], p[1]);
+      held[pid(e)] = true;
+      var p = last[pid(e)] = at(e); self.x.rg_pointer(0, pid(e), p[0], p[1]);
     });
-    c.addEventListener("pointermove", function (e) { var p = at(e); self.x.rg_pointer(1, pid(e), p[0], p[1]); });
-    var up = function (e) { var p = at(e); self.x.rg_pointer(2, pid(e), p[0], p[1]); };
+    var up = function (e) {
+      var id = pid(e);
+      if (!held[id]) return;
+      held[id] = false;
+      var p = e.clientX === undefined ? last[id] : at(e);
+      self.x.rg_pointer(2, id, p[0], p[1]);
+    };
+    var move = function (e) {
+      if (e.pointerType === "mouse" && held[0] && e.buttons === 0) { up(e); return; }
+      var p = last[pid(e)] = at(e); self.x.rg_pointer(1, pid(e), p[0], p[1]);
+    };
+    c.addEventListener("pointermove", move);
     c.addEventListener("pointerup", up);
     c.addEventListener("pointercancel", up);
+    // a mouse button let go outside the window, where the canvas hears nothing
+    global.addEventListener("pointerup", function (e) { if (e.target !== c) up(e); });
+    global.addEventListener("blur", function () { if (held[0]) up({ pointerType: "mouse" }); });
+    // the mouse wheel and a touchpad's two-finger swipe: onWheel(dy, info)
+    // in the game (the launcher scrolls with it), in the game's pixels
+    c.addEventListener("wheel", function (e) {
+      e.preventDefault();
+      var k = e.deltaMode === 1 ? 32 : e.deltaMode === 2 ? c.offsetHeight : 1;
+      var p = at(e), v = self.view || { scale: 1, x: 0, y: 0 }, z = v.scale || 1;
+      self.sendSensor("wheel", { dx: e.deltaX * k / z, dy: e.deltaY * k / z, x: (p[0] - v.x) / z, y: (p[1] - v.y) / z });
+    }, { passive: false });
     c.addEventListener("contextmenu", function (e) { e.preventDefault(); });
     var key = function (down) {
       return function (e) {

@@ -70,3 +70,18 @@ fn input_events() {
     assert!(i.pointers.is_empty());
     assert!(i.take_events().is_empty());
 }
+
+#[test]
+fn stray_touch_move_does_not_hide_a_drag() {
+    let mut i = Input::new();
+    // a touch's move after its end is not kept
+    i.pointer_down(3, 1.0, 1.0);
+    i.pointer_up(3, 1.0, 1.0);
+    i.pointer_move(3, 2.0, 2.0);
+    assert!(i.pointers.is_empty());
+    // the mouse resting over the page (id 0, up) does not hide a finger's drag
+    i.pointer_move(0, 5.0, 5.0);
+    i.pointer_down(4, 50.0, 60.0);
+    let s = i.state_json();
+    assert!(s.contains("\"pointer\":{\"id\":4,\"x\":50,\"y\":60,\"down\":true}"), "{}", s);
+}
