@@ -439,13 +439,14 @@ function joints() {
   const e1 = [p0[0] + DG.L1 * Math.cos(boomA), p0[1] + DG.L1 * Math.sin(boomA)];
   const aa = boomA + armA;
   const e2 = [e1[0] + DG.L2 * Math.cos(aa), e1[1] + DG.L2 * Math.sin(aa)];
-  // the bucket: open (0) its mouth looks forward and down, curled (1) up and back
-  const ba = aa - 1.16 + buck * 2.5;
+  // the bucket hangs from the arm's pin like a backhoe's: open (0) the teeth point
+  // forward and the mouth down, curled (1) the teeth point back and the mouth up
+  const ba = aa + 2.4 - buck * 3.4;
   const t = [e2[0] + DG.LB * Math.cos(ba), e2[1] + DG.LB * Math.sin(ba)];
   return { p0, e1, e2, t, aa, ba };
 }
 // the way the bucket's mouth looks, as an angle in the cab plane (0 forward, π/2 up)
-function mouthAngle(): number { const j = joints(); return j.ba + 2.16; }
+function mouthAngle(): number { const j = joints(); return j.ba - 2.16; }
 function tipWorld(): number[] { const j = joints(); return cabPt(DG.boomX, j.t[0], j.t[1]); }
 function pileC(): number[] { const F = fwd(PILE_YAW); return [F[0] * pileD, 0, F[2] * pileD]; }
 function truckC(): number[] { const F = fwd(TRUCK_YAW), Rr = rgt(TRUCK_YAW); return [F[0] * BED.d + Rr[0] * truckOff, 0, F[2] * BED.d + Rr[2] * truckOff]; }
@@ -629,7 +630,7 @@ function placeDig() {
   link("cylA", e1b, a2, DG.boomX);
   // the bucket: a back plate e2→tip, a bottom plate from the tip back, sides and teeth
   const bd = [Math.cos(j.ba), Math.sin(j.ba)];
-  const nb = [-bd[1], bd[0]];          // towards the open side
+  const nb = [bd[1], -bd[0]];          // towards the open side
   const bot = [j.t[0] + nb[0] * 0.5, j.t[1] + nb[1] * 0.5];
   link("bkBack", j.e2, j.t, DG.boomX);
   link("bkBot", j.t, bot, DG.boomX);
@@ -680,25 +681,32 @@ function startDig() {
 // the sticks' places and size
 function stickC(k: string) { return { x: k === "L" ? width * 0.25 : width * 0.75, y: height - 92 }; }
 const STICK_R = 54;
+let bdrag = { y: 0, b: 0 }, handT = -10;   // dragging the bucket itself; when the child last turned it
+// the bucket's middle on the screen
+function bucketScreen(): number[] { const j = joints(); return projDig(cabPt(DG.boomX, (j.e2[0] + j.t[0]) / 2, (j.e2[1] + j.t[1]) / 2)); }
 function digDown(x: number, y: number) {
-  for (const k of ["L", "R"]) { const c = stickC(k); if (Math.hypot(x - c.x, y - c.y) < STICK_R * 1.5) { digGrab = k; digMove(x, y); rg.sound("click", { volume: 0.4 }); } }
+  for (const k of ["L", "R"]) { const c = stickC(k); if (Math.hypot(x - c.x, y - c.y) < STICK_R * 1.5) { digGrab = k; digMove(x, y); rg.sound("click", { volume: 0.4 }); return; } }
+  // a finger (or the mouse) on the bucket turns it: up curls it, down opens it
+  const b = bucketScreen();
+  if (y < height - 180 && Math.hypot(x - b[0], y - b[1]) < 80) { digGrab = "bucket"; bdrag = { y, b: buck }; rg.sound("click", { volume: 0.4 }); }
 }
 function digMove(x: number, y: number) {
+  if (digGrab === "bucket") { buck = Math.max(0, Math.min(1, bdrag.b - (y - bdrag.y) / 130)); handT = K.t; return; }
   const c = stickC(digGrab);
   let dx = (x - c.x) / STICK_R, dy = (y - c.y) / STICK_R;
   const l = Math.hypot(dx, dy);
   if (l > 1) { dx /= l; dy /= l; }
   stick[digGrab] = [dx, dy];
 }
-function digUp() { if (digGrab) stick[digGrab] = [0, 0]; digGrab = ""; }
+function digUp() { if (digGrab && digGrab !== "bucket") stick[digGrab] = [0, 0]; digGrab = ""; }
 // which way each stick works in this step: [left x, left y, right x, right y]
-function axes() { const s = step(); return { swing: true, arm: s >= 2, boom: true, bucket: s >= 1 }; }
+function axes() { const s = step(); return { swing: true, arm: s >= 2, boom: true, bucket: true }; }
 function dz(v: number) { return Math.abs(v) < 0.18 ? 0 : (v - Math.sign(v) * 0.18) / 0.82; }
 
 // points of the bucket in the world: the teeth and the back corner, across its width
 function bucketPts(): number[][] {
   const j = joints();
-  const bd = [Math.cos(j.ba), Math.sin(j.ba)], nb = [-bd[1], bd[0]];
+  const bd = [Math.cos(j.ba), Math.sin(j.ba)], nb = [bd[1], -bd[0]];
   const bot = [j.t[0] + nb[0] * 0.5, j.t[1] + nb[1] * 0.5];
   const out: number[][] = [];
   for (const x of [-0.32, -0.1, 0.1, 0.32]) { out.push(cabPt(DG.boomX + x, bot[0], bot[1])); out.push(cabPt(DG.boomX + x, j.t[0], j.t[1])); }
@@ -738,6 +746,7 @@ function tickDig(dt: number) {
   const old = { yaw, boomA, armA, buck };
   const tip0 = tipWorld();
   const depth0 = truckDepth();
+  const low0 = bucketPts().reduce((m, q) => Math.min(m, q[1]), 9);
   // the truck comes in, and drives off once full
   if (K.solved >= 0) {
     const k = K.t - K.solved - 0.9;
@@ -752,22 +761,31 @@ function tickDig(dt: number) {
   boomA -= dz(R[1]) * 0.55 * dt;
   boomA = Math.max(0.05, Math.min(1.0, boomA));
   if (A.arm) { armA -= dz(L[1]) * 0.8 * dt; armA = Math.max(-2.3, Math.min(-0.7, armA)); }
-  if (A.bucket) { buck += dz(R[0]) * 1.4 * dt; buck = Math.max(0, Math.min(1, buck)); }
-  if (s === 0) {
-    // the bucket curls by itself in the sand and opens over the truck
+  if (A.bucket && dz(R[0]) !== 0) { buck += dz(R[0]) * 1.4 * dt; buck = Math.max(0, Math.min(1, buck)); handT = K.t; }
+  if (s === 0 && K.t - handT > 1.5 && digGrab !== "bucket") {
+    // until the child turns it, the bucket curls by itself in the sand and opens over the truck
     const over = overBed();
-    const target = load > 0.02 && over ? 0 : load > CAP * 0.5 || (inSand() && load < CAP) ? 1 : 0.25;
+    const target = load > 0.02 && over ? 0 : load > 0.02 || (inSand() && load < CAP) ? 1 : 0.25;
     buck += Math.max(-1.6 * dt, Math.min(1.6 * dt, target - buck));
   }
   // the teeth stop at the ground, and at the truck
-  const back = () => { boomA = old.boomA; armA = old.armA; buck = old.buck; };
   const low = () => bucketPts().reduce((m, q) => Math.min(m, q[1]), 9);
-  if (low() < 0.03) { back(); if (low() < 0.03) yaw = old.yaw; }
+  // (a move that lifts the bucket out of the ground is always fine)
+  // first the bucket's turn is undone, then the boom and arm, last the swing
+  const sunk = () => { const l = low(); return l < 0.03 && l < low0 - 1e-4; };
+  if (sunk()) {
+    const tried = buck;
+    buck = old.buck;
+    // step 0 curls by itself: lift the boom a little so the teeth clear the ground
+    if (s === 0 && tried > old.buck) boomA = Math.min(1.0, boomA + 0.35 * dt);
+    if (sunk()) { boomA = old.boomA; armA = old.armA; if (sunk()) yaw = old.yaw; }
+  }
   // a move that takes the bucket deeper into the truck is stopped (one out of it is not,
   // so sand heaped up under the bucket cannot trap it)
-  const nowD = truckDepth();
-  if (nowD > depth0 + 0.002) {
-    back(); if (truckDepth() > depth0 + 0.002) yaw = old.yaw;
+  const deeper = () => truckDepth() > depth0 + 0.002;
+  if (deeper()) {
+    buck = old.buck;
+    if (deeper()) { boomA = old.boomA; armA = old.armA; if (deeper()) yaw = old.yaw; }
     if (K.t - bumpT > 0.4) { bumpT = K.t; rg.sound("hit", { pitch: 1.3, volume: 0.6 }); rg.vibrate(50); if (!hitSaid) { hitSaid = true; rg.say("rk_t_osui_autoon"); } }
   }
   // the sand: cut into the bucket while it curls, pushed along while it moves sideways
@@ -803,9 +821,10 @@ function tickDig(dt: number) {
     }
   }
   // pouring: the open bucket lets the sand out where it is
-  const ma = mouthAngle();
-  if (load > 0 && ma < 0.55) {
-    const flow = Math.min(load, CAP * dt * (0.8 + 4 * Math.min(1, (0.55 - ma) / 0.6)));
+  // sand stays in while the mouth looks up or sideways, and runs out when it looks down
+  const down = -Math.sin(mouthAngle());
+  if (load > 0 && down > 0.1) {
+    const flow = Math.min(load, CAP * dt * (0.8 + 4 * Math.min(1, (down - 0.1) / 0.5)));
     load -= flow;
     const t = tipWorld(), q = inTruck(t);
     const b = bedAt(q[0], q[1]);
@@ -927,6 +946,12 @@ function PlayDig(out: any[]) {
     const n = nextDo(), L = stickC("L"), R = stickC("R");
     const at: any = { swingR: [L.x + 62, L.y], swingL: [L.x - 62, L.y], armOut: [L.x, L.y - 62], boomDown: [R.x, R.y + 64], boomUp: [R.x, R.y - 64], curl: [R.x + 62, R.y], open: [R.x - 62, R.y] };
     const p = at[n];
+    // the bucket itself can be dragged: an arrow beside it, up to curl, down to open
+    if ((n === "curl" || n === "open") && K.solved < 0 && digGrab !== "bucket") {
+      const bs = bucketScreen(), dy = n === "curl" ? -1 : 1, x = bs[0] + 62, y = bs[1] + Math.sin(K.t * 5) * 8 * dy;
+      out.push(Line([[x, y - 26 * dy], [x, y + 18 * dy]], "#ffd166", 7));
+      out.push(Poly([[x, y + 32 * dy], [x - 13, y + 12 * dy], [x + 13, y + 12 * dy]], "#ffd166"));
+    }
     if (p && K.solved < 0) { const r = 15 + 4 * Math.sin(K.t * 8); out.push(Circle(p[0] - (p[0] - (n.startsWith("swing") || n === "armOut" ? L.x : R.x)) * 0.25, p[1] - (p[1] - (n.startsWith("swing") || n === "armOut" ? L.y : R.y)) * 0.25, r, "rgba(255,209,102,0.35)", "#ffd166")); }
   }
 }
