@@ -36,18 +36,25 @@ jobs:
         run: |
           if git ls-remote --exit-code --heads origin voice-clips >/dev/null; then
             git clone --depth 1 --branch voice-clips "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" .deps/voice-clips
+          elif [[ "${{ github.event_name }}" == push ]]; then
+            # no clips yet: a push doesn't start rendering all ~5000 from nothing (the Mac's
+            # rendered clips are to be pushed as the branch first); run it by hand to start anew
+            echo "voice-clips missing, skipping"; echo "SKIP=1" >> "$GITHUB_ENV"
           else
             mkdir -p .deps/voice-clips && git -C .deps/voice-clips init -b voice-clips
             git -C .deps/voice-clips remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
           fi
       - uses: actions/setup-python@v5
+        if: env.SKIP != '1'
         with:
           python-version: "3.11"
       - name: Chatterbox (CPU)
+        if: env.SKIP != '1'
         run: |
           pip install --index-url https://download.pytorch.org/whl/cpu torch torchaudio
           pip install chatterbox-tts soundfile "setuptools<81"
       - name: Render (stops after ~5 h, the next run goes on)
+        if: env.SKIP != '1'
         env:
           LANGS: ${{ github.event.inputs.langs || 'fi en es' }}
           ONLY: ${{ github.event.inputs.only || '' }}
@@ -57,7 +64,7 @@ jobs:
           set -f
           timeout 18000 python tools/chatterbox/render.py $args || echo "render stopped ($?)"
       - name: Save the clips
-        if: always()
+        if: always() && env.SKIP != '1'
         run: |
           cd .deps/voice-clips
           git config user.name "github-actions[bot]"
