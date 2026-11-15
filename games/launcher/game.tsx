@@ -18,6 +18,7 @@ const SECTIONS: Section[] = [
   { id: "opi", icon: "🔤", color: "#118ab2", fi: "Opi", en: "Learn", es: "Aprende" },
   { id: "seikkailu", icon: "🚀", color: "#ef476f", fi: "Seikkailut", en: "Adventures", es: "Aventuras" },
   { id: "rakennus", icon: "🔨", color: "#f77f00", fi: "Rakennuspelit", en: "Building", es: "Construcción" },
+  { id: "tietokoneet", icon: "💻", color: "#3a86ff", fi: "Tietokoneet", en: "Computers", es: "Ordenadores" },
   { id: "muut", icon: "🎈", color: "#7b2cbf", fi: "Muut", en: "Other", es: "Otros" },
 ];
 // games whose game.json has no "section"

@@ -1,0 +1,20 @@
+/* Tietokoneet: a cooler, blue theme over the Rakennuspelit kit (later rules win) */
+.root { width: 100%; height: 100%; background: linear-gradient(180deg, #e3f2ff, #b9dcff); }
+.title { font-size: 34px; font-weight: 700; color: #1d4e89; }
+.dtitle { font-size: 42px; font-weight: 700; color: #1d4e89; }
+.dot { width: 16px; height: 16px; border-radius: 8px; margin: 4px; background-color: #c6dcf2; }
+.dot.done { background-color: #06d6a0; }
+.dot.now { background-color: #3a86ff; }
+.sbar { width: 8px; margin-left: 2px; border-radius: 2px; background-color: #c6dcf2; }
+.sbar.on { background-color: #3a86ff; }
+.coinmark { position: absolute; font-weight: 700; color: #9c6500; text-align: center; justify-content: center; align-items: center; }
+.cell { position: absolute; border-radius: 6px; }
+.slot { position: absolute; border-radius: 10px; background-color: rgba(255,255,255,0.7); align-items: center; justify-content: center; }
+.slot.bad { background-color: #ffb3c1; }
+.slot.now { background-color: #fff3b0; }
+.pad { position: absolute; border-radius: 16px; align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 4px; }
+.padtext { font-size: 26px; font-weight: 700; color: #ffffff; }
+.tiny { position: absolute; font-size: 14px; font-weight: 700; color: #3d405b; text-align: center; justify-content: center; align-items: center; }
+.num { position: absolute; font-size: 22px; font-weight: 700; color: #1d4e89; text-align: center; justify-content: center; align-items: center; }
+.emoji { position: absolute; text-align: center; justify-content: center; align-items: center; }
+.bubble { position: absolute; border-radius: 16px; background-color: #ffffff; align-items: center; justify-content: center; shadow-color: rgba(0,0,0,0.15); shadow-offset-y: 3px; }
