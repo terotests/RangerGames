@@ -103,7 +103,6 @@ const TEXT: Record<string, T> = {
   tk_f_tarkastaja: ["Robotit tekevät joskus huonoja keksejä. Valitse, mitä tarkastaja katsoo. Huono keksi menee takaisin alkuun.", "Sometimes the robots make bad cookies. Choose what the inspector checks. A bad cookie goes back to the start.", "A veces los robots hacen galletas malas. Elige qué revisa el inspector. La galleta mala vuelve al inicio."],
   tk_f_palaute: ["Tarkastaja löysi virheen. Kerro sille robotille, joka sen teki. Niin se oppii.", "The inspector found a mistake. Tell the robot that made it. That's how it learns.", "El inspector encontró un error. Díselo al robot que lo hizo. Así aprende."],
   tk_f_pullonkaula: ["Tänään tulee paljon asiakkaita. Katso, missä keksit jonottavat, ja laita apurobotti sinne.", "Lots of customers today. See where the cookies pile up, and put a helper robot there.", "Hoy vienen muchos clientes. Mira dónde se amontonan las galletas y pon un robot ayudante allí."],
-  tk_f_kauppa: ["Keksin tekeminen maksaa yhden euron, ja asiakas maksaa siitä kolme euroa. Montako keksiä leivotaan?", "Making a cookie costs one euro, and a customer pays three euros for it. How many cookies shall we bake?", "Hacer una galleta cuesta un euro y el cliente paga tres. ¿Cuántas horneamos?"],
   tk_f_n_sekoitus: ["Sekoittaja tekee taikinan.", "The mixer makes the dough.", "La mezcladora hace la masa."],
   tk_f_n_muotti: ["Muotoilija tekee tähtiä.", "The shaper makes stars.", "La moldeadora hace estrellas."],
   tk_f_n_uuni: ["Uuni paistaa.", "The oven bakes.", "El horno hornea."],
@@ -137,12 +136,6 @@ const TEXT: Record<string, T> = {
   tk_f_vihje_jono: ["Apurobotti auttaa vain siellä, missä on jonoa. Linja on yhtä nopea kuin sen hitain robotti.", "A helper only helps where there is a queue. The line is only as fast as its slowest robot.", "Un ayudante solo sirve donde hay cola. La línea es tan rápida como su robot más lento."],
   tk_f_kaikki_saivat: ["Kaikki asiakkaat saivat keksinsä!", "All the customers got their cookies!", "¡Todos los clientes tienen sus galletas!"],
   tk_f_ei_enempaa: ["Apurobotit loppuivat. Siirrä jokin toiseen paikkaan.", "No more helpers. Move one to another place.", "No hay más ayudantes. Mueve uno a otro sitio."],
-  tk_f_leivo_ensin: ["Leivo ensin keksejä plus-napista.", "First bake some cookies with the plus button.", "Primero hornea galletas con el botón más."],
-  tk_f_voitto: ["Hienoa kauppaa! Voittoa tuli", "Good business! The profit was", "¡Buen negocio! La ganancia fue de"],
-  tk_f_euroa: ["euroa.", "euros.", "euros."],
-  tk_f_liian_vahan_kekseja: ["Keksit loppuivat kesken, ja osa asiakkaista jäi ilman. Rahaa olisi tullut enemmän.", "The cookies ran out and some customers got none. You could have earned more.", "Se acabaron las galletas y algunos clientes se quedaron sin. Podrías haber ganado más."],
-  tk_f_liikaa_kekseja: ["Keksejä jäi yli. Niiden tekeminen maksoi, mutta kukaan ei ostanut niitä.", "Cookies were left over. Making them cost money, but nobody bought them.", "Sobraron galletas. Hacerlas costó dinero, pero nadie las compró."],
-  tk_f_vihje_kauppa: ["Laske, montako keksiä asiakkaat haluavat yhteensä. Leivo juuri niin monta.", "Count how many cookies the customers want altogether. Bake exactly that many.", "Cuenta cuántas galletas quieren los clientes en total. Hornea justo esas."],
 };
 
 function clips(i: number): Record<string, string> {

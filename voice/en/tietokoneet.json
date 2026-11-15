@@ -86,7 +86,6 @@
   "tk_f_tarkastaja": "Sometimes the robots make bad cookies. Choose what the inspector checks. A bad cookie goes back to the start.",
   "tk_f_palaute": "The inspector found a mistake. Tell the robot that made it. That's how it learns.",
   "tk_f_pullonkaula": "Lots of customers today. See where the cookies pile up, and put a helper robot there.",
-  "tk_f_kauppa": "Making a cookie costs one euro, and a customer pays three euros for it. How many cookies shall we bake?",
   "tk_f_n_sekoitus": "The mixer makes the dough.",
   "tk_f_n_muotti": "The shaper makes stars.",
   "tk_f_n_uuni": "The oven bakes.",
@@ -119,12 +118,6 @@
   "tk_f_liian_vahan": "Not enough cookies came out.",
   "tk_f_vihje_jono": "A helper only helps where there is a queue. The line is only as fast as its slowest robot.",
   "tk_f_kaikki_saivat": "All the customers got their cookies!",
-  "tk_f_ei_enempaa": "No more helpers. Move one to another place.",
-  "tk_f_leivo_ensin": "First bake some cookies with the plus button.",
-  "tk_f_voitto": "Good business! The profit was",
-  "tk_f_euroa": "euros.",
-  "tk_f_liian_vahan_kekseja": "The cookies ran out and some customers got none. You could have earned more.",
-  "tk_f_liikaa_kekseja": "Cookies were left over. Making them cost money, but nobody bought them.",
-  "tk_f_vihje_kauppa": "Count how many cookies the customers want altogether. Bake exactly that many."
+  "tk_f_ei_enempaa": "No more helpers. Move one to another place."
  }
 }
