@@ -153,7 +153,8 @@ function Belt(x0: number, x1: number, y: number) {
 }
 
 function Customer(x: number, y: number, f: string) {
-  const out: any[] = [Circle(x, y, 22, "#ffd6a5", "#e09f3e")];
+  // the edge as a bigger circle underneath (a border would push the face off centre)
+  const out: any[] = [Circle(x, y, 24, "#e09f3e"), Circle(x, y, 21, "#ffd6a5")];
   out.push(Box(x - 22, y - 24, 44, 12, "#6a4c93", 6));
   out.push(Circle(x - 7, y - 3, 3, "#3d405b")); out.push(Circle(x + 7, y - 3, 3, "#3d405b"));
   if (f === "sad") out.push(Line([[x - 8, y + 12], [x, y + 8], [x + 8, y + 12]], "#3d405b", 3));
@@ -588,23 +589,29 @@ function tick5(dt: number) {
 function Play5() {
   const out: any[] = [];
   const d = demand();
-  // prices
-  out.push(<div className="card" style={{ left: 16, top: 120, width: width - 32, height: 58 }} />);
-  for (const e of CookiePic(46, 149, 14, done1())) out.push(e);
-  out.push(<div className="num" style={{ left: 64, top: 134, width: 70, height: 30, color: "#d62828" }}>{"−" + COST + " €"}</div>);
-  for (const e of CookiePic(width / 2 + 30, 149, 14, done1())) out.push(e);
-  out.push(<div className="emoji" style={{ left: width / 2 + 40, top: 132, width: 30, height: 30, fontSize: 20 }}>🙂</div>);
-  out.push(<div className="num" style={{ left: width / 2 + 70, top: 134, width: 80, height: 30, color: "#06a77d" }}>{"+" + PRICE + " €"}</div>);
-  // the queue of customers, each with how many cookies they want
+  // prices: making a cookie costs, selling one earns
+  const half = (width - 32) / 2;
+  out.push(<div className="card" style={{ left: 16, top: 120, width: width - 32, height: 64 }} />);
+  out.push(Box(16 + half - 1, 130, 2, 44, "#e3e8ef"));
+  for (const e of CookiePic(16 + half * 0.3, 146, 14, done1())) out.push(e);
+  out.push(<div className="num" style={{ left: 16 + half * 0.45, top: 132, width: half * 0.5, height: 28, color: "#d62828" }}>{"−" + COST + " €"}</div>);
+  out.push(<div className="tiny" style={{ left: 16, top: 162, width: half, height: 18 }}>{rg.t("leipominen", "baking", "hornear")}</div>);
+  for (const e of CookiePic(16 + half * 1.3, 146, 14, done1())) out.push(e);
+  out.push(<div className="num" style={{ left: 16 + half * 1.45, top: 132, width: half * 0.5, height: 28, color: "#06a77d" }}>{"+" + PRICE + " €"}</div>);
+  out.push(<div className="tiny" style={{ left: 16 + half, top: 162, width: half, height: 18 }}>{rg.t("myynti", "selling", "venta")}</div>);
+  // the queue of customers, centred, each with a bubble of the cookies they want
   let given = served;
+  const n = customers.length, sp = Math.min(76, (width - 32) / n), x0 = width / 2 - (n - 1) * sp / 2;
   customers.forEach((want, i) => {
-    const x = 40 + i * Math.min(70, (width - 60) / customers.length), y = 250;
+    const x = x0 + i * sp, y = 262;
     const got = Math.min(want, Math.max(0, given));
     given -= want;
     const f = phase === "end" ? (got >= want ? "yum" : "sad") : got >= want ? "yum" : "";
+    const bw = Math.max(36, want * 16 + 12);
+    out.push(<div className="bubble" style={{ left: x - bw / 2, top: y - 74, width: bw, height: 30 }} />);
+    out.push(Poly([[x - 6, y - 45], [x + 6, y - 45], [x, y - 37]], "#ffffff"));
+    for (let k = 0; k < want; k++) for (const e of CookiePic(x - (want - 1) * 8 + k * 16, y - 59, 7, done1())) out.push(e);
     for (const e of Customer(x, y, f)) out.push(e);
-    out.push(<div className="bubble" style={{ left: x - 24, top: y - 72, width: 48, height: 32 }} />);
-    for (let k = 0; k < want; k++) { const c = done1(); for (const e of CookiePic(x - (want - 1) * 7 + k * 14, y - 56, 6, c)) out.push(e); }
   });
   // the tray of baked cookies
   out.push(<div className="card" style={{ left: 16, top: 300, width: width - 32, height: 100 }} />);
