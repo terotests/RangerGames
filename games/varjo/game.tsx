@@ -1,6 +1,8 @@
 // Varjopalat: a shadow puzzle. A lamp casts the shadow of a figure on the
 // wall; move the coloured pieces onto the shadow so that they make the same
-// figure. Tap a piece to turn it a quarter turn, ⇋ mirrors it. About right is
+// figure. Tap a piece to turn it (a quarter turn in the easy figures, an
+// eighth in the hard ones, which use all seven tangram pieces and whose
+// shadows don't show where one piece ends and the next begins), ⇋ mirrors it. About right is
 // right: a piece let go near its place settles there, and the figure is done
 // when every piece is near its place or the pieces fill the shadow some other
 // way. Figures and the rule: lib/shapes.ts (tested in tests/varjo.ts).
@@ -30,6 +32,19 @@ let hint = -1, hintClock = 0;
 let won = false, wonClock = 0;
 let done: { [k: string]: number } = {};
 let told = false;
+let hardTab = false;             // the menu shows the hard figures
+let toldHard = false;
+
+// the figures of the set lv is in (easy or hard), and lv's place in it
+function setOf(i: number): number[] {
+  const hard = !!FIGURES[i].hard;
+  const out: number[] = [];
+  for (let j = 0; j < FIGURES.length; j++) if (!!FIGURES[j].hard === hard) out.push(j);
+  return out;
+}
+function step(): number { return FIGURES[lv].hard ? 1 : 2; }   // eighths per tap
+// the name said at the end: the hard figures share the easy ones' clips
+function nameClip(i: number): string { return "varjo_" + FIGURES[i].id.replace("t_", ""); }
 let laidFor = "";
 
 function init() {
@@ -47,12 +62,13 @@ function start(i: number) {
   for (const k of kinds) pieces.push({ kind: k, cx: 0, cy: 0, rot: 0, flip: false, vx: 0, vy: 0, va: 0, vf: 1, pop: 0 });
   rg.shuffle(pieces);
   for (const p of pieces) {
-    p.rot = rg.range(0, 3);
+    p.rot = f.hard ? rg.range(0, 7) : rg.range(0, 3) * 2;
     p.flip = rg.random() < 0.5;
-    p.va = p.rot * 90; p.vf = p.flip ? -1 : 1;
+    p.va = p.rot * 45; p.vf = p.flip ? -1 : 1;
   }
   grab = -1; sel = -1; hint = -1; won = false; wonClock = 0;
   mode = "play";
+  hardTab = !!f.hard;
   laidFor = "";
   layout();
   rg.sound("click");
@@ -176,8 +192,8 @@ function onSlot(p: Piece): boolean {
 function turn(i: number, by: number) {
   if (i < 0 || won) return;
   const p = pieces[i];
-  p.rot += by;
-  rg.sound("tick", { pitch: 1 + (((p.rot % 4) + 4) % 4) * 0.08 });
+  p.rot += by * step();
+  rg.sound("tick", { pitch: 1 + (((p.rot % 8) + 8) % 8) * 0.05 });
   rg.vibrate(6);
   afterMove(i, false);
 }
@@ -226,7 +242,8 @@ function win() {
   rg.sound("win");
   rg.vibrate([50, 40, 90]);
   rg.celebrate(wall[0] + wall[2] / 2, wall[1] + wall[3] / 2, { big: true });
-  rg.say(["varjo_" + FIGURES[lv].id, lv === FIGURES.length - 1 ? "varjo_kaikki" : rg.pick(["hienoa", "mahtavaa", "loistavaa", "taitava"])]);
+  const set = setOf(lv);
+  rg.say([nameClip(lv), lv === set[set.length - 1] ? "varjo_kaikki" : rg.pick(["hienoa", "mahtavaa", "loistavaa", "taitava"])]);
 }
 
 // 💡 the first place that has no piece on it lights up, and the piece that
@@ -297,7 +314,7 @@ function tick(dt: number, input: any) {
   const e = Math.min(1, dt * 16);
   for (const p of pieces) {
     p.vx += (p.cx - p.vx) * e; p.vy += (p.cy - p.vy) * e;
-    p.va += (p.rot * 90 - p.va) * e;
+    p.va += (p.rot * 45 - p.va) * e;
     p.vf += ((p.flip ? -1 : 1) - p.vf) * e;
     if (p.pop > 0) p.pop = Math.max(0, p.pop - dt * 4);
   }
@@ -373,7 +390,9 @@ function Bar() {
 function WonCard() {
   if (!won || wonClock < 1.2) return null;
   const k = Math.min(1, (wonClock - 1.2) / 0.3);
-  const last = lv >= FIGURES.length - 1;
+  const set = setOf(lv);
+  const at = set.indexOf(lv);
+  const last = at === set.length - 1;
   const f = FIGURES[lv];
   return (
     <div className="wonwrap" style={{ top: height - 190 + (1 - rg.ease.out(k)) * 200, width: width }}>
@@ -382,7 +401,7 @@ function WonCard() {
         <div className="wrow">
           <div className="wbtn alt" id="again" onClick={() => start(lv)}>↺</div>
           <div className="wbtn alt" id="tomenu" onClick={() => { mode = "menu"; rg.sound("click"); }}>☰</div>
-          {last ? null : <div className="wbtn next" id="next" onClick={() => start(lv + 1)}>{rg.t("Seuraava ▶", "Next ▶", "Siguiente ▶")}</div>}
+          {last ? null : <div className="wbtn next" id="next" onClick={() => start(set[at + 1])}>{rg.t("Seuraava ▶", "Next ▶", "Siguiente ▶")}</div>}
         </div>
       </div>
     </div>
@@ -400,7 +419,7 @@ function Play() {
       <div className="head" style={{ width: width }}>
         <div className="hbtn" id="menu" onClick={() => { mode = "menu"; rg.sound("click"); }}>☰</div>
         <div className="htext">
-          <div className="hnum">{(lv + 1) + " / " + FIGURES.length}</div>
+          <div className="hnum">{(f.hard ? rg.t("Vaikea ", "Hard ", "Difícil ") : "") + (setOf(lv).indexOf(lv) + 1) + " / " + setOf(lv).length}</div>
           <div className="hname">{won ? f.icon + " " + rg.t(f.fi, f.en, f.es) : rg.t("Mikä tästä tulee?", "What will it be?", "¿Qué será?")}</div>
         </div>
       </div>
@@ -430,9 +449,11 @@ function Mini(i: number, size: number) {
 
 function Menu() {
   const cards: any[] = [];
-  let next = 0;
-  while (next < FIGURES.length && done[FIGURES[next].id]) next++;
-  for (let i = 0; i < FIGURES.length; i++) {
+  const list: number[] = [];
+  for (let j = 0; j < FIGURES.length; j++) if (!!FIGURES[j].hard === hardTab) list.push(j);
+  let next = -1;
+  for (const j of list) if (next < 0 && !done[FIGURES[j].id]) next = j;
+  for (const i of list) {
     const f = FIGURES[i];
     const isNext = i === next;
     cards.push(
@@ -447,8 +468,17 @@ function Menu() {
     <div className="screen menu">
       <div className="title">{rg.t("Varjopalat", "Shadow Pieces", "Piezas de sombra")}</div>
       <div className="subtitle">{rg.t("Laita palat varjon päälle", "Put the pieces on the shadow", "Pon las piezas sobre la sombra")}</div>
+      <div className="tabs">
+        <div className={"tab" + (hardTab ? "" : " on")} id="easy" onClick={() => { hardTab = false; rg.sound("click"); }}>{rg.t("Helpot", "Easy", "Fáciles")}</div>
+        <div className={"tab" + (hardTab ? " on" : "")} id="hard" onClick={() => {
+          hardTab = true; rg.sound("click");
+          if (!toldHard) { rg.say("varjo_vaikeat"); toldHard = true; }
+        }}>{rg.t("Vaikeat", "Hard", "Difíciles")}</div>
+      </div>
       <div className="grid">{cards}</div>
-      <div className="mhelp">{rg.t("Vedä pala varjoon. Napauta: kääntyy. ⇋ peilaa.", "Drag a piece to the shadow. Tap: it turns. ⇋ mirrors.", "Arrastra una pieza a la sombra. Toca: gira. ⇋ refleja.")}</div>
+      <div className="mhelp">{hardTab
+          ? rg.t("Kaikki 7 palaa. Varjosta ei näe, missä pala loppuu. Napautus kääntää 45°.", "All 7 pieces. The shadow hides where each piece ends. A tap turns 45°.", "Las 7 piezas. La sombra no muestra dónde acaba cada pieza. Un toque gira 45°.")
+          : rg.t("Vedä pala varjoon. Napauta: kääntyy. ⇋ peilaa.", "Drag a piece to the shadow. Tap: it turns. ⇋ mirrors.", "Arrastra una pieza a la sombra. Toca: gira. ⇋ refleja.")}</div>
     </div>
   );
 }
