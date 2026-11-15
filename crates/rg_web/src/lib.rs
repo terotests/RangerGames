@@ -11,6 +11,8 @@
 //!   rg_key(down, key, len)                a key by its KeyboardEvent.key
 //!   rg_frame(dt_ms)                       one frame; 0 ok, 1 the script threw
 //!   rg_draw_ptr/len                       the frame's draw stream (f32s, crates/rg_engine/src/draw.rs)
+//!   rg_gl3d(on)                           the page draws the 3D scene with WebGL (depth-tested)
+//!   rg_tris_ptr/len                       then the frame's 3D triangles (f32s, scene3d.rs `tris`)
 //!   rg_strings_ptr/len                    its string table, NUL separated
 //!   rg_cmds_ptr/len                       the frame's host commands as JSON
 //!   rg_log_ptr/len                        console.log lines and errors since the last frame
@@ -156,6 +158,21 @@ pub extern "C" fn rg_draw_ptr() -> *const f32 {
 #[no_mangle]
 pub extern "C" fn rg_draw_len() -> usize {
     with(|e| e.draw.nums.len())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_gl3d(on: i32) {
+    with(|e| e.gl3d = on != 0)
+}
+
+#[no_mangle]
+pub extern "C" fn rg_tris_ptr() -> *const f32 {
+    with(|e| e.scene.tris.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_tris_len() -> usize {
+    with(|e| e.scene.tris.len())
 }
 
 #[no_mangle]

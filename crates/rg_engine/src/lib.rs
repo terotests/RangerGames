@@ -146,6 +146,9 @@ pub struct Engine {
     seed: i64,
     /// the game's 3D scene (rg.three), drawn under its 2D view
     pub scene: scene3d::Scene,
+    /// the host draws the 3D scene itself with a depth buffer (WebGL / GLES):
+    /// then the scene's triangles are in `scene.tris`, not in the draw stream
+    pub gl3d: bool,
     /// the game's water and sand (rg.sim), drawn over the 3D and under the 2D view
     pub fluid: fluid::Sim,
     /// rg.box: the ids the script asked to measure this frame, and the
@@ -164,6 +167,7 @@ impl Engine {
             game: None,
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
+            gl3d: false,
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
             boxes: Json::Obj(Vec::new()),
@@ -547,6 +551,7 @@ impl Engine {
                 self.take_commands(&reply.get("cmds"));
                 let tree = reply.get("tree");
                 self.fluid.step(dt);
+                self.scene.gl = self.gl3d;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.ui.render(&tree, &mut self.draw);

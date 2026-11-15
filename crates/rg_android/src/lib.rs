@@ -13,6 +13,8 @@
 //!   key(down, key)           a key by its KeyboardEvent.key name ("Back", "ArrowLeft" …)
 //!   frame(dt_ms)             one frame; 0 ok, 1 the script threw
 //!   draw()                   the frame's draw stream (crates/rg_engine/src/draw.rs)
+//!   gl3d(on)                 the app draws the 3D scene with GLES (depth-tested)
+//!   tris()                   then the frame's 3D triangles (scene3d.rs `tris`)
 //!   strings()                its string table, NUL separated
 //!   commands()               the host commands of the last call, as JSON
 //!   log()                    console.log lines and errors since the last call
@@ -188,6 +190,25 @@ pub extern "system" fn Java_fi_rangergames_Engine_frame(
             0
         } else {
             1
+        }
+    })
+}
+
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_gl3d(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| e.gl3d = on != 0);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_tris(env: JNIEnv, _c: JClass) -> jfloatArray {
+    with(|e| {
+        let t = &e.scene.tris;
+        match env.new_float_array(t.len() as i32) {
+            Ok(a) => {
+                let _ = env.set_float_array_region(&a, 0, t);
+                a.into_raw()
+            }
+            Err(_) => std::ptr::null_mut(),
         }
     })
 }

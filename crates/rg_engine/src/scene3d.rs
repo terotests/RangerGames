@@ -35,6 +35,12 @@
 //! Planets are drawn after the sky (and stars), far ones first, and before
 //! the shapes, so a ship flying near a planet stays in front of it.
 //!
+//! With a GL host (`gl` set: WebGL on the web, GLES on Android) the scene goes
+//! out as depth-tested triangles instead (`tris`, see `render`): every pixel
+//! shows the nearest face, so parts never show through each other. The host
+//! draws them under the 2D view. Scenes with a globe, planets or stars still
+//! use the painter path below.
+//!
 //! Faces are sorted far to near (painter's algorithm) and the ones facing
 //! away are skipped, so solid convex shapes look right; a big flat floor is
 //! the `ground` of the scene rather than one huge face that would sort badly.
@@ -319,6 +325,12 @@ pub struct Scene {
     fov: f64,
     /// polygons drawn in the last frame
     pub drawn: usize,
+    /// the host draws depth-tested triangles (set by the engine every frame)
+    pub gl: bool,
+    /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
+    /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
+    /// Empty when the scene is off or drawn with the painter.
+    pub tris: Vec<f32>,
     /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
     pub globe: Option<crate::globe::Globe>,
     planets: Vec<Planet>,
@@ -383,6 +395,8 @@ impl Scene {
             up: [0.0, 1.0, 0.0],
             fov: 50.0,
             drawn: 0,
+            gl: false,
+            tris: Vec::new(),
             globe: None,
             planets: Vec::new(),
             sun: None,
@@ -617,7 +631,12 @@ impl Scene {
     /// Draws the scene into `out` for a view of `w` x `h`.
     pub fn render(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         self.drawn = 0;
+        self.tris.clear();
         if !self.active {
+            return;
+        }
+        if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
+            self.render_gl(w, h);
             return;
         }
         if let Some((top, bottom)) = self.sky {
@@ -815,6 +834,142 @@ impl Scene {
             self.drawn += j - i;
             i = j;
         }
+    }
+
+    /// The scene as depth-tested triangles into `self.tris` (see `tris`).
+    /// The sky and the floor are the background (depth 1, drawn in order); the
+    /// shapes get their real depth, as 1/z so that it is right everywhere on a
+    /// face. A higher `layer` is pulled a hair nearer, so that a thing lying on a
+    /// face (a window on a wall) wins over the face rather than flickering.
+    fn render_gl(&mut self, w: f64, h: f64) {
+        let mut tris: Vec<f32> = Vec::new();
+        let push = |tris: &mut Vec<f32>, x: f64, y: f64, d: f64, c: V3| {
+            tris.extend_from_slice(&[x as f32, y as f32, d as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
+        };
+        if let Some((top, bottom)) = self.sky {
+            for &(x, y, c) in [(0.0, 0.0, top), (w, 0.0, top), (w, h, bottom), (0.0, 0.0, top), (w, h, bottom), (0.0, h, bottom)].iter() {
+                push(&mut tris, x, y, 1.0, c);
+            }
+        }
+        let f = norm(sub(self.look, self.cam));
+        let mut r = norm(cross(f, self.up));
+        if dot(r, r) < 0.5 {
+            r = norm(cross(f, [1.0, 0.0, 0.0]));
+            if dot(r, r) < 0.5 {
+                r = [1.0, 0.0, 0.0];
+            }
+        }
+        let u = cross(r, f);
+        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        let near = 0.05;
+        // depth: 1/z between these two (closer than DN is depth 0)
+        const DN: f64 = 0.2;
+        const DF: f64 = 2000.0;
+        let depth = |z: f64| ((1.0 / DN - 1.0 / z.max(DN)) / (1.0 / DN - 1.0 / DF)).clamp(0.0, 1.0);
+        let cam = self.cam;
+        let to_view = |p: V3| -> V3 {
+            let d = sub(p, cam);
+            [dot(d, r), dot(d, u), dot(d, f)]
+        };
+        // clip against the near plane, project; corners as (x, y, view z)
+        let project = |v: &[V3]| -> Vec<V3> {
+            let mut clipped: Vec<V3> = Vec::with_capacity(v.len() + 2);
+            for i in 0..v.len() {
+                let a = v[i];
+                let b = v[(i + 1) % v.len()];
+                if a[2] >= near {
+                    clipped.push(a);
+                }
+                if (a[2] >= near) != (b[2] >= near) {
+                    let t = (near - a[2]) / (b[2] - a[2]);
+                    clipped.push(add(a, mul(sub(b, a), t)));
+                }
+            }
+            clipped.iter().map(|p| [w / 2.0 + p[0] / p[2] * focal, h / 2.0 - p[1] / p[2] * focal, p[2]]).collect()
+        };
+        let fan = |tris: &mut Vec<f32>, pts: &[V3], d: &dyn Fn(f64) -> f64, c: V3| {
+            for k in 1..pts.len().saturating_sub(1) {
+                for p in [pts[0], pts[k], pts[k + 1]].iter() {
+                    tris.extend_from_slice(&[p[0] as f32, p[1] as f32, d(p[2]) as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
+                }
+            }
+        };
+        if let Some((gy, gc)) = self.ground {
+            let reach = self.fog.map(|f| f.1).unwrap_or(200.0).max(20.0);
+            let bands = if self.fog.is_some() { 6 } else { 1 };
+            let (cx, cz) = (cam[0], cam[2]);
+            for b in (0..bands).rev() {
+                let r0 = reach * (b as f64) / bands as f64;
+                let r1 = reach * (b + 1) as f64 / bands as f64 * if b + 1 == bands { 3.0 } else { 1.0 };
+                let shade = self.shade([0.0, 1.0, 0.0], [cx, gy, cz], gc);
+                let c = self.fogged(shade, (r0 + r1) / 2.0);
+                let quad = [[cx - r1, gy, cz - r1], [cx + r1, gy, cz - r1], [cx + r1, gy, cz + r1], [cx - r1, gy, cz + r1]];
+                let v: Vec<V3> = quad.iter().map(|p| to_view(*p)).collect();
+                fan(&mut tris, &project(&v), &|_| 1.0, c);
+            }
+        }
+        let mut drawn = 0;
+        for o in self.objs.iter() {
+            if !o.visible {
+                continue;
+            }
+            let (sx, cx) = o.rot[0].sin_cos();
+            let (sy, cy) = o.rot[1].sin_cos();
+            let (sz, cz) = o.rot[2].sin_cos();
+            let (sw, cw) = o.wy.sin_cos();
+            let world: Vec<V3> = o.mesh.verts.iter().map(|v| {
+                let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
+                let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
+                let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
+                let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
+                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
+                add(p, o.pos)
+            }).collect();
+            // (about one step of a 16-bit depth buffer a layer, so that a
+            // decoration stays in front of its wall there too)
+            let bias = o.layer.max(0) as f64 * 1.2e-5;
+            let d = |z: f64| (depth(z) - bias).max(0.0);
+            for face in o.mesh.faces.iter() {
+                let a = world[face[0]];
+                let b = world[face[1]];
+                let c = world[face[face.len() - 1]];
+                let mut n = norm(cross(sub(b, a), sub(c, a)));
+                let mut centre = [0.0, 0.0, 0.0];
+                for &i in face.iter() {
+                    centre = add(centre, world[i]);
+                }
+                centre = mul(centre, 1.0 / face.len() as f64);
+                let towards = sub(centre, cam);
+                if dot(n, towards) > 0.0 {
+                    if !o.double {
+                        continue;
+                    }
+                    n = mul(n, -1.0);
+                }
+                let view: Vec<V3> = face.iter().map(|&i| to_view(world[i])).collect();
+                if view.iter().all(|p| p[2] < near) {
+                    continue;
+                }
+                let pts = project(&view);
+                if pts.len() < 3 {
+                    continue;
+                }
+                let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+                for p in pts.iter() {
+                    x0 = x0.min(p[0]); x1 = x1.max(p[0]);
+                    y0 = y0.min(p[1]); y1 = y1.max(p[1]);
+                }
+                if x1 < 0.0 || y1 < 0.0 || x0 > w || y0 > h {
+                    continue;
+                }
+                let lit = if o.emissive { o.color } else { self.shade(n, centre, o.color) };
+                let dist = dot(towards, towards).sqrt();
+                fan(&mut tris, &pts, &d, self.fogged(lit, dist));
+                drawn += 1;
+            }
+        }
+        self.drawn = drawn;
+        self.tris = tris;
     }
 }
 

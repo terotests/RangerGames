@@ -182,9 +182,10 @@ function walls3(s: Spec, m: Dims) {
       add("box", [0.02, 0.035, D], "#6d4524", W / 2 + 0.01, ly, 0, { layer: 1, deco: true, face: Math.PI / 2 });
       add("box", [0.02, 0.035, D], "#6d4524", -W / 2 - 0.01, ly, 0, { layer: 1, deco: true, face: -Math.PI / 2 });
     }
-    for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("box", [0.2, H, 0.2], "#86582f", cx * (W / 2 + 0.02), y + H / 2, cz * (D / 2 + 0.02));
+    // (the corners stop under the roof's edge, which is drawn depth-tested)
+    for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("box", [0.2, H - 0.12, 0.2], "#86582f", cx * (W / 2 + 0.02), y + (H - 0.12) / 2, cz * (D / 2 + 0.02));
   } else if (w === "punainen" || w === "keltainen") {
-    for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("box", [0.13, H, 0.13], WHITE, cx * W / 2, y + H / 2, cz * D / 2);
+    for (const cx of [-1, 1]) for (const cz of [-1, 1]) add("box", [0.13, H - 0.07, 0.13], WHITE, cx * W / 2, y + (H - 0.07) / 2, cz * D / 2);
   } else if (w === "kerros") {
     const rows = Math.max(1, Math.floor(H / 0.85));
     for (let i = 1; i < rows; i++) {
@@ -270,13 +271,15 @@ function win3(s: Spec, m: Dims) {
 function roof3(s: Spec, m: Dims) {
   const top = m.y0 + m.h, W = m.w, D = m.d, r = s.roof;
   if (ROOF_C[r]) {
-    // the two slopes, a bit over the walls all round, and a darker edge under them
+    // the two slopes, a bit over the walls all round, and a darker edge under
+    // them; the edge is just over the walls and the gable triangle (the
+    // depth buffer shows anything that pokes through)
     const half = W / 2 + 0.2, rise = m.hr * half / (W / 2), a = Math.atan2(rise, half), len = Math.sqrt(half * half + rise * rise);
-    const y = top + m.hr + 0.05 - rise, edge = r === "musta" ? "#1f1f1f" : r === "punainen" ? "#8e2a1f" : "#1f5a24";
+    const y = top + m.hr + 0.11 - rise, edge = r === "musta" ? "#1f1f1f" : r === "punainen" ? "#8e2a1f" : "#1f5a24";
     add("roof", [D + 0.3, rise, half * 2], ROOF_C[r], 0, y, 0, { ry: Math.PI / 2, layer: 4 });
     add("roof", [D + 0.3, rise, half * 2], edge, 0, y - 0.1, 0, { ry: Math.PI / 2, layer: 3 });
-    if (r === "punainen") for (let i = 1; i < 4; i++) for (const sd of [-1, 1]) add("box", [len, 0.03, 0.04], "#962d22", sd * half / 2, top + m.hr - rise / 2 + 0.07, -D / 2 - 0.15 + i * (D + 0.3) / 4, { rz: -sd * a, layer: 4, deco: true });
-    add("box", [0.14, 0.12, D + 0.32], edge, 0, top + m.hr + 0.06, 0, { layer: 4 });
+    if (r === "punainen") for (let i = 1; i < 4; i++) for (const sd of [-1, 1]) add("box", [len, 0.03, 0.04], "#962d22", sd * half / 2, top + m.hr - rise / 2 + 0.13, -D / 2 - 0.15 + i * (D + 0.3) / 4, { rz: -sd * a, layer: 4, deco: true });
+    add("box", [0.14, 0.12, D + 0.32], edge, 0, top + m.hr + 0.12, 0, { layer: 4 });
   } else if (r === "tasa") {
     add("box", [W + 0.2, 0.14, D + 0.2], "#6c757d", 0, top + 0.07, 0, { layer: 4 });
     add("box", [W - 0.1, 0.03, D - 0.1], "#495057", 0, top + 0.15, 0, { layer: 4 });
