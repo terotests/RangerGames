@@ -76,6 +76,11 @@
     if (framed) document.body.classList.add("framed");
     else if (!embedded) document.body.classList.add("phone");
     var tofull = document.getElementById("tofull");
+    // "Koko ikkuna": the address as it is now (it follows the running game)
+    tofull.addEventListener("click", function () {
+      var q = new URLSearchParams(location.search); q.set("mode", "mobile");
+      tofull.href = "?" + q.toString();
+    });
     params.set("mode", "mobile"); tofull.href = "?" + params.toString();
     function fit() {
       var W = innerWidth, H = innerHeight;
