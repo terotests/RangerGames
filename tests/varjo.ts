@@ -20,7 +20,7 @@ for (const f of FIGURES) {
   ids.forEach((x, i) => { const c = settle(f.polys, kinds, x!.kind, x!.cx + 0.6, x!.cy - 0.5, x!.rot, x!.flip); if (Math.hypot(c[0] - x!.cx, c[1] - x!.cy) > 1e-6) { console.log(f.id, "no settle", i); bad++; } });
   // a piece turned wrong (not the same shape after the turn) is not right
   ids.forEach((x, i) => {
-    const turned = ids.map((y, j) => place(y!.kind, y!.cx, y!.cy, y!.rot + (j === i ? 1 : 0), y!.flip));
+    const turned = ids.map((y, j) => place(y!.kind, y!.cx, y!.cy, y!.rot + (j === i ? 2 : 0), y!.flip));
     if (x!.kind !== "Q" && solved(f.polys, turned)) { console.log(f.id, "piece", i, x!.kind, "turned wrong passes"); bad++; }
   });
   const s = coverage(f.polys, sloppy, 0.1);
@@ -39,4 +39,13 @@ console.log(bad ? "FAILED " + bad : "ok"); if (bad) process.exit(1);
   const other = [f.polys[0], [[0, 4], [4, 4], [4, 8]], [[0, 4], [0, 8], [4, 8]]];
   if (!solved(f.polys, other)) { console.log("talo: the other way round fails"); process.exit(1); }
   console.log("talo other way ok");
+}
+// the tangram square filled another way (found by tools/varjo/tile.py) is right too
+{
+  const f = FIGURES.find((x) => x.id === "t_nelio")!;
+  const r = Math.SQRT1_2;
+  const other = [[[0, 0], [8, 0], [4, 4]], [[0, 8], [0, 0], [4, 4]], [[8, 0], [8, 4], [6, 6], [6, 2]], [[6, 2], [6, 6], [4, 4]], [[4, 4], [6, 6], [4, 8], [2, 6]], [[8, 8], [4, 8], [8, 4]], [[4, 8], [0, 8], [2, 6]]]
+    .map((p) => p.map((v) => [v[0] * r, v[1] * r]));
+  if (!solved(f.polys, other)) { console.log("t_nelio: the other way fails"); process.exit(1); }
+  console.log("t_nelio other way ok");
 }
