@@ -31,6 +31,7 @@ var __speech = true;      // whether this game talks by default (game.json "spee
 var __speechSet = {};     // the player's choices: game id -> true/false (settings "speech")
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
 var __downTarget = {};
+var __boxes = {};          // rg.box: last frame's laid-out boxes of the ids asked for
 var __fx = [];            // celebration particles, drawn above the game
 var __flash = 0;          // a full-screen glow after rg.celebrate, fading out
 // The close button (an X in a corner) every game but the launcher gets. A
@@ -223,6 +224,13 @@ var rg = {
     if (opts.sound !== false) rg.sound(big ? "win" : "star");
     rg.vibrate(big ? [30, 40, 60] : 25);
   },
+  // the laid-out box {x, y, w, h} of the element with this id in the last
+  // frame, or null (the first frame it is asked for); asking measures it
+  // again for the next frame
+  box: function (id) {
+    __cmds.push(["measure", String(id), null]);
+    return __boxes[id] || null;
+  },
   hit: function (a, b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
 };
 
@@ -411,6 +419,7 @@ function __frame(arg) {
   __input.pointers = a.input.pointers;
   __input.time = a.time;
   rg.simState = a.sim === undefined ? null : a.sim;
+  __boxes = a.boxes || {};
   var ev = a.events;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i];
@@ -424,6 +433,7 @@ function __frame(arg) {
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
+      else if (e.key === "wheel") { if (typeof onWheel === "function" && data) onWheel(data.dy, data); }
       else if (typeof onSensor === "function") onSensor(e.key, data);
     }
     else if (e.type === "back") { if (typeof onBack === "function") { onBack(); } else { rg.exit(); } }

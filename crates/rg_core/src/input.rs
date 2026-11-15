@@ -63,7 +63,12 @@ impl Input {
     pub fn pointer_move(&mut self, id: int, x: double, y: double) {
         let i = self.pointer_index(id);
         if i < 0 {
-            self.pointers.push(Pointer { id: id, x: x, y: y, down: false });
+            // only the mouse (id 0) is tracked while no button is down; a
+            // touch's stray move after its end would otherwise stay in the
+            // list for good, and as the first pointer it hid later drags
+            if id == 0 {
+                self.pointers.push(Pointer { id: id, x: x, y: y, down: false });
+            }
         } else {
             let p = &mut self.pointers[i as usize];
             p.x = x;
@@ -135,8 +140,17 @@ impl Input {
             out.push_str(":true");
         }
         out.push_str("},\"pointer\":");
+        // `pointer` is the first pointer that is down, else the first one:
+        // the mouse resting over the page does not hide a finger's drag
         let mut first = Pointer { id: 0, x: 0.0, y: 0.0, down: false };
-        if self.pointers.len() > 0 {
+        let mut found = false;
+        for p in self.pointers.iter() {
+            if p.down && !found {
+                first = p.clone();
+                found = true;
+            }
+        }
+        if !found && self.pointers.len() > 0 {
             first = self.pointers[0].clone();
         }
         out.push_str(&pointer_json(&first).write());

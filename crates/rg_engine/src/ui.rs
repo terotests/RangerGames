@@ -196,6 +196,18 @@ impl Ui {
         self.root = Some(root);
     }
 
+    /// The laid-out boxes of the last frame's elements whose id is in `ids`:
+    /// `{ id: {x, y, w, h} }` in game pixels (rg.box).
+    pub fn boxes(&self, ids: &[String]) -> Json {
+        let mut out = Vec::new();
+        if let Some(root) = &self.root {
+            if !ids.is_empty() {
+                collect_boxes(root, ids, &mut out);
+            }
+        }
+        Json::Obj(out)
+    }
+
     /// The id of the topmost element with an id under the point, or "".
     pub fn id_at(&self, x: f64, y: f64) -> String {
         match &self.root {
@@ -205,5 +217,23 @@ impl Ui {
             }
             None => String::new(),
         }
+    }
+}
+
+fn collect_boxes(el: &Rc<RefCell<EVGElement>>, ids: &[String], out: &mut Vec<rg_core::json::JsonMember>) {
+    let e = el.borrow();
+    if !e.id.is_empty() && ids.iter().any(|i| *i == e.id) {
+        out.push(rg_core::json::member(
+            &e.id,
+            rg_core::json::obj(vec![
+                rg_core::json::member("x", Json::Num(e.calculated_x)),
+                rg_core::json::member("y", Json::Num(e.calculated_y)),
+                rg_core::json::member("w", Json::Num(e.calculated_width)),
+                rg_core::json::member("h", Json::Num(e.calculated_height)),
+            ]),
+        ));
+    }
+    for c in e.children.iter() {
+        collect_boxes(c, ids, out);
     }
 }

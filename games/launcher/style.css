@@ -1,4 +1,5 @@
 .screen { width: 100%; height: 100%; background: linear-gradient(180deg, #2b2d6e, #1b1f3b); }
+.content { width: 100%; flex-shrink: 0; }
 .bubble { position: absolute; border-radius: 999px; opacity: 0.18; }
 .header { width: 100%; padding-top: 28px; padding-bottom: 12px; align-items: center; }
 .logo { font-size: 34px; font-weight: 700; color: #ffd166; }
