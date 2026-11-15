@@ -36,7 +36,20 @@ build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a
 cargo build -p rg_cli --release
 # the voice clips of rg.say (voice/fi.json and voice/<lang>/ → games/_voice/<lang>; only changed clips are rendered)
 scripts/build-voice.sh
-./target/release/rg_cli pack games "$ASSETS/games.rgpk"
+# the clips go to the APK as assets (assets/voice/<lang>/<id>.wav), read when said;
+# the pack keeps only each language's index.json (which clips exist), since the
+# whole pack is read into memory at boot and the clips would not fit there
+rm -rf "$ASSETS/voice" && mkdir -p "$ASSETS/voice"
+STAGE=$(mktemp -d)
+trap 'rm -rf "$STAGE"' EXIT
+cp -RL games "$STAGE/games"
+for d in "$STAGE"/games/_voice/*/; do
+  lang=$(basename "$d")
+  mkdir -p "$ASSETS/voice/$lang"
+  find "$d" -maxdepth 1 -name '*.wav' -exec mv {} "$ASSETS/voice/$lang/" \;
+done
+./target/release/rg_cli pack "$STAGE/games" "$ASSETS/games.rgpk"
+ls -la "$ASSETS/games.rgpk"
 if [[ ! -f "$ASSETS/fonts/Fredoka.ttf" ]]; then
   curl -sSfL -o "$ASSETS/fonts/Fredoka.ttf" "https://github.com/google/fonts/raw/main/ofl/fredoka/Fredoka%5Bwdth,wght%5D.ttf" \
     && curl -sSfL -o "$ASSETS/fonts/OFL.txt" "https://github.com/google/fonts/raw/main/ofl/fredoka/OFL.txt" \
