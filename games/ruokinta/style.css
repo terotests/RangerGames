@@ -44,3 +44,16 @@
 .stars { flex-direction: row; flex-wrap: wrap; width: 300px; justify-content: center; margin-top: 16px; }
 .bigstar { font-size: 40px; margin: 2px; }
 .bigstaroff { font-size: 40px; margin: 2px; opacity: 0.2; }
+.score { height: 30px; padding-left: 12px; padding-right: 12px; border-radius: 15px; background-color: #ffffff;
+  font-size: 18px; font-weight: 700; color: #3d405b; align-items: center; justify-content: center; }
+.gain { font-size: 22px; font-weight: 700; color: #e76f51; }
+.next { width: 220px; height: 54px; border-radius: 27px; background-color: #e76f51; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+.nexttext { font-size: 34px; font-weight: 700; color: #ffffff; }
+.zoo { background-color: #2a9d8f; }
+.off { opacity: 0.4; }
+.zgrid { flex-direction: row; flex-wrap: wrap; width: 348px; justify-content: center; margin-top: 6px; }
+.zcard { width: 156px; margin: 6px; padding: 6px; border-radius: 20px; background-color: #ffffff; align-items: center;
+  shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.zimg { width: 144px; height: 108px; border-radius: 14px; }
+.zname { font-size: 16px; font-weight: 700; color: #3d405b; margin-top: 4px; }

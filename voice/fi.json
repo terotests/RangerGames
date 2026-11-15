@@ -2215,6 +2215,7 @@
   "tk_f_euroa": "euroa.",
   "tk_f_liian_vahan_kekseja": "Keksit loppuivat kesken, ja osa asiakkaista jäi ilman. Rahaa olisi tullut enemmän.",
   "tk_f_liikaa_kekseja": "Keksejä jäi yli. Niiden tekeminen maksoi, mutta kukaan ei ostanut niitä.",
-  "tk_f_vihje_kauppa": "Laske, montako keksiä asiakkaat haluavat yhteensä. Leivo juuri niin monta."
+  "tk_f_vihje_kauppa": "Laske, montako keksiä asiakkaat haluavat yhteensä. Leivo juuri niin monta.",
+  "ru_zoo": "Eläintarha. Ketä ruokitaan?"
  }
 }
