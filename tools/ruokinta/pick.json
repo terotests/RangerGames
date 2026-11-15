@@ -1,0 +1,74 @@
+{
+ "liha": {
+  "file": "File:Raw beef (cow meat).jpg",
+  "crop": [
+   0.0,
+   0.1,
+   1.0,
+   0.9
+  ]
+ },
+ "heina": {
+  "file": "File:Romania Putna Monastery Hay Bale.jpg",
+  "crop": [
+   0.0,
+   0.12,
+   1.0,
+   0.92
+  ]
+ },
+ "banaani": {
+  "file": "File:Bananas on black background 02.jpg"
+ },
+ "porkkana": {
+  "file": "File:Carrots at Ljubljana Central Market.JPG"
+ },
+ "pahkinat": {
+  "file": "File:Hazelnuts.jpg"
+ },
+ "marjat": {
+  "file": "File:Fresh bilberries picked in Tuntorp 4.jpg"
+ },
+ "kapy": {
+  "file": "File:Norway Spruce cones, cultivated, Massachusetts 777.jpg"
+ },
+ "hiiri": {
+  "file": "File:House mouse (Mus musculus) 2808.jpg"
+ },
+ "mato": {
+  "file": "File:Earthworm on ground.jpg",
+  "crop": [
+   0.05,
+   0.15,
+   1.0,
+   0.95
+  ]
+ },
+ "karpanen": {
+  "file": "File:Musca domestica September 2007-1.jpg"
+ },
+ "voikukka": {
+  "file": "File:Paardenbloem (Taraxacum officinale) 06.JPG"
+ },
+ "simpukka": {
+  "file": "File:Blue mussel (Mytilus edulis) shell.jpg"
+ },
+ "jyvat": {
+  "file": "File:Avena sativa 004.JPG"
+ },
+ "lehdet": {
+  "file": "File:Birch leaf leaves branch.jpg",
+  "crop": [
+   0.0,
+   0.0,
+   1.0,
+   0.62
+  ]
+ },
+ "kirahvi": {
+  "file": "File:Giraffe Ithala KZN South Africa Luca Galuzzi 2004.JPG"
+ },
+ "kenguru": {
+  "file": "File:Red Kangaroos at Sturt National Park NSW.jpg"
+ }
+}

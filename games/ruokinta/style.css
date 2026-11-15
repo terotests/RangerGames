@@ -1,0 +1,62 @@
+.root { width: 100%; height: 100%; background: linear-gradient(180deg, #e8f6d8, #bfe3a5); }
+.screen { width: 100%; height: 100%; }
+.col { width: 100%; height: 100%; align-items: center; }
+.title { font-size: 40px; font-weight: 700; color: #3a6b35; }
+.lead { font-size: 26px; color: #3a5a2a; margin-top: 8px; margin-bottom: 14px; }
+.level { width: 280px; min-height: 76px; padding: 8px; border-radius: 30px; margin-top: 12px; align-items: center; justify-content: center;
+  background-color: #f4a261; shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+.zoo { background-color: #2a9d8f; }
+.off { opacity: 0.4; }
+.small { width: 280px; height: 50px; border-radius: 25px; margin-top: 12px; align-items: center; justify-content: center;
+  background-color: #8ab17d; shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+.back { background-color: #9a8c98; }
+.lvname { font-size: 28px; font-weight: 700; color: #ffffff; }
+.lvsub { font-size: 15px; color: #ffffff; margin-top: 2px; }
+.smname { font-size: 22px; font-weight: 700; color: #ffffff; }
+
+.score { position: absolute; height: 30px; padding-left: 12px; padding-right: 12px; border-radius: 15px; background-color: #ffffff;
+  font-size: 18px; font-weight: 700; color: #3d405b; align-items: center; justify-content: center; }
+.gain { position: absolute; font-size: 22px; font-weight: 700; color: #e76f51; }
+.dots { position: absolute; flex-direction: row; }
+.dot { width: 10px; height: 10px; border-radius: 5px; margin: 2px; background-color: #a3c49a; }
+.dotdone { width: 10px; height: 10px; border-radius: 5px; margin: 2px; background-color: #f4a261; }
+.dotnow { width: 10px; height: 10px; border-radius: 5px; margin: 2px; background-color: #e76f51; }
+
+.photo { position: absolute; padding: 6px; border-radius: 18px; background-color: #ffffff; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 6px; shadow-radius: 10px; }
+.photoimg { border-radius: 12px; }
+.ask { position: absolute; height: 36px; font-size: 24px; font-weight: 700; color: #3d405b; align-items: center; justify-content: center; }
+
+.opt { position: absolute; padding: 6px; border-radius: 20px; background-color: #ffffff; align-items: center;
+  shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.optok { position: absolute; padding: 6px; border-radius: 20px; background-color: #06d6a0; align-items: center;
+  shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.optno { position: absolute; padding: 6px; border-radius: 20px; background-color: #c9d6bf; align-items: center; }
+.optpic { width: 144px; height: 96px; }
+.optimg { width: 144px; height: 96px; border-radius: 14px; }
+.optname { font-size: 20px; font-weight: 700; color: #3d405b; margin-top: 4px; }
+
+.next { position: absolute; width: 220px; height: 54px; border-radius: 27px; background-color: #e76f51; align-items: center; justify-content: center;
+  shadow-color: rgba(0,0,0,0.2); shadow-offset-y: 5px; }
+.nexttext { font-size: 34px; font-weight: 700; color: #ffffff; }
+
+.fly { position: absolute; border-radius: 14px; }
+.heart { position: absolute; font-size: 30px; }
+
+.zgrid { flex-direction: row; flex-wrap: wrap; width: 348px; justify-content: center; margin-top: 6px; }
+.zcard { width: 156px; margin: 6px; padding: 6px; border-radius: 20px; background-color: #ffffff; align-items: center;
+  shadow-color: rgba(0,0,0,0.18); shadow-offset-y: 4px; }
+.zimg { width: 144px; height: 108px; border-radius: 14px; }
+.zname { font-size: 18px; font-weight: 700; color: #3d405b; margin-top: 4px; }
+
+.ctitle { font-size: 28px; font-weight: 700; color: #3a6b35; margin-top: 24px; }
+.cnote { font-size: 12px; color: #3a5a2a; width: 300px; text-align: center; margin-top: 4px; margin-bottom: 4px; }
+.crow { width: 320px; margin-top: 6px; padding: 6px; border-radius: 12px; background-color: rgba(255,255,255,0.7); }
+.cwhat { font-size: 15px; font-weight: 700; color: #3d405b; }
+.cwho { font-size: 12px; color: #3d405b; }
+.csrc { font-size: 10px; color: #5a6b45; }
+.pager { flex-direction: row; align-items: center; margin-top: 10px; }
+.pbtn { width: 60px; height: 48px; border-radius: 24px; background-color: #3a6b35; color: #ffffff; font-size: 24px; align-items: center; justify-content: center; }
+.pnum { font-size: 18px; color: #3d405b; margin-left: 16px; margin-right: 16px; }
+.stars { flex-direction: row; flex-wrap: wrap; width: 300px; justify-content: center; margin-top: 20px; }
+.bigstar { font-size: 26px; margin: 1px; }
