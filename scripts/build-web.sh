@@ -56,6 +56,29 @@ const list = fs.readdirSync(dir).filter(d => fs.existsSync(path.join(dir, d, "ga
 }).filter(g => !g.hidden).sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "fi"));
 fs.writeFileSync(process.argv[1], JSON.stringify(list.map(({ hidden, ...g }) => g), null, 1));
 ' "$OUT/games.json" "$GAMES"
+# every game's own page, peli/<id>/: a direct link that opens the game in
+# the full window (mobile mode) on that page, phone or computer, with no
+# redirect. The page is index.html with <base href="../../"> and RG_PAGE.
+node -e '
+const fs = require("fs"), path = require("path");
+const [out, dir] = process.argv.slice(1);
+const html = fs.readFileSync(path.join(out, "index.html"), "utf8");
+const esc = t => t.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;" })[c]);
+let n = 0;
+for (const d of fs.readdirSync(dir)) {
+  const f = path.join(dir, d, "game.json");
+  if (d === "launcher" || !/^[a-z0-9_-]+$/.test(d) || !fs.existsSync(f)) continue;
+  const g = JSON.parse(fs.readFileSync(f, "utf8")), name = g.name || d;
+  const head = `<base href="../../">\n<script>window.RG_PAGE = ${JSON.stringify({ game: d, mode: "mobile" })};</script>`;
+  const page = html.replace("<head>", "<head>\n" + head)
+    .replace(/<title>[^<]*<\/title>/, `<title>${esc(name)} · RangerGames</title>` +
+      (g.description ? `\n<meta name="description" content="${esc(g.description)}">` : ""));
+  fs.mkdirSync(path.join(out, "peli", d), { recursive: true });
+  fs.writeFileSync(path.join(out, "peli", d, "index.html"), page);
+  n++;
+}
+console.log("peli/: " + n + " game pages");
+' "$OUT" "$GAMES"
 # the font and three.js beside the page, so the Android app works offline
 # (best effort: without a network the page falls back to Google Fonts / the CDN)
 mkdir -p "$OUT/fonts" "$OUT/vendor"

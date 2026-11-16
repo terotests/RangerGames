@@ -67,7 +67,10 @@
     // size in dp (Huawei P20: 360 × 720), zoomed to fit the window, so the
     // menus look as they do on the phone instead of stretching across the
     // screen. ?mode=mobile or ?mode=frame chooses by hand.
-    var params = new URLSearchParams(location.search), mode = params.get("mode");
+    // a game's own page (peli/<id>/, made by build-web.sh) sets RG_PAGE: that
+    // game, full window, whatever the device
+    var page = window.RG_PAGE || {};
+    var params = new URLSearchParams(location.search), mode = params.get("mode") || page.mode;
     var embedded = window.top !== window;
     var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
     var framed = mode === "frame" || (mode !== "mobile" && !embedded && !coarse && innerWidth > 600);
