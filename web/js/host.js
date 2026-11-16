@@ -90,7 +90,7 @@
         else self.gl3d = null;
         self.attach();
         self.resize();
-        var first = params.get("game") || "";
+        var first = params.get("game") || (global.RG_PAGE && global.RG_PAGE.game) || "";
         self.start(first);
         self.status.style.display = "none";
         global.requestAnimationFrame(function (t) { self.loop(t); });
@@ -351,7 +351,7 @@
   // the running game in the address (?game=id), so the address bar is a
   // direct link to it; not inside the playground's iframe (it does its own)
   Host.prototype.syncAddress = function () {
-    if (global.top !== global || !global.history || !global.history.replaceState) return;
+    if (global.top !== global || global.RG_PAGE || !global.history || !global.history.replaceState) return;
     try {
       var u = new URL(global.location.href);
       if (this.game) u.searchParams.set("game", this.game); else u.searchParams.delete("game");
