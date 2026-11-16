@@ -45,11 +45,11 @@ impl Script {
             return Err(format!("{} is not a function", name));
         }
         let av = engine.vm.string_val(arg);
-        let r = engine.vm.call_top(f, Val::Undef, vec![av]);
+        let r = engine.vm.call_top(f, Val::Undef(), vec![av]);
         if engine.vm.throwing {
             let exc = engine.vm.exc.clone();
             engine.vm.throwing = false;
-            engine.vm.exc = Val::Undef;
+            engine.vm.exc = Val::Undef();
             engine.vm.stack.clear();
             engine.vm.frames.clear();
             engine.vm.handlers.clear();
@@ -60,9 +60,9 @@ impl Script {
         engine.vm.temp_roots.push(r.clone());
         engine.vm.run_jobs();
         engine.vm.temp_roots.pop();
-        Ok(match &r {
-            Val::Str(s) => engine.vm.sref(*s).to_string(),
-            _ => engine.vm.display(&r),
+        Ok(match r.as_str() {
+            Some(s) => engine.vm.sref(s).to_string(),
+            None => engine.vm.display(&r),
         })
     }
 
