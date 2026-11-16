@@ -1,0 +1,3 @@
+/* Koodikoulu's own classes (appended to style.css by tools/tietokoneet/sync.sh) */
+.tx { position: absolute; font-weight: 700; text-align: center; justify-content: center; align-items: center; }
+.txl { position: absolute; font-weight: 700; text-align: left; justify-content: center; align-items: flex-start; }
