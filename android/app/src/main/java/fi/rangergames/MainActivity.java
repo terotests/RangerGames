@@ -2,6 +2,8 @@
 package fi.rangergames;
 
 import android.app.Activity;
+import android.content.ClipData;
+import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -384,6 +386,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "music": sound.music(name, opts); break;
             case "stop": sound.stopMusic(); break;
             case "vibrate": vibrate(args); break;
+            case "copy": copy(String.valueOf(args)); break;
             case "sensor":
                 sensors.set(name, !Boolean.FALSE.equals(args));
                 if (name.equals("mic") || name.equals("*")) mic.set(!Boolean.FALSE.equals(args));
@@ -405,6 +408,16 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             default:
                 break;
         }
+    }
+
+    private void copy(final String text) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                ClipboardManager c = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+                if (c != null) c.setPrimaryClip(ClipData.newPlainText("RangerGames", text));
+            }
+        });
     }
 
     private void vibrate(Object what) {

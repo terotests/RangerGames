@@ -250,6 +250,21 @@
     }
   };
 
+  // the clipboard: the Android shell's, else the browser's (or a hidden
+  // text area where navigator.clipboard is missing)
+  Host.prototype.copy = function (text) {
+    if (global.RgAndroid && global.RgAndroid.copy) { global.RgAndroid.copy(text); return; }
+    var old = function () {
+      var t = document.createElement("textarea");
+      t.value = text; t.setAttribute("readonly", ""); t.style.position = "fixed"; t.style.opacity = "0";
+      document.body.appendChild(t); t.select();
+      try { document.execCommand("copy"); } catch (e) { }
+      document.body.removeChild(t);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).catch(old);
+    else old();
+  };
+
   Host.prototype.vibrate = function (v) {
     if (global.RgAndroid && global.RgAndroid.vibrate) {
       global.RgAndroid.vibrate(Array.isArray(v) ? JSON.stringify(v) : String(v));
@@ -407,6 +422,7 @@
       case "music": this.audio.startMusic(name, args); break;
       case "stop": this.audio.stopMusic(); break;
       case "vibrate": this.vibrate(args); break;
+      case "copy": this.copy(String(args)); break;
       case "persist": try { localStorage.setItem("rg:" + name, typeof args === "string" ? args : JSON.stringify(args)); } catch (e) { } break;
       case "title":
         document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView();
