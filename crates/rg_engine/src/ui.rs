@@ -50,6 +50,10 @@ pub struct Ui {
     pub width: f64,
     pub height: f64,
     pub last_commands: i64,
+    // the last frame's tree (as text, with the size) and its draw commands:
+    // a frame whose tree is the same is not laid out again
+    last_key: String,
+    last_cmds: Vec<Rc<RefCell<EVGDrawCmd>>>,
 }
 
 fn is_text_tag(t: &str) -> bool {
@@ -163,7 +167,7 @@ impl Ui {
     pub fn new() -> Ui {
         let sheet = Rc::new(RefCell::new(EVGStyleSheet::new()));
         EVGStyleSheet::parse(&sheet, BASE_CSS);
-        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0 }
+        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0, last_key: String::new(), last_cmds: Vec::new() }
     }
 
     /// The game's stylesheet (parsed once, not every frame).
@@ -173,12 +177,22 @@ impl Ui {
         EVGStyleSheet::parse(&sheet, &text);
         self.css_errors = sheet.borrow().errors.clone();
         self.sheet = sheet;
+        self.last_key.clear();
     }
 
     /// One frame: cascade, layout, display list, into `out`.
     pub fn render(&mut self, tree: &Json, out: &mut DrawStream) {
-        let root = build(tree);
         let (w, h) = (self.width, self.height);
+        // most frames of a game that waits for a tap draw the same tree:
+        // the same layout, so the commands are written again as they were
+        let key = format!("{}x{}|{}", w, h, tree.write());
+        if self.root.is_some() && key == self.last_key {
+            for c in self.last_cmds.iter() {
+                out.command(&c.borrow());
+            }
+            return;
+        }
+        let root = build(tree);
         EVGStyleSheet::set_viewport(&self.sheet, w, h, true);
         EVGStyleSheet::apply_tree(&self.sheet, &root, "");
         settle_font_sizes(&root, None);
@@ -194,6 +208,8 @@ impl Ui {
             out.command(&c.borrow());
         }
         self.root = Some(root);
+        self.last_key = key;
+        self.last_cmds = cmds;
     }
 
     /// The laid-out boxes of the last frame's elements whose id is in `ids`:
