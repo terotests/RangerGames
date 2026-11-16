@@ -285,6 +285,7 @@
         this.geoWatch = undefined;
       }
     }
+    if (name === "mic" || name === "*") this.mic(on);
     if (name === "heading" || name === "*") {
       if (on && !this.onOrient) {
         this.onOrient = function (e) {
@@ -302,6 +303,45 @@
         global.removeEventListener("deviceorientation", this.onOrient);
         this.onOrient = null;
       }
+    }
+  };
+
+  // rg.sensor("mic"): the microphone's loudness about 20 times a second, the
+  // sound itself goes nowhere (no recording). getUserMedia needs https or
+  // localhost; echo cancellation keeps the game's own speech out where it can.
+  Host.prototype.mic = function (on) {
+    var self = this;
+    if (on && !this.micOn) {
+      this.micOn = true;
+      var md = navigator.mediaDevices;
+      if (!md || !md.getUserMedia) { this.micOn = false; this.sendSensor("error", { sensor: "mic", reason: "unavailable" }); return; }
+      md.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: false } }).then(function (stream) {
+        if (!self.micOn) { stream.getTracks().forEach(function (t) { t.stop(); }); return; }
+        var AC = global.AudioContext || global.webkitAudioContext;
+        var ctx = new AC();
+        var src = ctx.createMediaStreamSource(stream), an = ctx.createAnalyser();
+        an.fftSize = 1024;
+        src.connect(an);
+        var buf = new Float32Array(an.fftSize);
+        var timer = setInterval(function () {
+          if (document.hidden) return;
+          if (ctx.state === "suspended") ctx.resume();
+          an.getFloatTimeDomainData(buf);
+          var sum = 0;
+          for (var i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          var rms = Math.sqrt(sum / buf.length);
+          var db = rms > 0.00001 ? 20 * Math.log(rms) / Math.LN10 : -100;
+          self.sendSensor("mic", { db: Math.round(db * 10) / 10, talk: self.audio.busy() });
+        }, 50);
+        self.micStop = function () { clearInterval(timer); stream.getTracks().forEach(function (t) { t.stop(); }); try { ctx.close(); } catch (e) { } };
+      }, function (err) {
+        self.micOn = false;
+        var name = err && err.name;
+        self.sendSensor("error", { sensor: "mic", reason: name === "NotAllowedError" || name === "SecurityError" ? "permission" : "unavailable" });
+      });
+    } else if (!on && this.micOn) {
+      this.micOn = false;
+      if (this.micStop) { this.micStop(); this.micStop = null; }
     }
   };
 
