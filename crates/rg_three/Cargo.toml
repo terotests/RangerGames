@@ -1,0 +1,13 @@
+[package]
+name = "rangerthree"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+description = "terotests/RangerThree's three crate (.deps/RangerThree, pinned in scripts/setup.sh), built against this repository's Ranger so that both use one `ranger` crate"
+
+[lib]
+path = "../../.deps/RangerThree/three/src/lib.rs"
+
+[dependencies]
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }

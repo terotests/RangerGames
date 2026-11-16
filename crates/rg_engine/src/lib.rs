@@ -21,8 +21,10 @@
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
 pub mod draw;
+pub mod fiber;
 pub mod fluid;
 pub mod globe;
+pub mod gltf;
 pub mod scene3d;
 pub mod script;
 pub mod ui;
@@ -34,6 +36,23 @@ use rg_core::json::{self, member, quote, Json};
 use rg_core::vfs::{self, Vfs};
 use script::Script;
 use ui::Ui;
+use std::cell::RefCell;
+use std::rc::Rc;
+
+/// The script's synchronous questions to the engine (`__hostSync`): the 3D
+/// world answers them (fiber.rs World::sync).
+struct WorldSync {
+    world: Rc<RefCell<fiber::World>>,
+}
+
+impl cerxes::vm::HostSync for WorldSync {
+    fn call(&mut self, request: &str) -> String {
+        match self.world.try_borrow_mut() {
+            Ok(mut w) => w.sync(&json::parse(request)).write(),
+            Err(_) => "null".to_string(),
+        }
+    }
+}
 
 /// Where the settings every game shares are kept (the language).
 const SETTINGS: &str = "/save/_settings.json";
@@ -149,6 +168,9 @@ pub struct Engine {
     /// the host draws the 3D scene itself with a depth buffer (WebGL / GLES):
     /// then the scene's triangles are in `scene.tris`, not in the draw stream
     pub gl3d: bool,
+    /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
+    /// reads JSX (fiber.rs), drawn with the scene above
+    pub world: Rc<RefCell<fiber::World>>,
     /// the game's water and sand (rg.sim), drawn over the 3D and under the 2D view
     pub fluid: fluid::Sim,
     /// rg.box: the ids the script asked to measure this frame, and the
@@ -168,6 +190,7 @@ impl Engine {
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
             gl3d: false,
+            world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
             boxes: Json::Obj(Vec::new()),
@@ -329,6 +352,7 @@ impl Engine {
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();
+        *self.world.borrow_mut() = fiber::World::new();
         self.fluid = fluid::Sim::new();
         self.measure = Vec::new();
         self.boxes = Json::Obj(Vec::new());
@@ -364,7 +388,25 @@ impl Engine {
             self.settings = Json::Obj(Vec::new());
         }
         let mut s = Script::new();
+        s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone() }));
+        self.world.borrow_mut().dir = info.dir.clone();
+        self.lend_files(true);
+        let r = self.start_script(s, &info);
+        self.lend_files(false);
+        r
+    }
+
+    /// Lets the 3D world read the game's files (models) while the engine is
+    /// in a call that does not touch them otherwise; `false` takes them back.
+    fn lend_files(&mut self, on: bool) {
+        self.world.borrow_mut().vfs = if on { &self.vfs as *const Vfs } else { std::ptr::null() };
+    }
+
+    fn start_script(&mut self, mut s: Script, info: &GameInfo) -> Result<(), String> {
         if let Err(e) = s.eval(script::RUNTIME, "runtime.js") {
+            return self.fail(e);
+        }
+        if let Err(e) = s.eval(script::THREE, "three.js") {
             return self.fail(e);
         }
         if let Err(e) = s.eval(&format!("__settings({});", self.settings.write()), "settings.js") {
@@ -528,11 +570,22 @@ impl Engine {
             return if self.error.is_empty() { Ok(()) } else { Err(self.error.clone()) };
         }
         let mut evs = Vec::new();
+        let world_on = self.world.borrow().active;
         for e in events.iter_mut() {
-            if e.kind == "pointerdown" || e.kind == "pointerup" {
+            let tap = e.kind == "pointerdown" || e.kind == "pointerup";
+            if tap {
                 e.target = self.ui.id_at(e.x, e.y);
             }
-            evs.push(event_json(e));
+            let mut j = event_json(e);
+            // what the 3D world has under the finger (React Three Fiber's events)
+            if tap && world_on {
+                if let Some(hit) = self.world.borrow().raycast(e.x as f32, e.y as f32).into_iter().next() {
+                    if let Json::Obj(m) = &mut j {
+                        m.push(member("hit", hit));
+                    }
+                }
+            }
+            evs.push(j);
         }
         let arg = json::obj(vec![
             member("w", Json::Num(self.ui.width)),
@@ -544,6 +597,7 @@ impl Engine {
             member("sim", self.fluid.state()),
             member("boxes", self.boxes.clone()),
         ]);
+        self.lend_files(true);
         let r = self.script.as_mut().unwrap().call("__frame", arg.write());
         let out = self.script.as_mut().unwrap().take_output();
         self.log.extend(out);
@@ -555,6 +609,8 @@ impl Engine {
                 self.fluid.step(dt);
                 self.scene.gl = self.gl3d;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
+                self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
+                self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.ui.render(&tree, &mut self.draw);
                 let ids = std::mem::take(&mut self.measure);
@@ -563,6 +619,7 @@ impl Engine {
                 Ok(())
             }
             Err(e) => {
+                self.lend_files(false);
                 self.error = e.clone();
                 self.log.push(e.clone());
                 self.render_error();

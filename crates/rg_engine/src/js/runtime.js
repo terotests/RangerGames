@@ -367,6 +367,8 @@ function __ser(n, out) {
   }
   if (typeof n !== "object") { out.push(String(n)); return false; }
   if (typeof n.type !== "string") return false;
+  // the 3D world (three.js's names, three.js): kept out of the 2D layout
+  if (n.type === "scene3d") { __scene3d = __ser3(n); return true; }
   if (n.__s !== undefined) { out.push(n.__s); return false; }
   var handlers = false;
   var e = { t: n.type };
@@ -424,6 +426,8 @@ function __frame(arg) {
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i];
     var info = { x: e.x, y: e.y, id: e.id, pointer: e.pointer };
+    var h3 = e.hit && e.hit.id ? e.hit : null;   // the 3D object (with a handler) under the finger
+    if (e.hit) info.hit = __hitEvent(e.hit, e);
     if (e.type === "keydown") { if (typeof onKeyDown === "function") onKeyDown(e.key, __input); }
     else if (e.type === "keyup") { if (typeof onKeyUp === "function") onKeyUp(e.key, __input); }
     else if (e.type === "sensor") {
@@ -433,7 +437,7 @@ function __frame(arg) {
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
-      else if (e.key === "wheel") { if (typeof onWheel === "function" && data) onWheel(data.dy, data); }
+      else if (e.key === "wheel") { if (data) __orbitWheel(data.dy); if (typeof onWheel === "function" && data) onWheel(data.dy, data); }
       else if (typeof onSensor === "function") onSensor(e.key, data);
     }
     else if (e.type === "back") { if (typeof onBack === "function") { onBack(); } else { rg.exit(); } }
@@ -441,12 +445,23 @@ function __frame(arg) {
       __downTarget[e.pointer] = e.id;
       if (e.id === __CLOSE) continue;
       var hd = __handler(e.id, "pointerdown");
-      if (hd) hd(info);
+      if (hd) { hd(info); continue; }
+      __orbitDown(e);
+      __down3d[e.pointer] = h3 ? h3.id : undefined;
+      var hd3 = h3 ? __handler(h3.id, "pointerdown") : undefined;
+      if (hd3) hd3(info.hit);
       else if (typeof onPointerDown === "function") onPointerDown(e.x, e.y, info);
     } else if (e.type === "pointerup") {
       if (e.id === __CLOSE) { if (__downTarget[e.pointer] === __CLOSE) __close(); __downTarget[e.pointer] = undefined; continue; }
+      // a drag that turned the orbit camera is not a tap
+      info.dragged = __orbitUp(e);
       var hu = __handler(e.id, "pointerup");
+      var down3 = __down3d[e.pointer];
+      __down3d[e.pointer] = undefined;
+      var hu3 = !hu && h3 ? __handler(h3.id, "pointerup") : undefined;
+      var hc3 = !hu && h3 && !info.dragged && down3 === h3.id ? __handler(h3.id, "click") : undefined;
       if (hu) hu(info);
+      else if (hu3 || hc3) { if (hu3) hu3(info.hit); if (hc3) hc3(info.hit); }
       else if (typeof onPointerUp === "function") onPointerUp(e.x, e.y, info);
       // a tap: down and up on the same element
       if (e.id && __downTarget[e.pointer] === e.id) {
@@ -456,17 +471,23 @@ function __frame(arg) {
       __downTarget[e.pointer] = undefined;
     }
   }
+  __orbitFrame(a.dt);
   if (typeof tick === "function") tick(a.dt, __input);
   __handlers = {};
   __ids = 0;
   __fxStep(a.dt);
   var out = [];
+  __scene3d = null;
+  __orbit.seen = null;
   __ser(typeof view === "function" ? view() : null, out);
+  // <orbitControls> applies from the next frame on (the camera may come first in the tree)
+  if (!__orbit.seen) { __orbit.st = null; __orbit.drag = null; }
+  __orbit.cfg = __orbit.seen;
   var over = __overlay();
   var tree = out.length === 1 && over.length === 0 ? out[0] : { t: "div", s: { width: "100%", height: "100%" }, c: out.concat(over) };
   var cmds = __cmds;
   __cmds = [];
-  return JSON.stringify({ tree: tree, cmds: cmds });
+  return JSON.stringify(__scene3d ? { tree: tree, cmds: cmds, scene3d: __scene3d } : { tree: tree, cmds: cmds });
 }
 
 function __close() {

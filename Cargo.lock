@@ -144,6 +144,13 @@ name = "ranger-macros"
 version = "0.1.0"
 
 [[package]]
+name = "rangerthree"
+version = "0.1.0"
+dependencies = [
+ "ranger",
+]
+
+[[package]]
 name = "rg_android"
 version = "0.1.0"
 dependencies = [
@@ -173,6 +180,7 @@ version = "0.1.0"
 dependencies = [
  "cerxes",
  "ranger",
+ "rangerthree",
  "rg_core",
  "rg_evg",
 ]

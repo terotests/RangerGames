@@ -1,0 +1,18 @@
+.screen { width: 100%; height: 100%; }
+.top { position: absolute; left: 0px; top: 0px; width: 100%; height: 64px; flex-direction: row; align-items: center; padding-left: 12px; padding-right: 60px; }
+.turn { flex-direction: row; align-items: center; height: 44px; border-radius: 22px; padding-left: 8px; padding-right: 14px; background-color: rgba(0,0,0,0.35); }
+.dot { width: 28px; height: 28px; border-radius: 14px; border-width: 3px; border-color: #ffffff; margin-right: 8px; }
+.white { background-color: #f2efe6; }
+.black { background-color: #2f2f38; }
+.ttext { font-size: 18px; font-weight: 700; color: #ffffff; }
+.count { position: absolute; left: 0px; bottom: 14px; width: 100%; flex-direction: row; justify-content: center; }
+.pill { flex-direction: row; align-items: center; height: 40px; border-radius: 20px; padding-left: 10px; padding-right: 12px; margin-left: 6px; margin-right: 6px; background-color: rgba(0,0,0,0.35); }
+.mini { width: 16px; height: 16px; border-radius: 8px; margin-right: 3px; border-width: 2px; border-color: #ffffff; }
+.menu { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: flex-end; padding-bottom: 70px; }
+.title { font-size: 44px; font-weight: 700; color: #ffffff; shadow-color: rgba(0,0,0,0.5); shadow-offset-y: 3px; shadow-radius: 0px; }
+.hint { width: 300px; font-size: 16px; color: #ffffff; text-align: center; margin-top: 6px; margin-bottom: 14px; }
+.btn { width: 250px; height: 60px; border-radius: 30px; background-color: #ffb703; color: #ffffff; font-size: 21px; font-weight: 700; align-items: center; justify-content: center; margin-top: 12px; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 5px; shadow-radius: 0px; }
+.alt { background-color: #4895ef; }
+.again { background-color: #06d6a0; }
+.over { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; }
+.big { font-size: 38px; font-weight: 700; color: #ffd23f; shadow-color: rgba(0,0,0,0.6); shadow-offset-y: 3px; shadow-radius: 0px; }
