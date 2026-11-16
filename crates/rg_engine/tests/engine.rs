@@ -109,3 +109,25 @@ fn say_queues_voice_clips_by_id() {
     assert!(says[1].args.get("queue").as_bool());
     assert_eq!(says[2].args.get("list").items().len(), 0);
 }
+
+#[test]
+fn eval_sees_the_games_names_and_the_tree_has_the_boxes() {
+    let mut e = engine(
+        r#"
+        let score: number = 3;
+        const state = { level: 2, names: ["a", "b"] };
+        function view() {
+          return <div className="s"><div className="b" onClick={() => { score++; }}>Pelaa</div><div>Pisteet {score}</div></div>;
+        }"#,
+        ".s { width: 200px; height: 100px; } .b { width: 100px; height: 50px; }",
+    );
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    assert_eq!(e.eval("JSON.stringify({score, state})").unwrap(), r#"{"score":3,"state":{"level":2,"names":["a","b"]}}"#);
+    assert_eq!(e.eval("Object.keys(__handlers).length").unwrap(), "1");
+    assert!(e.eval("nope.x").is_err());
+    let t = e.ui.tree().write();
+    assert!(t.contains(r#""cls":"b","x":0,"y":0,"w":100,"h":50"#), "{}", t);
+    assert!(t.contains(r#""text":"Pelaa""#), "{}", t);
+    assert!(t.contains(r#""text":"Pisteet 3""#), "{}", t);
+}

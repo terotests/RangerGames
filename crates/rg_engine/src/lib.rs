@@ -655,6 +655,21 @@ impl Engine {
         plain.render(&tree, &mut self.draw);
     }
 
+    /// Runs `src` in the running game's script (its top-level names are in
+    /// scope) and answers what it evaluates to as text: for tools that look
+    /// into a game from outside (Games' inspect_game). What it logs goes to
+    /// `log`.
+    pub fn eval(&mut self, src: &str) -> Result<String, String> {
+        let s = match self.script.as_mut() {
+            Some(s) => s,
+            None => return Err("no game is running".to_string()),
+        };
+        let r = s.eval(src, "inspect.js");
+        let out = s.take_output();
+        self.log.extend(out);
+        r
+    }
+
     /// Takes the frame's commands for the platform.
     pub fn take_host_commands(&mut self) -> Vec<HostCommand> {
         std::mem::take(&mut self.commands)

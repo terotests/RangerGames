@@ -224,6 +224,16 @@ impl Ui {
         Json::Obj(out)
     }
 
+    /// The last frame's laid-out tree, for tools that look at a game from
+    /// outside (Games' inspect_game): `{ t, id?, cls?, x, y, w, h, text?, c? }`
+    /// in game pixels; boxes with `display: none` are left out.
+    pub fn tree(&self) -> Json {
+        match &self.root {
+            Some(root) => tree_node(root),
+            None => Json::Null,
+        }
+    }
+
     /// The id of the topmost element with an id under the point, or "".
     pub fn id_at(&self, x: f64, y: f64) -> String {
         match &self.root {
@@ -234,6 +244,31 @@ impl Ui {
             None => String::new(),
         }
     }
+}
+
+fn tree_node(el: &Rc<RefCell<EVGElement>>) -> Json {
+    use rg_core::json::member;
+    let e = el.borrow();
+    let r = |v: f64| Json::Num((v * 10.0).round() / 10.0);
+    let mut m = vec![member("t", Json::Str(e.tag_name.clone()))];
+    if !e.id.is_empty() {
+        m.push(member("id", Json::Str(e.id.clone())));
+    }
+    if !e.class_name.is_empty() && e.tag_name != TEXT_RUN {
+        m.push(member("cls", Json::Str(e.class_name.clone())));
+    }
+    m.push(member("x", r(e.calculated_x)));
+    m.push(member("y", r(e.calculated_y)));
+    m.push(member("w", r(e.calculated_width)));
+    m.push(member("h", r(e.calculated_height)));
+    if !e.text_content.is_empty() {
+        m.push(member("text", Json::Str(e.text_content.clone())));
+    }
+    let kids: Vec<Json> = e.children.iter().filter(|c| c.borrow().display != "none").map(tree_node).collect();
+    if !kids.is_empty() {
+        m.push(member("c", Json::Arr(kids)));
+    }
+    Json::Obj(m)
 }
 
 fn collect_boxes(el: &Rc<RefCell<EVGElement>>, ids: &[String], out: &mut Vec<rg_core::json::JsonMember>) {

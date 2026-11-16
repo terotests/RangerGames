@@ -19,6 +19,8 @@
 //!   rg_view(i)                            0 scale, 1 x offset, 2 y offset, 3 game width, 4 game height
 //!   rg_read(path, len)                    a file's bytes into the result (rg_result_ptr/len); its size or -1
 //!   rg_games_ptr/len                      the games as JSON
+//!   rg_eval(src, len)                     runs JS in the game's script; its value (or error) into the result; 0 ok, 1 error
+//!   rg_tree()                             the last frame's laid-out element tree as JSON into the result; its length
 
 use rg_core::host::commands_json;
 use rg_core::json::Json;
@@ -204,6 +206,29 @@ pub extern "C" fn rg_games() -> usize {
         let text = Json::Arr(list).write();
         GAMES.with(|b| *b.borrow_mut() = text.into_bytes());
         GAMES.with(|b| b.borrow().len())
+    })
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rg_eval(p: *const u8, n: usize) -> i32 {
+    let src = text(p, n);
+    with(|e| {
+        let (r, ok) = match e.eval(&src) {
+            Ok(v) => (v, 0),
+            Err(err) => (err, 1),
+        };
+        RESULT.with(|b| *b.borrow_mut() = r.into_bytes());
+        ok
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn rg_tree() -> usize {
+    with(|e| {
+        let t = e.ui.tree().write();
+        let n = t.len();
+        RESULT.with(|b| *b.borrow_mut() = t.into_bytes());
+        n
     })
 }
 
