@@ -91,6 +91,7 @@
 
   Audio.prototype.play = function (name, opts) {
     if (!this.ready()) return;
+    this.fxAt = Date.now();
     var vol = opts && opts.volume !== undefined ? opts.volume : 1;
     var pitch = opts && opts.pitch ? opts.pitch : 1;
     var fx = EFFECTS[name];
@@ -223,6 +224,12 @@
       this.speaking = s;
       return;
     }
+  };
+
+  // the page itself makes a sound (speech, or an effect in the last 0.6 s):
+  // rg.sensor("mic") tells the game, so it does not hear its own voice
+  Audio.prototype.busy = function () {
+    return !!(this.speaking || this.waitingFor || (this.speech && this.speech.length) || (this.fxAt && Date.now() - this.fxAt < 600));
   };
 
   Audio.prototype.startMusic = function (name, opts) {

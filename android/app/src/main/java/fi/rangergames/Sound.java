@@ -81,6 +81,8 @@ final class Sound implements Runnable {
     private Thread thread;
     /** samples written so far: the mixer's clock */
     private volatile long now;
+    /** when the mixer last played something (System.currentTimeMillis), for {@link #busy} */
+    private volatile long loudAt;
     // the music: read by the mixer thread
     private volatile Tune tune;
     private volatile double tuneVol = 1;
@@ -104,6 +106,14 @@ final class Sound implements Runnable {
             }
         }
         thread = null;
+    }
+
+    /**
+     * The phone itself speaks or plays a sound (or did a moment ago, the
+     * speaker's buffer still plays it): the microphone hears it too.
+     */
+    boolean busy() {
+        return System.currentTimeMillis() - loudAt < 450;
     }
 
     void setPaused(boolean p) {
@@ -376,6 +386,7 @@ final class Sound implements Runnable {
             } else {
                 sequence(start + frames);
                 java.util.Arrays.fill(mix, 0);
+                if (!voices.isEmpty()) loudAt = System.currentTimeMillis();
                 for (int vi = voices.size() - 1; vi >= 0; vi--) {
                     Voice v = voices.get(vi);
                     if (v.at >= start + frames) continue;
@@ -413,6 +424,7 @@ final class Sound implements Runnable {
                 // speech on top, the rest a little quieter while it talks
                 synchronized (speech) {
                     if (!speech.isEmpty()) {
+                        loudAt = System.currentTimeMillis();
                         for (int s = 0; s < frames; s++) mix[s] *= 0.5;
                         int s = 0;
                         while (s < frames && !speech.isEmpty()) {

@@ -152,8 +152,11 @@ var rg = {
   quit: function () { __cmds.push(["quit", "", null]); },
   // a phone sensor on or off: "location" (GPS; the game gets onLocation(fix)
   // with { lat, lon, accuracy, speed, bearing, altitude, time }) or
-  // "heading" (the compass; onHeading(deg), 0 = the phone's top points north).
-  // Failures come as onSensor("error", { sensor, reason }).
+  // "heading" (the compass; onHeading(deg), 0 = the phone's top points north)
+  // or "mic" (the microphone's loudness, no recording and no network: about 20
+  // times a second onMic({ db, talk }), db = loudness in dBFS, -100…0, talk =
+  // true while the phone itself speaks or plays a sound, so a game can ignore
+  // its own voice). Failures come as onSensor("error", { sensor, reason }).
   // a photo with the phone's camera: it goes to the phone's photo folder and
   // a small copy to "/save/photos/<id>.jpg" (thumbnail "<id>_t.jpg", for
   // <img src>); then onPhoto({ id, ok, path, thumb, w, h, reason }). id: letters,
@@ -431,6 +434,7 @@ function __frame(arg) {
       try { data = JSON.parse(e.id || "null"); } catch (err) { data = null; }
       if (e.key === "location" && typeof onLocation === "function") onLocation(data);
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
+      else if (e.key === "mic") { if (typeof onMic === "function" && data) onMic(data); }
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
       else if (e.key === "wheel") { if (typeof onWheel === "function" && data) onWheel(data.dy, data); }

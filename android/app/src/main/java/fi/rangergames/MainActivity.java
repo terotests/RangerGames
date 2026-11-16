@@ -49,6 +49,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private Painter painter;
     private final Sound sound = new Sound();
     private Sensors sensors;
+    private Mic mic;
     private Camera camera;
     private Bluetooth bluetooth;
     private SharedPreferences saves;
@@ -71,6 +72,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         painter = new Painter(getAssets());
         sensors = new Sensors(this, input);
+        mic = new Mic(this, input, sound);
         camera = new Camera(this, input);
         bluetooth = new Bluetooth(this, input);
         // the 3D scene (GLES, depth-tested) under the 2D view, which is
@@ -147,12 +149,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         sound.start();
         sound.setPaused(false);
         sensors.resume();
+        mic.resume();
     }
 
     @Override
     public void onRequestPermissionsResult(int code, String[] permissions, int[] results) {
         boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
         if (code == Sensors.PERMISSION_REQUEST) sensors.permissionResult(granted);
+        else if (code == Mic.PERMISSION_REQUEST) mic.permissionResult(granted);
         else if (code == Camera.REQ_PERM) camera.permissionResult(granted);
         else if (code == Bluetooth.REQ_PERM) {
             boolean all = results.length > 0;
@@ -176,6 +180,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         sound.setPaused(true);
         sound.stop();
         sensors.pause();
+        mic.pause();
     }
 
     @Override
@@ -379,7 +384,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "music": sound.music(name, opts); break;
             case "stop": sound.stopMusic(); break;
             case "vibrate": vibrate(args); break;
-            case "sensor": sensors.set(name, !Boolean.FALSE.equals(args)); break;
+            case "sensor":
+                sensors.set(name, !Boolean.FALSE.equals(args));
+                if (name.equals("mic") || name.equals("*")) mic.set(!Boolean.FALSE.equals(args));
+                break;
             case "camera": camera.take(name); break;
             case "photo-delete": camera.delete(name); break;
             case "net": bluetooth.command(name, opts); break;
