@@ -9,4 +9,5 @@ publish = false
 ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }
 rg_evg = { path = "../rg_evg" }
 cerxes = { path = "../../.deps/ComponentEngine/cerxes" }
+rangerthree = { path = "../rg_three" }
 rg_core = { path = "../rg_core" }

@@ -48,6 +48,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | --- | --- |
 | `pupu` – **Pupu hyppii** | Hyppelypeli: pupu pomppii pilviltä toisille, porkkanoita, jouset, särkyvät ja liikkuvat pilvet, taivas muuttuu illaksi ja yöksi. Pienille sopiva: kolme sydäntä, putoamisesta pelastuspilvi, reunat ovat seiniä. Ohjaus: pupu hyppää sormen kohdalle, napautus riittää (tai nuolinäppäimet). |
 | `ristinolla` – **Ristinolla** | Kaverin kanssa samalla puhelimella, puhelinta vastaan (helppo vastustaja, jonka lapsi voi voittaa) tai kahdella puhelimella Bluetoothin kautta (puhelimet yhdistetään käynnistimen ⚙️-asetuksista, ja peli alkaa, kun molemmat ovat Ristinollassa). |
+| `nappulasota` – **Nappulasota** | 3D-sotilaat 5 × 5 -laudalla: napauta omaa sotilasta ja vihreää ruutua, niin se kääntyy ja kävelee; vastustajan ruudussa se heilauttaa miekkaa ja vastustaja kaatuu. Puhelinta tai kaveria vastaan, laudan voi kääntää sormella. Kirjoitettu three.js:n nimillä (`<scene3d>`, glTF-malli, `AnimationMixer`, `onClick`), ks. [docs/three.md](docs/three.md). Sotilasmalli on oma, piirretty koodilla (`tools/three/make-soldier.mjs`). |
 | `laskupeli` – **Laskupeli** | Opetuspeli: hedelmien laskeminen, plussa 1–5, plussa 1–10, miinus; tähdet ja ennätykset. |
 | `nappikisa` – **Nappikisa** | Kaksinpeli: puhelin pöydällä pelaajien välissä, kumpi napauttaa ensin kun valo vaihtuu vihreäksi. Yläpuoli on käännetty vastapuolen pelaajalle. |
 | `haamujahti` – **Haamujahti** | 3D-labyrintti (raycasting EVG:llä): ammu haamut taikatähdillä, avaa lukitut ovet laskutehtävillä, kolme kerrosta ja lopussa Mörkö. Ohjaus: nuolinapit ja tähtinappi (tai nuolinäppäimet ja välilyönti). |
@@ -138,6 +139,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
 | `rg.vibrate(ms \| [kuvio])` | värinä |
 | `rg.save(avain, arvo)`, `rg.load(avain, oletus)` | tallennus (`/save/<peli>.json` → localStorage / Android) |
+| `<scene3d>`, `THREE` | 3D three.js:n nimillä kuten React Three Fiberissä: `<mesh>`, `<boxGeometry args>`, `<meshStandardMaterial>`, valot, kamera, `<orbitControls>`, glTF-mallit (`GLTFLoader`, `<primitive object>`), luurankoanimaatio (`AnimationMixer`, `crossFadeTo`, markerit), napautus meshiin (`onClick`) ja `rg.raycast(x, y)`. Ks. [docs/three.md](docs/three.md) ja `games/nappulasota` |
 | `rg.three(op, args)` | 3D-kerros (three.js): `scene camera light add set remove clear`; `globe` piirtää karttapallon (maiden ääriviivat ortografisena pallona, leikkaus horisontissa Rustissa, ks. `crates/rg_engine/src/globe.rs`) |
 | `rg.sim(op, args)`, `rg.simState` | vesi ja hiekka soluruudukossa (Rustissa, `crates/rg_engine/src/fluid.rs`): `init rect line circle pour erase wheel valve pipe source drain zone remove clearFluid clear`; `rg.simState` kertoo hyrrien kulman ja nopeuden, vyöhykkeiden vesimäärän ja pinnan korkeuden sekä kaivojen nielemän määrän |
 | `rg.random()`, `rg.range()`, `rg.pick()`, `rg.shuffle()` | siemenellinen satunnaisuus (sama kaikilla alustoilla kuin rg_core:n `Rng`) |

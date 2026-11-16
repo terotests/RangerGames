@@ -974,15 +974,15 @@ impl Scene {
 }
 
 /// The colour quantized to 0..255 channels, so that close shades merge.
-fn q(c: V3) -> [u8; 3] {
+pub(crate) fn q(c: V3) -> [u8; 3] {
     [(c[0].clamp(0.0, 1.0) * 255.0).round() as u8, (c[1].clamp(0.0, 1.0) * 255.0).round() as u8, (c[2].clamp(0.0, 1.0) * 255.0).round() as u8]
 }
-fn rgb_f(c: [u8; 3]) -> V3 { [c[0] as f64 / 255.0, c[1] as f64 / 255.0, c[2] as f64 / 255.0] }
+pub(crate) fn rgb_f(c: [u8; 3]) -> V3 { [c[0] as f64 / 255.0, c[1] as f64 / 255.0, c[2] as f64 / 255.0] }
 
 /// Pushes a polygon's corners half a pixel out from its centre, so that the
 /// anti-aliased edges of two neighbouring faces overlap instead of leaving a
 /// hairline of background between them.
-fn grow(pts: Vec<f32>) -> Vec<f32> {
+pub(crate) fn grow(pts: Vec<f32>) -> Vec<f32> {
     let n = (pts.len() / 2) as f32;
     let (mut cx, mut cy) = (0.0f32, 0.0f32);
     for k in (0..pts.len()).step_by(2) {
