@@ -318,13 +318,11 @@
   fitBtn.addEventListener("click", function () { state.fit = !state.fit; store.set("fit", state.fit ? "1" : "0"); setFit(); fit(); });
   $("reload").addEventListener("click", boot);
   $("full").addEventListener("click", function () { location.href = screenUrl(); });
-  // a direct link: playground.html?game=id opens the game in the phone frame
-  // on a computer and full screen on a phone (see the redirect at the top)
+  // a direct link: a game's own page peli/<id>/ (build-web.sh) opens it in
+  // the full window on that page; the menu's link is the playground's own
   var linkBtn = $("link"), linkTimer = 0;
   linkBtn.addEventListener("click", function () {
-    var u = new URL(location.href);
-    u.search = state.game ? "?game=" + encodeURIComponent(state.game) : "";
-    u.hash = "";
+    var u = new URL(state.game ? "peli/" + encodeURIComponent(state.game) + "/" : "playground.html", location.href);
     var said = function (t) {
       linkBtn.textContent = t; clearTimeout(linkTimer);
       linkTimer = setTimeout(function () { linkBtn.textContent = "🔗 Kopioi linkki"; }, 1800);

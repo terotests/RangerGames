@@ -67,7 +67,10 @@
     // size in dp (Huawei P20: 360 × 720), zoomed to fit the window, so the
     // menus look as they do on the phone instead of stretching across the
     // screen. ?mode=mobile or ?mode=frame chooses by hand.
-    var params = new URLSearchParams(location.search), mode = params.get("mode");
+    // a game's own page (peli/<id>/, made by build-web.sh) sets RG_PAGE: that
+    // game, full window, whatever the device
+    var page = window.RG_PAGE || {};
+    var params = new URLSearchParams(location.search), mode = params.get("mode") || page.mode;
     var embedded = window.top !== window;
     var coarse = window.matchMedia && matchMedia("(pointer: coarse)").matches;
     var framed = mode === "frame" || (mode !== "mobile" && !embedded && !coarse && innerWidth > 600);
@@ -117,6 +120,20 @@
       };
       if (coarse || mode === "mobile") document.addEventListener("pointerup", goFull, true);
     }
+    // ?pack=<url>: one game made with the Games MCP on sliqtly.com, played
+    // from its secret link (sliqtly.com/games/p/<token> sends the browser
+    // here). Only those addresses are taken, so this page cannot be made to
+    // show just anyone's pack; ?game= names the game to start.
+    function gamePack() {
+      var v = params.get("pack");
+      if (!v) return "";
+      try {
+        var u = new URL(v, location.href);
+        var ok = /^\/games\/p\/[A-Za-z0-9_-]{20,64}\/game\.rgpk$/.test(u.pathname) &&
+          (u.origin === "https://sliqtly.com" || u.origin === location.origin || /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(u.origin));
+        return ok ? u.href : "";
+      } catch (e) { return ""; }
+    }
     var host = new RgHost({
       fit: fit,
       canvas: document.getElementById("screen"),
@@ -126,7 +143,7 @@
       debug: document.getElementById("debug")
     });
     window.rgHost = host;
-    host.boot("rg_web.wasm", "games.rgpk").catch(function (e) {
+    host.boot("rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
       console.error(e);
       status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
     });
