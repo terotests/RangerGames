@@ -137,6 +137,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `rg.speechOn(id?)`, `rg.setSpeech(id, on)` | puhuuko peli: pelaajan valinta käynnistimen ⚙️-asetuksista, muuten `game.json`:n `"speech"` (oletus `true`; `false` = hiljainen, ellei puhetta laiteta päälle). Kun puhe on pois, `rg.say` ei sano mitään |
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
 | `rg.vibrate(ms \| [kuvio])` | värinä |
+| `rg.copy(teksti)` | teksti leikepöydälle (napautuksesta) |
 | `rg.save(avain, arvo)`, `rg.load(avain, oletus)` | tallennus (`/save/<peli>.json` → localStorage / Android) |
 | `rg.three(op, args)` | 3D-kerros (three.js): `scene camera light add set remove clear`; `globe` piirtää karttapallon (maiden ääriviivat ortografisena pallona, leikkaus horisontissa Rustissa, ks. `crates/rg_engine/src/globe.rs`) |
 | `rg.sim(op, args)`, `rg.simState` | vesi ja hiekka soluruudukossa (Rustissa, `crates/rg_engine/src/fluid.rs`): `init rect line circle pour erase wheel valve pipe source drain zone remove clearFluid clear`; `rg.simState` kertoo hyrrien kulman ja nopeuden, vyöhykkeiden vesimäärän ja pinnan korkeuden sekä kaivojen nielemän määrän |

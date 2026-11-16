@@ -141,6 +141,9 @@ var rg = {
   stopMusic: function () { __cmds.push(["stop", "music", null]); },
   // a vibration in milliseconds, or a pattern [on, off, on, …]
   vibrate: function (ms) { __cmds.push(["vibrate", "", ms === undefined ? 30 : ms]); },
+  // puts text on the clipboard (call it from a tap: a browser allows it
+  // only then)
+  copy: function (text) { __cmds.push(["copy", "", String(text)]); },
   save: function (key, value) {
     __saved[key] = value;
     __cmds.push(["save", String(key), value === undefined ? null : value]);
