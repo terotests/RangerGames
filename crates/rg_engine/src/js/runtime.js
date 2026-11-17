@@ -54,11 +54,19 @@ function __plain(s) {
 }
 
 var __seed = 12345;
+// A sound file named from the game's folder ("sounds/hop.wav") is read from
+// the virtual directory as /games/<id>/sounds/hop.wav, as rg.asset does for
+// pictures; a built-in effect's name ("jump") and an absolute path stay.
+function __file(name) {
+  var n = String(name);
+  if (n.charAt(0) === "/" || (n.indexOf("/") < 0 && n.indexOf(".") < 0)) return n;
+  return __dir + "/" + n;
+}
 var rg = {
   // sounds: a built-in effect's name ("jump", "coin", "click", "win",
   // "lose", "pop", "hit", "tick", "whoosh", "note") or a file in the game's
   // folder ("sounds/hop.wav"); opts: { volume, pitch, freq }
-  sound: function (name, opts) { __cmds.push(["sound", String(name), opts === undefined ? null : opts]); },
+  sound: function (name, opts) { __cmds.push(["sound", __file(name), opts === undefined ? null : opts]); },
   // speech: voice clips rendered by crates/rg_voice from voice/fi.json (Finnish)
   // and voice/<lang>/*.json (English "en", Spanish "es") into /games/_voice/<lang>.
   // rg.say("hyva"), or a list said one after another: rg.say(["valitse", "punainen"]).
@@ -137,7 +145,7 @@ var rg = {
     var v = rg.lang === "en" ? en : rg.lang === "es" ? es : fi;
     return v === undefined || v === null ? fi : v;
   },
-  music: function (name, opts) { __cmds.push(["music", String(name), opts === undefined ? null : opts]); },
+  music: function (name, opts) { __cmds.push(["music", __file(name), opts === undefined ? null : opts]); },
   stopMusic: function () { __cmds.push(["stop", "music", null]); },
   // a vibration in milliseconds, or a pattern [on, off, on, …]
   vibrate: function (ms) { __cmds.push(["vibrate", "", ms === undefined ? 30 : ms]); },
