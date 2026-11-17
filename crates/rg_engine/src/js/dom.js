@@ -20,7 +20,7 @@ var __rgDom = (function () {
   // a border is drawn when it has a width
   var BASE = "html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; }\n" +
     "body { font-family: 'Noto Sans'; font-size: 14px; color: #000000; line-height: normal; }\n" +
-    "body * { box-sizing: border-box; position: relative; flex-shrink: 0; min-width: 0; min-height: 0; border-style: solid; border-width: 0; margin: 0; padding: 0; }\n" +
+    "body * { box-sizing: border-box; position: relative; flex-shrink: 0; border-style: solid; border-width: 0; margin: 0; padding: 0; }\n" +
     "div, img { display: flex; flex-direction: column; }\n" +
     "svg { display: block; overflow: visible; }\n" +
     "span, p, label, small, h1, h2, h3, h4 { display: block; font-size: inherit; font-weight: inherit; }\n" +
