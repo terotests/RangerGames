@@ -128,7 +128,7 @@ function pickCard(i: number) {
 
 function wheelPos() {
   const c = C(), R = flats() / Math.sqrt(3);
-  return { x: c.x + R + 34, y: c.y + open / 2 + 30 };
+  return { x: c.x + R + 26, y: c.y - open / 2 + WORM + 8 };
 }
 
 function onPointerDown(x: number, y: number) {
@@ -209,24 +209,33 @@ function onBack() { grab = ""; back(); }
 // ---- drawing -----------------------------------------------------------------------
 // the adjustable wrench about the nut at (cx, cy): mouth `o` px, `f` the nut's
 // width, turned by `a`, scale s (handle length)
+// The head, the fixed (upper) jaw and the handle are one rigid piece; only the lower
+// jaw slides along its slot, moved by the worm wheel through the rack under it.
+const WORM = 128;      // the worm wheel's top, below the fixed jaw's face (px at k = 1)
 function Adjustable(cx: number, cy: number, f: number, o: number, a: number, k: number) {
   const R = f / Math.sqrt(3);
   const shift = o < f - 1 ? (f - o) * 0.6 + 26 * k : 0;          // too narrow: it sits beside the nut
   const X = (v: number) => cx + v + shift;
   const T = (pts: number[][]) => turn(pts, cx, cy, a);
   const out: any[] = [];
-  const top = cy - o / 2, bot = cy + o / 2;
-  const head = [[X(R + 6 * k), top - 26 * k], [X(R + 64 * k), top - 18 * k], [X(R + 70 * k), bot + 40 * k], [X(R + 6 * k), bot + 40 * k]];
+  const top = cy - o / 2, bot = cy + o / 2;          // the fixed jaw's face, the moving jaw's face
+  const wy = top + WORM * k, mid = top + 64 * k;     // the worm, the handle's line: fixed on the head
+  const head = [[X(R + 6 * k), top - 26 * k], [X(R + 64 * k), top - 18 * k], [X(R + 70 * k), wy + 24 * k], [X(R + 6 * k), wy + 24 * k]];
   out.push(Poly(T(head), "#ced4da", "#495057", 2));
-  out.push(Poly(T([[X(R + 50 * k), cy - 13 * k], [X(R + 240 * k), cy - 10 * k], [X(R + 248 * k), cy], [X(R + 240 * k), cy + 10 * k], [X(R + 50 * k), cy + 13 * k]]), "#ced4da", "#495057", 2));
-  out.push(Poly(T(rect(X(R + 90 * k), cy - 4 * k, 120 * k, 8 * k)), "#adb5bd"));
+  out.push(Poly(T([[X(R + 50 * k), mid - 13 * k], [X(R + 240 * k), mid - 10 * k], [X(R + 248 * k), mid], [X(R + 240 * k), mid + 10 * k], [X(R + 50 * k), mid + 13 * k]]), "#ced4da", "#495057", 2));
+  out.push(Poly(T(rect(X(R + 90 * k), mid - 4 * k, 120 * k, 8 * k)), "#adb5bd"));
   out.push(Poly(T([[X(-R - 8 * k), top - 24 * k], [X(R + 10 * k), top - 26 * k], [X(R + 10 * k), top], [X(-R - 8 * k), top]]), "#dee2e6", "#495057", 2));  // fixed jaw
-  out.push(Poly(T([[X(-R - 6 * k), bot], [X(R + 10 * k), bot], [X(R + 10 * k), bot + 22 * k], [X(-R - 2 * k), bot + 18 * k]]), "#e9ecef", "#495057", 2));  // moving jaw
-  // the worm wheel with its ridges
-  const wx = X(R + 26 * k), wy = bot + 22 * k;
+  // the slot the moving jaw runs in
+  out.push(Poly(T(rect(X(R + 10 * k), top, 10 * k, wy - top)), "#868e96"));
+  // the moving jaw and its rack down to the worm
+  out.push(Poly(T(rect(X(R + 10 * k), bot + 14 * k, 10 * k, Math.max(0, wy - bot - 14 * k))), "#adb5bd", "#495057", 1));
+  for (let yy = bot + 18 * k; yy < wy - 2 * k; yy += 5 * k) out.push(Line(T([[X(R + 10 * k), yy], [X(R + 20 * k), yy]]), "#495057", 1));
+  out.push(Poly(T([[X(-R - 6 * k), bot], [X(R + 20 * k), bot], [X(R + 20 * k), bot + 22 * k], [X(-R - 2 * k), bot + 18 * k]]), "#e9ecef", "#495057", 2));  // moving jaw
+  // the worm wheel, its ridges turning as the jaw moves
+  const wx = X(R + 26 * k);
   out.push(Poly(T(rect(wx - 14 * k, wy, 28 * k, 16 * k)), "#868e96", "#343a40", 1.5));
-  for (let i = 0; i < 5; i++) {
-    const yy = wy + ((i * 4 + open * 1.3) % 16) * k;
+  for (let i = 0; i < 4; i++) {
+    const yy = wy + ((i * 4 + o * 1.3) % 16) * k;
     out.push(Line(T([[wx - 14 * k, yy], [wx + 14 * k, yy]]), "#343a40", 1.5));
   }
   return out;
