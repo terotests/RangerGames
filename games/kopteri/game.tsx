@@ -434,8 +434,9 @@ function tick(dt: number, input: any) {
     if (heli.lon > 180) heli.lon -= 360;
     if (heli.lon < -180) heli.lon += 360;
   } else {
-    heli.x = rg.clamp(heli.x + heli.vx * TSPEED * dt, MAPINFO.X0 + 20, MAPINFO.X0 + MAPINFO.W - 20);
-    heli.z = rg.clamp(heli.z + heli.vy * TSPEED * dt, MAPINFO.Z0 + 20, MAPINFO.Z0 + MAPINFO.H - 20);
+    // the helicopter stays over the city; the map goes on past that, so its edge never shows
+    heli.x = rg.clamp(heli.x + heli.vx * TSPEED * dt, MAPINFO.FX0, MAPINFO.FX1);
+    heli.z = rg.clamp(heli.z + heli.vy * TSPEED * dt, MAPINFO.FZ0, MAPINFO.FZ1);
   }
 
   underClock += dt;
