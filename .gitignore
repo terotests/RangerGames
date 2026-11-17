@@ -15,3 +15,4 @@ games/tampere/
 __pycache__/
 games/_voice/
 tools/luut/raw/
+/build

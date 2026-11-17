@@ -8,8 +8,9 @@ writes
                                engine's globe (rg.three("globe")), grouped by
                                continent, and the targets of each stage with
                                Finnish names
-  games/kopteri/map/C_R.png    Tampere from helicopter height: the Liikenneretki
-                               map tiles (games/tampere/tiles) at 1.5 px a metre
+  games/kopteri/map/C_R.png    Tampere from helicopter height at 1.5 px a metre,
+                               from the tiles of tools/kopteri/build_town.py
+                               (TOWN=<its OUT dir>, default build/town)
   voice/fi.json                the clips "Etsi Afrikka." etc. (ids k_<id>)
 
 Country outlines: Natural Earth 1:110m Admin 0 – Countries (public domain,
@@ -70,7 +71,11 @@ TAMPERE = [
     ("tammerkoski", "Tammerkoski", "🌊", -90, -160),
     ("nasijarvi", "Näsijärvi", "⛵", -1400, -690),
 ]
-MAP_X0, MAP_Z0, MAP_W, MAP_H = -1460, -780, 2400, 1400
+# the drawn map (tools/kopteri/build_town.py with BOUNDS=-2560,-1880,2040,1720), and
+# inside it the area the helicopter may fly: the centre and 600 m round it, so that
+# the map never ends on the screen
+MAP_X0, MAP_Z0, MAP_W, MAP_H = -2560, -1880, 4600, 3600
+FLY = (-2060, -1380, 1540, 1220)
 SRC_PPM, SRC_TILE = 3, 100
 PPM, TILE = 1.5, 400
 
@@ -196,13 +201,14 @@ def world(src):
             [{"id": t[0], "name": t[1], "icon": t[2], "x": t[3], "z": t[4]} for t in TAMPERE], ensure_ascii=False))
         o.write("export const MAPINFO: any = %s;\n" % json.dumps(
             {"X0": MAP_X0, "Z0": MAP_Z0, "W": MAP_W, "H": MAP_H, "PPM": PPM, "TILE": TILE,
+             "FX0": FLY[0], "FZ0": FLY[1], "FX1": FLY[2], "FZ1": FLY[3],
              "NCOL": math.ceil(MAP_W / TILE), "NROW": math.ceil(MAP_H / TILE)}))
     print("world.ts: %d regions, %d points, %d KB" % (len(regions), npts, os.path.getsize(path) // 1024))
     return stages
 
 
 def tampere_tiles():
-    src = os.path.join(ROOT, "games", "tampere", "tiles")
+    src = os.path.join(os.environ.get("TOWN", os.path.join(ROOT, "build", "town")), "tiles")
     ncol, nrow = MAP_W // SRC_TILE, MAP_H // SRC_TILE
     s = SRC_TILE * SRC_PPM
     full = Image.new("RGB", (ncol * s, nrow * s))
