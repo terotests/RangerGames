@@ -18,7 +18,7 @@
 // right first tries up, two misses down). The stars grow the dragon; the
 // progress page shows the week's reading days and the story speeds.
 import { WORDS, SENTENCES, STORIES, Word, Sentence, Story, plain, syllables, syllableCount, wordsOf, wordPool, distractors, wordClip } from "lib/data";
-import { Ear, newEar, hear, resetCount, needVoice } from "lib/voice";
+import { Ear, newEar, hear, resetCount, needVoice, doneReading, readProgress } from "lib/voice";
 
 type Mode = "menu" | "play" | "done" | "story" | "progress";
 type Kind = "flash" | "syll" | "sent" | "story";
@@ -234,9 +234,10 @@ function wordHidden(): boolean {
   return kind() === "flash" && phase !== "solved" && wrong.length === 0 && t - shownAt > flashTime();
 }
 
+// the syllables to read now (how long the child may take)
 function needed(): number {
-  if (kind() === "sent") return needVoice(syllableCount(sent.t));
-  return needVoice(syllables(word).length);
+  if (kind() === "sent") return syllableCount(sent.t);
+  return syllables(word).length;
 }
 
 // the voice was enough: on to the answer
@@ -483,8 +484,8 @@ function tick(dt: number) {
       if (kind() === "syll") {
         // every new burst of voice lights the next syllable
         if (ear.bursts > sylBursts && !ear.on) sylNext(true);
-      } else if (ear.voiced >= needed()) heard(true);
-    } else if (phase === "whole" && ear.voiced >= needVoice(syllables(word).length)) {
+      } else if (doneReading(ear, needed())) heard(true);
+    } else if (phase === "whole" && doneReading(ear, syllables(word).length)) {
       heard(true);
     }
     if (phase === "solved" && t - solvedAt > 1.8) {
@@ -654,7 +655,7 @@ function StepBadge() {
 // the voice meter under the text: fills as the child reads aloud
 function ReadMeter(y: number, need: number) {
   const w = Math.min(280, width - 60);
-  const f = Math.max(0, Math.min(1, ear.voiced / need));
+  const f = readProgress(ear, need);
   const ok = heardAt >= 0 && phase !== "read" && phase !== "whole";
   const out: any[] = [];
   if (micOn()) {
@@ -663,7 +664,7 @@ function ReadMeter(y: number, need: number) {
         <div className={ear.on ? "mfill voice" : "mfill"} style={{ width: Math.max(14, w * (ok ? 1 : f)) }} />
       </div>
     );
-    out.push(<div className="mlabel" style={{ left: 0, top: y + 22, width }}>{ok ? "🎤 Kuulin, kun luit!" : ear.on ? "🎤 Kuuntelen…" : "🎤 Lue ääneen"}</div>);
+    out.push(<div className="mlabel" style={{ left: 0, top: y + 22, width }}>{ok ? "🎤 Kuulin, kun luit!" : ear.on || ear.voiced > 0 ? "🎤 Kuuntelen… lue rauhassa" : "🎤 Lue ääneen"}</div>);
   }
   // without a microphone (or if it does not catch a quiet reader) a button
   const late = t - shownAt > (micOn() ? 5 : 0.8);
@@ -786,7 +787,7 @@ function Play() {
     for (const e of r.out) out.push(e);
     if (phase === "read" || phase === "whole") {
       if (phase === "whole") out.push(<div className="ask" style={{ left: 0, top: r.bottom + 56, width }}>Lue koko sana!</div>);
-      for (const e of ReadMeter(Math.min(height - 130, r.bottom + 100), phase === "whole" ? needVoice(syllables(word).length) : 0.3)) out.push(e);
+      for (const e of ReadMeter(Math.min(height - 130, r.bottom + 100), phase === "whole" ? syllables(word).length : 1)) out.push(e);
     } else {
       for (const e of Pictures()) out.push(e);
     }

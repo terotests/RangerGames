@@ -53,6 +53,27 @@ export function hear(e: Ear, db: number, talk: boolean, dt: number) {
   if (e.on) e.voiced += dt; else e.quiet += dt;
 }
 
+// Has the child read a text of n syllables? Children of this age often read
+// syllable by syllable with long pauses ("sam … mak … ko … hyp … pii"), so
+// listening never ends while they are still going: it needs about one burst
+// a syllable (or the voiced time of a fluent reader) AND then a real pause
+// of PAUSE seconds. If the reader is quiet and soft, a longer pause with some
+// voice also ends it.
+export const PAUSE = 2.0;
+export const GIVE_UP = 5.0;
+export function burstsFor(n: number): number { return Math.max(1, Math.ceil(n * 0.8)); }
+export function voicedFor(n: number): number { return Math.max(0.4, n * 0.2); }
+
+export function readProgress(e: Ear, n: number): number {
+  return Math.max(0, Math.min(1, Math.max(e.bursts / burstsFor(n), e.voiced / voicedFor(n))));
+}
+
+export function doneReading(e: Ear, n: number): boolean {
+  if (e.on || e.voiced <= 0) return false;
+  if (readProgress(e, n) >= 1 && e.quiet >= PAUSE) return true;
+  return e.quiet >= GIVE_UP && e.voiced >= needVoice(n);
+}
+
 // how much voice reading a text of n syllables aloud needs, at least: a slow
 // reader voices about 0.2 s a syllable; a third of that is asked, so pauses,
 // soft sounds and a quiet room never block the child
