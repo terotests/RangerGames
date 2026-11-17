@@ -154,6 +154,9 @@ var rg = {
   // puts text on the clipboard (call it from a tap: a browser allows it
   // only then)
   copy: function (text) { __cmds.push(["copy", "", String(text)]); },
+  // the web build opens another page of the same site ("/games/p/..."), as a
+  // link does; elsewhere nothing happens
+  open: function (path) { __cmds.push(["open", "", String(path)]); },
   save: function (key, value) {
     __saved[key] = value;
     __cmds.push(["save", String(key), value === undefined ? null : value]);
