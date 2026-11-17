@@ -17,7 +17,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 cp -r web/* "$OUT"/
 cp "target/wasm32-wasip1/$PROFILE/rg_web.wasm" "$OUT/rg_web.wasm"
 if command -v wasm-opt >/dev/null 2>&1 && [[ "$PROFILE" == release ]]; then
-  wasm-opt -O2 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
+  wasm-opt -Oz --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
 fi
 # RG_PUBLIC=1 (GitHub Pages): a public copy of games/ without private games
 # (Kolmården with the family photos) and without git-ignored *.local.* files
