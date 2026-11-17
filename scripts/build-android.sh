@@ -22,8 +22,8 @@ rm -rf "$JNI" "$ASSETS"/web
 mkdir -p "$ASSETS/fonts"
 
 # With the RangerDOM dependencies (scripts/setup-dom.sh) the engine is
-# crates/rg_web_dom/android: the same calls, and RangerDOM as a choice in the
-# menu's settings (EVG stays the default). Without them, crates/rg_android.
+# crates/rg_web_dom/android: the same calls, drawn with RangerDOM by default
+# (EVG stays a choice in the menu's settings). Without them, crates/rg_android.
 DOM=0
 if [[ -d .deps/domtree && -d .deps/RangerDOM && "${RG_NO_DOM:-}" != 1 ]]; then DOM=1; fi
 build() { # rust target, clang prefix, android abi

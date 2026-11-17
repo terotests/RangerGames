@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: AGPL-3.0-or-later
 # The Android engine (crates/rg_android's JNI calls) with the RangerDOM
-# renderer as a choice in the menu's settings (EVG stays the default on the
-# phone). scripts/build-android.sh builds this one, as librg_android.so,
+# renderer, the phone's default (EVG stays a choice in the menu's settings). scripts/build-android.sh builds this one, as librg_android.so,
 # when the RangerDOM dependencies are there (scripts/setup-dom.sh).
 [package]
 name = "rg_android_dom"

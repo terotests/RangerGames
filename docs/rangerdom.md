@@ -9,7 +9,7 @@ asetellaan EVG:llä (RangerDOMin `DomPage` / `DomView`).
 - **Web ja Sliqtly Games:** RangerDOM on oletus. `rg_web.wasm` on
   RangerDOM-moottori ja `rg_web_evg.wasm` vanha EVG-moottori (`?evg=1`).
   Jos RangerDOMin riippuvuudet puuttuvat buildista, `rg_web.wasm` on EVG-moottori.
-- **Puhelin:** APK:ssa ovat molemmat, oletus on EVG. Valikon ⚙️-asetuksissa
+- **Puhelin:** APK:ssa ovat molemmat, oletus on RangerDOM (Tero testasi puhelimessa 2026-11-18). Valikon ⚙️-asetuksissa
   on kohta *Pelimoottori: EVG / RangerDOM*.
 - Valinta (`rg.setRenderer("dom" | "evg")`, asetus `renderer`) koskee kaikkia
   pelejä ja käynnistää käynnissä olevan pelin uudelleen. `rg.renderer` kertoo
@@ -82,7 +82,7 @@ Hyvää:
 
 Huonoa:
 - Hitaampi: näkymän vaihto maksaa 10–30 ms natiivisti, vanhalla puhelimella
-  moninkertaisesti. Siksi puhelimen oletus on EVG.
+  moninkertaisesti (puhelimessa käytännössä riittävän nopea).
 - Isompi wasm ja hitaampi käynnistys.
 - Kaksi EVG-versiota rinnakkain, kunnes moottorin oma EVG päivitetään
   samaan versioon.
