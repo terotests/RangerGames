@@ -62,6 +62,7 @@
   "kk_d_valmis_lokero": "Everyone got their favourite food!",
   "kk_d_vihje": "The arrow shows the next one. Think about which end the data structure gives things out from.",
   "kk_l4": "A function is a machine with a recipe. You make the recipe once, and the machine follows it every time it is called.",
+  "kk_f_arg": "The machine gets a number, and it is kept in a memory slot named num. This name is the function's argument. In the recipe, num means the number the machine just got.",
   "kk_f_luku": "Look at the number each one brings and the number it wants back. Make one recipe that works for everyone.",
   "kk_f_kysy": "This function answers yes or no. Make a recipe that says yes to exactly the right numbers.",
   "kk_f_kaksi": "Now the recipe has two steps: first one calculation, then another.",

@@ -62,6 +62,7 @@
   "kk_d_valmis_lokero": "¡Todos recibieron su comida favorita!",
   "kk_d_vihje": "La flecha muestra el siguiente. Piensa por qué lado da las cosas la estructura de datos.",
   "kk_l4": "Una función es una máquina con una receta. Haces la receta una vez, y la máquina la sigue cada vez que la llaman.",
+  "kk_f_arg": "La máquina recibe un número y se guarda en una memoria llamada num. Ese nombre es el argumento de la función. En la receta, num significa el número que la máquina acaba de recibir.",
   "kk_f_luku": "Mira qué número trae cada uno y cuál quiere de vuelta. Haz una receta que sirva para todos.",
   "kk_f_kysy": "Esta función responde sí o no. Haz una receta que diga sí justo a los números correctos.",
   "kk_f_kaksi": "Ahora la receta tiene dos pasos: primero una cuenta y luego otra.",
