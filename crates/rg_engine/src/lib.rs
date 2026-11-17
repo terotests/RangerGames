@@ -150,6 +150,9 @@ pub struct Engine {
     pub log: Vec<String>,
     /// the game the launcher command asked for, started after the frame
     pending: Option<String>,
+    /// the game whose own pack the host is fetching (web: every game but the
+    /// launcher is a separate pack, `/games/<id>/_pack.url` names its address)
+    pub waiting_pack: Option<String>,
     /// the game that lists the others (`launcher`)
     pub launcher: String,
     saved: Json,
@@ -198,6 +201,7 @@ impl Engine {
             error: String::new(),
             log: Vec::new(),
             pending: None,
+            waiting_pack: None,
             launcher: "launcher".to_string(),
             saved: Json::Obj(Vec::new()),
             settings: Json::Obj(Vec::new()),
@@ -373,6 +377,17 @@ impl Engine {
         self.game = Some(info.clone());
         self.fit();
         self.time = 0.0;
+        self.waiting_pack = None;
+        // the game's files are a pack of their own that is not here yet: the
+        // host fetches it, mounts it at the game's folder and calls
+        // pack_done, which starts the game
+        let marker = vfs::join(&info.dir, "_pack.url");
+        if self.vfs.exists(&marker) && !self.vfs.exists(&vfs::join(&info.dir, &info.entry)) {
+            let url = self.vfs.read_text(&marker).trim().to_string();
+            self.waiting_pack = Some(id.clone());
+            self.commands.push(HostCommand { kind: "pack".into(), name: id.clone(), args: Json::Str(url) });
+            return Ok(());
+        }
         let css_path = vfs::join(&info.dir, &info.style);
         self.ui.set_stylesheet(&self.vfs.read_text(&css_path));
         for e in self.ui.css_errors.clone() {
@@ -625,6 +640,20 @@ impl Engine {
                 self.render_error();
                 Err(e)
             }
+        }
+    }
+
+    /// The host fetched (`ok`) or failed to fetch the pack of game `id` that
+    /// `start` asked for. Starts it, unless another game was asked for since.
+    pub fn pack_done(&mut self, id: &str, ok: bool) -> Result<(), String> {
+        if self.waiting_pack.as_deref() != Some(id) {
+            return Ok(());
+        }
+        self.waiting_pack = None;
+        if ok {
+            self.start(id)
+        } else {
+            self.fail(format!("Pelin '{}' lataus ei onnistunut. Tarkista verkkoyhteys.", id))
         }
     }
 
