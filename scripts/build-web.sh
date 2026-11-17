@@ -17,7 +17,7 @@ rm -rf "$OUT"; mkdir -p "$OUT"
 cp -r web/* "$OUT"/
 cp "target/wasm32-wasip1/$PROFILE/rg_web.wasm" "$OUT/rg_web.wasm"
 if command -v wasm-opt >/dev/null 2>&1 && [[ "$PROFILE" == release ]]; then
-  wasm-opt -O2 --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
+  wasm-opt -O2 --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
 fi
 # RG_PUBLIC=1 (GitHub Pages): a public copy of games/ without private games
 # (Kolmården with the family photos) and without git-ignored *.local.* files
@@ -34,7 +34,7 @@ if [[ "${RG_PUBLIC:-}" == 1 ]]; then
 fi
 # The voice clips (games/_voice/*/*.wav, ~70 MB) are not in the pack: they
 # are files beside the page that audio.js fetches when a game first says
-# them, so the page starts after the engine and a ~20 MB pack. (The Android
+# them, so the page does not wait for them. (The Android
 # app packs everything, see build-android.sh: it works offline.)
 if [[ "$GAMES" == games ]]; then
   GAMES=dist/games-web
@@ -43,9 +43,29 @@ fi
 if [[ -d "$GAMES/_voice" ]]; then
   (cd "$GAMES" && find _voice -name '*.wav' | while read -r f; do mkdir -p "../web/games/$(dirname "$f")"; mv "$f" "../web/games/$f"; done)
 fi
-./target/release/rg_cli pack "$GAMES" "$OUT/games.rgpk"
+# games.rgpk holds only what the launcher needs: the launcher, the shared
+# folders (_voice/…) and every game's game.json and tile picture. Each game's
+# files are a pack of their own, packs/<id>.rgpk, which the page fetches when
+# the game is first opened (the game's _pack.url names it; the engine asks
+# the host for it), so the page starts after the engine and ~0.1 MB instead
+# of every game's pictures (~20 MB). The Android app packs everything.
+BASE=dist/games-base
+rm -rf "$BASE" "$OUT/packs"; mkdir -p "$BASE" "$OUT/packs"
+SIZES="\"rg_web.wasm\": $(stat -c %s "$OUT/rg_web.wasm")"
+for d in "$GAMES"/*/; do
+  id=$(basename "$d")
+  if [[ "$id" == launcher || "$id" == _* || ! -f "$d/game.json" ]]; then cp -r "$d" "$BASE/"; continue; fi
+  mkdir -p "$BASE/$id"
+  cp "$d/game.json" "$BASE/$id/"
+  img=$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).image || "")) } catch (e) {}' "$d/game.json")
+  if [[ -n "$img" && -f "$d/$img" ]]; then mkdir -p "$BASE/$id/$(dirname "$img")"; cp "$d/$img" "$BASE/$id/$img"; fi
+  printf 'packs/%s.rgpk' "$id" > "$BASE/$id/_pack.url"
+  ./target/release/rg_cli pack "$d" "$OUT/packs/$id.rgpk" >/dev/null
+  SIZES="$SIZES, \"packs/$id.rgpk\": $(stat -c %s "$OUT/packs/$id.rgpk")"
+done
+./target/release/rg_cli pack "$BASE" "$OUT/games.rgpk"
 # the real sizes for the loading screen's percentage (host.js)
-echo "{\"rg_web.wasm\": $(stat -c %s "$OUT/rg_web.wasm"), \"games.rgpk\": $(stat -c %s "$OUT/games.rgpk")}" > "$OUT/sizes.json"
+echo "{$SIZES, \"games.rgpk\": $(stat -c %s "$OUT/games.rgpk")}" > "$OUT/sizes.json"
 # the games' list for the playground (playground.html): every game.json not hidden
 node -e '
 const fs = require("fs"), path = require("path");

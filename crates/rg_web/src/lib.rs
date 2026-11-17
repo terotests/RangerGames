@@ -110,6 +110,22 @@ pub unsafe extern "C" fn rg_start(p: *const u8, n: usize) -> i32 {
     })
 }
 
+/// The pack of game `id` that a "pack" command asked for is mounted (`ok`
+/// 1) or could not be fetched (0).
+#[no_mangle]
+pub unsafe extern "C" fn rg_pack_done(p: *const u8, n: usize, ok: i32) -> i32 {
+    let id = text(p, n);
+    with(|e| {
+        let r = e.pack_done(&id, ok != 0);
+        publish(e);
+        if r.is_ok() {
+            0
+        } else {
+            1
+        }
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn rg_resize(w: f64, h: f64) {
     with(|e| e.resize(w, h));

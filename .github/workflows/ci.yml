@@ -50,6 +50,8 @@ jobs:
         run: node tools/peilit/solve.ts
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
+      - name: wasm-opt for the web engine (build-web.sh uses it when present)
+        run: sudo apt-get install -y binaryen
       - name: Web build (public games only, for GitHub Pages)
         run: RG_PUBLIC=1 bash scripts/build-web.sh
       - uses: actions/upload-artifact@v4

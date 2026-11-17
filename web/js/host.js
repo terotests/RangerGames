@@ -38,43 +38,13 @@
   Host.prototype.boot = function (wasmUrl, packUrl) {
     var self = this;
     var wasi = RgWasi.makeWasi(function (fd, line) { (fd === 2 ? console.warn : console.log)("[engine] " + line); });
-    // download progress on the loading screen: bytes so far of the files'
-    // real sizes (sizes.json from build-web.sh; Content-Length as a fallback,
-    // which is the compressed size when the server gzips)
-    var loaded = {}, total = {}, small = this.status.querySelector("small");
-    var show = function () {
-      var l = 0, t = 0, k;
-      for (k in loaded) l += loaded[k];
-      for (k in total) t += total[k];
-      if (!small) return;
-      var mb = function (n) { return (n / 1048576).toFixed(1).replace(".", ","); };
-      small.textContent = t > 0 && l <= t
-        ? "Ladataan… " + Math.floor(100 * l / t) + " %  (" + mb(l) + " / " + mb(t) + " Mt)"
-        : "Ladataan… " + mb(l) + " Mt";
-    };
+    var small = this.status.querySelector("small");
     var get = function (url, size) {
-      return fetch(url).then(function (r) {
-        if (!r.ok) throw new Error(url + ": " + r.status);
-        var len = size || +r.headers.get("Content-Length") || 0;
-        if (len) total[url] = len;
-        if (!r.body || !r.body.getReader) return r.arrayBuffer();
-        var reader = r.body.getReader(), parts = [], got = 0;
-        var pump = function () {
-          return reader.read().then(function (c) {
-            if (c.done) {
-              var out = new Uint8Array(got), at = 0;
-              for (var i = 0; i < parts.length; i++) { out.set(parts[i], at); at += parts[i].length; }
-              return out.buffer;
-            }
-            parts.push(c.value); got += c.value.length; loaded[url] = got; show();
-            return pump();
-          });
-        };
-        return pump();
-      });
+      return self.download(url, size, function (u, l, t) { self.progress(small, "Ladataan…", u, l, t); });
     };
     var sizes = fetch("sizes.json").then(function (r) { return r.ok ? r.json() : {}; }).catch(function () { return {}; });
     return sizes.then(function (sz) {
+      self.sizes = sz || {};
       return Promise.all([get(wasmUrl, sz[wasmUrl]), get(packUrl, sz[packUrl])]);
     }).then(function (both) {
       return WebAssembly.instantiate(both[0], { wasi_snapshot_preview1: wasi.imports }).then(function (res) {
@@ -91,11 +61,74 @@
         self.attach();
         self.resize();
         var first = params.get("game") || (global.RG_PAGE && global.RG_PAGE.game) || "";
-        self.start(first);
         self.status.style.display = "none";
+        self.start(first);
         global.requestAnimationFrame(function (t) { self.loop(t); });
       });
     });
+  };
+
+  // a file's bytes (ArrayBuffer), with onProgress(loaded, total) as they
+  // come; total is the real size from sizes.json (build-web.sh), else
+  // Content-Length (the compressed size when the server gzips)
+  Host.prototype.download = function (url, size, onProgress) {
+    return fetch(url).then(function (r) {
+      if (!r.ok) throw new Error(url + ": " + r.status);
+      var len = size || +r.headers.get("Content-Length") || 0;
+      if (!r.body || !r.body.getReader) return r.arrayBuffer();
+      var reader = r.body.getReader(), parts = [], got = 0;
+      var pump = function () {
+        return reader.read().then(function (c) {
+          if (c.done) {
+            var out = new Uint8Array(got), at = 0;
+            for (var i = 0; i < parts.length; i++) { out.set(parts[i], at); at += parts[i].length; }
+            return out.buffer;
+          }
+          parts.push(c.value); got += c.value.length;
+          if (onProgress) onProgress(url, got, len);
+          return pump();
+        });
+      };
+      return pump();
+    });
+  };
+
+  // the loading screen's text: every file's bytes so far of their sizes
+  Host.prototype.progress = function (small, label, url, got, len) {
+    var p = this.loading || (this.loading = { got: {}, len: {} });
+    p.got[url] = got; if (len) p.len[url] = len;
+    var l = 0, t = 0, k;
+    for (k in p.got) l += p.got[k];
+    for (k in p.len) t += p.len[k];
+    if (!small) return;
+    var mb = function (n) { return (n / 1048576).toFixed(1).replace(".", ","); };
+    small.textContent = t > 0 && l <= t
+      ? label + " " + Math.floor(100 * l / t) + " %  (" + mb(l) + " / " + mb(t) + " Mt)"
+      : label + " " + mb(l) + " Mt";
+  };
+
+  // a game's own pack (web: every game but the launcher is one, fetched when
+  // it is first opened): the loading screen over the game until it is
+  // mounted at /games/<id>, then the engine starts the game
+  Host.prototype.loadPack = function (id, url) {
+    var self = this, small = this.status.querySelector("small");
+    this.loading = null;
+    if (small) small.textContent = "Ladataan peliä…";
+    this.status.style.display = "";
+    this.download(url, (this.sizes || {})[url], function (u, l, t) { self.progress(small, "Ladataan peliä…", u, l, t); })
+      .then(function (buf) {
+        if (self.mountPack("/games/" + id, new Uint8Array(buf)) < 0) throw new Error(url + ": not a pack");
+        return true;
+      })
+      .catch(function (e) { console.warn(e); return false; })
+      .then(function (ok) {
+        self.status.style.display = "none";
+        var a = self.put(id);
+        self.x.rg_pack_done(a[0], a[1], ok ? 1 : 0);
+        self.free(a);
+        self.afterCall();
+        self.readView();
+      });
   };
 
   // text or bytes into the module's memory: [ptr, len] (freed by the caller)
@@ -430,6 +463,7 @@
         this.syncAddress();
         break;
       case "three": this.three.command(name, args); break;
+      case "pack": this.loadPack(name, String(args)); break;
       case "sensor": this.sensor(name, args !== false); break;
       case "net": if (this.net) this.net.command(name, args); break;
       case "camera": this.camera(name); break;
