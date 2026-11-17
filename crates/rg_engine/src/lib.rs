@@ -57,6 +57,10 @@ impl cerxes::vm::HostSync for WorldSync {
 /// Where the settings every game shares are kept (the language).
 const SETTINGS: &str = "/save/_settings.json";
 
+/// The least height (game units) a fixed-width game gets by default: the
+/// smallest phone screen the games are made for, 360 × 640.
+pub const MIN_HEIGHT: f64 = 640.0;
+
 /// A game's `game.json`, with defaults filled in.
 #[derive(Clone)]
 pub struct GameInfo {
@@ -69,6 +73,10 @@ pub struct GameInfo {
     /// the game's own coordinate size; 0 takes the screen's
     pub width: f64,
     pub height: f64,
+    /// with a fixed width only: the least height the game is laid out for.
+    /// A wide screen (a tablet, or one lying sideways) would leave less, so
+    /// the game is then letterboxed at this height instead (0 = never)
+    pub min_height: f64,
     pub icon: String,
     pub color: String,
     pub players: String,
@@ -106,6 +114,7 @@ impl GameInfo {
             style: s("style", "style.css"),
             width: j.get("width").as_num(0.0),
             height: j.get("height").as_num(0.0),
+            min_height: j.get("minHeight").as_num(MIN_HEIGHT),
             icon: s("icon", ""),
             color: s("color", "#4f7cff"),
             players: s("players", "1"),
@@ -255,9 +264,9 @@ impl Engine {
 
     fn fit(&mut self) {
         let (sw, sh) = (self.screen_w, self.screen_h);
-        let (gw, gh) = match &self.game {
-            Some(g) => (g.width, g.height),
-            None => (0.0, 0.0),
+        let (gw, gh, min_h) = match &self.game {
+            Some(g) => (g.width, g.height, g.min_height),
+            None => (0.0, 0.0, 0.0),
         };
         if gw > 0.0 && gh > 0.0 {
             // a fixed size, letterboxed
@@ -269,6 +278,11 @@ impl Engine {
             self.scale = sw / gw;
             self.ui.width = gw;
             self.ui.height = (sh / self.scale).floor();
+            if min_h > 0.0 && self.ui.height < min_h {
+                // too wide for the game (a tablet): full height, bars at the sides
+                self.scale = sh / min_h;
+                self.ui.height = min_h;
+            }
         } else {
             self.scale = 1.0;
             self.ui.width = sw;
