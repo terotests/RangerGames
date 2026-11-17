@@ -95,6 +95,9 @@
     border-radius: 17px; display: grid; place-items: center; }
   #phone .nav button:hover { background: rgba(255,255,255,.08); color: #fff; }
   #phone .nav svg { width: 20px; height: 20px; }
+  #phone.pad { border-radius: 34px; }
+  #phone.pad .glass { border-radius: 8px; }
+  #phone.pad .nav button { height: 30px; }
   #phone.shake { animation: shake .09s linear infinite; }
   @keyframes shake {
     0% { translate: 0 0; } 25% { translate: -3px 1px; } 50% { translate: 2px -1px; } 75% { translate: -1px -2px; } 100% { translate: 0 0; }
@@ -116,13 +119,14 @@
 <aside>
   <header>
     <h1>RangerGames</h1>
-    <p>Pelit Android-puhelimen ruudulla. Hiiri on sormi.</p>
+    <p>Pelit puhelimen tai tabletin ruudulla. Hiiri on sormi.</p>
   </header>
   <ul id="games" aria-label="Pelit"></ul>
 </aside>
 <main>
   <div class="bar">
     <select id="device" aria-label="Puhelin"></select>
+    <button id="rotate" aria-pressed="false" title="Käännä tabletti pysty- tai vaaka-asentoon" hidden>⟲ Pysty</button>
     <button id="fit" aria-pressed="true" title="Sovita puhelin ikkunaan / oikea koko">Sovita</button>
     <button id="reload" title="Käynnistä puhelin uudelleen">↻ Uudelleen</button>
     <button id="full" title="Avaa peli koko ikkunaan">⛶ Koko ruutu</button>
@@ -148,11 +152,16 @@
   // Screen sizes in CSS pixels (dp). The Huawei P20 (EML-L29) is 1080×2244 at
   // 3×; the app runs full screen and Android 9 keeps the notch strip black,
   // which leaves 360×720 for the game.
+  // Tablets (pad) are given upright; "Käännä" turns them sideways.
   var DEVICES = [
     { id: "p20", name: "Huawei P20 (EML-L29) · 360 × 720", w: 360, h: 720, notch: true },
     { id: "small", name: "Pieni puhelin · 360 × 640", w: 360, h: 640 },
     { id: "big", name: "Iso puhelin · 412 × 892", w: 412, h: 892, notch: true },
-    { id: "tablet", name: "Tabletti · 600 × 960", w: 600, h: 960 }
+    { id: "tablet", name: "7\" Android-tabletti · 600 × 960", w: 600, h: 960, pad: true },
+    { id: "ipadmini", name: "iPad mini · 768 × 1024", w: 768, h: 1024, pad: true },
+    { id: "ipad", name: "iPad 10,2\" · 810 × 1080", w: 810, h: 1080, pad: true },
+    { id: "ipadpro", name: "iPad Pro 11\" · 834 × 1194", w: 834, h: 1194, pad: true },
+    { id: "tab10", name: "10\" Android-tabletti · 800 × 1280", w: 800, h: 1280, pad: true }
   ];
   var params = new URLSearchParams(location.search);
   var store = {
@@ -162,11 +171,12 @@
   var state = {
     device: params.get("device") || store.get("device") || "p20",
     fit: store.get("fit") !== "0",
+    land: (params.get("orient") || store.get("orient")) === "land",
     game: params.get("game") || ""
   };
   var $ = function (id) { return document.getElementById(id); };
   var phone = $("phone"), frame = $("screen"), stage = $("stage");
-  var list = $("games"), sel = $("device");
+  var list = $("games"), sel = $("device"), rotBtn = $("rotate");
   var games = [];
   // flags that go on to the phone's screen (index.html): ?nogl, ?debug
   var PASS = ["nogl", "debug"];
@@ -181,13 +191,20 @@
   function syncAddress() {
     var u = new URL(location.href);
     if (state.game) u.searchParams.set("game", state.game); else u.searchParams.delete("game");
+    // the device is in the address too, so a link opens the same view
+    u.searchParams.set("device", state.device);
+    if (device().pad && state.land) u.searchParams.set("orient", "land"); else u.searchParams.delete("orient");
     history.replaceState(null, "", u.href.replace(/=(&|$|#)/g, "$1"));
   }
 
-  DEVICES.forEach(function (d) {
-    var o = document.createElement("option");
-    o.value = d.id; o.textContent = d.name;
-    sel.appendChild(o);
+  [["Puhelimet", false], ["Tabletit (pad)", true]].forEach(function (grp) {
+    var g = document.createElement("optgroup"); g.label = grp[0];
+    DEVICES.filter(function (d) { return !!d.pad === grp[1]; }).forEach(function (d) {
+      var o = document.createElement("option");
+      o.value = d.id; o.textContent = d.name;
+      g.appendChild(o);
+    });
+    sel.appendChild(g);
   });
   if (!DEVICES.some(function (d) { return d.id === state.device; })) state.device = "p20";
   sel.value = state.device;
@@ -195,9 +212,13 @@
   function device() { return DEVICES.filter(function (d) { return d.id === state.device; })[0]; }
 
   // the phone's parts around a screen of w×h (portrait only: the Android
-  // app is locked to portrait, see AndroidManifest.xml)
+  // app is locked to portrait, see AndroidManifest.xml); a tablet can also
+  // lie sideways
   function layout() {
     var d = device(), sw = d.w, sh = d.h;
+    phone.classList.toggle("pad", !!d.pad);
+    rotBtn.hidden = !d.pad;
+    if (d.pad) return layoutPad(d);
     var top = 46, bottom = 58, side = 14;           // bezels
     var notch = d.notch ? 24 : 0;                    // the black strip the game does not use
     var bw = sw + side * 2, bh = sh + notch + top + bottom;
@@ -209,6 +230,27 @@
     place("vd", { left: -3, top: 150, width: 4, height: 80 });
     place("glass", { left: side, top: top, width: sw, height: sh + notch });
     place("screen", { left: 0, top: notch, width: sw, height: sh });
+    phone.style.width = bw + "px"; phone.style.height = bh + "px";
+    phone.dataset.w = bw; phone.dataset.h = bh;
+    fit();
+  }
+  // a tablet: even bezels, the camera in the middle of the upper (long side's
+  // when sideways) bezel, Android's buttons in the bottom bezel
+  function layoutPad(d) {
+    var land = state.land;
+    var sw = land ? d.h : d.w, sh = land ? d.w : d.h;
+    var side = 30, top = 30, bottom = 46;
+    var bw = sw + side * 2, bh = sh + top + bottom;
+    rotBtn.setAttribute("aria-pressed", land ? "true" : "false");
+    rotBtn.textContent = land ? "⟲ Vaaka" : "⟲ Pysty";
+    place("cam", { left: bw / 2 - 5, top: 10 });
+    place("spk", { left: -999, top: 0 });
+    place("nav", { left: side, top: top + sh + 5, width: sw, height: 36 });
+    place("pw", land ? { left: 120, top: -3, width: 60, height: 4 } : { left: bw - 1, top: 110, width: 4, height: 60 });
+    place("vu", land ? { left: bw - 200, top: -3, width: 50, height: 4 } : { left: -3, top: 120, width: 4, height: 50 });
+    place("vd", land ? { left: bw - 140, top: -3, width: 50, height: 4 } : { left: -3, top: 180, width: 4, height: 50 });
+    place("glass", { left: side, top: top, width: sw, height: sh });
+    place("screen", { left: 0, top: 0, width: sw, height: sh });
     phone.style.width = bw + "px"; phone.style.height = bh + "px";
     phone.dataset.w = bw; phone.dataset.h = bh;
     fit();
@@ -312,7 +354,10 @@
     if (e.key === "Escape") { e.preventDefault(); back(); }
   });
 
-  sel.addEventListener("change", function () { state.device = sel.value; store.set("device", sel.value); layout(); });
+  sel.addEventListener("change", function () { state.device = sel.value; store.set("device", sel.value); syncAddress(); layout(); });
+  rotBtn.addEventListener("click", function () {
+    state.land = !state.land; store.set("orient", state.land ? "land" : "port"); syncAddress(); layout();
+  });
   var fitBtn = $("fit");
   function setFit() { fitBtn.setAttribute("aria-pressed", state.fit ? "true" : "false"); fitBtn.textContent = state.fit ? "Sovita" : "1 : 1"; }
   fitBtn.addEventListener("click", function () { state.fit = !state.fit; store.set("fit", state.fit ? "1" : "0"); setFit(); fit(); });

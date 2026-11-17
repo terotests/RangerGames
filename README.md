@@ -122,7 +122,13 @@ games/oma/
 
 `game.json`: `width` + `height` = kiinteä koko (letterbox), pelkkä `width` =
 leveys kiinteä ja korkeus ruudun muodon mukaan, ei kumpaakaan = ruudun
-koko CSS-pikseleinä.
+koko CSS-pikseleinä. Pelkällä `width`:llä korkeus on vähintään `minHeight` (oletus 640):
+leveällä ruudulla (tabletti, vaaka-asento) peli näytetään koko korkeudella ja
+reunoille jää palkit, eikä alaosa leikkaudu pois. `"minHeight": 0` poistaa rajan.
+
+Playgroundissa (`playground.html`) laitevalikossa on puhelinten lisäksi
+tabletteja (7" ja 10" Android, iPad mini, iPad, iPad Pro); ⟲-napilla tabletin
+voi kääntää vaaka-asentoon. `?device=ipad&orient=land` avaa saman näkymän linkistä.
 
 Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 
