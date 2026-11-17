@@ -558,10 +558,12 @@ function truckParts(): any[] {
 function placeTruck(add: boolean) {
   const c = truckC(), ty = -TRUCK_YAW + Math.PI / 2;
   const Rr = rgt(TRUCK_YAW), F = fwd(TRUCK_YAW);
+  // a wheel's axle (the cylinder's y) lies across the truck: turned to z first, then
+  // turned with the truck (the engine applies rx, ry, rz in the other order)
   for (const p of truckParts()) {
     const x = c[0] + Rr[0] * p[3] + F[0] * p[4], z = c[2] + Rr[2] * p[3] + F[2] * p[4];
     const o: any = { id: p[0], x, y: p[5], z };
-    if (add) { o.shape = p[1]; o.size = p[2]; o.color = p[6]; o.ry = ty + Math.PI / 2; if (p[7]) { o.rx = Math.PI / 2; o.ry = ty; } }
+    if (add) { o.shape = p[1]; o.size = p[2]; o.color = p[6]; o.ry = ty + Math.PI / 2; if (p[7]) { const e = euler(mm(ry(ty + Math.PI / 2), rx(Math.PI / 2))); o.rx = e[0]; o.ry = e[1]; o.rz = e[2]; } }
     rg.three(add ? "add" : "set", o);
   }
   // the load turns with the truck: its own x along the truck, z across (the other way)
