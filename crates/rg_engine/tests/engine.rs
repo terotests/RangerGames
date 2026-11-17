@@ -148,3 +148,44 @@ fn without_a_launcher_there_is_no_close_button_and_exit_stays() {
     e.frame(16.0).unwrap();
     assert!(e.draw.strings.iter().any(|s| s == "✕"));
 }
+
+/// The text runs of the last frame: (x, w, text).
+fn text_runs(e: &Engine) -> Vec<(f32, f32, String)> {
+    let (n, mut i, mut out) = (&e.draw.nums, 0, Vec::new());
+    while i < n.len() {
+        let extra = n[i + 22] as usize;
+        if n[i] == 3.0 {
+            out.push((n[i + 1], n[i + 3], e.draw.strings[n[i + 18] as usize].clone()));
+        }
+        i += rg_engine::draw::HEADER + extra;
+    }
+    out
+}
+
+#[test]
+fn wrapped_lines_are_as_wide_as_their_ink_so_painters_keep_them_aligned() {
+    let mut e = engine(
+        r#"
+        function view() {
+          return <div className="s">
+            <div className="p">Musta ja valkoinen pelaavat vuorotellen viivojen risteyksiin.</div>
+            <div className="p c">Musta ja valkoinen pelaavat vuorotellen viivojen risteyksiin.</div>
+          </div>;
+        }"#,
+        ".s { width: 200px; height: 100px; align-items: center; } .p { width: 150px; font-size: 12px; } .c { text-align: center; }",
+    );
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    let runs = text_runs(&e);
+    assert!(runs.len() >= 4, "{:?}", runs);
+    let half = runs.len() / 2;
+    let x0 = runs[0].0;
+    for (x, w, t) in &runs[..half] {
+        assert_eq!(*x, x0, "{}", t);
+        assert!(*w <= 150.0, "{}", t);
+    }
+    assert!(runs[half - 1].1 < 140.0, "the last line is shorter than the box: {:?}", runs);
+    for (x, w, t) in &runs[half..] {
+        assert!(((x + w / 2.0) - (x0 + 75.0)).abs() < 1.0, "centred: {} {:?}", t, runs);
+    }
+}

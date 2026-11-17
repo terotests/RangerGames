@@ -23,6 +23,25 @@ const TEXT_TAGS: [&str; 12] = ["span", "text", "p", "b", "i", "label", "h1", "h2
 /// The tag of a text run made from a string child (`<div>Hi {name}</div>`).
 const TEXT_RUN: &str = "#text";
 
+/// Gives each line of wrapped text the width of its own ink. EVG places a
+/// broken line at its start (already moved for `text-align`) but sizes it
+/// to the whole box, and the painters keep a run's centre (they may measure
+/// a font a little differently than EVG did), so a left-aligned paragraph
+/// came out centred line by line.
+fn fit_text_runs(cmds: &[Rc<RefCell<EVGDrawCmd>>], te: &Rc<RefCell<EVGTextEngine>>) {
+    for c in cmds.iter() {
+        let mut c = c.borrow_mut();
+        if c.kind != 3 || c.text.is_empty() {
+            continue;
+        }
+        let m = EVGTextEngine::measure_run_spaced(te, &c.text, &c.font_family, c.font_size, c.letter_spacing);
+        let w = m.borrow().width;
+        if w > 0.0 && w < c.w {
+            c.w = w;
+        }
+    }
+}
+
 /// Gives each text run the font size its box will inherit. EVG settles
 /// inherited font sizes while it lays out, after it has measured a width-less
 /// box by its content, so a box sized `30px` that fits its text measured that
@@ -40,6 +59,25 @@ fn settle_font_sizes(el: &Rc<RefCell<EVGElement>>, inherited: Option<Rc<RefCell<
     let kids = el.borrow().children.clone();
     for c in kids.iter() {
         settle_font_sizes(c, here.clone());
+    }
+}
+
+/// `text-align` inherits, as in CSS: EVG reads it only on the element that
+/// holds the text, and a box's words are a run of their own, so a centred
+/// box drew its paragraph from the left (the painters' centring of each
+/// line hid it until fit_text_runs).
+fn settle_text_align(el: &Rc<RefCell<EVGElement>>, inherited: &str) {
+    let own = el.borrow().text_align.clone();
+    let here = match own.as_str() {
+        "" => inherited.to_string(),
+        "start" | "justify" => "left".to_string(),
+        "end" => "right".to_string(),
+        _ => own,
+    };
+    el.borrow_mut().text_align = here.clone();
+    let kids = el.borrow().children.clone();
+    for c in kids.iter() {
+        settle_text_align(c, &here);
     }
 }
 
@@ -76,6 +114,9 @@ fn element(tag: &str) -> Rc<RefCell<EVGElement>> {
         EVGElement::create_div()
     };
     el.borrow_mut().tag_name = tag.to_string();
+    // "" until the cascade sets it, so settle_text_align can tell an
+    // inherited alignment from EVG's default "left"
+    el.borrow_mut().text_align = String::new();
     // boxes are flex containers, as in the CSS a game author knows: a box
     // without a width fits its content in a row or under align-items
     if !is_text_tag(tag) {
@@ -196,14 +237,17 @@ impl Ui {
         EVGStyleSheet::set_viewport(&self.sheet, w, h, true);
         EVGStyleSheet::apply_tree(&self.sheet, &root, "");
         settle_font_sizes(&root, None);
+        settle_text_align(&root, "left");
         let lay = Rc::new(RefCell::new(EVGLayout::new()));
         EVGLayout::set_page_size(&lay, w, h);
         EVGLayout::layout(&lay, root.clone());
         let dl = Rc::new(RefCell::new(EVGDisplayList::new()));
-        EVGDisplayList::set_text_engine(&dl, EVGLayout::get_text_engine(&lay));
+        let te = EVGLayout::get_text_engine(&lay);
+        EVGDisplayList::set_text_engine(&dl, te.clone());
         EVGDisplayList::build(&dl, root.clone());
         self.last_commands = EVGDisplayList::count(&dl);
         let cmds = dl.borrow().cmds.clone();
+        fit_text_runs(&cmds, &te);
         for c in cmds.iter() {
             out.command(&c.borrow());
         }
