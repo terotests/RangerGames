@@ -11,7 +11,8 @@
 //! For looking closer: DOMTEST_KINDS=1 counts the last frame's draw commands
 //! by kind (DOMTEST_ORDER=1 lists them), DOMTEST_EVAL=<js> prints what the
 //! JS gives in the game at the end, DOMTEST_STATS=1 the elements made and
-//! changed each frame, RG_DOM_TIMING=1 the renderer's times.
+//! changed each frame, RG_DOM_TIMING=1 the renderer's times, DOMTEST_SCROLL=1
+//! drags a finger up and down (a scrolled page) in place of the taps.
 
 use rg_core::vfs::Vfs;
 use rg_engine::Engine;
@@ -59,7 +60,15 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
     let mut f = 0;
     while ok && f < frames {
         f += 1;
-        if f % 7 == 0 {
+        let drag = std::env::var("DOMTEST_SCROLL").is_ok();
+        if drag {
+            // a finger drags the page up and down, 40 frames each way
+            let k = (f - 1) % 80;
+            let y = if k < 40 { 560.0 - k as f64 * 10.0 } else { 160.0 + (k - 40) as f64 * 10.0 };
+            let (sx, sy) = (180.0 * e.scale + e.off_x, y * e.scale + e.off_y);
+            e.pointer(if f == 1 { 0 } else { 1 }, 1, sx, sy);
+        }
+        if !drag && f % 7 == 0 {
             let k = f / 7;
             let x = ((k * 37) % 10) as f64 / 10.0 * e.ui.width + 18.0;
             let y = ((k * 53) % 10) as f64 / 10.0 * e.ui.height + 18.0;
@@ -67,7 +76,7 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
             e.pointer(0, 1, sx, sy);
             e.pointer(2, 1, sx, sy);
         }
-        if f % 11 == 0 {
+        if !drag && f % 11 == 0 {
             let key = ["ArrowLeft", "ArrowRight", "ArrowUp", " ", "Enter"][(f / 11) % 5];
             e.key(true, key);
             e.key(false, key);

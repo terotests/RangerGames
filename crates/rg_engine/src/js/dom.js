@@ -48,16 +48,44 @@ var __rgDom = (function () {
     if (k.indexOf("-") >= 0) return k;
     return k.replace(/[A-Z]/g, function (c) { return "-" + c.toLowerCase(); });
   }
-  function styleText(s) {
-    if (!s) return "";
-    var parts = [], sh = null;
+  // the view's style as { css-name: value }, EVG's shadow-* as box-shadow
+  function styleMap(s) {
+    var out = {}, sh = null;
+    if (!s) return out;
     for (var k in s) {
       var n = kebab(k);
       if (n.slice(0, 7) === "shadow-") { sh = sh || {}; sh[n] = s[k]; continue; }
-      parts.push(n + ": " + s[k]);
+      out[n] = String(s[k]);
     }
-    if (sh && sh["shadow-color"]) parts.push("box-shadow: " + (sh["shadow-offset-x"] || "0px") + " " + (sh["shadow-offset-y"] || "0px") + " " + (sh["shadow-radius"] || "0px") + " " + sh["shadow-color"]);
-    return parts.join("; ");
+    if (sh && sh["shadow-color"]) out["box-shadow"] = (sh["shadow-offset-x"] || "0px") + " " + (sh["shadow-offset-y"] || "0px") + " " + (sh["shadow-radius"] || "0px") + " " + sh["shadow-color"];
+    return out;
+  }
+
+  // only the properties that changed go to el.style, one by one: RangerDOM
+  // then styles only that element again with what it had (a moving box's
+  // left/top or a scrolled page's margin each frame), where a whole style
+  // attribute restyled it and what is under it from the start
+  function setStyle(el, was, s) {
+    var now = styleMap(s), old = was.st || {}, chg = [], whole = false, k, j;
+    for (k in old) if (!(k in now)) whole = true;
+    for (k in now) {
+      if (old[k] === now[k]) continue;
+      if (!(k in old) || now[k].indexOf("!") >= 0) whole = true;
+      chg.push(k);
+    }
+    was.st = now;
+    if (!chg.length && !whole) return;
+    stats.changed++;
+    // (a shorthand next to its own longhands, e.g. border and border-color,
+    // keeps their order only when written whole)
+    for (j = 0; j < chg.length && !whole; j++) for (k in now) if (k !== chg[j] && k.indexOf(chg[j] + "-") === 0) whole = true;
+    if (whole) {
+      var parts = [];
+      for (k in now) parts.push(k + ": " + now[k]);
+      if (parts.length) el.setAttribute("style", parts.join("; ")); else el.removeAttribute("style");
+      return;
+    }
+    for (j = 0; j < chg.length; j++) el.style.setProperty(chg[j], now[chg[j]]);
   }
 
   function tagOf(t) {
@@ -115,8 +143,7 @@ var __rgDom = (function () {
       el.__rgid = id;
       was.id = id;
     }
-    var st = styleText(n.s);
-    if (was.st !== st) { el.setAttribute("style", st); was.st = st; stats.changed++; }
+    setStyle(el, was, n.s);
     if (was.t === "path") { pathAttrs(el, n.a || {}); return; }
     var a = n.a || {}, old = was.a || {};
     for (var k in old) if (!(k in a)) el.removeAttribute(k);

@@ -104,7 +104,12 @@ impl DomBackend for DomRender {
             eval(&format!("__layout({{viewport: [{}, {}]}})", w, h));
             self.page.setSize(w, h);
         }
-        let mut r = self.page.take(eval("__renderDelta()"));
+        let delta = eval("__renderDelta()");
+        let te = now();
+        let dlen = delta.len();
+        let mut r = self.page.take(delta);
+        #[cfg(not(target_arch = "wasm32"))]
+        if std::env::var("RG_DOM_TIMING").is_ok() { eprintln!("dom: __renderDelta {:.2} ms, take {:.2} ms, {} bytes", te - t0, now() - te, dlen); }
         if r < 0 {
             r = self.page.take(eval("__renderDelta(1)"));
         }
