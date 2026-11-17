@@ -50,8 +50,7 @@ jobs:
         run: node tools/peilit/solve.ts
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
-      - name: RangerDOM renderer (opt-in, ?dom=1) - dependencies and every game headless
-        continue-on-error: true
+      - name: RangerDOM renderer (the web engine) - dependencies and every game headless
         run: |
           bash scripts/setup-dom.sh
           (cd crates/rg_web_dom && CARGO_TARGET_DIR=../../target/dom cargo run --release --example domtest -- ../../games 120)
@@ -88,6 +87,8 @@ jobs:
           key: ${{ runner.os }}-rg-android-${{ hashFiles('scripts/setup.sh', 'Cargo.lock') }}
       - name: Dependencies (Ranger with EVG, ComponentEngine)
         run: bash scripts/setup.sh
+      - name: RangerDOM (a choice in the phone's settings)
+        run: bash scripts/setup-dom.sh
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

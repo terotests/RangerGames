@@ -221,7 +221,7 @@ pub unsafe extern "C" fn rg_eval(p: *const u8, n: usize) -> i32 {
 #[no_mangle]
 pub extern "C" fn rg_tree() -> usize {
     with(|e| {
-        let t = e.ui.tree().write();
+        let t = e.tree().write();
         let n = t.len();
         RESULT.with(|b| *b.borrow_mut() = t.into_bytes());
         n

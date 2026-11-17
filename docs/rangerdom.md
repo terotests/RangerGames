@@ -1,4 +1,4 @@
-# RangerDOM-renderöijä (kokeilu, `?dom=1`)
+# RangerDOM-renderöijä
 
 Pelin 2D-näkymä voidaan asetella ja piirtää myös
 [RangerDOMin](https://github.com/terotests/RangerDOM) kautta, samalla tavalla
@@ -6,10 +6,14 @@ kuin M-Files UI Extensionit tekevät: pelin skriptillä on oikea DOM
 (RangerDOMin `webapi.js`), CSS-kaskadi on DOMin oma, ja sivun render tree
 asetellaan EVG:llä (RangerDOMin `DomPage` / `DomView`).
 
-Oletus ei muutu: puhelinbuild ja tavallinen web-versio käyttävät edelleen
-moottorin omaa EVG-polkua. RangerDOM on päällä vain, kun sivu avataan
-osoitteella `?dom=1` (esim. `index.html?game=shakki&dom=1`), jolloin sivu
-lataa `rg_web_dom.wasm`:n `rg_web.wasm`:n sijaan.
+- **Web ja Sliqtly Games:** RangerDOM on oletus. `rg_web.wasm` on
+  RangerDOM-moottori ja `rg_web_evg.wasm` vanha EVG-moottori (`?evg=1`).
+  Jos RangerDOMin riippuvuudet puuttuvat buildista, `rg_web.wasm` on EVG-moottori.
+- **Puhelin:** APK:ssa ovat molemmat, oletus on EVG. Valikon ⚙️-asetuksissa
+  on kohta *Pelimoottori: EVG / RangerDOM*.
+- Valinta (`rg.setRenderer("dom" | "evg")`, asetus `renderer`) koskee kaikkia
+  pelejä ja käynnistää käynnissä olevan pelin uudelleen. `rg.renderer` kertoo
+  käytössä olevan ja `rg.renderers` saatavilla olevat moottorit.
 
 ## Miten se kulkee
 
@@ -44,9 +48,10 @@ lataa `rg_web_dom.wasm`:n `rg_web.wasm`:n sijaan.
 | `crates/rg_engine/src/js/dom.js` | puu DOMiin, osumat, `rg.box` |
 | `crates/rg_engine/src/lib.rs` | `DomBackend`-rajapinta; `Engine::dom` (None = EVG suoraan) |
 | `crates/rg_web_dom/` | oma Cargo-työtila: `dom.rs` (renderöijä), `lib.rs` (sama C ABI kuin rg_web), `examples/domtest.rs` |
+| `crates/rg_web_dom/android/` | Android-moottori (rg_android:n `jni.rs`) RangerDOMilla; `build-android.sh` käyttää sitä, kun `.deps/domtree` on olemassa (`RG_NO_DOM=1` ohittaa) |
 
 Rakentaminen: `bash scripts/setup.sh && bash scripts/setup-dom.sh && bash scripts/build-web.sh`
-(build-web tekee `rg_web_dom.wasm`:n, kun `.deps/domtree` on olemassa).
+(build-web tekee RangerDOM-moottorin, kun `.deps/domtree` on olemassa).
 Kaikki pelit ilman ruutua molemmilla renderöijillä:
 
 ```sh
@@ -77,7 +82,7 @@ Hyvää:
 
 Huonoa:
 - Hitaampi: näkymän vaihto maksaa 10–30 ms natiivisti, vanhalla puhelimella
-  moninkertaisesti. Siksi puhelin pysyy EVG-polulla.
+  moninkertaisesti. Siksi puhelimen oletus on EVG.
 - Isompi wasm ja hitaampi käynnistys.
 - Kaksi EVG-versiota rinnakkain, kunnes moottorin oma EVG päivitetään
   samaan versioon.

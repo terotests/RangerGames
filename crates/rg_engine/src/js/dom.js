@@ -173,6 +173,29 @@ var __rgDom = (function () {
       }
       return "";
     },
+    // the laid-out page as Ui::tree gives it (tools: Games' inspect_game):
+    // { t, id?, cls?, x, y, w, h, text?, c? }
+    tree: function () {
+      function r(v) { return Math.round(v * 10) / 10; }
+      function node(el) {
+        var b = el.getBoundingClientRect();
+        var o = { t: el.__rg ? el.__rg.t : el.localName };
+        if (el.__rgid) o.id = el.__rgid;
+        if (el.__rg && el.__rg.cls) o.cls = el.__rg.cls;
+        o.x = r(b.left); o.y = r(b.top); o.w = r(b.width); o.h = r(b.height);
+        var text = "", kids = [];
+        for (var i = 0; i < el.childNodes.length; i++) {
+          var c = el.childNodes[i];
+          if (c.nodeType === 3) text += c.data;
+          else if (c.nodeType === 1 && c.__rg && getComputedStyle(c).display !== "none") kids.push(node(c));
+        }
+        if (text) o.text = text;
+        if (kids.length) o.c = kids;
+        return o;
+      }
+      var root = document.body.firstChild;
+      return JSON.stringify(root && root.nodeType === 1 ? node(root) : null);
+    },
     boxes: function (ids) {
       var out = {};
       for (var i = 0; i < ids.length; i++) {

@@ -46,3 +46,4 @@ overflow-checks = false
 opt-level = 1
 
 [workspace]
+members = [".", "android"]

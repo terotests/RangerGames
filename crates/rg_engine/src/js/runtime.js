@@ -105,6 +105,17 @@ var rg = {
     return !!(v && v[id]);
   },
   stopSay: function () { rg.say([]); },
+  // What lays out and draws the games: "evg" (EVG directly) or "dom"
+  // (RangerDOM: a real DOM and CSS, docs/rangerdom.md), where the host has
+  // both (rg.renderers). rg.setRenderer(r) keeps the choice for every game
+  // and starts the running game again with it.
+  renderer: "evg",
+  renderers: ["evg"],
+  setRenderer: function (r) {
+    r = String(r);
+    if (rg.renderers.indexOf(r) < 0 || r === rg.renderer) return;
+    __cmds.push(["setting", "renderer", r]);
+  },
   // Whether game `id` (this game when left out) talks: the player's choice in
   // the launcher's settings, else the game's default (game.json "speech",
   // true when missing). rg.setSpeech(id, on) keeps the choice for that game.
@@ -586,6 +597,8 @@ function __start(arg) {
   __net.links = {};
   rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
   __speech = a.speech !== false;
+  rg.renderers = a.renderers || ["evg"];
+  rg.renderer = a.renderer || "evg";
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

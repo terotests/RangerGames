@@ -10,6 +10,8 @@ pub mod dom;
 pub fn new_engine() -> rg_engine::Engine {
     let mut e = rg_engine::Engine::new();
     e.dom = Some(Box::new(dom::DomRender::new()));
+    // the web draws with RangerDOM unless the player chose EVG
+    e.dom_default = true;
     e
 }
 

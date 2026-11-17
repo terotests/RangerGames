@@ -1,0 +1,20 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# The Android engine (crates/rg_android's JNI calls) with the RangerDOM
+# renderer as a choice in the menu's settings (EVG stays the default on the
+# phone). scripts/build-android.sh builds this one, as librg_android.so,
+# when the RangerDOM dependencies are there (scripts/setup-dom.sh).
+[package]
+name = "rg_android_dom"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rg_web_dom = { path = ".." }
+rg_engine = { path = "../../rg_engine" }
+rg_core = { path = "../../rg_core" }
+jni = { version = "0.21", default-features = false }

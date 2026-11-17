@@ -143,8 +143,9 @@
       debug: document.getElementById("debug")
     });
     window.rgHost = host;
-    // ?dom=1: the engine with the RangerDOM renderer (an experiment, crates/rg_web_dom)
-    host.boot(params.get("dom") === "1" ? "rg_web_dom.wasm" : "rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
+    // rg_web.wasm lays the games out with RangerDOM (crates/rg_web_dom);
+    // ?evg=1 loads the engine that lays out with EVG directly (as the phone does)
+    host.boot(params.get("evg") === "1" ? "rg_web_evg.wasm" : "rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
       console.error(e);
       status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
     });

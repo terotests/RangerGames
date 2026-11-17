@@ -237,8 +237,13 @@ pub struct Engine {
     /// boxes of the ids asked last frame, laid out
     measure: Vec<String>,
     boxes: Json,
-    /// the RangerDOM renderer, when the host chose it (None: EVG directly)
+    /// the RangerDOM renderer, when the host has one (None: EVG directly)
     pub dom: Option<Box<dyn DomBackend>>,
+    /// whether a host with the renderer uses it when the player has not
+    /// chosen (settings "renderer": "dom" or "evg"): the web yes, the phone no
+    pub dom_default: bool,
+    /// whether the running game is drawn by the RangerDOM renderer
+    dom_on: bool,
 }
 
 impl Engine {
@@ -257,6 +262,8 @@ impl Engine {
             measure: Vec::new(),
             boxes: Json::Obj(Vec::new()),
             dom: None,
+            dom_default: false,
+            dom_on: false,
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -489,7 +496,10 @@ impl Engine {
     }
 
     fn start_script(&mut self, mut s: Script, info: &GameInfo) -> Result<(), String> {
-        if let Some(d) = self.dom.as_mut() {
+        let chosen = self.settings.get("renderer").as_str();
+        self.dom_on = self.dom.is_some() && (chosen == "dom" || (chosen != "evg" && self.dom_default));
+        let on = self.dom_on;
+        if let Some(d) = self.dom.as_mut().filter(|_| on) {
             d.reset();
             for (name, src) in d.boot(self.ui.width, self.ui.height) {
                 if let Err(e) = s.eval(&src, &name) {
@@ -500,7 +510,7 @@ impl Engine {
         if let Err(e) = s.eval(script::RUNTIME, "runtime.js") {
             return self.fail(e);
         }
-        if self.dom.is_some() {
+        if self.dom_on {
             if let Err(e) = s.eval(script::DOM, "dom.js") {
                 return self.fail(e);
             }
@@ -559,6 +569,9 @@ impl Engine {
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
             member("speech", Json::Bool(info.speech)),
+            // the renderers this host has, and the one drawing (rg.renderer)
+            member("renderers", Json::Arr(if self.dom.is_some() { vec![Json::Str("evg".into()), Json::Str("dom".into())] } else { vec![Json::Str("evg".into())] })),
+            member("renderer", Json::Str(if self.dom_on { "dom".into() } else { "evg".into() })),
             // false when there is no launcher to go back to (a game played
             // alone from a link): no close button, exit stays in the game
             member("menu", Json::Bool(self.has_launcher())),
@@ -628,6 +641,12 @@ impl Engine {
         let text = self.settings.write();
         self.vfs.write_text(SETTINGS, &text);
         self.commands.push(HostCommand { kind: "persist".into(), name: SETTINGS.into(), args: Json::Str(text) });
+        // another renderer: the game starts again with it
+        if key == "renderer" {
+            if let Some(g) = &self.game {
+                self.pending = Some(if g.id == self.launcher { String::new() } else { g.id.clone() });
+            }
+        }
     }
 
     /// Keeps `key` in the game's save file and asks the platform to persist it.
@@ -677,10 +696,11 @@ impl Engine {
         }
         let mut evs = Vec::new();
         let world_on = self.world.borrow().active;
+        let dom_on = self.dom_on;
         for e in events.iter_mut() {
             let tap = e.kind == "pointerdown" || e.kind == "pointerup";
             if tap {
-                e.target = match &self.dom {
+                e.target = match self.dom.as_ref().filter(|_| dom_on) {
                     // the page's node: js/dom.js finds the element with a handler
                     Some(d) => format!("#dom:{}", d.node_at(e.x, e.y)),
                     None => self.ui.id_at(e.x, e.y),
@@ -723,7 +743,7 @@ impl Engine {
                 self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 let ids = std::mem::take(&mut self.measure);
-                if let Some(d) = self.dom.as_mut() {
+                if let Some(d) = self.dom.as_mut().filter(|_| dom_on) {
                     let script = self.script.as_mut().unwrap();
                     let mut eval = |src: &str| script.eval(src, "dom.js").unwrap_or_default();
                     let vfs = &self.vfs;
@@ -803,6 +823,17 @@ impl Engine {
         let out = s.take_output();
         self.log.extend(out);
         r
+    }
+
+    /// The last frame's laid-out element tree (Ui::tree's form), from the
+    /// RangerDOM page when that renderer draws the view.
+    pub fn tree(&mut self) -> Json {
+        if self.dom_on {
+            if let Some(s) = self.script.as_mut() {
+                return json::parse(&s.eval("__rgDom.tree()", "dom.js").unwrap_or_default());
+            }
+        }
+        self.ui.tree()
     }
 
     /// Takes the frame's commands for the platform.
