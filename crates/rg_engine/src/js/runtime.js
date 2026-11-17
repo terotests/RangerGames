@@ -27,6 +27,8 @@ var __dir = "/";
 var __games = [];
 var __voices = {};        // lang -> { clip id: true } (the clips of the other languages than Finnish)
 var __launcher = false;
+// false when there is no launcher to go back to: no close button, rg.exit stays
+var __menu = true;
 var __speech = true;      // whether this game talks by default (game.json "speech")
 var __speechSet = {};     // the player's choices: game id -> true/false (settings "speech")
 var __input = { keys: {}, pointer: { x: 0, y: 0, down: false }, pointers: [], time: 0 };
@@ -158,7 +160,7 @@ var rg = {
   },
   load: function (key, fallback) { return Object.prototype.hasOwnProperty.call(__saved, key) ? __saved[key] : fallback; },
   launch: function (id) { __cmds.push(["launch", String(id), null]); },
-  exit: function () { if (__launcher) rg.quit(); else __cmds.push(["launch", "", null]); },
+  exit: function () { if (__launcher) rg.quit(); else if (!__menu) return; else __cmds.push(["launch", "", null]); },
   // closes the app (Android); the web page stays
   quit: function () { __cmds.push(["quit", "", null]); },
   // a phone sensor on or off: "location" (GPS; the game gets onLocation(fix)
@@ -540,7 +542,7 @@ function __overlay() {
       width: p.s + "px", height: (p.s / 2) + "px", borderRadius: "2px", backgroundColor: p.c, opacity: String(fade),
       transform: "rotate(" + Math.round(p.rot) + "deg)" } });
   }
-  if (!__launcher && rg.closeButton !== "none") {
+  if (!__launcher && __menu && rg.closeButton !== "none") {
     var left = rg.closeButton === "left";
     var pos = { position: "absolute", top: "8px", width: "40px", height: "40px", borderRadius: "20px",
       backgroundColor: "rgba(0,0,0,0.35)", borderWidth: "2px", borderColor: "rgba(255,255,255,0.85)",
@@ -573,6 +575,7 @@ function __start(arg) {
   var vs = a.voices || {};
   for (var vl in vs) { var m = {}; for (var vi = 0; vi < vs[vl].length; vi++) m[vs[vl][vi]] = true; __voices[vl] = m; }
   __launcher = !!a.launcher;
+  __menu = a.menu !== false;
   __net.links = {};
   rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
   __speech = a.speech !== false;

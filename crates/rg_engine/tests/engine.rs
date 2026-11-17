@@ -131,3 +131,20 @@ fn eval_sees_the_games_names_and_the_tree_has_the_boxes() {
     assert!(t.contains(r#""text":"Pelaa""#), "{}", t);
     assert!(t.contains(r#""text":"Pisteet 3""#), "{}", t);
 }
+
+#[test]
+fn without_a_launcher_there_is_no_close_button_and_exit_stays() {
+    let script = "function view() { return <div id=\"q\" onClick={() => rg.exit()}>peli</div>; }";
+    let mut e = engine(script, "");
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    assert!(!e.draw.strings.iter().any(|s| s == "✕"));
+    assert_eq!(e.eval("rg.exit(); __cmds.length").unwrap(), "0");
+    // with a launcher the close button is there
+    let mut e = engine(script, "");
+    e.vfs.add_text("/games/launcher/game.json", r#"{ "name": "L", "hidden": true }"#);
+    e.vfs.add_text("/games/launcher/game.tsx", "function view() { return <div>menu</div>; }");
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    assert!(e.draw.strings.iter().any(|s| s == "✕"));
+}
