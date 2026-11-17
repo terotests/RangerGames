@@ -2,7 +2,7 @@
 // (syllable splits by the Finnish rule, pictures unique), sentences, stories
 // and the microphone's voice detector on made-up loudness.
 import { WORDS, SENTENCES, STORIES, plain, syllables, syllableCount, distractors, wordPool, wordClip, distance } from "../games/lukupeli/lib/data.ts";
-import { newEar, hear, resetCount, needVoice } from "../games/lukupeli/lib/voice.ts";
+import { newEar, hear, resetCount, needVoice, doneReading } from "../games/lukupeli/lib/voice.ts";
 let bad = 0;
 const fail = (...a: unknown[]) => { console.log("FAIL", ...a); bad++; };
 const eq = (a: unknown, b: unknown, what: string) => { if (JSON.stringify(a) !== JSON.stringify(b)) fail(what, JSON.stringify(a), "!=", JSON.stringify(b)); };
@@ -94,6 +94,32 @@ for (let i = 0; i < 200; i++) hear(e2, -40 + (i % 2), false, 0.05);
 if (e2.voiced > 0.5) fail("steady hum heard as voice", e2.voiced);
 for (let i = 0; i < 8; i++) hear(e2, -22, false, 0.05);
 if (!e2.on) fail("voice over a hum not heard");
+
+// slow readers: syllables and words with long pauses must not end listening
+{
+  const e = newEar();
+  const f = (db: number, n: number) => { let d = false; for (let i = 0; i < n; i++) { hear(e, db + (i % 3) * 0.5, false, 0.05); d = d || doneReading(e, n5); } return d; };
+  const n5 = syllableCount("Sammakko hyppii."); // 5
+  f(-58, 20); resetCount(e);
+  let ended = false;
+  for (const _ of ["sam", "mak", "ko"]) { ended = f(-30, 6) || ended; ended = f(-57, 24) || ended; }   // 1.2 s pauses
+  ended = f(-57, 30) || ended;                                                                        // 1.5 s more thinking
+  if (ended) fail("listening ended in the middle of Sammakko hyppii");
+  ended = f(-30, 6) || ended; ended = f(-57, 10) || ended; ended = f(-30, 6) || ended;               // hyp pii
+  if (ended) fail("ended before the pause after the last syllable");
+  if (!f(-57, 45)) fail("did not end after the sentence and a pause");
+}
+{
+  const e = newEar();
+  const n = syllableCount("Jää on kylmää.");
+  const f = (db: number, k: number) => { let d = false; for (let i = 0; i < k; i++) { hear(e, db + (i % 3) * 0.5, false, 0.05); d = d || doneReading(e, n); } return d; };
+  f(-58, 20); resetCount(e);
+  let ended = f(-30, 8) || f(-57, 36);           // "jää", then 1.8 s
+  ended = f(-30, 5) || f(-57, 36) || ended;     // "on", 1.8 s
+  if (ended) fail("listening ended after the first words of Jää on kylmää");
+  f(-30, 6); f(-57, 3); f(-30, 6);              // kyl-mää
+  if (!f(-57, 45)) fail("Jää on kylmää not finished");
+}
 
 if (bad) { console.log(bad + " failed"); process.exit(1); }
 console.log("lukupeli ok");
