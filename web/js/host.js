@@ -456,6 +456,7 @@
       case "stop": this.audio.stopMusic(); break;
       case "vibrate": this.vibrate(args); break;
       case "copy": this.copy(String(args)); break;
+      case "open": if (/^\/[^\/\\]/.test(String(args))) global.location.href = String(args); break;
       case "persist": try { localStorage.setItem("rg:" + name, typeof args === "string" ? args : JSON.stringify(args)); } catch (e) { } break;
       case "title":
         document.title = name ? name + " · RangerGames" : "RangerGames"; this.readView();

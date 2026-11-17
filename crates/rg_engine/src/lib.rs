@@ -228,6 +228,12 @@ impl Engine {
         self.seed = seed;
     }
 
+    /// Whether the launcher game is there to go back to (a pack made for
+    /// one game from a link may leave it out).
+    pub fn has_launcher(&self) -> bool {
+        self.vfs.exists(&format!("/games/{}/game.json", self.launcher))
+    }
+
     /// The games under /games, in their `order`, then by name.
     pub fn games(&self) -> Vec<GameInfo> {
         let mut out: Vec<GameInfo> = Vec::new();
@@ -485,6 +491,9 @@ impl Engine {
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
             member("speech", Json::Bool(info.speech)),
+            // false when there is no launcher to go back to (a game played
+            // alone from a link): no close button, exit stays in the game
+            member("menu", Json::Bool(self.has_launcher())),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());
@@ -591,7 +600,7 @@ impl Engine {
                     leave = true;
                 }
             }
-            if leave && self.game.as_ref().map(|g| g.id != self.launcher).unwrap_or(true) {
+            if leave && self.has_launcher() && self.game.as_ref().map(|g| g.id != self.launcher).unwrap_or(true) {
                 self.pending = Some(String::new());
             }
             self.render_error();

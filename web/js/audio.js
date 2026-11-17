@@ -118,6 +118,12 @@
     var have = this.buffers[path];
     if (have === undefined && /\.wav$/i.test(path)) {
       have = this.buffer(path);
+      if (have === undefined && this.fetching && this.fetching[path]) {
+        // fetched from the server: played when it comes, if soon enough
+        var asked = Date.now();
+        this.fetching[path].then(function () { if (Date.now() - asked < 1500) go(self.buffers[path]); });
+        return null;
+      }
       if (!have) { delete this.buffers[path]; have = undefined; }
     }
     if (have) return go(have);
@@ -171,12 +177,17 @@
   // The web build keeps the voice clips out of the games pack (they are most
   // of its size): a clip is fetched from beside the page the first time it is
   // needed. Returns true while the fetch is on, then the clip is in buffers.
+  // A host whose pack leaves out other .wav files too sets remoteURL(path)
+  // to the address of such a file ("" or null: not on the server).
+  Audio.prototype.remoteURL = null;
   Audio.prototype.remote = function (path) {
-    if (!/^\/games\/_voice\/.+\.wav$/.test(path)) return false;
+    if (!/\.wav$/i.test(path)) return false;
     this.fetching = this.fetching || {};
     if (this.fetching[path]) return true;
+    var url = /^\/games\/_voice\/./.test(path) ? path.slice(1) : this.remoteURL ? this.remoteURL(path) : null;
+    if (!url) return false;
     var self = this;
-    this.fetching[path] = fetch(path.slice(1)).then(function (r) {
+    this.fetching[path] = fetch(url).then(function (r) {
       if (!r.ok) throw new Error(r.status);
       return r.arrayBuffer();
     }).then(function (ab) {
