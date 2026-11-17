@@ -93,6 +93,9 @@ def done(lang, cid, text):
     try:
         with open(os.path.join(OUT, lang, cid + ".json"), encoding="utf-8") as fh:
             j = json.load(fh)
+            # a clip made elsewhere (Google TTS, tools/google-voice/import.py) stays while its text does
+            if j.get("engine", "").startswith("google:"):
+                return j.get("text") == text and os.path.exists(os.path.join(OUT, lang, cid + ".wav"))
             # a clip none of whose takes had a fitting length is left to Piper ("failed", no .wav)
             same = j.get("text") == text and j.get("spoken", text) == spoken(lang, text) and j.get("exaggeration", 0.5) == expression(cid)
             return same and (j.get("failed") or os.path.exists(os.path.join(OUT, lang, cid + ".wav")))
