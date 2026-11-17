@@ -12,6 +12,7 @@
 //                  move the boom (then the bucket, then the arm) to dig sand
 //                  from the pile into the truck
 import { K, Level, setup, step, win, miss, update, back, Header, Menu, Done, Sparks, Poly, Line, Circle, Box, PointAt, turn, rect, ngon, Button } from "lib/kit";
+import { truckParts } from "lib/truck";
 
 const SAND = "#e9c46a", SAND2 = "#d4a84f";
 
@@ -539,31 +540,24 @@ function link(id: string, a: number[], b: number[], x: number) {
   rg.three("set", { id, x: (A[0] + B[0]) / 2, y: (A[1] + B[1]) / 2, z: (A[2] + B[2]) / 2, rx: e[0], ry: e[1], rz: e[2], sy: L });
 }
 
-// the truck's parts: id, shape, size, along, across, height, colour, extra
-const TRUCK: any[] = [
-  ["tCab", "box", [1.3, 1.5, 1.6], -BED.len / 2 - 0.75, 0, 1.35, "#e63946"],
-  ["tWin", "box", [0.05, 0.6, 1.3], -BED.len / 2 - 1.42, 0, 1.7, "#a8dadc"],
-  ["tChassis", "box", [BED.len + 1.6, 0.3, 1.4], -0.7, 0, 0.6, "#343a40"],
-  ["tFloor", "box", [BED.len, 0.12, BED.wid], 0, 0, 0.82, "#6c757d"],
-  ["tWallA", "box", [BED.len, 0.45, 0.07], 0, BED.wid / 2, 1.05, "#adb5bd"],
-  ["tWallB", "box", [BED.len, 0.45, 0.07], 0, -BED.wid / 2, 1.05, "#adb5bd"],
-  ["tWallC", "box", [0.07, 0.45, BED.wid], BED.len / 2, 0, 1.05, "#adb5bd"],
-  ["tWallD", "box", [0.07, 0.45, BED.wid], -BED.len / 2, 0, 1.05, "#adb5bd"],
-];
-function truckParts(): any[] {
-  const out = TRUCK.slice();
-  [-1.7, -0.1, 0.8].forEach((al, i) => { for (const ac of [-0.75, 0.75]) out.push(["tw" + i + (ac > 0 ? "a" : "b"), "cylinder", [0.38, 0.38, 0.25], al, ac, 0.38, "#212529", true]); });
-  return out;
-}
+// the truck's parts are in lib/truck.ts
+let truckSet = NaN;                                // where the truck's parts were last placed
 function placeTruck(add: boolean) {
   const c = truckC(), ty = -TRUCK_YAW + Math.PI / 2;
   const Rr = rgt(TRUCK_YAW), F = fwd(TRUCK_YAW);
-  // a wheel's axle (the cylinder's y) lies across the truck: turned to z first, then
-  // turned with the truck (the engine applies rx, ry, rz in the other order)
-  for (const p of truckParts()) {
+  // the parts move only while the truck drives in or away
+  if (!add && truckOff === truckSet) return;
+  truckSet = truckOff;
+  // a cylinder lies across (a wheel) or along the truck: its own y turned to z or x
+  // first, then turned with the truck (the engine applies rx, ry, rz the other way)
+  for (const p of truckParts(BED.len, BED.wid)) {
     const x = c[0] + Rr[0] * p[3] + F[0] * p[4], z = c[2] + Rr[2] * p[3] + F[2] * p[4];
     const o: any = { id: p[0], x, y: p[5], z };
-    if (add) { o.shape = p[1]; o.size = p[2]; o.color = p[6]; o.ry = ty + Math.PI / 2; if (p[7]) { const e = euler(mm(ry(ty + Math.PI / 2), rx(Math.PI / 2))); o.rx = e[0]; o.ry = e[1]; o.rz = e[2]; } }
+    if (add) {
+      o.shape = p[1]; o.size = p[2]; o.color = p[6];
+      const r0 = p[7] === "wheel" ? rx(Math.PI / 2) : p[7] === "along" ? rz(Math.PI / 2) : null;
+      if (r0) { const e = euler(mm(ry(ty + Math.PI / 2), r0)); o.rx = e[0]; o.ry = e[1]; o.rz = e[2]; } else o.ry = ty + Math.PI / 2;
+    }
     rg.three(add ? "add" : "set", o);
   }
   // the load turns with the truck: its own x along the truck, z across (the other way)
