@@ -23,6 +23,12 @@ import { Val, Cake, CakeTask, OpTask, DsTask, FnTask, AllTask, Body, Prog, ANIMA
 const C = { luku: "#3a86ff", teksti: "#06a77d", kylla: "#f77f00", rakenne: "#8338ec", funktio: "#ef476f", ink: "#1d3557" };
 const TOP = 118;
 function L(fi: string, en: string, es: string) { return rg.t(fi, en, es); }
+// the operators as shown: multiplication is a dot (Finnish schools write ·, drawn bigger as •) because × looks like the letter x
+function opL(op: string) { return op === "×" ? "•" : op; }
+// the function's argument (parameter) has a word for a name, so it reads as a name of a memory slot
+function ARG() { return L("luku", "num", "num"); }
+// the loop variable of the last level
+function ITEM() { return L("hedelmä", "fruit", "fruta"); }
 
 // ---- small drawing helpers ---------------------------------------------------------------
 function Tx(x: number, y: number, w: number, h: number, text: string, size: number, color?: string, left?: boolean) {
@@ -381,7 +387,7 @@ function OpPlay() {
   out.push(Box(m.x + sh, m.y, m.w, m.h, "#355070", 16));
   out.push(Box(m.x + 10 + sh, m.y + m.h - 14, m.w - 20, 6, "#6d597a", 3));
   out.push(Circle(m.x + m.w / 2 + sh, m.y + m.h / 2 - 4, 30, ostate === "err" ? "#ff8fa3" : "#ffffff", "#ffd166"));
-  out.push(Tx(m.x + m.w / 2 - 30 + sh, m.y + m.h / 2 - 34, 60, 60, oop || "?", oop.length > 1 ? 20 : 34, C.ink));
+  out.push(Tx(m.x + m.w / 2 - 30 + sh, m.y + m.h / 2 - 34, 60, 60, opL(oop) || "?", oop === "×" ? 50 : oop.length > 1 ? 20 : 34, C.ink));
   out.push(Tx(m.x + 6 + sh, m.y + 6, 50, 16, L("kone", "machine", "máquina"), 11, "#cdb4db", true));
   if (ostate === "err") out.push(Em(m.x + m.w - 20, m.y - 6, "💨", 18));
   // the output and the goal
@@ -408,9 +414,9 @@ function OpPlay() {
     const x0 = Math.floor((width - n * w - (n - 1) * 10) / 2);
     ot.palette.forEach((op, i) => {
       const x = x0 + i * (w + 10);
-      for (const e of Pad("op" + i, x, py, w, 58, op, oop === op ? "#ffb703" : "#355070", () => opEdit(() => { oop = op; rg.say(OPSAY[op]); }), op.length > 1 ? 20 : 30)) out.push(e);
+      for (const e of Pad("op" + i, x, py, w, 58, opL(op), oop === op ? "#ffb703" : "#355070", () => opEdit(() => { oop = op; rg.say(OPSAY[op]); }), op === "×" ? 46 : op.length > 1 ? 20 : 30)) out.push(e);
     });
-  } else out.push(Tx(14, py, width - 28, 58, L("Operaattori on valmiina: ", "The operator is ready: ", "El operador está listo: ") + oop, 16, "#6c757d"));
+  } else out.push(Tx(14, py, width - 28, 58, L("Operaattori on valmiina: ", "The operator is ready: ", "El operador está listo: ") + opL(oop), 16, "#6c757d"));
   if (hinted() && K.solved < 0) {
     const okOps = ot.palette.filter((op) => opResult(ot, op, oa, ob) === ot.goal);
     if ((k === "valitse" || k === "vertaa" || k === "logiikka") && okOps.length) {
@@ -428,7 +434,7 @@ function OpPlay() {
   const lhs = k === "logiikka" ? L("ovi", "door", "puerta") : k === "vertaa" || k === "vertaaA" ? L("lamppu", "lamp", "lámpara") : k === "sanat" ? L("sana", "word", "palabra") : L("tulos", "result", "resultado");
   const sa = k === "logiikka" ? nameA : typeof oa === "string" ? (oa === "" ? "?" : '"' + oa + '"') : String(oa);
   const sb = k === "logiikka" ? nameB : typeof ob === "string" ? (ob === "" ? "?" : '"' + ob + '"') : String(ob);
-  for (const e of Code([lhs + " = " + sa + " " + (oop || "?") + " " + sb], height - 82 - codeH(1) - 6)) out.push(e);
+  for (const e of Code([lhs + " = " + sa + " " + (opL(oop) || "?") + " " + sb], height - 82 - codeH(1) - 6)) out.push(e);
   return out;
 }
 
@@ -692,7 +698,7 @@ function fnNext() {
   fnSay();
 }
 function fnSay() {
-  const intro = K.question === 0 ? ["kk_l4"] : [];
+  const intro = K.question === 0 ? ["kk_l4", "kk_f_arg"] : [];
   rg.say(intro.concat(["kk_f_" + ft.kind]));
 }
 function fnEdit(f: () => void) {
@@ -701,7 +707,7 @@ function fnEdit(f: () => void) {
   f();
   rg.sound("click"); rg.vibrate(10);
 }
-const FM = { y: 124, h: 108 };
+const FM = { y: 124, h: 128 };
 function frowY(r: number) { return FM.y + FM.h + 12 + r * 66; }
 function callY(i: number) { const rows = ft.kind === "kaksi" ? 2 : 1; return frowY(rows) + 8 + i * 50; }
 function two() { return ft.kind === "kaksi"; }
@@ -750,19 +756,21 @@ function FnPlay() {
   const sp = K.t - fspin < 0.5 ? Math.sin(K.t * 50) * 2 : 0;
   const name = K.solved >= 0 ? fnName(fb, two()) : L("kone", "machine", "máquina");
   out.push(Box(14 + sp, FM.y, width - 28, FM.h, C.funktio, 18));
-  out.push(Tx(26 + sp, FM.y + 6, width - 52, 24, L("funktio ", "function ", "función ") + name + "(x)", 18, "#ffffff", true));
+  out.push(Tx(26 + sp, FM.y + 6, width - 52, 24, L("funktio ", "function ", "función ") + name + "(" + ARG() + ")", 18, "#ffffff", true));
   out.push(Em(width - 40 + sp, FM.y + 18, "⚙️", 16));
   out.push(Box(26 + sp, FM.y + 38, width - 52, 58, "#ffffff", 12));
-  const chips: string[] = [L("palauta", "return", "devuelve"), "x", fb.op || "?", String(fb.n)];
-  if (two()) { chips.push(fb.op2 || "?"); chips.push(String(fb.n2)); }
+  const chips: string[] = [L("palauta", "return", "devuelve"), ARG(), opL(fb.op) || "?", String(fb.n)];
+  if (two()) { chips.push(opL(fb.op2) || "?"); chips.push(String(fb.n2)); }
   const cw = two() ? 38 : 48;
   let cx = 36 + sp;
   chips.forEach((c, i) => {
-    const w = i === 0 ? 74 : cw;
+    const w = i === 0 ? 74 : i === 1 ? 64 : cw;
     if (i >= 2) out.push(Box(cx, FM.y + 48, w - 6, 38, i % 2 === 0 ? "#ffe8a3" : "#dbeafe", 8));
-    out.push(Tx(cx, FM.y + 48, w - 6, 38, c, i === 0 ? 16 : 22, i === 0 ? C.funktio : C.ink));
+    out.push(Tx(cx, FM.y + 48, w - 6, 38, c, i === 0 ? 16 : i === 1 ? 18 : c === "•" ? 34 : 22, i === 0 ? C.funktio : i === 1 ? C.luku : C.ink));
+    if (i === 1) out.push(Box(cx + 4, FM.y + 84, w - 14, 3, C.luku, 2));
     cx += w;
   });
+  out.push(Tx(26 + sp, FM.y + 100, width - 52, 22, L("argumentti " + ARG() + ": kone saa tämän luvun", "argument " + ARG() + ": the number the machine gets", "argumento " + ARG() + ": el número que recibe"), 13, "#ffffff", true));
   // the controls: one row per step of the recipe
   const rows = two() ? 2 : 1;
   for (let r = 0; r < rows; r++) {
@@ -771,7 +779,7 @@ function FnPlay() {
     const w = 50;
     if (two()) out.push(Tx(4, y, 18, 54, String(r + 1) + ".", 15, C.funktio));
     pal.forEach((op, i) => {
-      for (const e of Pad("fop" + r + i, 22 + i * (w + 6), y, w, 54, op, cur === op ? "#ffb703" : "#355070", () => fnEdit(() => { if (r === 0) fb.op = op; else fb.op2 = op; rg.say(OPSAY[op]); }), 26)) out.push(e);
+      for (const e of Pad("fop" + r + i, 22 + i * (w + 6), y, w, 54, opL(op), cur === op ? "#ffb703" : "#355070", () => fnEdit(() => { if (r === 0) fb.op = op; else fb.op2 = op; rg.say(OPSAY[op]); }), op === "×" ? 44 : 26)) out.push(e);
     });
     const nx = width - 150;
     const nv = r === 0 ? fb.n : fb.n2;
@@ -786,8 +794,8 @@ function FnPlay() {
     const ok = fdone[i] && fres[i] === ft.want[i], bad = fdone[i] && !ok;
     out.push(Box(14, y, width - 28, 44, fhot === i ? "#fff3b0" : ok ? "#d8f8e8" : bad ? "#ffd6dc" : "rgba(255,255,255,0.7)", 12));
     out.push(Em(38, y + 22, ANIMALS[i % ANIMALS.length].e, 16));
-    out.push(Tx(58, y + 4, 40, 36, String(x), 22, C.luku));
-    out.push(Tx(96, y + 4, 90, 36, "→ " + name.slice(0, 8) + "() →", 12, C.funktio));
+    out.push(Tx(54, y + 4, 86, 36, ARG() + " = " + x, 18, C.luku, true));
+    out.push(Tx(136, y + 4, 64, 36, "→ " + L("kone", "machine", "máquina").slice(0, 7) + " →", 12, C.funktio));
     const r = fdone[i] ? fres[i] : null;
     out.push(Box(width - 150, y + 6, 54, 32, "#ffffff", 8));
     out.push(Tx(width - 150, y + 6, 54, 32, fdone[i] ? (typeof r === "boolean" ? (r ? "✔" : "✖") : show(r)) : "", 18, typeof r === "boolean" ? (r ? "#2d6a4f" : "#d62828") : C.ink));
@@ -802,8 +810,8 @@ function FnPlay() {
     else if (two() && fb.op2 !== s.op2) out.push(PointAt(22 + ft.palette2.indexOf(s.op2) * 56 + 25, frowY(1), "#f77f00"));
     else if (two() && fb.n2 !== s.n2) out.push(PointAt(width - 150 + (fb.n2 < s.n2 ? 118 : 20), frowY(1), "#f77f00"));
   }
-  const body = "x " + (fb.op || "?") + " " + fb.n + (two() ? " " + (fb.op2 || "?") + " " + fb.n2 : "");
-  for (const e of Code([L("funktio ", "function ", "función ") + name + "(x) { " + L("palauta ", "return ", "devuelve ") + body + " }"], height - 82 - codeH(1) - 6)) out.push(e);
+  const body = ARG() + " " + (opL(fb.op) || "?") + " " + fb.n + (two() ? " " + (opL(fb.op2) || "?") + " " + fb.n2 : "");
+  for (const e of Code([L("funktio ", "function ", "función ") + name + "(" + ARG() + ") { " + L("palauta ", "return ", "devuelve ") + body + " }"], height - 82 - codeH(1) - 6)) out.push(e);
   return out;
 }
 
@@ -890,7 +898,7 @@ function AllPlay() {
     out.push(Box(x0 + i * iw + 2, 140, iw - 4, 44, aptr === i ? "#fff3b0" : "#ffffff", 10));
     out.push(Em(x0 + i * iw + iw / 2, 162, FRUITS[f].e, 16));
   });
-  if (aptr >= 0) out.push(Tx(x0 + aptr * iw, 184, iw, 16, "x ↑", 12, C.funktio));
+  if (aptr >= 0) out.push(Tx(x0 + aptr * iw, 184, iw, 16, "↑ " + ITEM(), 11, C.funktio));
   // the goal and (summa) the prices in a lokerikko
   const gx = x0 + n * iw + 10;
   out.push(Frame(gx, 140, width - gx - 14, 44, "#fffbe6", "#ffb703", 10, 2));
@@ -914,18 +922,18 @@ function AllPlay() {
   const mn = memName();
   out.push(Tx(20, ly(0), 100, 30, mn + " =", 16, "#caf0f8", true));
   for (const e of Chip("alku", 120, ly(0), 44, ap.alku < 0 ? "?" : String(ap.alku), op(0), ap.alku >= 0, () => allEdit(() => { ap.alku = ap.alku < 0 ? 0 : cycle(ALKU, ap.alku); rg.say(rg.sayId.number(ap.alku)); }))) out.push(e);
-  out.push(Tx(20, ly(1), width - 40, 30, L("jokaiselle x listassa:", "for each x in the list:", "para cada x en la lista:"), 16, "#caf0f8", true));
+  out.push(Tx(20, ly(1), width - 40, 30, L("jokaiselle " + ITEM() + " listassa:", "for each " + ITEM() + " in the list:", "para cada " + ITEM() + " en la lista:"), 16, "#caf0f8", true));
   if (at.kind === "laske") {
     out.push(Tx(36, ly(2), 120, 30, L("jos onko_", "if is_", "si es_"), 16, "#caf0f8", true));
     for (const e of Chip("fn", 116, ly(2), 44, ap.fn < 0 ? "?" : FRUITS[ap.fn].e, op(3), ap.fn >= 0, () => allEdit(() => { ap.fn = ap.fn < 0 ? at.kinds[0] : cycle(at.kinds, ap.fn); }))) out.push(e);
-    out.push(Tx(164, ly(2), 60, 30, "(x):", 16, "#caf0f8", true));
+    out.push(Tx(164, ly(2), 120, 30, "(" + ITEM() + "):", 16, "#caf0f8", true));
     out.push(Tx(52, ly(3), 150, 30, mn + " = " + mn, 15, "#caf0f8", true));
-    for (const e of Chip("op", 200, ly(3), 40, ap.op || "?", op(1), !!ap.op, () => allEdit(() => { ap.op = ap.op ? cycle(OPS5, ap.op) : OPS5[0]; rg.say(OPSAY[ap.op]); }))) out.push(e);
+    for (const e of Chip("op", 200, ly(3), 40, opL(ap.op) || "?", op(1), !!ap.op, () => allEdit(() => { ap.op = ap.op ? cycle(OPS5, ap.op) : OPS5[0]; rg.say(OPSAY[ap.op]); }))) out.push(e);
     for (const e of Chip("n", 246, ly(3), 40, ap.n < 0 ? "?" : String(ap.n), op(2), ap.n >= 0, () => allEdit(() => { ap.n = ap.n < 0 ? NS[0] : cycle(NS, ap.n); rg.say(rg.sayId.number(ap.n)); }))) out.push(e);
   } else {
     out.push(Tx(36, ly(2), 130, 30, mn + " = " + mn, 15, "#caf0f8", true));
-    for (const e of Chip("op", 156, ly(2), 40, ap.op || "?", op(1), !!ap.op, () => allEdit(() => { ap.op = ap.op ? cycle(OPS5, ap.op) : OPS5[0]; rg.say(OPSAY[ap.op]); }))) out.push(e);
-    for (const e of Chip("lisa", 202, ly(2), 100, ap.lisa ? (ap.lisa === "1" ? "1" : L("hinta[x]", "price[x]", "precio[x]")) : "?", op(4), !!ap.lisa, () => allEdit(() => { ap.lisa = ap.lisa ? cycle(LISA, ap.lisa) : LISA[0]; }))) out.push(e);
+    for (const e of Chip("op", 156, ly(2), 40, opL(ap.op) || "?", op(1), !!ap.op, () => allEdit(() => { ap.op = ap.op ? cycle(OPS5, ap.op) : OPS5[0]; rg.say(OPSAY[ap.op]); }))) out.push(e);
+    for (const e of Chip("lisa", 200, ly(2), width - 214, ap.lisa ? (ap.lisa === "1" ? "1" : L("hinta[", "price[", "precio[") + ITEM() + "]") : "?", op(4), !!ap.lisa, () => allEdit(() => { ap.lisa = ap.lisa ? cycle(LISA, ap.lisa) : LISA[0]; }))) out.push(e);
   }
   // the memory slot
   const my = PROG_Y + lines * lh + 24;
@@ -960,7 +968,7 @@ const LEVELS: Level[] = [
   { name: L("Muistipaikka", "Memory slot", "Memoria"), color: C.luku, say: "kk_l1", pic: (x, y, s) => [Frame(x - 34 * s, y - 18 * s, 68 * s, 50 * s, "#ffffff", "#1d3557", 10 * s, 2), Box(x - 26 * s, y - 30 * s, 52 * s, 20 * s, "#1d3557", 10 * s), Tx(x - 34 * s, y - 16 * s, 68 * s, 46 * s, "3", 30 * s, C.luku)] },
   { name: L("Operaattori", "Operator", "Operador"), color: "#355070", say: "kk_l2", pic: (x, y, s) => [Circle(x, y, 32 * s, "#ffffff", "#ffd166"), Tx(x - 30 * s, y - 30 * s, 60 * s, 60 * s, "+", 40 * s, C.ink)] },
   { name: L("Tietorakenne", "Data structure", "Estructura"), color: C.rakenne, say: "kk_l3", pic: (x, y, s) => [Box(x - 30 * s, y + 6 * s, 60 * s, 20 * s, FRUITS[0].c, 5 * s), Box(x - 30 * s, y - 16 * s, 60 * s, 20 * s, FRUITS[1].c, 5 * s), Box(x - 30 * s, y - 38 * s, 60 * s, 20 * s, FRUITS[2].c, 5 * s)] },
-  { name: L("Funktio", "Function", "Función"), color: C.funktio, say: "kk_l4", pic: (x, y, s) => [Box(x - 40 * s, y - 26 * s, 80 * s, 50 * s, "#ffffff", 10 * s), Tx(x - 40 * s, y - 26 * s, 80 * s, 50 * s, "f(x)", 24 * s, C.funktio)] },
+  { name: L("Funktio", "Function", "Función"), color: C.funktio, say: "kk_l4", pic: (x, y, s) => [Box(x - 40 * s, y - 26 * s, 80 * s, 50 * s, "#ffffff", 10 * s), Tx(x - 40 * s, y - 26 * s, 80 * s, 50 * s, "f( )", 24 * s, C.funktio)] },
   { name: L("Kaikki yhdessä", "All together", "Todo junto"), color: "#06a77d", say: "kk_l5", pic: (x, y, s) => [Tx(x - 50 * s, y - 34 * s, 100 * s, 60 * s, "📦➕📚⚙️", 18 * s, "#ffffff")] },
 ];
 
