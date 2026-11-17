@@ -67,6 +67,11 @@ cd crates/rg_web_dom && CARGO_TARGET_DIR=../../target/dom cargo run --release --
   (näkymän vaihto): 10–30 ms, josta melkein kaikki on DOMin tyylilaskentaa
   ja render treen tekemistä JS:ssä; EVG:n asettelu on alle 1 ms.
 - `rg_web_dom.wasm` 7,9 MB (`rg_web.wasm` 5,6 MB).
+- Valikko, jossa kuplat ja ruudut liikkuvat joka ruutu ja sivu skrollaa:
+  21 ms ruudulta, kun `dom.js` kirjoitti koko style-attribuutin; 8 ms, kun se
+  asettaa vain muuttuneet ominaisuudet (`el.style.setProperty`), jolloin
+  RangerDOM paikkaa elementin entistä tyyliä (EVG-polulla 2 ms).
+  `DOMTEST_SCROLL=1` vetää sivua domtestissä.
 
 ## Hyvää ja huonoa EVG-polkuun verrattuna
 
