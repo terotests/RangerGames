@@ -36,6 +36,7 @@ Kuvat on otettu web-versiosta. Kaikki pelit kuvauksineen ovat tiedostossa [games
 | `crates/rg_engine` | Moottori: CErXes + EVG + rg_core. Pelin ajonaikainen API (`js/runtime.js`), UI-puu → EVG, piirtovirta (`draw.rs`). |
 | `crates/rg_web` | Moottori WebAssemblynä (`wasm32-wasip1`, C ABI) selaimelle. |
 | `crates/rg_android` | Moottori natiivina kirjastona (NDK, JNI) Android-sovellukselle: ei WebViewiä eikä WebAssemblyä, toimii vanhoillakin puhelimilla. |
+| `crates/rg_web_dom` | Kokeilu: moottori WebAssemblynä RangerDOM-renderöijällä (`?dom=1`, ks. [docs/rangerdom.md](docs/rangerdom.md)). Oma Cargo-työtila, ei puhelinbuildissa. |
 | `crates/rg_cli` | Moottori ilman ruutua: `pack`, `run`, `test` (CI ajaa kaikki pelit). |
 | `crates/chimera`, `crates/rg_voice` | Puhesyntetisaattori (CHIMERA, MIT) ja suomen ääntäminen; renderöi `voice/fi.json`:n klipit `rg.say`:lle. |
 | `web/` | Selain-host: canvas-maalari, WebAudio-äänet (syntetisoidut efektit ja pikku melodiat), värinä, tallennus localStorageen, Three.js-kerros, PWA. |

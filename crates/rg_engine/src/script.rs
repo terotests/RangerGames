@@ -7,6 +7,8 @@ use cerxes::value::Val;
 pub const RUNTIME: &str = include_str!("js/runtime.js");
 /// three.js's names for the 3D world (`THREE`, `<scene3d>`), run after the runtime
 pub const THREE: &str = include_str!("js/three.js");
+/// the element tree into RangerDOM's document (only with Engine::dom)
+pub const DOM: &str = include_str!("js/dom.js");
 
 pub struct Script {
     pub vm: cerxes::Engine,

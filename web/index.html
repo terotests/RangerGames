@@ -143,7 +143,8 @@
       debug: document.getElementById("debug")
     });
     window.rgHost = host;
-    host.boot("rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
+    // ?dom=1: the engine with the RangerDOM renderer (an experiment, crates/rg_web_dom)
+    host.boot(params.get("dom") === "1" ? "rg_web_dom.wasm" : "rg_web.wasm", gamePack() || "games.rgpk").catch(function (e) {
       console.error(e);
       status.innerHTML = "RangerGames<small>" + String(e.message || e) + "</small>";
     });

@@ -50,6 +50,11 @@ jobs:
         run: node tools/peilit/solve.ts
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
+      - name: RangerDOM renderer (opt-in, ?dom=1) - dependencies and every game headless
+        continue-on-error: true
+        run: |
+          bash scripts/setup-dom.sh
+          (cd crates/rg_web_dom && CARGO_TARGET_DIR=../../target/dom cargo run --release --example domtest -- ../../games 120)
       - name: wasm-opt for the web engine (build-web.sh uses it when present)
         run: sudo apt-get install -y binaryen
       - name: Web build (public games only, for GitHub Pages)

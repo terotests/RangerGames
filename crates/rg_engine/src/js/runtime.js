@@ -444,6 +444,8 @@ function __frame(arg) {
   var ev = a.events;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i];
+    // the RangerDOM renderer names the page's node under the finger (js/dom.js)
+    if (typeof __rgDom === "object" && typeof e.id === "string" && e.id.slice(0, 5) === "#dom:") e.id = __rgDom.target(e.id.slice(5));
     var info = { x: e.x, y: e.y, id: e.id, pointer: e.pointer };
     var h3 = e.hit && e.hit.id ? e.hit : null;   // the 3D object (with a handler) under the finger
     if (e.hit) info.hit = __hitEvent(e.hit, e);
@@ -507,6 +509,8 @@ function __frame(arg) {
   var tree = out.length === 1 && over.length === 0 ? out[0] : { t: "div", s: { width: "100%", height: "100%" }, c: out.concat(over) };
   var cmds = __cmds;
   __cmds = [];
+  // the RangerDOM renderer: the tree goes into the document, not to the engine
+  if (typeof __rgDom === "object") { __rgDom.apply(tree); tree = null; }
   return JSON.stringify(__scene3d ? { tree: tree, cmds: cmds, scene3d: __scene3d } : { tree: tree, cmds: cmds });
 }
 
