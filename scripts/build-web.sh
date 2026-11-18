@@ -19,11 +19,10 @@ cp "target/wasm32-wasip1/$PROFILE/rg_web.wasm" "$OUT/rg_web.wasm"
 if command -v wasm-opt >/dev/null 2>&1 && [[ "$PROFILE" == release ]]; then
   wasm-opt -O2 --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web.wasm" -o "$OUT/rg_web.wasm" || true
 fi
-# The engine with the RangerDOM renderer (crates/rg_web_dom) is the web's
-# engine, rg_web.wasm; the one that lays out with EVG directly is kept as
-# rg_web_evg.wasm (?evg=1). Only when its dependencies are there
-# (scripts/setup-dom.sh): without them, or when its build fails, rg_web.wasm
-# stays the EVG one
+# The web's engine, rg_web.wasm, lays out with EVG directly (as the phone
+# does; rg_web_evg.wasm is a copy for old ?evg=1 links). The one with the
+# RangerDOM renderer (crates/rg_web_dom) is rg_web_dom.wasm (?dom=1), built
+# only when its dependencies are there (scripts/setup-dom.sh)
 if [[ -d .deps/domtree && -d .deps/RangerDOM ]]; then
   if (cd crates/rg_web_dom && CARGO_TARGET_DIR=../../target/dom cargo build --lib --target wasm32-wasip1 "${FLAGS[@]}"); then
     cp "target/dom/wasm32-wasip1/$PROFILE/rg_web_dom.wasm" "$OUT/rg_web_dom.wasm"
@@ -31,11 +30,10 @@ if [[ -d .deps/domtree && -d .deps/RangerDOM ]]; then
       wasm-opt -O2 --strip-debug --enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext "$OUT/rg_web_dom.wasm" -o "$OUT/rg_web_dom.wasm" || true
     fi
   else
-    echo "note: rg_web_dom.wasm (the RangerDOM renderer) not built: rg_web.wasm is the EVG engine"
+    echo "note: rg_web_dom.wasm (the RangerDOM renderer) not built"
   fi
 fi
 cp "$OUT/rg_web.wasm" "$OUT/rg_web_evg.wasm"
-if [[ -f "$OUT/rg_web_dom.wasm" ]]; then mv "$OUT/rg_web_dom.wasm" "$OUT/rg_web.wasm"; fi
 # RG_PUBLIC=1 (GitHub Pages): a public copy of games/ without private games
 # (Kolmården with the family photos) and without git-ignored *.local.* files
 # (home locations), in case a build is made from a checkout that has them
@@ -83,6 +81,7 @@ done
 ./target/release/rg_cli pack "$BASE" "$OUT/games.rgpk"
 # the real sizes for the loading screen's percentage (host.js)
 SIZES="$SIZES, \"rg_web_evg.wasm\": $(stat -c %s "$OUT/rg_web_evg.wasm")"
+if [[ -f "$OUT/rg_web_dom.wasm" ]]; then SIZES="$SIZES, \"rg_web_dom.wasm\": $(stat -c %s "$OUT/rg_web_dom.wasm")"; fi
 echo "{$SIZES, \"games.rgpk\": $(stat -c %s "$OUT/games.rgpk")}" > "$OUT/sizes.json"
 # the games' list for the playground (playground.html): every game.json not hidden
 node -e '

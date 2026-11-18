@@ -6,9 +6,9 @@ kuin M-Files UI Extensionit tekevät: pelin skriptillä on oikea DOM
 (RangerDOMin `webapi.js`), CSS-kaskadi on DOMin oma, ja sivun render tree
 asetellaan EVG:llä (RangerDOMin `DomPage` / `DomView`).
 
-- **Web ja Sliqtly Games:** RangerDOM on oletus. `rg_web.wasm` on
-  RangerDOM-moottori ja `rg_web_evg.wasm` vanha EVG-moottori (`?evg=1`).
-  Jos RangerDOMin riippuvuudet puuttuvat buildista, `rg_web.wasm` on EVG-moottori.
+- **Web ja Sliqtly Games:** EVG on oletus (2026-11-18). `rg_web.wasm` on
+  EVG-moottori ja `rg_web_dom.wasm` RangerDOM-moottori (`?dom=1`);
+  `rg_web_evg.wasm` on kopio EVG-moottorista vanhoille `?evg=1`-linkeille.
 - **Puhelin:** APK:ssa ovat molemmat, oletus on EVG (2026-11-18: RangerDOMin täydet ruudut jumittivat puhelimessa 1–6 s). Valikon ⚙️-asetuksissa
   on kohta *Pelimoottori: EVG / RangerDOM*.
 - Valinta (`rg.setRenderer("dom" | "evg")`, asetus `renderer`) koskee kaikkia

@@ -90,6 +90,12 @@ pub unsafe extern "C" fn rg_start(p: *const u8, n: usize) -> i32 {
     })
 }
 
+/// The running game's style.css read again (after rg_put), without a restart.
+#[no_mangle]
+pub extern "C" fn rg_restyle() -> i32 {
+    with(|e| e.restyle() as i32)
+}
+
 /// The pack of game `id` that a "pack" command asked for is mounted (`ok`
 /// 1) or could not be fetched (0).
 #[no_mangle]

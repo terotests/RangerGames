@@ -465,6 +465,21 @@ impl Engine {
 
     /// Starts the game `id` ("" for the launcher). Err with the reason when
     /// it cannot start; the error is also shown on the screen.
+    /// The running game's stylesheet read again from the VFS (a host that
+    /// changed style.css with put): the game keeps running and its state.
+    pub fn restyle(&mut self) -> bool {
+        let info = match &self.game {
+            Some(g) => g.clone(),
+            None => return false,
+        };
+        let css_path = vfs::join(&info.dir, &info.style);
+        self.ui.set_stylesheet(&self.vfs.read_text(&css_path));
+        for e in self.ui.css_errors.clone() {
+            self.log.push(format!("{}: {}", css_path, e));
+        }
+        true
+    }
+
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();

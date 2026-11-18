@@ -221,7 +221,8 @@ impl DomRender {
                     let b = c.borrow();
                     (b.text.clone(), b.font_family.clone(), b.font_size, b.letter_spacing, b.w)
                 };
-                let rw = EVGTextEngine::measure_run_spaced(&te, &text, &fam, size, sp).borrow().width;
+                let rw = EVGTextEngine::measure_run_spaced(&te, &text, &fam, size, sp).borrow().width
+                    + rg_engine::ui::bmp_emoji_extra(&text, size);
                 if rw > 0.0 && rw < w - 0.5 {
                     c.borrow_mut().w = rw;
                 }
@@ -412,3 +413,4 @@ fn node_at(root: &Option<Rc<RefCell<EVGElement>>>, x: f64, y: f64) -> String {
         out.join(",")
     }
 }
+
