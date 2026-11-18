@@ -36,11 +36,25 @@ fn fit_text_runs(cmds: &[Rc<RefCell<EVGDrawCmd>>], te: &Rc<RefCell<EVGTextEngine
             continue;
         }
         let m = EVGTextEngine::measure_run_spaced(te, &c.text, &c.font_family, c.font_size, c.letter_spacing);
-        let w = m.borrow().width;
+        let w = m.borrow().width + bmp_emoji_extra(&c.text, c.font_size);
         if w > 0.0 && w < c.w {
             c.w = w;
         }
     }
+}
+
+/// What EVG leaves out of an emoji in the Basic Multilingual Plane (⭐ ⚽ ☀ ✈
+/// ❤): it measures those as half an em, as it does a letter it does not
+/// know, while a browser or the phone draws them like other emoji, about
+/// 1.25 em (EVG's own width for the emoji above the BMP). Without this a run
+/// of ⭐ got a narrow box and the painter, which keeps a run's centre, drew
+/// it far to the left of its column.
+fn bmp_emoji_extra(text: &str, font_size: f64) -> f64 {
+    let n = text
+        .chars()
+        .filter(|&c| matches!(c as u32, 0x2300..=0x23FF | 0x2600..=0x27BF | 0x2B00..=0x2BFF))
+        .count();
+    n as f64 * 0.75 * font_size
 }
 
 /// Gives each text run the font size its box will inherit. EVG settles
@@ -611,5 +625,21 @@ fn collect_boxes(el: &Rc<RefCell<EVGElement>>, ids: &[String], out: &mut Vec<rg_
     }
     for c in e.children.iter() {
         collect_boxes(c, ids, out);
+    }
+}
+
+
+#[cfg(test)]
+mod emoji_width_tests {
+    use super::*;
+
+    #[test]
+    fn bmp_emoji_measure_like_other_emoji() {
+        let lay = Rc::new(RefCell::new(EVGLayout::new()));
+        let te = EVGLayout::get_text_engine(&lay);
+        let star = EVGTextEngine::measure_run_spaced(&te, "⭐", "Noto Sans", 14.0, 0.0).borrow().width;
+        let cup = EVGTextEngine::measure_run_spaced(&te, "🏆", "Noto Sans", 14.0, 0.0).borrow().width;
+        assert!((star + bmp_emoji_extra("⭐", 14.0) - cup).abs() < 0.01);
+        assert_eq!(bmp_emoji_extra("Latvia 🏆", 14.0), 0.0);
     }
 }
