@@ -168,7 +168,9 @@ var __rgDom = (function () {
   // DomView copies to the element as it is.
   var FAST_ABS = { left: 1, top: 1, right: 1, bottom: 1, width: 1, height: 1 };
   var FAST_FLEX = { "margin-top": 1, "margin-left": 1, "margin-right": 1, "margin-bottom": 1, width: 1, height: 1 };
-  var pending = [], lastFast = "";
+  // (one entry for each element and property, the newest value: a game
+  // that animates without ever taking the full path queued every frame)
+  var pending = [], pendingAt = {}, lastFast = "";
   function posOf(el) {
     var w = el.__rg;
     if (w.pos === undefined) {
@@ -261,6 +263,7 @@ var __rgDom = (function () {
     if (!pending.length) return;
     var p = pending;
     pending = [];
+    pendingAt = {};
     for (var i = 0; i < p.length; i++) p[i][0].style.setProperty(p[i][1], p[i][2]);
   }
 
@@ -303,7 +306,9 @@ var __rgDom = (function () {
           var p = out[i];
           if (p[1] === "#text") { p[0].data = p[2]; ps.push([String(p[0].__id), p[1], p[2]]); continue; }
           p[0].__rg.st[p[1]] = p[2];
-          pending.push(p);
+          var pk = p[0].__id + "|" + p[1], q = pendingAt[pk];
+          if (q) q[2] = p[2];
+          else { pendingAt[pk] = p; pending.push(p); }
           ps.push([String(p[0].__id), p[1], px3(p[2])]);
         }
         for (var r = 0; r < raws.length; r += 2) raws[r].sraw = raws[r + 1];

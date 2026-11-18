@@ -118,6 +118,21 @@ Huawei EML-L29, ms/ruutu keskiarvo (pahin):
 | Haamujahti | 12,5 (30) | 43,5 (2 888) |
 | Nappulasota | 13,9 | 15,6 |
 
-Jumit ovat JS:ssä täysissä ruuduissa (pelin alku, näkymän vaihto,
-noppavuorot): todennäköisesti CErXesin roskienkeruu webapi.js:n isossa
-keossa.
+Jumien syy oli kaksi muistivuotoa, joiden takia CErXesin koko keon
+läpikäyvä roskienkeruu kesti yhä kauemmin:
+
+- RangerDOMin paikattu tyyli (`diffFrom`) piti viitteen edelliseen
+  tyyliin ja se omaansa, joten jokaisen ruudun koko laskettu tyyli jäi
+  muistiin (Kanada-maljassa ~40 000 objektia minuutissa). Korjattu
+  RangerDOMissa (26a6f8c).
+- Nopean reitin jono (`pending` dom.js:ssä) kasvoi joka ruudulla, kun
+  peli animoi ilman täyttä ruutua, ja seuraava täysi ruutu ajoi kaikki
+  kymmenet tuhannet muutokset kerralla. Nyt jonossa on yksi arvo
+  elementtiä ja ominaisuutta kohden.
+
+Korjausten jälkeen Kanada-maljan elävä keko pysyy 22 000 objektissa
+(ennen 97 000 / 3 000 ruutua) ja koko keräys kestää koneella 10 ms
+(ennen 30 ms ja kasvoi). EVG:llä keko on noin 2 000 objektia.
+domtestissä `DOMTEST_HEAP=<n>` tulostaa keon n ruudun välein,
+`DOMTEST_CENSUS=1` elävät objektit lajeittain ja `DOMTEST_SLOW=<ms>`
+hitaat ruudut.

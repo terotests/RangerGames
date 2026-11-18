@@ -13,7 +13,10 @@
 //! JS gives in the game at the end, DOMTEST_STATS=1 the elements made and
 //! changed each frame, RG_DOM_TIMING=1 the renderer's times, DOMTEST_SCROLL=1
 //! drags a finger up and down (a scrolled page) in place of the taps,
-//! DOMTEST_PRE=<js> runs in the game at the third frame (no taps then).
+//! DOMTEST_PRE=<js> runs in the game at the third frame (no taps then),
+//! DOMTEST_SLOW=<ms> lists frames slower than that with the JS collections
+//! run in them, DOMTEST_HEAP=<n> the live JS objects every n frames,
+//! DOMTEST_CENSUS=1 the live JS objects by kind at the end.
 
 use rg_core::vfs::Vfs;
 use rg_engine::Engine;
@@ -88,7 +91,24 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
             e.key(true, key);
             e.key(false, key);
         }
-        if let Err(err) = e.frame(1000.0 / 60.0) {
+        let (g0, _) = e.js_heap();
+        let tf = Instant::now();
+        let res = e.frame(1000.0 / 60.0);
+        if let Ok(lim) = std::env::var("DOMTEST_SLOW") {
+            let ms = tf.elapsed().as_secs_f64() * 1000.0;
+            if ms >= lim.parse::<f64>().unwrap_or(20.0) {
+                let (g1, live) = e.js_heap();
+                println!("    slow frame {}: {:.1} ms, gc runs +{}, live objects {}", f, ms, g1 - g0, live);
+            }
+        }
+        if let Ok(every) = std::env::var("DOMTEST_HEAP") {
+            if f % every.parse::<usize>().unwrap_or(100).max(1) == 0 {
+                let (g, heap) = e.js_heap();
+                let (ms, live) = e.js_collect();
+                println!("    {} frame {}: heap {} objects, {} live after a {:.1} ms collection, gc runs {}", if dom { "dom" } else { "evg" }, f, heap, live, ms, g);
+            }
+        }
+        if let Err(err) = res {
             ok = false;
             why = err;
         }
@@ -106,6 +126,11 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
             }
         }
         e.log.clear();
+    }
+    if std::env::var("DOMTEST_CENSUS").is_ok() {
+        for (n, k) in e.js_census(25) {
+            println!("    {} {:>7} {}", if dom { "dom" } else { "evg" }, n, k);
+        }
     }
     if std::env::var("DOMTEST_KINDS").is_ok() {
         let mut i = 0;
