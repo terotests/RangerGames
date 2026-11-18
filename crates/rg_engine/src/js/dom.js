@@ -146,7 +146,7 @@ var __rgDom = (function () {
       was.id = id;
     }
     setStyle(el, was, n.s);
-    if (was.t === "path") { pathAttrs(el, n.a || {}); return; }
+    if (was.t === "path") { pathAttrs(el, n.a || {}); was.a = n.a || {}; return; }
     var a = n.a || {}, old = was.a || {};
     for (var k in old) if (!(k in a)) el.removeAttribute(k);
     for (var k2 in a) if (old[k2] !== a[k2]) el.setAttribute(k2, a[k2]);
@@ -180,7 +180,9 @@ var __rgDom = (function () {
     if (a === undefined || b === undefined) return false;
     if (/!|%|calc|var\(|auto|em|vw|vh/.test(a + b)) return false;
     var w = posOf(el);
-    if (w.tf) return false;
+    // a transform from one to another on an absolute box (paint only)
+    if (k === "transform") return w.pos === "absolute" && w.tf && a !== "none" && b !== "none";
+    if (w.tf && w.pos !== "absolute") return false;
     // (a picture's other side follows its natural size, which DomView works out)
     if ((k === "width" || k === "height") && el.localName === "img") return false;
     if (FAST_ABS[k] && w.pos === "absolute") return true;
@@ -203,9 +205,14 @@ var __rgDom = (function () {
   // whether `n` can be had from `el` by patches alone (pushed to `out`)
   function fastDiff(el, n, out) {
     if (!same(el, n)) return false;
-    if (typeof n === "string") return el.data === n;
+    if (typeof n === "string") {
+      if (el.data === n) return true;
+      // (a text of its own in its element: the text run DomView made of it)
+      if (el.parentNode.childNodes.length !== 1 || !n.length || !el.data.length) return false;
+      out.push([el, "#text", n]);
+      return true;
+    }
     var w = el.__rg;
-    if (w.t === "path") return false;
     if ((n.cls || "") !== w.cls || (n.id || "") !== w.id) return false;
     var a = n.a || {}, old = w.a || {}, k;
     for (k in old) if (old[k] !== a[k]) return false;
@@ -217,6 +224,8 @@ var __rgDom = (function () {
       if (!fastProp(el, k, st[k], now[k])) return false;
       out.push([el, k, now[k]]);
     }
+    // (a path's box: its shape the same, the <svg> in it is ours)
+    if (w.t === "path") return true;
     var list = n.c || [], have = el.childNodes;
     if (list.length !== have.length) return false;
     for (var i = 0; i < list.length; i++) {
@@ -275,6 +284,7 @@ var __rgDom = (function () {
         var ps = [];
         for (var i = 0; i < out.length; i++) {
           var p = out[i];
+          if (p[1] === "#text") { p[0].data = p[2]; ps.push([String(p[0].__id), p[1], p[2]]); continue; }
           p[0].__rg.st[p[1]] = p[2];
           pending.push(p);
           ps.push([String(p[0].__id), p[1], px3(p[2])]);

@@ -126,7 +126,10 @@ impl DomRender {
         }
         let mut layout = false;
         for (i, (_, name, value)) in ps.iter().enumerate() {
-            if EVGRetain::paint_only(name) {
+            if name == "#text" {
+                EVGRetain::patch_text(&els[i], value.clone());
+                layout = true;
+            } else if EVGRetain::paint_only(name) {
                 EVGRetain::patch(&els[i], name, value);
             } else {
                 EVGRetain::patch_layout(&els[i], name, value);
