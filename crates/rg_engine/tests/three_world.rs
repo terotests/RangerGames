@@ -5,7 +5,7 @@
 use rg_engine::gltf;
 use rg_engine::Engine;
 
-const SOLDIER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../games/nappulasota/models/sotilas-valkoinen.glb");
+const SOLDIER: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../games/nappulasota/models/wp.glb");
 
 fn engine(script: &str) -> Engine {
     let mut e = Engine::new();
@@ -122,4 +122,40 @@ fn a_gltf_model_plays_crossfades_and_markers() {
     // the model is drawn and can be tapped (its middle)
     let hit = e.world.borrow().raycast(100.0, 110.0);
     assert_eq!(hit.first().map(|h| h.get("name").as_str()), Some("soldier".to_string()));
+}
+
+// Nappulasota's puzzles, checked in the engine itself (CErXes, as the phone
+// runs them): each has a mate in the moves it says and none in fewer, and
+// the hint finds a move of such a mate.
+#[test]
+fn nappulasota_puzzles_mate_as_they_say() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../games/nappulasota/lib/");
+    let mut e = Engine::new();
+    e.vfs.add_text("/games/t/game.json", r#"{ "name": "T", "width": 200, "height": 200 }"#);
+    e.vfs.add("/games/t/lib/chess.ts", std::fs::read(format!("{}chess.ts", dir)).unwrap());
+    e.vfs.add("/games/t/lib/puzzles.ts", std::fs::read(format!("{}puzzles.ts", dir)).unwrap());
+    e.vfs.add_text("/games/t/style.css", "");
+    e.vfs.add_text("/games/t/game.tsx", r##"
+        import { newGame, play, status } from "lib/chess";
+        import { PUZZLES, mateIn, solution } from "lib/puzzles";
+        let done = false;
+        function tick() {
+          if (done) return;
+          done = true;
+          const bad = [];
+          PUZZLES.forEach((p, i) => {
+            const g = newGame(p.fen);
+            if (!mateIn(g, p.n) || (p.n > 1 && mateIn(g, p.n - 1))) bad.push(i);
+            if (p.n === 1) { play(g, solution(g, 1)); if (status(g) !== "mate") bad.push("hint" + i); }
+          });
+          rg.save("r", PUZZLES.length + " bad:" + bad.join(","));
+        }
+        function view() { return <div />; }
+    "##);
+    e.resize(200.0, 200.0);
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    e.frame(16.0).unwrap();
+    let saved = e.vfs.read_text("/save/t.json");
+    assert!(saved.contains("14 bad:\""), "{}", saved);
 }

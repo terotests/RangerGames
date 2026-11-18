@@ -14,5 +14,16 @@
 .btn { width: 250px; height: 60px; border-radius: 30px; background-color: #ffb703; color: #ffffff; font-size: 21px; font-weight: 700; align-items: center; justify-content: center; margin-top: 12px; shadow-color: rgba(0,0,0,0.35); shadow-offset-y: 5px; shadow-radius: 0px; }
 .alt { background-color: #4895ef; }
 .again { background-color: #06d6a0; }
-.over { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; }
-.big { font-size: 38px; font-weight: 700; color: #ffd23f; shadow-color: rgba(0,0,0,0.6); shadow-offset-y: 3px; shadow-radius: 0px; }
+.over { position: absolute; left: 0px; bottom: 76px; width: 100%; align-items: center; }
+.puz { background-color: #9b5de5; }
+.lv0 { background-color: #06d6a0; }
+.lv1 { background-color: #4895ef; }
+.lv2 { background-color: #ffb703; }
+.lv3 { background-color: #ef476f; }
+.bar { position: absolute; left: 0px; bottom: 12px; width: 100%; flex-direction: row; justify-content: center; }
+.tool { height: 52px; min-width: 52px; border-radius: 26px; background-color: rgba(0,0,0,0.45); color: #ffffff; font-size: 18px; font-weight: 700; align-items: center; justify-content: center; margin-left: 5px; margin-right: 5px; padding-left: 14px; padding-right: 14px; }
+.wide { width: 128px; }
+.go { background-color: #06d6a0; }
+.msgbox { position: absolute; left: 0px; top: 70px; width: 100%; align-items: center; }
+.msg { padding-left: 16px; padding-right: 16px; height: 40px; border-radius: 20px; background-color: rgba(0,0,0,0.55); color: #ffd23f; font-size: 18px; font-weight: 700; align-items: center; justify-content: center; }
+.panel { align-items: center; padding-left: 16px; padding-right: 16px; padding-top: 6px; padding-bottom: 4px; border-radius: 22px; background-color: rgba(0,0,0,0.4); margin-bottom: 6px; }

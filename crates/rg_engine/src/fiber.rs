@@ -57,9 +57,25 @@ fn norm(a: V3) -> V3 {
 fn to_linear(c: f32) -> f32 {
     if c <= 0.04045 { c / 12.92 } else { ((c + 0.055) / 1.055).powf(2.4) }
 }
-fn to_srgb(c: f32) -> f32 {
+fn to_srgb_exact(c: f32) -> f32 {
     let c = c.clamp(0.0, 1.0);
     if c <= 0.0031308 { c * 12.92 } else { 1.055 * c.powf(1.0 / 2.4) - 0.055 }
+}
+// every lit corner is turned back to sRGB: a table with linear steps between
+// its entries (well under one 8-bit step off) instead of a powf for each of
+// three channels of tens of thousands of corners a frame
+const SRGB_N: usize = 1024;
+fn to_srgb(c: f32) -> f32 {
+    static TABLE: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+    let t = TABLE.get_or_init(|| (0..=SRGB_N + 1).map(|i| to_srgb_exact(i as f32 / SRGB_N as f32)).collect());
+    let x = c.clamp(0.0, 1.0) * SRGB_N as f32;
+    // the first steps are steep: exact there
+    if x < 4.0 {
+        return to_srgb_exact(c);
+    }
+    let i = x as usize;
+    let k = x - i as f32;
+    t[i] + (t[i + 1] - t[i]) * k
 }
 
 /// three.js's named colours that games are most likely to use
@@ -294,6 +310,27 @@ struct Item {
     /// three.js's renderOrder: without a depth buffer (the painter) lower
     /// orders are drawn first, whatever their depth
     order: i32,
+    /// a glTF model drawn later from its pose (pos etc. are empty then);
+    /// `key` tells the same model, pose and place from frame to frame
+    model: Option<Rc<ModelInst>>,
+    key: u64,
+}
+
+struct ModelInst {
+    asset: Rc<Asset>,
+    mix: Vec<(usize, f32, f32)>,
+    m: M4,
+    tint: Option<V3>,
+}
+
+/// One model's drawing kept for the next frame: if nothing about it or the
+/// view changed (a piece standing still), it is copied, not posed, skinned,
+/// lit and projected again.
+struct Kept {
+    frame: u64,
+    tris: Vec<f32>,
+    pick: Vec<[V3; 3]>,
+    drawn: usize,
 }
 
 #[derive(Clone, Copy)]
@@ -333,6 +370,7 @@ pub struct World {
     owners: Vec<(String, String)>,
     /// triangles drawn in the last frame
     pub drawn: usize,
+    kept: HashMap<u64, Kept>,
 }
 
 struct Ctx {
@@ -357,6 +395,7 @@ impl World {
             pick_owner: Vec::new(),
             owners: Vec::new(),
             drawn: 0,
+            kept: HashMap::new(),
         }
     }
 
@@ -612,7 +651,7 @@ impl World {
                     };
                     let col = vec![mat.color; pos.len()];
                     let tris = if mat.side == 1 { tris.chunks(3).flat_map(|t| [t[0], t[2], t[1]]).collect() } else { tris };
-                    ctx.items.push(Item { pos, nrm, col, emissive: mat.emissive, tris, kind: mat.kind, double: mat.side == 2, flat: mat.flat, owner: ow, order });
+                    ctx.items.push(Item { pos, nrm, col, emissive: mat.emissive, tris, kind: mat.kind, double: mat.side == 2, flat: mat.flat, owner: ow, order, model: None, key: 0 });
                 }
             }
             "primitive" => {
@@ -626,11 +665,15 @@ impl World {
                         let ow = ctx.owners.len() as u32;
                         ctx.owners.push((own_id.clone(), own_name.clone()));
                         let tint = prop(a, "color").map(|v| color(v, [1.0; 3]));
-                        let first = ctx.items.len();
-                        model_items(&asset, &mix, &m, ow, tint, &mut ctx.items);
-                        for it in ctx.items[first..].iter_mut() {
-                            it.order = order;
-                        }
+                        let mut hs = std::collections::hash_map::DefaultHasher::new();
+                        use std::hash::{Hash, Hasher};
+                        src.hash(&mut hs);
+                        ow.hash(&mut hs);
+                        for (c, t, wgt) in mix.iter() { c.hash(&mut hs); t.to_bits().hash(&mut hs); wgt.to_bits().hash(&mut hs); }
+                        for v in m.iter() { v.to_bits().hash(&mut hs); }
+                        if let Some(t) = tint { for v in t.iter() { v.to_bits().hash(&mut hs); } }
+                        ctx.items.push(Item { pos: Vec::new(), nrm: Vec::new(), col: Vec::new(), emissive: [0.0; 3], tris: Vec::new(), kind: 0, double: false, flat: false, owner: ow, order,
+                            model: Some(Rc::new(ModelInst { asset, mix, m, tint })), key: hs.finish() });
                     }
                 }
             }
@@ -756,11 +799,14 @@ impl World {
         };
         // painter polygons: (depth, corners x y, colour)
         let mut polys: Vec<(i32, f32, Vec<f32>, V3)> = Vec::new();
-        let mut drawn = 0;
-        for it in ctx.items.iter() {
+        // one item's triangles: into tris (GL) or polys (the painter), and pick
+        let draw = |it: &Item, tris: &mut Vec<f32>, polys: &mut Vec<(i32, f32, Vec<f32>, V3)>, pick: &mut Vec<[V3; 3]>, pick_owner: &mut Vec<u32>| -> usize {
+            let mut n = 0;
             // each corner in view space and lit once
             let view: Vec<V3> = it.pos.iter().map(|p| { let d = sub(*p, eye); [dot(d, r), dot(d, u), dot(d, f)] }).collect();
-            let vcol: Vec<V3> = if it.flat { Vec::new() } else { (0..it.pos.len()).map(|i| shade(it.pos[i], it.nrm[i], it.col[i], it.emissive, it.kind)).collect() };
+            // corners are lit when a front face first needs them: about half
+            // of a model's faces look away and are never lit
+            let mut vcol: Vec<V3> = if it.flat { Vec::new() } else { vec![[-1.0; 3]; it.pos.len()] };
             for t in it.tris.chunks(3) {
                 let (ia, ib, ic) = (t[0] as usize, t[1] as usize, t[2] as usize);
                 let (a, b, c) = (it.pos[ia], it.pos[ib], it.pos[ic]);
@@ -783,37 +829,50 @@ impl World {
                     let k = shade(centre, n, it.col[ia], it.emissive, it.kind);
                     [k, k, k]
                 } else {
+                    for &i in [ia, ib, ic].iter() {
+                        if vcol[i][0] < 0.0 {
+                            vcol[i] = shade(it.pos[i], it.nrm[i], it.col[i], it.emissive, it.kind);
+                        }
+                    }
                     [vcol[ia], vcol[ib], vcol[ic]]
                 };
-                // clip against the near plane: (view position, colour)
+                // clip against the near plane: (view position, colour), at most 4 corners
                 let corners = [(va, cols[0]), (vb, cols[1]), (vc, cols[2])];
-                let mut poly: Vec<(V3, V3)> = Vec::with_capacity(4);
+                let mut poly: [(V3, V3); 4] = [([0.0; 3], [0.0; 3]); 4];
+                let mut np = 0;
                 for i in 0..3 {
                     let (p, pc) = corners[i];
                     let (q, qc) = corners[(i + 1) % 3];
                     if p[2] >= near {
-                        poly.push((p, pc));
+                        poly[np] = (p, pc);
+                        np += 1;
                     }
                     if (p[2] >= near) != (q[2] >= near) {
                         let k = (near - p[2]) / (q[2] - p[2]);
                         let lerp = |x: V3, y: V3| [x[0] + (y[0] - x[0]) * k, x[1] + (y[1] - x[1]) * k, x[2] + (y[2] - x[2]) * k];
-                        poly.push((lerp(p, q), lerp(pc, qc)));
+                        poly[np] = (lerp(p, q), lerp(pc, qc));
+                        np += 1;
                     }
                 }
-                if poly.len() < 3 {
+                if np < 3 {
                     continue;
                 }
-                let scr: Vec<(f32, f32, f32, V3)> = poly.iter().map(|(p, c)| (w / 2.0 + p[0] / p[2] * focal, h / 2.0 - p[1] / p[2] * focal, p[2], *c)).collect();
+                let mut scr: [(f32, f32, f32, V3); 4] = [(0.0, 0.0, 0.0, [0.0; 3]); 4];
+                for i in 0..np {
+                    let (p, c) = poly[i];
+                    scr[i] = (w / 2.0 + p[0] / p[2] * focal, h / 2.0 - p[1] / p[2] * focal, p[2], c);
+                }
+                let scr = &scr[..np];
                 let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
                 for s in scr.iter() {
                     x0 = x0.min(s.0); x1 = x1.max(s.0); y0 = y0.min(s.1); y1 = y1.max(s.1);
                 }
-                self.pick.push([a, b, c]);
-                self.pick_owner.push(it.owner);
+                pick.push([a, b, c]);
+                pick_owner.push(it.owner);
                 if x1 < 0.0 || y1 < 0.0 || x0 > w || y0 > h {
                     continue;
                 }
-                drawn += 1;
+                n += 1;
                 if gl {
                     for k in 1..scr.len() - 1 {
                         for s in [scr[0], scr[k], scr[k + 1]].iter() {
@@ -835,7 +894,62 @@ impl World {
                     polys.push((it.order, zsum / scr.len() as f32, crate::scene3d::grow(pts), cs));
                 }
             }
+            n
+        };
+        // what the view and the lights are this frame: a kept model is good while they stay
+        let frame_key = {
+            use std::hash::{Hash, Hasher};
+            let mut hs = std::collections::hash_map::DefaultHasher::new();
+            for v in eye.iter().chain(r.iter()).chain(u.iter()).chain(f.iter()) { v.to_bits().hash(&mut hs); }
+            for v in [focal, w, h, near, far] { v.to_bits().hash(&mut hs); }
+            for li in lights.iter() {
+                for v in li.color.iter().chain(li.ground.iter()).chain(li.v.iter()) { v.to_bits().hash(&mut hs); }
+                for v in [li.intensity, li.decay, li.distance] { v.to_bits().hash(&mut hs); }
+            }
+            if let Some((fc, a, b)) = fog { for v in fc.iter() { v.to_bits().hash(&mut hs); } a.to_bits().hash(&mut hs); b.to_bits().hash(&mut hs); }
+            hs.finish()
+        };
+        let mut kept = std::mem::take(&mut self.kept);
+        let mut kept_now: HashMap<u64, Kept> = HashMap::new();
+        let mut pick = std::mem::take(&mut self.pick);
+        let mut pick_owner = std::mem::take(&mut self.pick_owner);
+        let mut drawn = 0;
+        for it in ctx.items.iter() {
+            let mi = match &it.model {
+                Some(mi) => mi,
+                None => {
+                    drawn += draw(it, tris, &mut polys, &mut pick, &mut pick_owner);
+                    continue;
+                }
+            };
+            if gl {
+                if let Some(k) = kept.remove(&it.key) {
+                    if k.frame == frame_key {
+                        tris.extend_from_slice(&k.tris);
+                        for p in k.pick.iter() {
+                            pick.push(*p);
+                            pick_owner.push(it.owner);
+                        }
+                        drawn += k.drawn;
+                        kept_now.insert(it.key, k);
+                        continue;
+                    }
+                }
+            }
+            let mut sub = Vec::new();
+            model_items(&mi.asset, &mi.mix, &mi.m, it.owner, mi.tint, &mut sub);
+            let (t0, p0, d0) = (tris.len(), pick.len(), drawn);
+            for s in sub.iter_mut() {
+                s.order = it.order;
+                drawn += draw(s, tris, &mut polys, &mut pick, &mut pick_owner);
+            }
+            if gl {
+                kept_now.insert(it.key, Kept { frame: frame_key, tris: tris[t0..].to_vec(), pick: pick[p0..].to_vec(), drawn: drawn - d0 });
+            }
         }
+        self.kept = kept_now;
+        self.pick = pick;
+        self.pick_owner = pick_owner;
         if !gl {
             polys.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)));
             let mut i = 0;
@@ -901,7 +1015,7 @@ fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tin
                 }
             }
             let col = match tint { Some(t) => p.col.iter().map(|c| [c[0] * t[0], c[1] * t[1], c[2] * t[2]]).collect(), None => p.col.clone() };
-            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind: 0, double: p.double, flat: false, owner, order: 0 });
+            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind: 0, double: p.double, flat: false, owner, order: 0, model: None, key: 0 });
         }
     }
 }
