@@ -101,6 +101,9 @@ pub struct Ui {
     last_lay: Option<Rc<RefCell<EVGLayout>>>,
     /// frames drawn by the paint-only path (for tests and benches)
     pub paint_frames: i64,
+    /// frames that changed a text or a box property of elements already
+    /// there and laid out only the path to them (EVGRetain tier 2)
+    pub layout_frames: i64,
     /// false: every changed frame takes the full path (a check's reference)
     pub retain: bool,
     /// a check's: each paint-only frame is drawn the full way too, and
@@ -220,6 +223,37 @@ pub fn build(node: &Json) -> Rc<RefCell<EVGElement>> {
 }
 
 
+/// What a frame changed on the elements already laid out: paint properties
+/// (EVGRetain tier 1), and texts and box properties (tier 2).
+#[derive(Default)]
+pub struct Patches {
+    paint: Vec<(Rc<RefCell<EVGElement>>, String, String)>,
+    layout: Vec<(Rc<RefCell<EVGElement>>, String, String)>,
+    text: Vec<(Rc<RefCell<EVGElement>>, String)>,
+}
+
+/// Box properties written on kept elements (tier 2) are off: the full
+/// path's cascade lets a sheet's shorthand (`.tile { margin: 4px }`) win
+/// over a camel-case inline one (`marginTop`), which a patch written after
+/// the cascade would not reproduce. Texts take tier 2.
+const BOX_PATCHES: bool = true;
+
+/// Whether an inline property only sizes or places the element's own box,
+/// so writing it on a laid-out element and laying out the path to it is
+/// what a fresh tree would give. Inherited ones (font-size, color,
+/// line-height...) are settled down the tree after the cascade, and take
+/// the full path.
+fn box_prop(name: &str) -> bool {
+    matches!(
+        name,
+        "width" | "height" | "min-width" | "min-height" | "max-width" | "max-height" | "minWidth" | "minHeight" | "maxWidth" | "maxHeight"
+            | "left" | "top" | "right" | "bottom"
+            | "margin" | "margin-left" | "margin-right" | "margin-top" | "margin-bottom" | "marginLeft" | "marginRight" | "marginTop" | "marginBottom"
+            | "padding" | "padding-left" | "padding-right" | "padding-top" | "padding-bottom" | "paddingLeft" | "paddingRight" | "paddingTop" | "paddingBottom"
+            | "flex-grow" | "flex-shrink" | "flex-basis" | "flexGrow" | "flexShrink" | "flexBasis" | "gap"
+    )
+}
+
 /// The inline style of a tree node as EVGRetain compares it: names and values.
 fn inline_of(node: &Json) -> (Vec<String>, Vec<String>) {
     let mut names = Vec::new();
@@ -239,13 +273,14 @@ fn inline_of(node: &Json) -> (Vec<String>, Vec<String>) {
     (names, vals)
 }
 
-/// Whether `new` is `old` with only inline paint properties changed or
-/// added (EVGRetain's tier 1 or 0), the patches for the laid-out element
-/// `el` (built from `old`) and those under it gathered in `patches`.
-/// Anything else (another tag, class, id, attribute, text or child; a
-/// property that can move a box; an inline property taken away, under which
-/// the sheet's value would show again) is false: the full path.
-fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mut Vec<(Rc<RefCell<EVGElement>>, String, String)>) -> bool {
+/// Whether `new` is `old` with only inline paint properties, box
+/// properties (`box_prop`) or texts changed (EVGRetain's tiers 0 to 2), the
+/// patches for the laid-out element `el` (built from `old`) and those under
+/// it gathered in `patches`. Anything else (another tag, class, id,
+/// attribute or child; an inherited property; an inline property taken
+/// away, under which the sheet's value would show again) is false: the
+/// full path.
+fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mut Patches) -> bool {
     match (old, new) {
         (Json::Obj(om), Json::Obj(nm)) => {
             // every member but the inline style and the children the same
@@ -279,14 +314,18 @@ fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mu
                 }
             }
             let tier = EVGRetain::tier_of(&on, &ov, &nn, &nv);
-            if tier == 2 {
-                return false;
-            }
-            if tier == 1 {
+            if tier > 0 {
                 for i in 0..nn.len() {
                     let same = on.iter().position(|x| *x == nn[i]).map(|j| ov[j] == nv[i]).unwrap_or(false);
-                    if !same {
-                        patches.push((el.clone(), nn[i].clone(), nv[i].clone()));
+                    if same {
+                        continue;
+                    }
+                    if EVGRetain::paint_only(&nn[i]) {
+                        patches.paint.push((el.clone(), nn[i].clone(), nv[i].clone()));
+                    } else if box_prop(&nn[i]) && BOX_PATCHES {
+                        patches.layout.push((el.clone(), nn[i].clone(), nv[i].clone()));
+                    } else {
+                        return false;
                     }
                 }
             }
@@ -307,11 +346,22 @@ fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mu
             let kids = el.borrow().children.clone();
             let mut at = 0usize;
             let mut in_run = false;
+            // (the text of the run being read, as it was and as it is now;
+            // for a text tag, its whole text)
+            let (mut was, mut now) = (String::new(), String::new());
             for i in 0..ok.len() {
                 let (a, b) = (&ok[i], &nk[i]);
                 match (a, b) {
                     (Json::Obj(_), Json::Obj(_)) => {
                         if in_run {
+                            if at >= kids.len() {
+                                return false;
+                            }
+                            if was != now {
+                                patches.text.push((kids[at].clone(), std::mem::take(&mut now)));
+                            }
+                            was.clear();
+                            now.clear();
                             at += 1;
                             in_run = false;
                         }
@@ -322,13 +372,24 @@ fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mu
                     }
                     (Json::Obj(_), _) | (_, Json::Obj(_)) => return false,
                     _ => {
-                        if a.as_str() != b.as_str() {
-                            return false;
-                        }
+                        was.push_str(&a.as_str());
+                        now.push_str(&b.as_str());
                         if !text_tag {
                             in_run = true;
                         }
                     }
+                }
+            }
+            if text_tag {
+                if was != now {
+                    patches.text.push((el.clone(), now));
+                }
+            } else if in_run {
+                if at >= kids.len() {
+                    return false;
+                }
+                if was != now {
+                    patches.text.push((kids[at].clone(), now));
                 }
             }
             true
@@ -354,7 +415,7 @@ impl Ui {
     pub fn new() -> Ui {
         let sheet = Rc::new(RefCell::new(EVGStyleSheet::new()));
         EVGStyleSheet::parse(&sheet, BASE_CSS);
-        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0, last_key: String::new(), last_cmds: Vec::new(), last_tree: None, last_lay: None, paint_frames: 0, retain: true, check: false, check_bad: 0 }
+        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0, last_key: String::new(), last_cmds: Vec::new(), last_tree: None, last_lay: None, paint_frames: 0, layout_frames: 0, retain: true, check: false, check_bad: 0 }
     }
 
     /// The game's stylesheet (parsed once, not every frame).
@@ -380,15 +441,32 @@ impl Ui {
             }
             return;
         }
-        // tier 1: only inline paint properties changed since the last frame
+        // tiers 1 and 2: only paint properties, or texts and box properties of
+        // elements already there, changed since the last frame
         if self.retain && self.last_key.starts_with(&format!("{}x{}|", w, h)) {
             if let (Some(old), Some(root), Some(lay)) = (self.last_tree.as_ref(), self.root.clone(), self.last_lay.clone()) {
-                let mut patches: Vec<(Rc<RefCell<EVGElement>>, String, String)> = Vec::new();
+                let mut patches = Patches::default();
                 if paint_diff(old, tree, &root, &mut patches) {
-                    for (el, name, value) in patches.iter() {
+                    for (el, name, value) in patches.paint.iter() {
                         EVGRetain::patch(el, name, value);
                     }
-                    EVGRetain::paint_frame(&lay, &root);
+                    let relayout = !patches.layout.is_empty() || !patches.text.is_empty();
+                    if relayout {
+                        // tier 2: texts and box properties, the layout run
+                        // again only on the path to them
+                        let mut dirty: Vec<Rc<RefCell<EVGElement>>> = Vec::new();
+                        for (el, name, value) in patches.layout.iter() {
+                            EVGRetain::patch_layout(el, name, value);
+                            dirty.push(el.clone());
+                        }
+                        for (el, text) in patches.text.iter() {
+                            EVGRetain::patch_text(el, text.clone());
+                            dirty.push(el.clone());
+                        }
+                        EVGRetain::layout_frame(&lay, root.clone(), &dirty);
+                    } else {
+                        EVGRetain::paint_frame(&lay, &root);
+                    }
                     if self.check {
                         let mut a = DrawStream::new();
                         self.draw(&root, &lay, &mut a);
@@ -404,10 +482,25 @@ impl Ui {
                         self.draw(&fresh, &fl, &mut b);
                         if a.nums != b.nums || a.strings != b.strings {
                             self.check_bad += 1;
+                            if std::env::var("RG_DIFF").is_ok() && self.check_bad == 1 {
+                                let i = a.nums.iter().zip(b.nums.iter()).position(|(x, y)| x != y).unwrap_or(a.nums.len().min(b.nums.len()));
+                                let lo = i.saturating_sub(30);
+                                eprintln!("DIFF at {} of {}/{} (relayout {})\n kept  {:?}\n fresh {:?}", i, a.nums.len(), b.nums.len(), relayout, &a.nums[lo..(i + 30).min(a.nums.len())], &b.nums[lo..(i + 30).min(b.nums.len())]);
+                                eprintln!(" strings same {}", a.strings == b.strings);
+                                let (ta, tb) = (tree_node(&root).write(), tree_node(&fresh).write());
+                                let j = ta.bytes().zip(tb.bytes()).position(|(x, y)| x != y).unwrap_or(0);
+                                let lo = j.saturating_sub(100);
+                                eprintln!(" TREE kept  ...{}\n TREE fresh ...{}", &ta[lo..(j + 2500).min(ta.len())], &tb[lo..(j + 2500).min(tb.len())]);
+                                eprintln!(" patches layout {:?} text {:?}", patches.layout.iter().map(|(e, n, v)| format!("{}.{}={}", e.borrow().class_name, n, v)).collect::<Vec<_>>(), patches.text.iter().map(|(e, t)| format!("{}={}", e.borrow().class_name, t)).collect::<Vec<_>>());
+                            }
                         }
                     }
                     self.draw(&root, &lay, out);
-                    self.paint_frames += 1;
+                    if relayout {
+                        self.layout_frames += 1;
+                    } else {
+                        self.paint_frames += 1;
+                    }
                     self.last_tree = Some(tree.clone());
                     self.last_key = key;
                     return;

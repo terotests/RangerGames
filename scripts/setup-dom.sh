@@ -16,8 +16,8 @@
 # name checkouts of your own instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RD_REV=0ee1ed37233217ac8fbd8b98294a2911a102bccd
-EVG_REV=74afb113406b37d048adbf901ac528501f63256f
+RD_REV=479a2cfade9795ff8fb69712d71b641151a1168f
+EVG_REV=ab4635c63af66f610ef5d558a9211cddc056daa3
 [[ -d .deps/Ranger/runtime/rust/ranger ]] || { echo "run scripts/setup.sh first" >&2; exit 1; }
 ROOT="$(pwd)"
 RANGER_RT="$ROOT/.deps/Ranger/runtime/rust/ranger"
