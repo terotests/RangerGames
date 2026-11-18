@@ -170,10 +170,22 @@
           ctx.font = font;
           ctx.fillStyle = rgba(r, g, b, a);
           ctx.textBaseline = "middle";
-          // EVG placed the run by its own font metrics: keep the run's centre
+          // EVG measured the run with Noto Sans and placed it by that width;
+          // the page's font is a little wider or narrower. Fit the run to its
+          // width so left-aligned lines start where EVG put them (a centred
+          // run left ragged edges); a big difference keeps the run's centre
           var tw = this.textWidth(font, text);
-          var dx = w > 0 ? (w - tw) / 2 : 0;
-          ctx.fillText(text, x + dx, y + h / 2 + t * 0.04);
+          var sx = w > 0 && tw > 0 ? w / tw : 1;
+          var ty = y + h / 2 + t * 0.04;
+          if (sx >= 0.8 && sx <= 1.25 && sx !== 1) {
+            ctx.save();
+            ctx.translate(x, ty);
+            ctx.scale(sx, 1);
+            ctx.fillText(text, 0, 0);
+            ctx.restore();
+          } else {
+            ctx.fillText(text, x + (w > 0 ? (w - tw) / 2 : 0), ty);
+          }
         }
       } else if (ptsAt >= 0 && nx > 0) {
         var np = nums[ptsAt] | 0;
