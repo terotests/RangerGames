@@ -886,6 +886,56 @@ impl Engine {
         plain.render(&tree, &mut self.draw);
     }
 
+    /// the game's JS heap: (collections run so far, live objects)
+    pub fn js_heap(&self) -> (i64, i64) {
+        match &self.script {
+            Some(s) => (s.vm.gc_runs() as i64, s.vm.heap_size() as i64),
+            None => (0, 0),
+        }
+    }
+
+    /// a whole JS collection now (a test's): (ms it took, live objects after)
+    pub fn js_collect(&mut self) -> (f64, i64) {
+        match &mut self.script {
+            Some(s) => {
+                let t = now_ms();
+                s.vm.vm.collect();
+                (now_ms() - t, s.vm.heap_size() as i64)
+            }
+            None => (0.0, 0),
+        }
+    }
+
+    /// the live JS objects by kind and first property names, most first (a test's)
+    pub fn js_census(&mut self, top: usize) -> Vec<(usize, String)> {
+        let mut out: Vec<(usize, String)> = Vec::new();
+        if let Some(s) = &mut self.script {
+            let vm = &mut s.vm.vm;
+            vm.collect();
+            let mut m: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+            for o in vm.objs.iter() {
+                if o.free {
+                    continue;
+                }
+                let mut k = format!("c{}", o.class);
+                if o.shape >= 0 && (o.shape as usize) < vm.shapes.len() {
+                    let sh = &vm.shapes[o.shape as usize];
+                    let h = &vm.shapes[sh.kref as usize];
+                    let n = (sh.nkeys as usize).min(h.keys.len()).min(6);
+                    for i in 0..n {
+                        k.push(' ');
+                        k.push_str(&vm.atom_str(h.keys[i]));
+                    }
+                }
+                *m.entry(k).or_insert(0) += 1;
+            }
+            out = m.into_iter().map(|(k, v)| (v, k)).collect();
+            out.sort_by(|a, b| b.0.cmp(&a.0));
+            out.truncate(top);
+        }
+        out
+    }
+
     /// Runs `src` in the running game's script (its top-level names are in
     /// scope) and answers what it evaluates to as text: for tools that look
     /// into a game from outside (Games' inspect_game). What it logs goes to
