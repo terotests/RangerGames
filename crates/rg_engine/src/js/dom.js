@@ -82,7 +82,9 @@ var __rgDom = (function () {
     if (whole) {
       var parts = [];
       for (k in now) parts.push(k + ": " + now[k]);
-      if (parts.length) el.setAttribute("style", parts.join("; ")); else el.removeAttribute("style");
+      // (through el.style: its declarations stay what the attribute says, so
+      // a later setProperty does not bring back a property taken away)
+      el.style.cssText = parts.join("; ");
       return;
     }
     for (j = 0; j < chg.length; j++) el.style.setProperty(chg[j], now[chg[j]]);
