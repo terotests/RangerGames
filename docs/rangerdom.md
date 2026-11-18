@@ -9,7 +9,7 @@ asetellaan EVG:llä (RangerDOMin `DomPage` / `DomView`).
 - **Web ja Sliqtly Games:** RangerDOM on oletus. `rg_web.wasm` on
   RangerDOM-moottori ja `rg_web_evg.wasm` vanha EVG-moottori (`?evg=1`).
   Jos RangerDOMin riippuvuudet puuttuvat buildista, `rg_web.wasm` on EVG-moottori.
-- **Puhelin:** APK:ssa ovat molemmat, oletus on RangerDOM (Tero testasi puhelimessa 2026-11-18). Valikon ⚙️-asetuksissa
+- **Puhelin:** APK:ssa ovat molemmat, oletus on EVG (2026-11-18: RangerDOMin täydet ruudut jumittivat puhelimessa 1–6 s). Valikon ⚙️-asetuksissa
   on kohta *Pelimoottori: EVG / RangerDOM*.
 - Valinta (`rg.setRenderer("dom" | "evg")`, asetus `renderer`) koskee kaikkia
   pelejä ja käynnistää käynnissä olevan pelin uudelleen. `rg.renderer` kertoo
@@ -93,3 +93,31 @@ Huonoa:
   samaan versioon.
 - Fontit ja rivikorkeudet poikkeavat vähän (lihavointi näkyy oikeasti
   lihavana, rivit ovat hieman korkeampia).
+
+## Nopea reitti ja puhelinmittaukset (2026-11-18)
+
+Kun ruudussa muuttuvat vain inline-arvot, jotka eivät muuta rakennetta
+(absoluuttisen laatikon `left/top/right/bottom/width/height`,
+`border-radius`, transform, flex-lapsen marginaalit ja koko, näkyvä
+taustaväri, läpinäkyvyys välillä 0–1, elementin ainoa teksti),
+`dom.js` lähettää muutokset paikkauksina ja `dom.rs` kirjoittaa ne
+asetelluille EVG-elementeille (EVGRetain) ilman DOMia. DOM saa arvot
+seuraavassa täydessä ruudussa. `RG_DOMCHECK=1` vertaa jokaista nopeaa
+ruutua täyteen reittiin (domtest: kaikki samat), `RG_DOMFULL=1` ottaa
+reitin pois. Moottori kirjoittaa 120 ruudun välein lokiin rivin
+`perf <peli> dom|evg: …` (puhelimessa logcat).
+
+Huawei EML-L29, ms/ruutu keskiarvo (pahin):
+
+| Peli | EVG | RangerDOM |
+| --- | --- | --- |
+| Launcher | 8,8 (13) | 13,8 (2 097) |
+| Pallopolku | 4,8 (50) | 8,9 (907) |
+| Talot | 5,0 (82) | 9,6 (224) |
+| Kanada-malja | 10,4 (30) | 23,2 (6 080) |
+| Haamujahti | 12,5 (30) | 43,5 (2 888) |
+| Nappulasota | 13,9 | 15,6 |
+
+Jumit ovat JS:ssä täysissä ruuduissa (pelin alku, näkymän vaihto,
+noppavuorot): todennäköisesti CErXesin roskienkeruu webapi.js:n isossa
+keossa.

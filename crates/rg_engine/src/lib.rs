@@ -72,6 +72,38 @@ pub trait DomBackend {
     fn node_at(&self, x: f64, y: f64) -> String;
     /// A new game: forget the last page.
     fn reset(&mut self);
+    /// The last frame's times (ms): the page's render tree in JS, taking
+    /// it in (EVG elements), layout, display list.
+    fn timing(&self) -> [f64; 4] {
+        [0.0; 4]
+    }
+    /// Frames drawn by the fast path and by the full path since the last call.
+    fn frames(&mut self) -> (usize, usize) {
+        (0, 0)
+    }
+}
+
+/// Milliseconds from some fixed time (0 on the web: no clock there).
+#[cfg(not(target_arch = "wasm32"))]
+pub fn now_ms() -> f64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1000.0).unwrap_or(0.0)
+}
+#[cfg(target_arch = "wasm32")]
+pub fn now_ms() -> f64 {
+    0.0
+}
+
+/// Frame times summed over PERF_FRAMES frames, written to the log as one
+/// line ("perf ..."; logcat on the phone): js (tick and view, and the
+/// tree into the DOM), then the renderer's parts, boxes (rg.box) and the
+/// whole frame, with its slowest.
+pub const PERF_FRAMES: usize = 120;
+#[derive(Default)]
+pub struct Perf {
+    pub sum: [f64; 7],
+    pub max: f64,
+    pub n: usize,
 }
 
 /// A picture's natural size from its header: PNG, GIF or JPEG.
@@ -205,6 +237,7 @@ pub struct Engine {
     pub error: String,
     /// console.log lines since the last frame
     pub log: Vec<String>,
+    pub perf: Perf,
     /// the game the launcher command asked for, started after the frame
     pending: Option<String>,
     /// the game whose own pack the host is fetching (web: every game but the
@@ -267,6 +300,7 @@ impl Engine {
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
+            perf: Perf::default(),
             pending: None,
             waiting_pack: None,
             launcher: "launcher".to_string(),
@@ -728,7 +762,9 @@ impl Engine {
             member("boxes", self.boxes.clone()),
         ]);
         self.lend_files(true);
+        let p0 = now_ms();
         let r = self.script.as_mut().unwrap().call("__frame", arg.write());
+        let p1 = now_ms();
         let out = self.script.as_mut().unwrap().take_output();
         self.log.extend(out);
         match r {
@@ -743,19 +779,30 @@ impl Engine {
                 self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 let ids = std::mem::take(&mut self.measure);
+                let mut parts = [p1 - p0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0];
                 if let Some(d) = self.dom.as_mut().filter(|_| dom_on) {
                     let script = self.script.as_mut().unwrap();
                     let mut eval = |src: &str| script.eval(src, "dom.js").unwrap_or_default();
                     let vfs = &self.vfs;
                     let image = |path: &str| image_size(&vfs.read(path));
                     d.render(&mut eval, &image, self.ui.width, self.ui.height, &mut self.draw);
+                    let t = d.timing();
+                    parts[1..5].copy_from_slice(&t);
+                    let pb = now_ms();
                     let asked = Json::Arr(ids.iter().map(|i| Json::Str(i.clone())).collect());
                     self.boxes = json::parse(&eval(&format!("__rgDom.boxes({})", asked.write())));
+                    parts[5] = now_ms() - pb;
                     self.log.extend(script.take_output());
                 } else {
+                    let pl = now_ms();
                     self.ui.render(&tree, &mut self.draw);
+                    let pb = now_ms();
                     self.boxes = self.ui.boxes(&ids);
+                    parts[3] = pb - pl;
+                    parts[5] = now_ms() - pb;
                 }
+                parts[6] = now_ms() - p0;
+                self.perf_frame(parts);
                 self.launch_pending();
                 Ok(())
             }
@@ -767,6 +814,35 @@ impl Engine {
                 Err(e)
             }
         }
+    }
+
+    /// One frame's times into the sums; every PERF_FRAMES frames their
+    /// averages go to the log
+    fn perf_frame(&mut self, parts: [f64; 7]) {
+        if parts[6] <= 0.0 {
+            return;
+        }
+        let p = &mut self.perf;
+        for i in 0..7 {
+            p.sum[i] += parts[i];
+        }
+        p.max = p.max.max(parts[6]);
+        p.n += 1;
+        if p.n < PERF_FRAMES {
+            return;
+        }
+        let n = p.n as f64;
+        let (sum, max) = (p.sum, p.max);
+        let a = |i: usize| sum[i] / n;
+        let id = self.game.as_ref().map(|g| g.id.clone()).unwrap_or_default();
+        let line = if self.dom_on {
+            let (fast, full) = self.dom.as_mut().map(|d| d.frames()).unwrap_or((0, 0));
+            format!("perf {} dom: frame {:.1} ms (max {:.1}): js {:.1}, page {:.1}, take {:.1}, layout {:.1}, list {:.1}, boxes {:.1}; fast {} full {}", id, a(6), max, a(0), a(1), a(2), a(3), a(4), a(5), fast, full)
+        } else {
+            format!("perf {} evg: frame {:.1} ms (max {:.1}): js {:.1}, layout+draw {:.1}, boxes {:.1}", id, a(6), max, a(0), a(3), a(5))
+        };
+        self.perf = Perf::default();
+        self.log.push(line);
     }
 
     /// The host fetched (`ok`) or failed to fetch the pack of game `id` that
