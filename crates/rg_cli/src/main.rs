@@ -118,16 +118,17 @@ fn run(args: &[String]) -> i32 {
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     let g = e.game.clone().map(|g| g.id).unwrap_or_default();
     println!(
-        "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings, {} paint-only frames",
+        "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings, {} paint-only frames, {} path-only layouts",
         g,
         frames,
         ms / frames as f64,
         e.draw.count,
         e.draw.strings.len(),
-        e.ui.paint_frames
+        e.ui.paint_frames,
+        e.ui.layout_frames
     );
     if e.ui.check {
-        println!("retain check: {} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+        println!("retain check: {} of {} kept frames differ from the full path", e.ui.check_bad, e.ui.paint_frames + e.ui.layout_frames);
         if e.ui.check_bad > 0 {
             status = 1;
         }
@@ -202,10 +203,10 @@ fn test(args: &[String]) -> i32 {
         let ms = t0.elapsed().as_secs_f64() * 1000.0 / (f.max(1)) as f64;
         if ok && e.ui.check_bad > 0 {
             ok = false;
-            why = format!("{} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+            why = format!("{} of {} kept frames differ from the full path", e.ui.check_bad, e.ui.paint_frames + e.ui.layout_frames);
         }
         if ok && drawn > 0 {
-            println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands, {} paint-only", g.id, f, ms, drawn, e.ui.paint_frames);
+            println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands, {} paint-only, {} path layouts", g.id, f, ms, drawn, e.ui.paint_frames, e.ui.layout_frames);
         } else {
             failed += 1;
             println!("FAIL  {:<14} {}", g.id, if why.is_empty() { "nothing drawn".to_string() } else { why });
