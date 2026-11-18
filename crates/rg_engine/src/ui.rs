@@ -92,6 +92,20 @@ pub struct Ui {
     // a frame whose tree is the same is not laid out again
     last_key: String,
     last_cmds: Vec<Rc<RefCell<EVGDrawCmd>>>,
+    // the last frame's tree and its layout: a frame whose tree differs from
+    // it only in inline paint properties (EVGRetain's tier 1: a sprite's
+    // transform, a tile's background) is patched onto the laid-out elements
+    // and drawn without a new tree, cascade or layout
+    last_tree: Option<Json>,
+    last_lay: Option<Rc<RefCell<EVGLayout>>>,
+    /// frames drawn by the paint-only path (for tests and benches)
+    pub paint_frames: i64,
+    /// false: every changed frame takes the full path (a check's reference)
+    pub retain: bool,
+    /// a check's: each paint-only frame is drawn the full way too, and
+    /// `check_bad` counts the frames whose draw streams differ
+    pub check: bool,
+    pub check_bad: i64,
 }
 
 fn is_text_tag(t: &str) -> bool {
@@ -204,11 +218,142 @@ pub fn build(node: &Json) -> Rc<RefCell<EVGElement>> {
     el
 }
 
+
+/// The inline style of a tree node as EVGRetain compares it: names and values.
+fn inline_of(node: &Json) -> (Vec<String>, Vec<String>) {
+    let mut names = Vec::new();
+    let mut vals = Vec::new();
+    if let Json::Obj(ms) = node {
+        for m in ms.iter() {
+            if m.key == "s" {
+                if let Json::Obj(ss) = &m.value {
+                    for x in ss.iter() {
+                        names.push(x.key.clone());
+                        vals.push(x.value.as_str());
+                    }
+                }
+            }
+        }
+    }
+    (names, vals)
+}
+
+/// Whether `new` is `old` with only inline paint properties changed or
+/// added (EVGRetain's tier 1 or 0), the patches for the laid-out element
+/// `el` (built from `old`) and those under it gathered in `patches`.
+/// Anything else (another tag, class, id, attribute, text or child; a
+/// property that can move a box; an inline property taken away, under which
+/// the sheet's value would show again) is false: the full path.
+fn paint_diff(old: &Json, new: &Json, el: &Rc<RefCell<EVGElement>>, patches: &mut Vec<(Rc<RefCell<EVGElement>>, String, String)>) -> bool {
+    match (old, new) {
+        (Json::Obj(om), Json::Obj(nm)) => {
+            // every member but the inline style and the children the same
+            let mut ok_keys = 0;
+            for m in nm.iter() {
+                if m.key == "s" || m.key == "c" {
+                    continue;
+                }
+                let mut found = false;
+                for o in om.iter() {
+                    if o.key == m.key {
+                        if !json_eq(&o.value, &m.value) {
+                            return false;
+                        }
+                        found = true;
+                    }
+                }
+                if !found {
+                    return false;
+                }
+                ok_keys += 1;
+            }
+            if om.iter().filter(|o| o.key != "s" && o.key != "c").count() != ok_keys {
+                return false;
+            }
+            let (on, ov) = inline_of(old);
+            let (nn, nv) = inline_of(new);
+            for n in on.iter() {
+                if !nn.contains(n) {
+                    return false;
+                }
+            }
+            let tier = EVGRetain::tier_of(&on, &ov, &nn, &nv);
+            if tier == 2 {
+                return false;
+            }
+            if tier == 1 {
+                for i in 0..nn.len() {
+                    let same = on.iter().position(|x| *x == nn[i]).map(|j| ov[j] == nv[i]).unwrap_or(false);
+                    if !same {
+                        patches.push((el.clone(), nn[i].clone(), nv[i].clone()));
+                    }
+                }
+            }
+            let none = Json::Null;
+            let ok = om.iter().find(|m| m.key == "c").map(|m| &m.value).unwrap_or(&none);
+            let nk = nm.iter().find(|m| m.key == "c").map(|m| &m.value).unwrap_or(&none);
+            let (ok, nk) = match (ok, nk) {
+                (Json::Arr(a), Json::Arr(b)) => (a, b),
+                (Json::Null, Json::Null) => return true,
+                _ => return false,
+            };
+            if ok.len() != nk.len() {
+                return false;
+            }
+            // the children as build() made them: string runs are one text
+            // element (or the text of a text tag), each object one element
+            let text_tag = match om.iter().find(|m| m.key == "t") { Some(m) => match &m.value { Json::Str(t) => is_text_tag(t), _ => false }, None => false };
+            let kids = el.borrow().children.clone();
+            let mut at = 0usize;
+            let mut in_run = false;
+            for i in 0..ok.len() {
+                let (a, b) = (&ok[i], &nk[i]);
+                match (a, b) {
+                    (Json::Obj(_), Json::Obj(_)) => {
+                        if in_run {
+                            at += 1;
+                            in_run = false;
+                        }
+                        if at >= kids.len() || !paint_diff(a, b, &kids[at], patches) {
+                            return false;
+                        }
+                        at += 1;
+                    }
+                    (Json::Obj(_), _) | (_, Json::Obj(_)) => return false,
+                    _ => {
+                        if a.as_str() != b.as_str() {
+                            return false;
+                        }
+                        if !text_tag {
+                            in_run = true;
+                        }
+                    }
+                }
+            }
+            true
+        }
+        _ => json_eq(old, new),
+    }
+}
+
+/// The same JSON value, without writing either out.
+fn json_eq(a: &Json, b: &Json) -> bool {
+    match (a, b) {
+        (Json::Null, Json::Null) => true,
+        (Json::Bool(x), Json::Bool(y)) => x == y,
+        (Json::Num(x), Json::Num(y)) => x == y,
+        (Json::Str(x), Json::Str(y)) => x == y,
+        (Json::Arr(x), Json::Arr(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| json_eq(p, q)),
+        (Json::Obj(x), Json::Obj(y)) => x.len() == y.len() && x.iter().zip(y.iter()).all(|(p, q)| p.key == q.key && json_eq(&p.value, &q.value)),
+        _ => false,
+    }
+}
+
 impl Ui {
     pub fn new() -> Ui {
         let sheet = Rc::new(RefCell::new(EVGStyleSheet::new()));
         EVGStyleSheet::parse(&sheet, BASE_CSS);
-        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0, last_key: String::new(), last_cmds: Vec::new() }
+        Ui { sheet, root: None, css_errors: Vec::new(), width: 360.0, height: 640.0, last_commands: 0, last_key: String::new(), last_cmds: Vec::new(), last_tree: None, last_lay: None, paint_frames: 0, retain: true, check: false, check_bad: 0 }
     }
 
     /// The game's stylesheet (parsed once, not every frame).
@@ -219,6 +364,7 @@ impl Ui {
         self.css_errors = sheet.borrow().errors.clone();
         self.sheet = sheet;
         self.last_key.clear();
+        self.last_tree = None;
     }
 
     /// One frame: cascade, layout, display list, into `out`.
@@ -233,6 +379,40 @@ impl Ui {
             }
             return;
         }
+        // tier 1: only inline paint properties changed since the last frame
+        if self.retain && self.last_key.starts_with(&format!("{}x{}|", w, h)) {
+            if let (Some(old), Some(root), Some(lay)) = (self.last_tree.as_ref(), self.root.clone(), self.last_lay.clone()) {
+                let mut patches: Vec<(Rc<RefCell<EVGElement>>, String, String)> = Vec::new();
+                if paint_diff(old, tree, &root, &mut patches) {
+                    for (el, name, value) in patches.iter() {
+                        EVGRetain::patch(el, name, value);
+                    }
+                    EVGRetain::paint_frame(&lay, &root);
+                    if self.check {
+                        let mut a = DrawStream::new();
+                        self.draw(&root, &lay, &mut a);
+                        let fresh = build(tree);
+                        EVGStyleSheet::set_viewport(&self.sheet, w, h, true);
+                        EVGStyleSheet::apply_tree(&self.sheet, &fresh, "");
+                        settle_font_sizes(&fresh, None);
+                        settle_text_align(&fresh, "left");
+                        let fl = Rc::new(RefCell::new(EVGLayout::new()));
+                        EVGLayout::set_page_size(&fl, w, h);
+                        EVGLayout::layout(&fl, fresh.clone());
+                        let mut b = DrawStream::new();
+                        self.draw(&fresh, &fl, &mut b);
+                        if a.nums != b.nums || a.strings != b.strings {
+                            self.check_bad += 1;
+                        }
+                    }
+                    self.draw(&root, &lay, out);
+                    self.paint_frames += 1;
+                    self.last_tree = Some(tree.clone());
+                    self.last_key = key;
+                    return;
+                }
+            }
+        }
         let root = build(tree);
         EVGStyleSheet::set_viewport(&self.sheet, w, h, true);
         EVGStyleSheet::apply_tree(&self.sheet, &root, "");
@@ -241,8 +421,17 @@ impl Ui {
         let lay = Rc::new(RefCell::new(EVGLayout::new()));
         EVGLayout::set_page_size(&lay, w, h);
         EVGLayout::layout(&lay, root.clone());
+        self.draw(&root, &lay, out);
+        self.root = Some(root);
+        self.last_key = key;
+        self.last_tree = Some(tree.clone());
+        self.last_lay = Some(lay);
+    }
+
+    /// The display list of a laid-out tree, into `out`.
+    fn draw(&mut self, root: &Rc<RefCell<EVGElement>>, lay: &Rc<RefCell<EVGLayout>>, out: &mut DrawStream) {
         let dl = Rc::new(RefCell::new(EVGDisplayList::new()));
-        let te = EVGLayout::get_text_engine(&lay);
+        let te = EVGLayout::get_text_engine(lay);
         EVGDisplayList::set_text_engine(&dl, te.clone());
         EVGDisplayList::build(&dl, root.clone());
         self.last_commands = EVGDisplayList::count(&dl);
@@ -251,8 +440,6 @@ impl Ui {
         for c in cmds.iter() {
             out.command(&c.borrow());
         }
-        self.root = Some(root);
-        self.last_key = key;
         self.last_cmds = cmds;
     }
 
