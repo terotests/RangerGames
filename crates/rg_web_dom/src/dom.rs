@@ -87,6 +87,39 @@ fn map_nodes(el: &Rc<RefCell<EVGElement>>, out: &mut HashMap<String, Rc<RefCell<
     }
 }
 
+fn moves_only(name: &str) -> bool {
+    matches!(name, "left" | "top" | "right" | "bottom" | "margin-top" | "margin-left" | "margin-right" | "margin-bottom")
+}
+
+/// EVGRetain.keepBeside, but an element of `shallow` (only moved) is laid
+/// out again with what is in it kept
+fn keep_beside(el: &Rc<RefCell<EVGElement>>, deep: &[Rc<RefCell<EVGElement>>], shallow: &[Rc<RefCell<EVGElement>>]) -> bool {
+    if deep.iter().any(|d| Rc::ptr_eq(d, el)) {
+        EVGRetain::not_kept(el);
+        return true;
+    }
+    let me = shallow.iter().any(|d| Rc::ptr_eq(d, el));
+    let mut d = false;
+    let kids = el.borrow().children.clone();
+    for k in kids.iter() {
+        if keep_beside(k, deep, shallow) {
+            d = true;
+        }
+    }
+    if me {
+        el.borrow_mut().keep_layout = false;
+        el.borrow_mut().layout_clean = false;
+        return true;
+    }
+    let abs = {
+        let b = el.borrow();
+        b.is_absolute || b.position == "absolute" || b.position == "fixed" || b.position == "sticky"
+    };
+    el.borrow_mut().keep_layout = !abs;
+    el.borrow_mut().layout_clean = !d;
+    d
+}
+
 /// js/dom.js's patches ([["node", "name", "value"], ...]) as triples
 fn patches_of(text: &str) -> Option<Vec<(String, String, String)>> {
     let j = rg_core::json::parse(text);
@@ -138,7 +171,23 @@ impl DomRender {
         }
         EVGLayout::set_page_size(&self.lay, w, h);
         if layout {
-            EVGRetain::layout_frame(&self.lay, root.clone(), &els);
+            // (an element only moved, by a margin or an offset, keeps the
+            // layout of what is in it: its subtree moves with it)
+            let mut deep = Vec::new();
+            let mut shallow = Vec::new();
+            for (i, (_, name, _)) in ps.iter().enumerate() {
+                if EVGRetain::paint_only(name) {
+                    continue;
+                }
+                if moves_only(name) {
+                    shallow.push(els[i].clone());
+                } else {
+                    deep.push(els[i].clone());
+                }
+            }
+            shallow.retain(|e| !deep.iter().any(|d| Rc::ptr_eq(d, e)));
+            keep_beside(&root, &deep, &shallow);
+            EVGLayout::layout(&self.lay, root.clone());
         } else {
             EVGRetain::paint_frame(&self.lay, &root);
         }

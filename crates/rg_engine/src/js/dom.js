@@ -146,6 +146,7 @@ var __rgDom = (function () {
       was.id = id;
     }
     setStyle(el, was, n.s);
+    was.sraw = n.s;
     if (was.t === "path") { pathAttrs(el, n.a || {}); was.a = n.a || {}; return; }
     var a = n.a || {}, old = was.a || {};
     for (var k in old) if (!(k in a)) el.removeAttribute(k);
@@ -202,6 +203,15 @@ var __rgDom = (function () {
     if (/^#([0-9a-f]{4}|[0-9a-f]{8})$/.test(c)) return false;
     return true;
   }
+  var raws = [];
+  function sameRaw(a, b) {
+    if (a === b) return true;
+    if (!a || !b) return !a && !b;
+    var n = 0, k;
+    for (k in b) { if (a[k] !== b[k]) return false; n++; }
+    for (k in a) n--;
+    return n === 0;
+  }
   // whether `n` can be had from `el` by patches alone (pushed to `out`)
   function fastDiff(el, n, out) {
     if (!same(el, n)) return false;
@@ -217,12 +227,16 @@ var __rgDom = (function () {
     var a = n.a || {}, old = w.a || {}, k;
     for (k in old) if (old[k] !== a[k]) return false;
     for (k in a) if (!(k in old)) return false;
-    var now = styleMap(n.s), st = w.st || {};
-    for (k in st) if (!(k in now)) return false;
-    for (k in now) {
-      if (st[k] === now[k]) continue;
-      if (!fastProp(el, k, st[k], now[k])) return false;
-      out.push([el, k, now[k]]);
+    // (the view's style object as it was last time: most are)
+    if (!sameRaw(w.sraw, n.s)) {
+      var now = styleMap(n.s), st = w.st || {};
+      for (k in st) if (!(k in now)) return false;
+      for (k in now) {
+        if (st[k] === now[k]) continue;
+        if (!fastProp(el, k, st[k], now[k])) return false;
+        out.push([el, k, now[k]]);
+      }
+      raws.push(w, n.s);
     }
     // (a path's box: its shape the same, the <svg> in it is ours)
     if (w.t === "path") return true;
@@ -280,6 +294,7 @@ var __rgDom = (function () {
     apply: function (tree) {
       lastFast = "";
       var top = document.body.firstChild, out = [];
+      raws = [];
       if (FAST_ON && tree && top && top.nodeType === 1 && fastDiff(top, tree, out)) {
         var ps = [];
         for (var i = 0; i < out.length; i++) {
@@ -289,6 +304,7 @@ var __rgDom = (function () {
           pending.push(p);
           ps.push([String(p[0].__id), p[1], px3(p[2])]);
         }
+        for (var r = 0; r < raws.length; r += 2) raws[r].sraw = raws[r + 1];
         lastFast = JSON.stringify(ps);
         return;
       }
