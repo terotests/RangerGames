@@ -267,8 +267,25 @@ function Settings() {
       <div className="flags">{rg.langs.map((l) => Flag(l))}</div>
     </div>,
     NetPanel(),
+    RendererPanel(),
     <div className="phint">{rg.t("Pelien puhe: avaa peliryhmä ja paina ⚙️.", "Speech per game: open a group and tap ⚙️.", "Voz de cada juego: abre un grupo y toca ⚙️.")}</div>
   ];
+}
+
+// What draws the games (rg.renderer), where the device has both: the
+// engine's own EVG or RangerDOM (a real DOM and CSS). A choice starts the
+// menu again with it.
+function RendererPanel() {
+  if (rg.renderers.length < 2) return null;
+  const opt = (r: string, label: string) => (
+    <div className={rg.renderer === r ? "rbtn on" : "rbtn"} id={"renderer-" + r} onClick={tap(() => { rg.sound("click"); rg.setRenderer(r); })}>{label}</div>
+  );
+  return (
+    <div className="panel">
+      <div className="ptitle">{rg.t("Pelimoottori", "Game engine", "Motor de juego")}</div>
+      <div className="flags">{opt("evg", "EVG")}{opt("dom", "RangerDOM")}</div>
+    </div>
+  );
 }
 
 function players(p: string) {

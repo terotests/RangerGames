@@ -10,7 +10,8 @@
 use crate::draw::DrawStream;
 use rg_core::json::Json;
 use rg_evg::*;
-use std::cell::RefCell;
+// ranger's cell: EVG's own (std's RefCell unless a build turns on shared-cell)
+use ranger::cell::RefCell;
 use std::rc::Rc;
 
 /// The engine's own rules, before the game's.

@@ -43,3 +43,5 @@
 .blue { background-color: #4cc9f0; }
 .grey { background-color: #5a4b9c; width: 200px; height: 44px; font-size: 16px; }
 .linked { margin-top: 8px; font-size: 14px; font-weight: 700; color: #06d6a0; padding: 4px; padding-left: 12px; padding-right: 12px; border-radius: 12px; background-color: rgba(0, 0, 0, 0.25); }
+.rbtn { height: 44px; margin-left: 6px; margin-right: 6px; padding-left: 16px; padding-right: 16px; border-radius: 12px; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: #ffffff; background-color: rgba(255, 255, 255, 0.08); opacity: 0.55; }
+.rbtn.on { background-color: rgba(255, 255, 255, 0.28); border-width: 3px; border-color: #ffd166; opacity: 1; }

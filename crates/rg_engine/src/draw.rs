@@ -29,46 +29,14 @@
 use rg_evg::EVGDrawCmd;
 use std::collections::HashMap;
 
-pub const HEADER: usize = 23;
-
-pub struct DrawStream {
-    pub nums: Vec<f32>,
-    pub strings: Vec<String>,
-    index: HashMap<String, i32>,
-    pub count: usize,
-}
-
-impl DrawStream {
-    pub fn new() -> DrawStream {
-        DrawStream { nums: Vec::with_capacity(4096), strings: Vec::new(), index: HashMap::new(), count: 0 }
-    }
-
-    pub fn clear(&mut self) {
-        self.nums.clear();
-        self.strings.clear();
-        self.index.clear();
-        self.count = 0;
-    }
-
-    pub fn string(&mut self, s: &str) -> f32 {
-        if s.is_empty() {
-            return -1.0;
-        }
-        if let Some(i) = self.index.get(s) {
-            return *i as f32;
-        }
-        let i = self.strings.len() as i32;
-        self.strings.push(s.to_string());
-        self.index.insert(s.to_string(), i);
-        i as f32
-    }
-
-    /// The table as one text, the strings separated by NUL.
-    pub fn strings_joined(&self) -> String {
-        self.strings.join("\u{0}")
-    }
-
-    pub fn command(&mut self, c: &EVGDrawCmd) {
+/// Writes one EVG draw command into a DrawStream. A macro, not a function,
+/// so it takes the EVGDrawCmd of any EVG build: the engine's (rg_evg) and the
+/// newer one the RangerDOM renderer brings (crates/rg_web_dom).
+#[macro_export]
+macro_rules! draw_command {
+    ($stream:expr, $cmd:expr) => {{
+        let s: &mut $crate::draw::DrawStream = $stream;
+        let c = $cmd;
         let mut flags: u32 = 0;
         let mut extra: Vec<f32> = Vec::new();
         if c.has_grad {
@@ -142,11 +110,11 @@ impl DrawStream {
         } else {
             (c.radius, c.radius, c.radius, c.radius)
         };
-        let s0 = if c.kind == 2 { self.string(&c.src) } else { self.string(&c.text) };
-        let s1 = self.string(&c.font_family);
-        let s2 = self.string(&c.font_weight);
+        let s0 = if c.kind == 2 { s.string(&c.src) } else { s.string(&c.text) };
+        let s1 = s.string(&c.font_family);
+        let s2 = s.string(&c.font_weight);
         let thickness = if c.kind == 3 { c.font_size } else { c.thickness };
-        self.nums.extend_from_slice(&[
+        s.nums.extend_from_slice(&[
             c.kind as f32,
             c.x as f32,
             c.y as f32,
@@ -171,8 +139,52 @@ impl DrawStream {
             c.letter_spacing as f32,
             extra.len() as f32,
         ]);
-        self.nums.extend_from_slice(&extra);
-        self.count += 1;
+        s.nums.extend_from_slice(&extra);
+        s.count += 1;
+    }};
+}
+
+pub const HEADER: usize = 23;
+
+pub struct DrawStream {
+    pub nums: Vec<f32>,
+    pub strings: Vec<String>,
+    index: HashMap<String, i32>,
+    pub count: usize,
+}
+
+impl DrawStream {
+    pub fn new() -> DrawStream {
+        DrawStream { nums: Vec::with_capacity(4096), strings: Vec::new(), index: HashMap::new(), count: 0 }
+    }
+
+    pub fn clear(&mut self) {
+        self.nums.clear();
+        self.strings.clear();
+        self.index.clear();
+        self.count = 0;
+    }
+
+    pub fn string(&mut self, s: &str) -> f32 {
+        if s.is_empty() {
+            return -1.0;
+        }
+        if let Some(i) = self.index.get(s) {
+            return *i as f32;
+        }
+        let i = self.strings.len() as i32;
+        self.strings.push(s.to_string());
+        self.index.insert(s.to_string(), i);
+        i as f32
+    }
+
+    /// The table as one text, the strings separated by NUL.
+    pub fn strings_joined(&self) -> String {
+        self.strings.join("\u{0}")
+    }
+
+    pub fn command(&mut self, c: &EVGDrawCmd) {
+        crate::draw_command!(self, c);
     }
 
     /// A command of the engine's own (the 3D layer): a rect (kind 0, with a

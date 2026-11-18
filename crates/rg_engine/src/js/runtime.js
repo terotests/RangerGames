@@ -105,6 +105,17 @@ var rg = {
     return !!(v && v[id]);
   },
   stopSay: function () { rg.say([]); },
+  // What lays out and draws the games: "evg" (EVG directly) or "dom"
+  // (RangerDOM: a real DOM and CSS, docs/rangerdom.md), where the host has
+  // both (rg.renderers). rg.setRenderer(r) keeps the choice for every game
+  // and starts the running game again with it.
+  renderer: "evg",
+  renderers: ["evg"],
+  setRenderer: function (r) {
+    r = String(r);
+    if (rg.renderers.indexOf(r) < 0 || r === rg.renderer) return;
+    __cmds.push(["setting", "renderer", r]);
+  },
   // Whether game `id` (this game when left out) talks: the player's choice in
   // the launcher's settings, else the game's default (game.json "speech",
   // true when missing). rg.setSpeech(id, on) keeps the choice for that game.
@@ -444,6 +455,8 @@ function __frame(arg) {
   var ev = a.events;
   for (var i = 0; i < ev.length; i++) {
     var e = ev[i];
+    // the RangerDOM renderer names the page's node under the finger (js/dom.js)
+    if (typeof __rgDom === "object" && typeof e.id === "string" && e.id.slice(0, 5) === "#dom:") e.id = __rgDom.target(e.id.slice(5));
     var info = { x: e.x, y: e.y, id: e.id, pointer: e.pointer };
     var h3 = e.hit && e.hit.id ? e.hit : null;   // the 3D object (with a handler) under the finger
     if (e.hit) info.hit = __hitEvent(e.hit, e);
@@ -507,6 +520,8 @@ function __frame(arg) {
   var tree = out.length === 1 && over.length === 0 ? out[0] : { t: "div", s: { width: "100%", height: "100%" }, c: out.concat(over) };
   var cmds = __cmds;
   __cmds = [];
+  // the RangerDOM renderer: the tree goes into the document, not to the engine
+  if (typeof __rgDom === "object") { __rgDom.apply(tree); tree = null; }
   return JSON.stringify(__scene3d ? { tree: tree, cmds: cmds, scene3d: __scene3d } : { tree: tree, cmds: cmds });
 }
 
@@ -582,6 +597,8 @@ function __start(arg) {
   __net.links = {};
   rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
   __speech = a.speech !== false;
+  rg.renderers = a.renderers || ["evg"];
+  rg.renderer = a.renderer || "evg";
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

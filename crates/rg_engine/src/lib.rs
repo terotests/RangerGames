@@ -54,6 +54,54 @@ impl cerxes::vm::HostSync for WorldSync {
     }
 }
 
+/// Another way to lay out and draw the game's 2D view: the RangerDOM
+/// renderer (crates/rg_web_dom, opt-in). The game's script then also has a
+/// DOM (RangerDOM's webapi.js): the runtime puts each frame's element tree
+/// into `document` (js/dom.js), the DOM's own CSS cascade styles it, and the
+/// backend reads the page's render tree, lays it out and draws it.
+pub trait DomBackend {
+    /// The scripts the game's script engine runs before the runtime: the
+    /// DOM itself, ready for a page of `w` x `h` (name, source).
+    fn boot(&self, w: f64, h: f64) -> Vec<(String, String)>;
+    /// One frame, after `__frame` put the tree into the document: lays the
+    /// page out and draws it into `out`. `eval` runs JS in the game's script;
+    /// `image` gives a picture's natural size by its path in the virtual
+    /// directory (PNG, JPEG, GIF), None when it is not there.
+    fn render(&mut self, eval: &mut dyn FnMut(&str) -> String, image: &dyn Fn(&str) -> Option<(f64, f64)>, w: f64, h: f64, out: &mut DrawStream);
+    /// The page's node under a point of the last frame ("" for none).
+    fn node_at(&self, x: f64, y: f64) -> String;
+    /// A new game: forget the last page.
+    fn reset(&mut self);
+}
+
+/// A picture's natural size from its header: PNG, GIF or JPEG.
+pub fn image_size(b: &[u8]) -> Option<(f64, f64)> {
+    let be16 = |i: usize| ((b[i] as u32) << 8 | b[i + 1] as u32) as f64;
+    if b.len() >= 24 && b[0..8] == [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a] {
+        let be32 = |i: usize| u32::from_be_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as f64;
+        return Some((be32(16), be32(20)));
+    }
+    if b.len() >= 10 && &b[0..3] == b"GIF" {
+        return Some(((b[6] as u32 | (b[7] as u32) << 8) as f64, (b[8] as u32 | (b[9] as u32) << 8) as f64));
+    }
+    if b.len() >= 4 && b[0] == 0xff && b[1] == 0xd8 {
+        let mut i = 2;
+        while i + 9 < b.len() {
+            if b[i] != 0xff {
+                i += 1;
+                continue;
+            }
+            let m = b[i + 1];
+            // the start-of-frame markers carry the size
+            if (0xc0..=0xcf).contains(&m) && m != 0xc4 && m != 0xc8 && m != 0xcc {
+                return Some((be16(i + 7), be16(i + 5)));
+            }
+            i += 2 + be16(i + 2) as usize;
+        }
+    }
+    None
+}
+
 /// Where the settings every game shares are kept (the language).
 const SETTINGS: &str = "/save/_settings.json";
 
@@ -189,6 +237,13 @@ pub struct Engine {
     /// boxes of the ids asked last frame, laid out
     measure: Vec<String>,
     boxes: Json,
+    /// the RangerDOM renderer, when the host has one (None: EVG directly)
+    pub dom: Option<Box<dyn DomBackend>>,
+    /// whether a host with the renderer uses it when the player has not
+    /// chosen (settings "renderer": "dom" or "evg"): the web yes, the phone no
+    pub dom_default: bool,
+    /// whether the running game is drawn by the RangerDOM renderer
+    dom_on: bool,
 }
 
 impl Engine {
@@ -206,6 +261,9 @@ impl Engine {
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
             boxes: Json::Obj(Vec::new()),
+            dom: None,
+            dom_default: false,
+            dom_on: false,
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -438,8 +496,28 @@ impl Engine {
     }
 
     fn start_script(&mut self, mut s: Script, info: &GameInfo) -> Result<(), String> {
+        let chosen = self.settings.get("renderer").as_str();
+        self.dom_on = self.dom.is_some() && (chosen == "dom" || (chosen != "evg" && self.dom_default));
+        let on = self.dom_on;
+        if let Some(d) = self.dom.as_mut().filter(|_| on) {
+            d.reset();
+            for (name, src) in d.boot(self.ui.width, self.ui.height) {
+                if let Err(e) = s.eval(&src, &name) {
+                    return self.fail(e);
+                }
+            }
+        }
         if let Err(e) = s.eval(script::RUNTIME, "runtime.js") {
             return self.fail(e);
+        }
+        if self.dom_on {
+            if let Err(e) = s.eval(script::DOM, "dom.js") {
+                return self.fail(e);
+            }
+            let css = self.vfs.read_text(&vfs::join(&info.dir, &info.style));
+            if let Err(e) = s.eval(&format!("__rgDom.start({});", quote(&css)), "dom.js") {
+                return self.fail(e);
+            }
         }
         if let Err(e) = s.eval(script::THREE, "three.js") {
             return self.fail(e);
@@ -491,6 +569,9 @@ impl Engine {
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
             member("speech", Json::Bool(info.speech)),
+            // the renderers this host has, and the one drawing (rg.renderer)
+            member("renderers", Json::Arr(if self.dom.is_some() { vec![Json::Str("evg".into()), Json::Str("dom".into())] } else { vec![Json::Str("evg".into())] })),
+            member("renderer", Json::Str(if self.dom_on { "dom".into() } else { "evg".into() })),
             // false when there is no launcher to go back to (a game played
             // alone from a link): no close button, exit stays in the game
             member("menu", Json::Bool(self.has_launcher())),
@@ -560,6 +641,12 @@ impl Engine {
         let text = self.settings.write();
         self.vfs.write_text(SETTINGS, &text);
         self.commands.push(HostCommand { kind: "persist".into(), name: SETTINGS.into(), args: Json::Str(text) });
+        // another renderer: the game starts again with it
+        if key == "renderer" {
+            if let Some(g) = &self.game {
+                self.pending = Some(if g.id == self.launcher { String::new() } else { g.id.clone() });
+            }
+        }
     }
 
     /// Keeps `key` in the game's save file and asks the platform to persist it.
@@ -609,10 +696,15 @@ impl Engine {
         }
         let mut evs = Vec::new();
         let world_on = self.world.borrow().active;
+        let dom_on = self.dom_on;
         for e in events.iter_mut() {
             let tap = e.kind == "pointerdown" || e.kind == "pointerup";
             if tap {
-                e.target = self.ui.id_at(e.x, e.y);
+                e.target = match self.dom.as_ref().filter(|_| dom_on) {
+                    // the page's node: js/dom.js finds the element with a handler
+                    Some(d) => format!("#dom:{}", d.node_at(e.x, e.y)),
+                    None => self.ui.id_at(e.x, e.y),
+                };
             }
             let mut j = event_json(e);
             // what the 3D world has under the finger (React Three Fiber's events)
@@ -650,9 +742,20 @@ impl Engine {
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
                 self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
-                self.ui.render(&tree, &mut self.draw);
                 let ids = std::mem::take(&mut self.measure);
-                self.boxes = self.ui.boxes(&ids);
+                if let Some(d) = self.dom.as_mut().filter(|_| dom_on) {
+                    let script = self.script.as_mut().unwrap();
+                    let mut eval = |src: &str| script.eval(src, "dom.js").unwrap_or_default();
+                    let vfs = &self.vfs;
+                    let image = |path: &str| image_size(&vfs.read(path));
+                    d.render(&mut eval, &image, self.ui.width, self.ui.height, &mut self.draw);
+                    let asked = Json::Arr(ids.iter().map(|i| Json::Str(i.clone())).collect());
+                    self.boxes = json::parse(&eval(&format!("__rgDom.boxes({})", asked.write())));
+                    self.log.extend(script.take_output());
+                } else {
+                    self.ui.render(&tree, &mut self.draw);
+                    self.boxes = self.ui.boxes(&ids);
+                }
                 self.launch_pending();
                 Ok(())
             }
@@ -720,6 +823,17 @@ impl Engine {
         let out = s.take_output();
         self.log.extend(out);
         r
+    }
+
+    /// The last frame's laid-out element tree (Ui::tree's form), from the
+    /// RangerDOM page when that renderer draws the view.
+    pub fn tree(&mut self) -> Json {
+        if self.dom_on {
+            if let Some(s) = self.script.as_mut() {
+                return json::parse(&s.eval("__rgDom.tree()", "dom.js").unwrap_or_default());
+            }
+        }
+        self.ui.tree()
     }
 
     /// Takes the frame's commands for the platform.

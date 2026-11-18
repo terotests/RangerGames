@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# The engine as WebAssembly with the RangerDOM renderer (opt-in, web only):
+# the game's script also gets a DOM (RangerDOM's webapi.js), and the page's
+# render tree is laid out by RangerDOM's view (DomPage -> EVG) instead of the
+# engine's own EVG pass. The phone build and the default web build do not
+# use this crate.
+#
+# Its own workspace, outside the root one: its dependencies live in
+# .deps/domtree and .deps/RangerDOM (scripts/setup-dom.sh), which the other
+# builds do not need. Build: scripts/build-web.sh --dom (or
+# CARGO_TARGET_DIR=target/dom cargo build --manifest-path crates/rg_web_dom/Cargo.toml).
+[package]
+name = "rg_web_dom"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rg_engine = { path = "../rg_engine" }
+rg_core = { path = "../rg_core" }
+# shared-cell: EVG's and DomView's Rust share cells as the Go and JS builds
+# do (runtime/rust/ranger/src/cell.rs), as RangerDOM's own hosts build them
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger", features = ["shared-cell"] }
+rangerevg = { path = "../../.deps/domtree/runtime/rust/rangerevg" }
+rangerdom_json = { path = "../../.deps/domtree/gallery/domjson" }
+rangerdom_view = { path = "../../.deps/domtree/gallery/domview" }
+
+[patch."https://github.com/terotests/Ranger.git"]
+ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+overflow-checks = false
+debug = false
+panic = "abort"
+
+[profile.dev]
+overflow-checks = false
+opt-level = 1
+
+[workspace]
+members = [".", "android"]

@@ -21,13 +21,24 @@ ASSETS=android/app/src/main/assets
 rm -rf "$JNI" "$ASSETS"/web
 mkdir -p "$ASSETS/fonts"
 
+# With the RangerDOM dependencies (scripts/setup-dom.sh) the engine is
+# crates/rg_web_dom/android: the same calls, drawn with RangerDOM by default
+# (EVG stays a choice in the menu's settings). Without them, crates/rg_android.
+DOM=0
+if [[ -d .deps/domtree && -d .deps/RangerDOM && "${RG_NO_DOM:-}" != 1 ]]; then DOM=1; fi
 build() { # rust target, clang prefix, android abi
   local up
   up=$(echo "$1" | tr 'a-z-' 'A-Z_')
-  env "CARGO_TARGET_${up}_LINKER=$TC/$2$API-clang" "CC_${1//-/_}=$TC/$2$API-clang" "AR_${1//-/_}=$TC/llvm-ar" \
-    cargo build -p rg_android --release --target "$1"
   mkdir -p "$JNI/$3"
-  cp "target/$1/release/librg_android.so" "$JNI/$3/"
+  if [[ "$DOM" == 1 ]]; then
+    (cd crates/rg_web_dom && env "CARGO_TARGET_DIR=../../target/dom" "CARGO_TARGET_${up}_LINKER=$TC/$2$API-clang" "CC_${1//-/_}=$TC/$2$API-clang" "AR_${1//-/_}=$TC/llvm-ar" \
+      cargo build -p rg_android_dom --release --target "$1")
+    cp "target/dom/$1/release/librg_android_dom.so" "$JNI/$3/librg_android.so"
+  else
+    env "CARGO_TARGET_${up}_LINKER=$TC/$2$API-clang" "CC_${1//-/_}=$TC/$2$API-clang" "AR_${1//-/_}=$TC/llvm-ar" \
+      cargo build -p rg_android --release --target "$1"
+    cp "target/$1/release/librg_android.so" "$JNI/$3/"
+  fi
   "$TC/llvm-strip" "$JNI/$3/librg_android.so"
 }
 build aarch64-linux-android aarch64-linux-android arm64-v8a
