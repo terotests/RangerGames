@@ -125,6 +125,12 @@ and animation channels for translation, rotation and scale (STEP, LINEAR,
 CUBICSPLINE). Not read: textures (a textured model shows its base colour),
 morph targets, cameras and lights in the file. Keep models low-poly
 (hundreds of triangles): the posing and skinning run on the phone's CPU.
+A model that stands still (no clip playing, the same place) under a still
+camera is not posed, lit or projected again: the engine keeps its last
+drawing, so many models are cheap as long as few of them move. Leave an
+idle model without a clip (stop `Idle`) when a game has many of them.
+`cargo run --release -p rg_engine --example bench3d -- <game> gl` times a
+game's frames.
 
 `THREE.AnimationMixer` and `AnimationAction` follow three.js:
 
@@ -167,8 +173,9 @@ mixer.addEventListener("marker", (e) => {
 
 ## Making a model
 
-`tools/three/make-soldier.mjs` draws the Nappulasota soldier in code and
-writes it as a skinned, animated `.glb`: a small glTF writer that is a
+`tools/three/make-soldier.mjs` draws the Nappulasota pieces (a toy soldier
+with a different hat and weapon for each chess piece) in code and writes
+them as skinned, animated `.glb` files: a small glTF writer that is a
 starting point for other original models. Models made with Blender and
 exported as glTF binary work as well; use only our own or CC0 / CC BY
 models and list the authors in `CREDITS.md`.

@@ -208,13 +208,16 @@ fn nums(j: &Json) -> Vec<f32> {
 struct Reader<'a> {
     doc: &'a Json,
     buffers: Vec<Vec<u8>>,
+    // read once: Json::get and items() copy, and a model has hundreds of accessors
+    accessors: Vec<Json>,
+    views: Vec<Json>,
 }
 
 impl<'a> Reader<'a> {
     /// An accessor's elements as floats (normalized integers become 0…1),
     /// `n` components each.
     fn floats(&self, index: usize) -> (Vec<f32>, usize) {
-        let acc = self.doc.get("accessors").items().get(index).cloned().unwrap_or(Json::Null);
+        let acc = self.accessors.get(index).cloned().unwrap_or(Json::Null);
         let count = acc.get("count").as_num(0.0) as usize;
         let n = match acc.get("type").as_str().as_str() {
             "SCALAR" => 1,
@@ -238,7 +241,7 @@ impl<'a> Reader<'a> {
         if bv_i.is_null() {
             return (out, n);
         }
-        let bv = self.doc.get("bufferViews").items().get(bv_i.as_num(0.0) as usize).cloned().unwrap_or(Json::Null);
+        let bv = self.views.get(bv_i.as_num(0.0) as usize).cloned().unwrap_or(Json::Null);
         let buf = match self.buffers.get(bv.get("buffer").as_num(0.0) as usize) {
             Some(b) => b,
             None => return (out, n),
@@ -266,12 +269,12 @@ impl<'a> Reader<'a> {
     }
 
     fn uints(&self, index: usize) -> Vec<u32> {
-        let acc = self.doc.get("accessors").items().get(index).cloned().unwrap_or(Json::Null);
+        let acc = self.accessors.get(index).cloned().unwrap_or(Json::Null);
         let ct = acc.get("componentType").as_num(5125.0) as u32;
         if ct == 5125 {
             // 32-bit indices do not fit a float exactly: read them as integers
             let count = acc.get("count").as_num(0.0) as usize;
-            let bv = self.doc.get("bufferViews").items().get(acc.get("bufferView").as_num(0.0) as usize).cloned().unwrap_or(Json::Null);
+            let bv = self.views.get(acc.get("bufferView").as_num(0.0) as usize).cloned().unwrap_or(Json::Null);
             let empty = Vec::new();
             let buf = self.buffers.get(bv.get("buffer").as_num(0.0) as usize).unwrap_or(&empty);
             let start = bv.get("byteOffset").as_num(0.0) as usize + acc.get("byteOffset").as_num(0.0) as usize;
@@ -327,7 +330,7 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
             }
         }
     }
-    let rd = Reader { doc: &doc, buffers };
+    let rd = Reader { doc: &doc, buffers, accessors: doc.get("accessors").items(), views: doc.get("bufferViews").items() };
 
     // materials: (linear base colour, emissive, double sided)
     let mats: Vec<([f32; 4], [f32; 3], bool)> = doc.get("materials").items().iter().map(|m| {

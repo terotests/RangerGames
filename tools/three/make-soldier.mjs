@@ -4,7 +4,7 @@
 // Writes the toy soldier of games/nappulasota as skinned, animated glTF
 // binaries (our own model, drawn here in code: CC0 like the rest of our art):
 //
-//   node tools/three/make-soldier.mjs   → games/nappulasota/models/sotilas-{valkoinen,musta}.glb
+//   node tools/three/make-soldier.mjs   → games/nappulasota/models/{w,b}{p,n,b,r,q,k}.glb
 //
 // A low-poly toy soldier with a helmet, a wooden sword and a round shield,
 // flat shaded, coloured per corner (COLOR_0). Eight bones (root, hips,
@@ -90,7 +90,8 @@ function disc(c, r, t, seg, col, rim, bone) {
   }
 }
 
-function soldier(pal) {
+function gold(pal) { return pal.gold; }
+function soldier(pal, kind = "p") {
   P.length = N.length = C.length = J.length = I.length = 0;
   const { coat, trim, skin, metal, wood, boot, eye } = pal;
   // legs and boots
@@ -105,28 +106,82 @@ function soldier(pal) {
   box([0, 0.65, 0.215], [0.08, 0.07, 0.03], metal, B.hips);                    // buckle
   box([0, 0.86, 0.19], [0.05, 0.3, 0.03], trim, B.chest);                      // buttons strip
   frustum(0, 0, 1.0, 1.06, 0.2, 0.12, 8, trim, B.chest);                       // collar
-  // head, helmet, plume, eyes, nose
+  // head, eyes, nose
   ball([0, 1.22, 0], 0.16, skin, B.head);
-  frustum(0, 0, 1.27, 1.42, 0.185, 0.07, 8, metal, B.head);
-  frustum(0, 0, 1.26, 1.29, 0.2, 0.2, 8, trim, B.head, false);
-  box([0, 1.5, -0.02], [0.05, 0.12, 0.16], pal.plume, B.head);
   box([0.055, 1.24, 0.15], [0.035, 0.045, 0.02], eye, B.head);
   box([-0.055, 1.24, 0.15], [0.035, 0.045, 0.02], eye, B.head);
   box([0, 1.2, 0.165], [0.03, 0.04, 0.03], skin, B.head);
+  // what is on the head tells the piece from above
+  if (kind === "p") {          // pawn: a helmet with a plume
+    frustum(0, 0, 1.27, 1.42, 0.185, 0.07, 8, metal, B.head);
+    frustum(0, 0, 1.26, 1.29, 0.2, 0.2, 8, trim, B.head, false);
+    box([0, 1.5, -0.02], [0.05, 0.12, 0.16], pal.plume, B.head);
+  } else if (kind === "r") {   // rook: a little tower with battlements
+    frustum(0, 0, 1.27, 1.6, 0.2, 0.2, 8, metal, B.head);
+    frustum(0, 0, 1.26, 1.3, 0.215, 0.215, 8, trim, B.head, false);
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + Math.PI / 4;
+      box([Math.sin(a) * 0.15, 1.66, Math.cos(a) * 0.15], [0.1, 0.12, 0.1], metal, B.head);
+    }
+    box([0, 1.44, 0.2], [0.06, 0.1, 0.02], eye, B.head);                         // the tower's window
+  } else if (kind === "n") {   // knight: a horse's head on the helmet
+    frustum(0, 0, 1.27, 1.38, 0.185, 0.12, 8, metal, B.head);
+    box([0, 1.52, 0], [0.2, 0.32, 0.22], pal.horse, B.head);                      // neck
+    box([0, 1.62, 0.16], [0.18, 0.16, 0.38], pal.horse, B.head);                  // muzzle forward
+    box([0.06, 1.74, -0.04], [0.05, 0.11, 0.05], pal.horse, B.head);              // ears
+    box([-0.06, 1.74, -0.04], [0.05, 0.11, 0.05], pal.horse, B.head);
+    box([0, 1.58, -0.12], [0.06, 0.36, 0.06], pal.plume, B.head);                  // mane
+    box([0.095, 1.66, 0.2], [0.02, 0.035, 0.035], eye, B.head);
+    box([-0.095, 1.66, 0.2], [0.02, 0.035, 0.035], eye, B.head);
+  } else if (kind === "b") {   // bishop: a tall pointed hat with a slit
+    frustum(0, 0, 1.27, 1.72, 0.18, 0.02, 8, pal.hat, B.head);
+    frustum(0, 0, 1.26, 1.31, 0.19, 0.19, 8, trim, B.head, false);
+    box([0, 1.5, 0.12], [0.03, 0.18, 0.04], trim, B.head);
+    ball([0, 1.75, 0], 0.04, metal, B.head, 6, 4);
+  } else {                     // queen and king: crowns, the king's with a cross
+    const gold = pal.gold;
+    frustum(0, 0, 1.27, 1.4, 0.18, 0.2, 10, gold, B.head);
+    const n = kind === "q" ? 6 : 5;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      frustum(Math.sin(a) * 0.17, Math.cos(a) * 0.17, 1.4, 1.52, 0.035, 0, 4, gold, B.head, false);
+    }
+    if (kind === "q") ball([0, 1.47, 0], 0.07, pal.plume, B.head, 6, 4);
+    else {
+      box([0, 1.6, 0], [0.04, 0.22, 0.04], gold, B.head);
+      box([0, 1.64, 0], [0.13, 0.04, 0.04], gold, B.head);
+      box([0, 1.45, 0], [0.24, 0.07, 0.24], pal.plume, B.head);                 // the velvet cap
+    }
+  }
   // arms (hanging from the shoulders) and hands
   for (const [s, bone] of [[1, B["arm.L"]], [-1, B["arm.R"]]]) {
     box([0.3 * s, 0.86, 0], [0.1, 0.34, 0.11], coat, bone);
     box([0.3 * s, 1.0, 0], [0.13, 0.07, 0.13], trim, bone);                   // epaulette
     ball([0.3 * s, 0.66, 0.01], 0.06, skin, bone, 6, 4);
   }
-  // the sword in the right hand, pointing forward
-  box([-0.3, 0.66, 0.06], [0.035, 0.035, 0.12], wood, B["arm.R"]);           // grip
-  box([-0.3, 0.66, 0.13], [0.16, 0.04, 0.03], metal, B["arm.R"]);            // guard
-  box([-0.3, 0.66, 0.42], [0.06, 0.02, 0.56], pal.blade, B["arm.R"]);         // blade
-  // the shield on the left arm
-  disc([0.39, 0.8, 0.02], 0.17, 0.04, 10, pal.shield, trim, B["arm.L"]);
-  box([0.39, 0.8, 0.045], [0.05, 0.2, 0.02], trim, B["arm.L"]);
-  box([0.39, 0.8, 0.045], [0.2, 0.05, 0.02], trim, B["arm.L"]);
+  // the right hand: a sword, the bishop's staff, the queen's sceptre
+  if (kind === "b") {
+    box([-0.3, 0.75, 0.04], [0.035, 0.75, 0.035], wood, B["arm.R"]);
+    frustum(-0.3, 0.04, 1.12, 1.2, 0.05, 0.0, 6, metal, B["arm.R"]);
+  } else if (kind === "q") {
+    box([-0.3, 0.66, 0.2], [0.035, 0.035, 0.36], gold(pal), B["arm.R"]);
+    ball([-0.3, 0.66, 0.4], 0.06, pal.plume, B["arm.R"], 6, 4);
+  } else {
+    box([-0.3, 0.66, 0.06], [0.035, 0.035, 0.12], wood, B["arm.R"]);           // grip
+    box([-0.3, 0.66, 0.13], [0.16, 0.04, 0.03], metal, B["arm.R"]);            // guard
+    box([-0.3, 0.66, 0.42], [0.06, 0.02, 0.56], pal.blade, B["arm.R"]);         // blade
+  }
+  // the left arm: a round shield, the rook's big square one; the king's cape
+  if (kind === "r") {
+    box([0.39, 0.8, 0.03], [0.05, 0.42, 0.3], pal.shield, B["arm.L"]);
+    box([0.42, 0.8, 0.03], [0.02, 0.08, 0.31], trim, B["arm.L"]);
+  } else if (kind === "p" || kind === "n" || kind === "k") {
+    disc([0.39, 0.8, 0.02], 0.17, 0.04, 10, pal.shield, trim, B["arm.L"]);
+    box([0.39, 0.8, 0.045], [0.05, 0.2, 0.02], trim, B["arm.L"]);
+    box([0.39, 0.8, 0.045], [0.2, 0.05, 0.02], trim, B["arm.L"]);
+  }
+  if (kind === "k") box([0, 0.72, -0.2], [0.42, 0.62, 0.03], pal.plume, B.chest);     // cape
+  if (kind === "q") frustum(0, 0, 0.06, 0.6, 0.33, 0.24, 10, pal.plume, B.hips);       // long dress
 }
 
 // ---- animation clips: [bone, path, times, values] ----
@@ -266,13 +321,16 @@ function glb() {
 }
 
 const PALETTES = {
-  valkoinen: { coat: 0xf2efe6, trim: 0x3a6ea5, skin: 0xf1c27d, metal: 0xc9ced6, wood: 0x8b5a2b, boot: 0x2b2b2b, eye: 0x1d1d1d, plume: 0x4f9dff, blade: 0xe8ecf2, shield: 0x4f9dff },
-  musta: { coat: 0x2f2f38, trim: 0xb8322a, skin: 0xe0ac69, metal: 0x8d939c, wood: 0x6b4423, boot: 0x141414, eye: 0x101010, plume: 0xe63946, blade: 0xd5d9e0, shield: 0xe63946 },
+  valkoinen: { coat: 0xf2efe6, trim: 0x3a6ea5, skin: 0xf1c27d, metal: 0xc9ced6, wood: 0x8b5a2b, boot: 0x2b2b2b, eye: 0x1d1d1d, plume: 0x4f9dff, blade: 0xe8ecf2, shield: 0x4f9dff, horse: 0xa8743f, hat: 0xf7f3ea, gold: 0xffc93c },
+  musta: { coat: 0x2f2f38, trim: 0xb8322a, skin: 0xe0ac69, metal: 0x8d939c, wood: 0x6b4423, boot: 0x141414, eye: 0x101010, plume: 0xe63946, blade: 0xd5d9e0, shield: 0xe63946, horse: 0x6b4426, hat: 0x3a3a44, gold: 0xd9a21b },
 };
 fs.mkdirSync(OUT, { recursive: true });
+// the six chess pieces of each side: w/b + p n b r q k (as games/shakki/img)
 for (const [name, pal] of Object.entries(PALETTES)) {
-  soldier(pal);
-  const file = path.join(OUT, `sotilas-${name}.glb`);
-  fs.writeFileSync(file, glb());
-  console.log(file, I.length / 3, "triangles", fs.statSync(file).size, "bytes");
+  for (const kind of "pnbrqk") {
+    soldier(pal, kind);
+    const file = path.join(OUT, `${name[0] === "v" ? "w" : "b"}${kind}.glb`);
+    fs.writeFileSync(file, glb());
+    console.log(file, I.length / 3, "triangles", fs.statSync(file).size, "bytes");
+  }
 }
