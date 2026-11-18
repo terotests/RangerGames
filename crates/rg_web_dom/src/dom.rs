@@ -163,13 +163,27 @@ impl DomBackend for DomRender {
         }
     }
 
+    /// the page's nodes under (x, y), the topmost first, as "n,n,...":
+    /// js/dom.js takes the first with an id, as EVG's id_at does (a box
+    /// with no id over a button lets the tap through to it)
     fn node_at(&self, x: f64, y: f64) -> String {
-        match &self.root {
-            Some(root) => {
-                let ht = Rc::new(RefCell::new(EVGHitTest::new()));
-                DomPage::nodeOf(&EVGHitTest::id_at(&ht, root.clone(), x, y))
+        let root = match &self.root {
+            Some(r) => r,
+            None => return String::new(),
+        };
+        let ht = Rc::new(RefCell::new(EVGHitTest::new()));
+        let list = EVGHitTest::paint_order_at(&ht, root.clone(), x, y);
+        let mut out: Vec<String> = Vec::new();
+        for el in list.iter().rev() {
+            let id = el.borrow().id.clone();
+            if id.is_empty() || !EVGHitTest::contains_point(el, x, y) {
+                continue;
             }
-            None => String::new(),
+            let n = DomPage::nodeOf(&id);
+            if !n.is_empty() && !out.contains(&n) {
+                out.push(n);
+            }
         }
+        out.join(",")
     }
 }

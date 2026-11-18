@@ -174,13 +174,6 @@ var __rgDom = (function () {
     while (el.childNodes.length > list.length) el.removeChild(el.lastChild);
   }
 
-  function find(n, id) {
-    if (String(n.__id) === id) return n;
-    var c = n.childNodes;
-    for (var i = 0; i < c.length; i++) { var f = find(c[i], id); if (f) return f; }
-    return null;
-  }
-
   return {
     start: function (css) {
       __addStyle(BASE + shadows(css || ""));
@@ -191,9 +184,20 @@ var __rgDom = (function () {
     apply: function (tree) {
       kids(document.body, tree ? [tree] : []);
     },
-    target: function (node) {
-      if (!node) return "";
-      var n = find(document.body, String(node));
+    // nodes: the page's nodes under the finger, topmost first ("n,n,...");
+    // the first element with an id (what EVG's hit test gives), or else
+    // the id at or above the topmost node
+    target: function (nodes) {
+      if (!nodes) return "";
+      var ids = String(nodes).split(","), want = {}, at = {}, i;
+      for (i = 0; i < ids.length; i++) want[ids[i]] = 1;
+      (function walk(n) {
+        if (want[String(n.__id)]) at[String(n.__id)] = n;
+        var c = n.childNodes;
+        for (var k = 0; k < c.length; k++) walk(c[k]);
+      })(document.body);
+      for (i = 0; i < ids.length; i++) { var e = at[ids[i]]; if (e && e.__rgid) return e.__rgid; }
+      var n = at[ids[0]];
       while (n && n !== document.body) {
         if (n.__rgid) return n.__rgid;
         n = n.parentNode;
