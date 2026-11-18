@@ -118,17 +118,28 @@ fn run(args: &[String]) -> i32 {
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     let g = e.game.clone().map(|g| g.id).unwrap_or_default();
     println!(
+<<<<<<< HEAD
         "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings, {} paint-only frames, {} path-only layouts",
+=======
+        "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings, {} paint-only frames",
+>>>>>>> e3ad43e92b1b78d83e74268ce685f7056fe1d8f4
         g,
         frames,
         ms / frames as f64,
         e.draw.count,
         e.draw.strings.len(),
+<<<<<<< HEAD
         e.ui.paint_frames,
         e.ui.layout_frames
     );
     if e.ui.check {
         println!("retain check: {} of {} kept frames differ from the full path", e.ui.check_bad, e.ui.paint_frames + e.ui.layout_frames);
+=======
+        e.ui.paint_frames
+    );
+    if e.ui.check {
+        println!("retain check: {} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+>>>>>>> e3ad43e92b1b78d83e74268ce685f7056fe1d8f4
         if e.ui.check_bad > 0 {
             status = 1;
         }
@@ -165,11 +176,16 @@ fn test(args: &[String]) -> i32 {
     let games = probe.games();
     for g in games.iter() {
         let mut e = engine_for(&args[0]);
+<<<<<<< HEAD
         // each kept frame is drawn the full way too; any difference fails.
         // RG_NOCHECK leaves that out (to time the kept frames), RG_NORETAIN
         // draws every changed frame the full way (the time to compare with)
         e.ui.retain = std::env::var("RG_NORETAIN").is_err();
         e.ui.check = e.ui.retain && std::env::var("RG_NOCHECK").is_err();
+=======
+        // each paint-only frame is drawn the full way too; any difference fails
+        e.ui.check = true;
+>>>>>>> e3ad43e92b1b78d83e74268ce685f7056fe1d8f4
         let t0 = std::time::Instant::now();
         let mut ok = e.start(&g.id).is_ok();
         let mut why = e.error.clone();
@@ -206,10 +222,17 @@ fn test(args: &[String]) -> i32 {
         let ms = t0.elapsed().as_secs_f64() * 1000.0 / (f.max(1)) as f64;
         if ok && e.ui.check_bad > 0 {
             ok = false;
+<<<<<<< HEAD
             why = format!("{} of {} kept frames differ from the full path", e.ui.check_bad, e.ui.paint_frames + e.ui.layout_frames);
         }
         if ok && drawn > 0 {
             println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands, {} paint-only, {} path layouts", g.id, f, ms, drawn, e.ui.paint_frames, e.ui.layout_frames);
+=======
+            why = format!("{} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+        }
+        if ok && drawn > 0 {
+            println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands, {} paint-only", g.id, f, ms, drawn, e.ui.paint_frames);
+>>>>>>> e3ad43e92b1b78d83e74268ce685f7056fe1d8f4
         } else {
             failed += 1;
             println!("FAIL  {:<14} {}", g.id, if why.is_empty() { "nothing drawn".to_string() } else { why });
