@@ -165,8 +165,11 @@ fn test(args: &[String]) -> i32 {
     let games = probe.games();
     for g in games.iter() {
         let mut e = engine_for(&args[0]);
-        // each paint-only frame is drawn the full way too; any difference fails
-        e.ui.check = true;
+        // each kept frame is drawn the full way too; any difference fails.
+        // RG_NOCHECK leaves that out (to time the kept frames), RG_NORETAIN
+        // draws every changed frame the full way (the time to compare with)
+        e.ui.retain = std::env::var("RG_NORETAIN").is_err();
+        e.ui.check = e.ui.retain && std::env::var("RG_NOCHECK").is_err();
         let t0 = std::time::Instant::now();
         let mut ok = e.start(&g.id).is_ok();
         let mut why = e.error.clone();

@@ -236,7 +236,7 @@ pub struct Patches {
 /// path's cascade lets a sheet's shorthand (`.tile { margin: 4px }`) win
 /// over a camel-case inline one (`marginTop`), which a patch written after
 /// the cascade would not reproduce. Texts take tier 2.
-const BOX_PATCHES: bool = false;
+const BOX_PATCHES: bool = true;
 
 /// Whether an inline property only sizes or places the element's own box,
 /// so writing it on a laid-out element and laying out the path to it is
