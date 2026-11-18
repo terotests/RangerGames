@@ -49,7 +49,7 @@ fn fit_text_runs(cmds: &[Rc<RefCell<EVGDrawCmd>>], te: &Rc<RefCell<EVGTextEngine
 /// 1.25 em (EVG's own width for the emoji above the BMP). Without this a run
 /// of ⭐ got a narrow box and the painter, which keeps a run's centre, drew
 /// it far to the left of its column.
-fn bmp_emoji_extra(text: &str, font_size: f64) -> f64 {
+pub fn bmp_emoji_extra(text: &str, font_size: f64) -> f64 {
     let n = text
         .chars()
         .filter(|&c| matches!(c as u32, 0x2300..=0x23FF | 0x2600..=0x27BF | 0x2B00..=0x2BFF))

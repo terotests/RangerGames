@@ -9,7 +9,7 @@
 //! is written into the engine's draw stream.
 
 use rangerdom_view::DomPage;
-use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout};
+use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout, EVGTextEngine};
 use ranger::cell::RefCell;
 use rg_engine::draw::DrawStream;
 use rg_engine::DomBackend;
@@ -144,6 +144,7 @@ impl DomBackend for DomRender {
             EVGDisplayList::set_text_engine(&dl, EVGLayout::get_text_engine(&self.lay));
             EVGDisplayList::build(&dl, root.clone());
             self.cmds = dl.borrow().cmds.clone();
+            fit_text_runs(&self.cmds, &EVGLayout::get_text_engine(&self.lay));
             for c in self.cmds.iter() {
                 let src = c.borrow().src.clone();
                 if c.borrow().kind == 2 && src.starts_with(ORIGIN) {
@@ -185,5 +186,22 @@ impl DomBackend for DomRender {
             }
         }
         out.join(",")
+    }
+}
+
+/// Each text run sized to its own ink, as rg_engine's EVG path does
+/// (ui.rs fit_text_runs): the painters keep a run's centre, so a run as wide
+/// as its box drew left-aligned text centred.
+fn fit_text_runs(cmds: &[Rc<RefCell<EVGDrawCmd>>], te: &Rc<RefCell<EVGTextEngine>>) {
+    for c in cmds.iter() {
+        let mut c = c.borrow_mut();
+        if c.kind != 3 || c.text.is_empty() {
+            continue;
+        }
+        let m = EVGTextEngine::measure_run_spaced(te, &c.text, &c.font_family, c.font_size, c.letter_spacing);
+        let w = m.borrow().width + rg_engine::ui::bmp_emoji_extra(&c.text, c.font_size);
+        if w > 0.0 && w < c.w {
+            c.w = w;
+        }
     }
 }
