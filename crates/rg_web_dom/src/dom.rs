@@ -9,7 +9,7 @@
 //! is written into the engine's draw stream.
 
 use rangerdom_view::DomPage;
-use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout, EVGRetain};
+use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout, EVGRetain, EVGTextEngine};
 use std::collections::HashMap;
 use ranger::cell::RefCell;
 use rg_engine::draw::DrawStream;
@@ -207,10 +207,24 @@ impl DomRender {
         EVGDisplayList::set_text_engine(&dl, EVGLayout::get_text_engine(&self.lay));
         EVGDisplayList::build(&dl, root.clone());
         self.cmds = dl.borrow().cmds.clone();
+        let te = EVGLayout::get_text_engine(&self.lay);
         for c in self.cmds.iter() {
             let src = c.borrow().src.clone();
             if c.borrow().kind == 2 && src.starts_with(ORIGIN) {
                 c.borrow_mut().src = path_of(&src);
+            }
+            // a text run placed in a wider line box (centred or right
+            // aligned text): the painters centre a run in its w, so w is
+            // the run's own width, as EVG gives it
+            if c.borrow().kind == 3 {
+                let (text, fam, size, sp, w) = {
+                    let b = c.borrow();
+                    (b.text.clone(), b.font_family.clone(), b.font_size, b.letter_spacing, b.w)
+                };
+                let rw = EVGTextEngine::measure_run_spaced(&te, &text, &fam, size, sp).borrow().width;
+                if rw > 0.0 && rw < w - 0.5 {
+                    c.borrow_mut().w = rw;
+                }
             }
         }
     }
