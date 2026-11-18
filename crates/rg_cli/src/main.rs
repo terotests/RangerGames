@@ -81,6 +81,12 @@ fn run(args: &[String]) -> i32 {
         eprintln!("start: {}", err);
         return 1;
     }
+    // RG_NORETAIN: every changed frame through the full path (the reference
+    // the paint-only frames are checked against)
+    e.ui.retain = std::env::var("RG_NORETAIN").is_err();
+    // RG_RETAINCHECK: each paint-only frame is drawn the full way too and
+    // compared (the count of differing frames is printed)
+    e.ui.check = std::env::var("RG_RETAINCHECK").is_ok();
     let t0 = std::time::Instant::now();
     let mut status = 0;
     for f in 1..=frames {
@@ -112,13 +118,20 @@ fn run(args: &[String]) -> i32 {
     let ms = t0.elapsed().as_secs_f64() * 1000.0;
     let g = e.game.clone().map(|g| g.id).unwrap_or_default();
     println!(
-        "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings",
+        "{}: {} frames, {:.2} ms a frame, last frame {} draw commands, {} strings, {} paint-only frames",
         g,
         frames,
         ms / frames as f64,
         e.draw.count,
-        e.draw.strings.len()
+        e.draw.strings.len(),
+        e.ui.paint_frames
     );
+    if e.ui.check {
+        println!("retain check: {} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+        if e.ui.check_bad > 0 {
+            status = 1;
+        }
+    }
     if std::env::var("RG_DUMP").is_ok() {
         dump(&e);
     }
@@ -151,6 +164,8 @@ fn test(args: &[String]) -> i32 {
     let games = probe.games();
     for g in games.iter() {
         let mut e = engine_for(&args[0]);
+        // each paint-only frame is drawn the full way too; any difference fails
+        e.ui.check = true;
         let t0 = std::time::Instant::now();
         let mut ok = e.start(&g.id).is_ok();
         let mut why = e.error.clone();
@@ -185,8 +200,12 @@ fn test(args: &[String]) -> i32 {
             e.log.clear();
         }
         let ms = t0.elapsed().as_secs_f64() * 1000.0 / (f.max(1)) as f64;
+        if ok && e.ui.check_bad > 0 {
+            ok = false;
+            why = format!("{} of {} paint-only frames differ from the full path", e.ui.check_bad, e.ui.paint_frames);
+        }
         if ok && drawn > 0 {
-            println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands", g.id, f, ms, drawn);
+            println!("ok    {:<14} {} frames, {:.2} ms a frame, up to {} draw commands, {} paint-only", g.id, f, ms, drawn, e.ui.paint_frames);
         } else {
             failed += 1;
             println!("FAIL  {:<14} {}", g.id, if why.is_empty() { "nothing drawn".to_string() } else { why });

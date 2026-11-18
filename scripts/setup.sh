@@ -12,7 +12,7 @@
 # checkouts it links those instead of cloning (for working on all three).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RANGER_REV=7cc0a2f3f7d95c1f3c56135b4514adb728aacd32
+RANGER_REV=cfbc8bb2b40f62568b12ca000fd40fa253c9418e
 CE_REV=a0eaa817a482a0dc537550644f937d396999b0f8
 RT_REV=fcab8e3a1951c2162d58e4d6b54c8487880b0613
 mkdir -p .deps
