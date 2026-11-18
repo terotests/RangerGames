@@ -473,15 +473,19 @@ function Tray() {
   for (let i = 0; i < BATS.length; i++) {
     const r = batTile(i), k = BATS[i];
     const gone = i === bat || (drag.on && drag.kind === "bat" && drag.i === i);
-    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }} />);
-    if (!gone) out.push(batImg(i, r[0] + r[2] / 2, r[1] + 29, k.h > 30 ? 46 / k.h : 1));
+    // the picture goes inside its tile: as a sibling the tile's white
+    // background covered it in the DOM renderers
+    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }}>
+      {gone ? [] : [batImg(i, r[2] / 2 - 2, 27, k.h > 30 ? 46 / k.h : 1)]}
+    </div>);
     out.push(<div className="tlabel" style={{ left: r[0], top: r[1] + r[3] - 18, width: r[2] }}><div className="tltext">{num(k.v) + " V · " + k.name}</div></div>);
   }
   for (let i = 0; i < RESS.length; i++) {
     const r = resTile(i);
     const gone = i === res || (drag.on && drag.kind === "res" && drag.i === i);
-    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }} />);
-    if (!gone) out.push(resPart(i, r[0] + r[2] / 2, r[1] + 13, 0.88));
+    out.push(<div className={gone ? "tile empty" : "tile"} style={{ left: r[0], top: r[1], width: r[2], height: r[3] }}>
+      {gone ? [] : [resPart(i, r[2] / 2 - 2, 11, 0.88)]}
+    </div>);
     out.push(<div className="tlabel" style={{ left: r[0], top: r[1] + r[3] - 16, width: r[2] }}><div className="tltext">{num(RESS[i]) + " Ω"}</div></div>);
   }
   return out;
