@@ -151,8 +151,11 @@ fn element(tag: &str) -> Rc<RefCell<EVGElement>> {
     el.borrow_mut().text_align = String::new();
     // boxes are flex containers, as in the CSS a game author knows: a box
     // without a width fits its content in a row or under align-items
+    // and a row stays one line unless the game asks for flex-wrap: wrap
+    // (CSS's initial value; EVG's own default wraps)
     if !is_text_tag(tag) {
         el.borrow_mut().display = "flex".to_string();
+        el.borrow_mut().flex_wrap = "nowrap".to_string();
     }
     el
 }

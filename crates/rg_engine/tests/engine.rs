@@ -189,3 +189,33 @@ fn wrapped_lines_are_as_wide_as_their_ink_so_painters_keep_them_aligned() {
         assert!(((x + w / 2.0) - (x0 + 75.0)).abs() < 1.0, "centred: {} {:?}", t, runs);
     }
 }
+
+// a row stays on one line as in CSS (EVG's own default wraps): a growing
+// text column beside a fixed box shares the line and its text wraps in it
+#[test]
+fn a_row_does_not_wrap_unless_asked() {
+    let script = r#"function view() { return <div className="s"><div className="row">
+        <div className="n">1</div>
+        <div className="c"><div>Kumpi kulma?</div><div className="d">Harjoittele kulmakivestä laajentamista ja arvioi yhteyden vahvuutta.</div></div>
+      </div></div>; }"#;
+    let css = ".s { width: 200px; height: 100px; } .row { width: 200px; flex-direction: row; align-items: center; gap: 8px; }
+        .n { width: 30px; height: 30px; } .c { flex-grow: 1; min-width: 0px; align-items: flex-start; } .d { width: 100%; font-size: 11px; }";
+    let mut e = engine(script, css);
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    let (n, mut i) = (&e.draw.nums, 0);
+    let (mut one, mut title) = (None, None);
+    let mut lines = 0;
+    while i < n.len() {
+        if n[i] == 3.0 {
+            let s = &e.draw.strings[n[i + 18] as usize];
+            if s == "1" { one = Some((n[i + 1], n[i + 2])); }
+            if s == "Kumpi kulma?" { title = Some((n[i + 1], n[i + 2])); }
+            if s.starts_with("Harjoittele") || s.contains("vahvuutta") { lines += 1; }
+        }
+        i += rg_engine::draw::HEADER + n[i + 22] as usize;
+    }
+    let (one, title) = (one.unwrap(), title.unwrap());
+    assert!(title.0 > one.0 + 30.0, "the title beside the number: {:?} {:?}", one, title);
+    assert!(lines >= 2, "the description wraps in its column");
+}
