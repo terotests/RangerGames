@@ -48,6 +48,8 @@ jobs:
         run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
       - name: Valopeilit levels are solvable with their trays
         run: node tools/peilit/solve.ts
+      - name: No literal backslash-n shows in game texts
+        run: node tests/visible-newlines.mjs games
       - name: Every game runs headless
         run: cargo run --release -p rg_cli -- test games 600
       - name: RangerDOM renderer (the web engine) - dependencies and every game headless
