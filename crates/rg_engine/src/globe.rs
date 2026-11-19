@@ -229,6 +229,10 @@ pub struct Globe {
     outline: Option<(String, V3, f64)>,
     /// regions drawn in the last frame
     pub drawn: usize,
+    /// a map of the whole surface (an equirectangular picture in the game's
+    /// files, longitude -180…180 left to right, north up): drawn by the host
+    /// when it can (`render_3d`'s `textures`), else the regions are drawn
+    texture: String,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -278,6 +282,7 @@ impl Globe {
             peak_size: 1.2,
             peak_snow: [0.95, 0.97, 1.0],
             lines,
+            texture: String::new(),
             drawn: 0,
         }
     }
@@ -328,6 +333,9 @@ impl Globe {
             self.sun = if v.len() >= 2 { Some(unit(v[0].as_num(0.0), v[1].as_num(0.0))) } else { None };
         }
         self.night = a.get("night").as_num(self.night);
+        if let Json::Str(t) = a.get("texture") {
+            self.texture = t;
+        }
         let cell = a.get("cell");
         if !cell.is_null() && cell.as_num(0.0) != self.cell {
             self.cell = cell.as_num(0.0).max(0.0);
@@ -898,6 +906,67 @@ impl Cap {
     }
 }
 
+impl Globe {
+    /// The surface as one sphere command (kind 8) the host fills from the
+    /// texture: the disc's box on the screen and the camera in the globe's
+    /// own frame, the radius 1 (see draw.rs `sphere`).
+    fn render_textured(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, cap: &Cap, to_eye: V3, sun_local: Option<V3>) {
+        let (w, h) = (cam.w, cam.h);
+        // all of it behind the camera: nothing to draw
+        if -dot(to_eye, cam.fwd) < -place.radius {
+            return;
+        }
+        let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        let mut whole = false;
+        for p in cap.horizon(48).iter() {
+            let v = cam.view(place.world(p));
+            if v[2] < cam.near {
+                whole = true;
+                break;
+            }
+            let s = cam.screen(v);
+            x0 = x0.min(s[0] as f64);
+            y0 = y0.min(s[1] as f64);
+            x1 = x1.max(s[0] as f64);
+            y1 = y1.max(s[1] as f64);
+        }
+        if whole {
+            // the horizon goes behind the camera: the disc can fill the view
+            x0 = 0.0;
+            y0 = 0.0;
+            x1 = w;
+            y1 = h;
+        } else {
+            // the horizon ring is a polygon: a little margin for the round edge
+            let m = 1.0 + (x1 - x0).max(y1 - y0) * 0.01;
+            x0 = (x0 - m).max(0.0);
+            y0 = (y0 - m).max(0.0);
+            x1 = (x1 + m).min(w);
+            y1 = (y1 + m).min(h);
+        }
+        if x1 - x0 < 0.5 || y1 - y0 < 0.5 {
+            return;
+        }
+        let k = 1.0 / place.radius;
+        let e = place.local(to_eye);
+        let e = [e[0] * k, e[1] * k, e[2] * k];
+        let r = place.local(cam.right);
+        let u = place.local(cam.up);
+        let f = place.local(cam.fwd);
+        let (s, lit) = match sun_local {
+            Some(s) => (s, 1.0),
+            None => ([0.0, 0.0, 1.0], 0.0),
+        };
+        let params = [
+            e[0], e[1], e[2], r[0], r[1], r[2], u[0], u[1], u[2], f[0], f[1], f[2], s[0], s[1], s[2],
+            cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
+        ];
+        let params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
+        out.sphere(x0, y0, x1 - x0, y1 - y0, &self.texture, &params);
+        self.drawn = 1;
+    }
+}
+
 /// A ring of world points on the screen: cut at the camera's near plane,
 /// then projected (appended to `out`; false when nothing is left).
 fn project_world(cam: &Cam3, ring: &[V3], out: &mut Vec<f32>) -> bool {
@@ -947,7 +1016,14 @@ impl Globe {
     /// globe's own `sun`), and `glowing` makes it a light itself (a star:
     /// no shading, no night). The rest (regions, bands, peaks, colours) is
     /// the same as for the flat globe.
-    pub fn render_3d(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, sun: Option<V3>, glowing: bool) {
+    /// Makes a texture path given in the game's folder absolute.
+    pub fn texture_in(&mut self, dir: &str) {
+        if !self.texture.is_empty() && !self.texture.starts_with('/') && !dir.is_empty() {
+            self.texture = rg_core::vfs::join(dir, &self.texture);
+        }
+    }
+
+    pub fn render_3d(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, sun: Option<V3>, glowing: bool, textures: bool) {
         self.drawn = 0;
         if !self.visible {
             return;
@@ -993,6 +1069,10 @@ impl Globe {
                 let ring: Vec<V3> = gc.horizon(96).iter().map(|p| [p[0] * k, p[1] * k, p[2] * k]).collect();
                 fill(out, &ring, g, a);
             }
+        }
+        if textures && !self.texture.is_empty() {
+            self.render_textured(out, cam, place, &cap, to_eye, sun_local);
+            return;
         }
         if let Some(o) = self.ocean {
             fill(out, &cap.horizon(128), o, 1.0);
@@ -1287,21 +1367,55 @@ mod tests {
         let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
         let mut out = DrawStream::new();
         // from afar, facing A
-        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false);
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, false);
         assert_eq!(g.drawn, 1);
         // looking away: nothing
         let before = out.count;
-        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false);
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, false);
         assert_eq!(g.drawn, 0);
         assert_eq!(out.count, before);
         // just above A, looking down and looking along the ground: A is under the eye
-        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false);
+        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
         assert_eq!(g.drawn, 1);
-        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, None, false);
+        g.render_3d(&mut out, &cam_at([1.05, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, None, false, false);
         assert_eq!(g.drawn, 1);
         // from the far side, B
-        g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false);
+        g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, false);
         assert_eq!(g.drawn, 1);
+    }
+
+    #[test]
+    fn a_textured_planet_is_one_sphere_command() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r#"{{"regions":[["A","x",{}]],"texture":"img/earth.jpg","grid":false,"glow":false,"border":false}}"#, square(0.0, 0.0)));
+        g.command(&a);
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        // a host without textures: the regions
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, false);
+        assert!(out.nums.iter().step_by(1).next() == Some(&6.0));
+        // with textures: one kind 8 round the disc in the middle of the view
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.count, 1);
+        let n = &out.nums;
+        assert_eq!(n[0], 8.0);
+        assert_eq!(out.strings[n[18] as usize], "img/earth.jpg");
+        // the disc: angular radius asin(2/6), on the screen 300 * tan(that) = 106 px round 200
+        let half = 300.0 * (2.0f64 / 6.0).asin().tan();
+        assert!((n[1] as f64 - (200.0 - half)).abs() < 4.0 && (n[3] as f64 - 2.0 * half).abs() < 8.0, "{:?}", &n[1..5]);
+        assert_eq!(n[22], 20.0);
+        // the eye in the ball's frame (radius 1) and the sun lights it
+        assert_eq!(&n[23..26], &[3.0, 0.0, 0.0]);
+        assert_eq!(n[23 + 19], 1.0);
+        // just above the ground: the whole view
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([2.05, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, None, false, true);
+        assert_eq!(&out.nums[1..5], &[0.0, 0.0, 400.0, 400.0]);
+        // behind the camera: nothing
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, true);
+        assert_eq!(out.count, 0);
     }
 
     #[test]

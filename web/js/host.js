@@ -55,6 +55,8 @@
         if (n < 0) throw new Error("the games pack is not a pack");
         self.restoreSaves();
         self.x.rg_seed(Date.now() % 2147483647);
+        // ?notex: planets drawn from their regions even where textures work
+        if (self.x.rg_textures && global.RgPainter && global.RgPainter.canDrawSpheres && !params.has("notex") && global.RgPainter.canDrawSpheres()) self.x.rg_textures(1);
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
         else self.gl3d = null;
@@ -512,7 +514,7 @@
     var strings = this.text(x.rg_strings_ptr(), x.rg_strings_len()).split("\u0000");
     // images the frame names that are not loaded yet
     for (var i = 0; i < nums.length;) {
-      if (nums[i] === 2 && nums[i + 18] >= 0) {
+      if ((nums[i] === 2 || nums[i] === 8) && nums[i + 18] >= 0) {
         var src = strings[nums[i + 18]];
         if (!this.images.has(src)) this.image(src);
       }

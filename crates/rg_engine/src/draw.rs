@@ -6,7 +6,8 @@
 //! One command is 23 numbers, then its extra numbers:
 //!
 //! ```text
-//!  0 kind      0 rect, 1 border, 2 image, 3 text, 4 push clip, 5 pop clip, 6 path, 7 stroke
+//!  0 kind      0 rect, 1 border, 2 image, 3 text, 4 push clip, 5 pop clip, 6 path, 7 stroke,
+//!             8 sphere (a textured globe, see `DrawStream::sphere`)
 //!  1 x  2 y  3 w  4 h
 //!  5 r  6 g  7 b  8 a           colour, 0-255 and 0-1
 //!  9-12 radii                   top-left, top-right, bottom-right, bottom-left
@@ -217,6 +218,34 @@ impl DrawStream {
             0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
         ]);
         self.nums.extend_from_slice(&extra);
+        self.count += 1;
+    }
+
+    /// A textured sphere (kind 8): the host fills the box x, y, w, h with a
+    /// ball of radius 1 seen from a camera, its colours from the picture `src`
+    /// (equirectangular: longitude -180…180 across, latitude 90…-90 down).
+    /// The extra numbers, all in the ball's own frame (z: the north pole,
+    /// x: longitude 0, y: longitude 90):
+    ///
+    /// ```text
+    ///  0-2 eye   3-5 right   6-8 up   9-11 forward   12-14 sun direction
+    /// 15 focal (pixels)  16-17 the view's width and height
+    /// 18 night (how dark the night side is, 0…1)  19 lit (0: no shading)
+    /// ```
+    ///
+    /// A pixel (px, py) looks along forward × focal + right × (px - width/2)
+    /// - up × (py - height/2); where that ray meets the ball the picture is
+    /// read at the point's longitude and latitude, and lit by
+    /// 1 - night × (1 - max(0, normal · sun)). Pixels that miss the ball stay
+    /// as they were. A host that does not know kind 8 skips it.
+    pub fn sphere(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, params: &[f32]) {
+        let s = self.string(src);
+        self.nums.extend_from_slice(&[
+            8.0, x as f32, y as f32, w as f32, h as f32,
+            255.0, 255.0, 255.0, 1.0,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, -1.0, -1.0, 0.0, params.len() as f32,
+        ]);
+        self.nums.extend_from_slice(params);
         self.count += 1;
     }
 

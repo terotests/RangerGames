@@ -39,6 +39,9 @@ final class Engine {
     /** on: the app draws the 3D scene itself with GLES ({@link Gl3D}); then it is in tris(), not in draw(). */
     static native void gl3d(boolean on);
 
+    /** on: the app draws textured globes (draw kind 8, {@link Sphere}). */
+    static native void textures(boolean on);
+
     /** The frame's 3D triangles, 6 floats a corner: x, y (dp of the game), depth 0…1, r, g, b. */
     static native float[] tris();
 

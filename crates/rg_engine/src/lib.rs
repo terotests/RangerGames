@@ -261,6 +261,9 @@ pub struct Engine {
     /// the host draws the 3D scene itself with a depth buffer (WebGL / GLES):
     /// then the scene's triangles are in `scene.tris`, not in the draw stream
     pub gl3d: bool,
+    /// the host draws textured globes (draw kind 8): planets with a
+    /// `texture` are sent as one sphere command instead of their regions
+    pub textures: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -290,6 +293,7 @@ impl Engine {
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
             gl3d: false,
+            textures: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -532,6 +536,7 @@ impl Engine {
         let mut s = Script::new();
         s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone() }));
         self.world.borrow_mut().dir = info.dir.clone();
+        self.scene.dir = info.dir.clone();
         self.lend_files(true);
         let r = self.start_script(s, &info);
         self.lend_files(false);
@@ -789,6 +794,7 @@ impl Engine {
                 let tree = reply.get("tree");
                 self.fluid.step(dt);
                 self.scene.gl = self.gl3d;
+                self.scene.textures = self.textures;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
                 self.lend_files(false);
