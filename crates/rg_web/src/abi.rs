@@ -169,6 +169,12 @@ pub extern "C" fn rg_gl3d(on: i32) {
     with(|e| e.gl3d = on != 0)
 }
 
+/// The host can draw textured globes (draw kind 8).
+#[no_mangle]
+pub extern "C" fn rg_textures(on: i32) {
+    with(|e| e.textures = on != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())

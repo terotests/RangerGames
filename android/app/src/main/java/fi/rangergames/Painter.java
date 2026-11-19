@@ -25,7 +25,7 @@ import java.util.Map;
  */
 final class Painter {
     private static final int HEADER = 23;
-    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7;
+    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8;
 
     private final AssetManager assets;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -50,6 +50,13 @@ final class Painter {
         }
     };
     private final Paint.FontMetrics fm = new Paint.FontMetrics();
+    /** textured globes (kind 8): the maps as pixels, at most 1024 wide */
+    private final HashMap<String, int[]> maps = new HashMap<>();
+    private final HashMap<String, int[]> mapSizes = new HashMap<>();
+    private int[] sphereOut = new int[0];
+    private Bitmap sphereBitmap;
+    /** pixels of the cast globe per game unit (the bitmap is drawn smoothed) */
+    private static final float SPHERE_RES = 0.5f;
 
     Painter(AssetManager assets) {
         this.assets = assets;
@@ -108,6 +115,47 @@ final class Painter {
         return b;
     }
 
+    /** A map picture as ARGB pixels (scaled to at most 1024 × 512), decoded once. */
+    private int[] map(String s) {
+        if (maps.containsKey(s)) return maps.get(s);
+        int[] px = null;
+        byte[] bytes = s.startsWith("/") ? Engine.read(s) : null;
+        if (bytes != null) {
+            Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length);
+            if (b != null) {
+                if (b.getWidth() > 1024) {
+                    Bitmap sb = Bitmap.createScaledBitmap(b, 1024, Math.max(1, b.getHeight() * 1024 / b.getWidth()), true);
+                    b.recycle();
+                    b = sb;
+                }
+                int w = b.getWidth(), h = b.getHeight();
+                px = new int[w * h];
+                b.getPixels(px, 0, w, 0, 0, w, h);
+                b.recycle();
+                mapSizes.put(s, new int[] {w, h});
+            }
+        }
+        maps.put(s, px);
+        return px;
+    }
+
+    private void sphere(Canvas c, String s, float x, float y, float w, float h, float[] nums, int at) {
+        int[] tex = map(s);
+        if (tex == null) return;
+        int[] size = mapSizes.get(s);
+        int ow = Math.max(1, Math.round(w * SPHERE_RES)), oh = Math.max(1, Math.round(h * SPHERE_RES));
+        if (sphereOut.length < ow * oh) sphereOut = new int[ow * oh];
+        Sphere.cast(sphereOut, ow, oh, x, y, w, h, tex, size[0], size[1], nums, at);
+        if (sphereBitmap == null || sphereBitmap.getWidth() < ow || sphereBitmap.getHeight() < oh) {
+            if (sphereBitmap != null) sphereBitmap.recycle();
+            sphereBitmap = Bitmap.createBitmap(Math.max(ow, 64), Math.max(oh, 64), Bitmap.Config.ARGB_8888);
+        }
+        sphereBitmap.setPixels(sphereOut, 0, ow, 0, 0, ow, oh);
+        src.set(0, 0, ow, oh);
+        rf.set(x, y, x + w, y + h);
+        c.drawBitmap(sphereBitmap, src, rf, image);
+    }
+
     private void roundRect(float x, float y, float w, float h, float tl, float tr, float br, float bl) {
         float lim = Math.min(w, h) / 2;
         tl = Math.max(0, Math.min(tl, lim));
@@ -156,6 +204,11 @@ final class Painter {
             if ((flags & 1024) != 0) { tileAt = e; e += 4; }
             if (k == PATH || k == STROKE) ptsAt = e;
 
+            if (k == SPHERE) {
+                String s = s0 >= 0 && s0 < strings.length ? strings[s0] : "";
+                if (!s.isEmpty() && nx >= 20 && w > 0 && h > 0) sphere(c, s, x, y, w, h, nums, e);
+                continue;
+            }
             if (k == PUSH_CLIP) {
                 c.save();
                 clips++;

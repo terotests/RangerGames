@@ -29,6 +29,10 @@
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
 //! rg.three("planet", { id, x, y, z, r, spin, tilt, glowing, remove,  // a globe in the scene, in
 //!                      regions, ocean, land, colors, bands, … })      // perspective (globe.rs's options)
+//!                      texture: "img/earth.jpg"   // a map of the surface (equirectangular,
+//!                                                 // longitude -180…180, north up): hosts that
+//!                                                 // can draw it (web, phone, screenshots) do,
+//!                                                 // others draw the regions
 //! rg.three("space",  { sun: [x, y, z], stars })   // the light of the planets; a sky of `stars` stars
 //! ```
 //!
@@ -327,6 +331,10 @@ pub struct Scene {
     pub drawn: usize,
     /// the host draws depth-tested triangles (set by the engine every frame)
     pub gl: bool,
+    /// the host draws textured globes itself (draw kind 8, draw.rs `sphere`)
+    pub textures: bool,
+    /// the game's folder (textures are given in it)
+    pub dir: String,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
     /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
     /// Empty when the scene is off or drawn with the painter.
@@ -396,6 +404,8 @@ impl Scene {
             fov: 50.0,
             drawn: 0,
             gl: false,
+            textures: false,
+            dir: String::new(),
             tris: Vec::new(),
             globe: None,
             planets: Vec::new(),
@@ -416,7 +426,9 @@ impl Scene {
     pub fn command(&mut self, op: &str, a: &Json) {
         match op {
             "clear" => {
+                let dir = std::mem::take(&mut self.dir);
                 *self = Scene::new();
+                self.dir = dir;
                 return;
             }
             "scene" => {
@@ -564,6 +576,7 @@ impl Scene {
                     p.glowing = v;
                 }
                 p.globe.command(a);
+                p.globe.texture_in(&self.dir);
             }
             "space" => {
                 self.active = true;
@@ -694,7 +707,7 @@ impl Scene {
             for (_, i) in order {
                 let p = &mut self.planets[i];
                 let place = crate::globe::Place3 { centre: p.pos, radius: p.r, axes: p.axes() };
-                p.globe.render_3d(out, &cam3, &place, sun, p.glowing);
+                p.globe.render_3d(out, &cam3, &place, sun, p.glowing, self.textures);
             }
         }
         let cam = self.cam;

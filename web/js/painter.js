@@ -6,7 +6,7 @@
 (function (global) {
   "use strict";
   var HEADER = 23;
-  var KIND = { RECT: 0, BORDER: 1, IMAGE: 2, TEXT: 3, PUSH_CLIP: 4, POP_CLIP: 5, PATH: 6, STROKE: 7 };
+  var KIND = { RECT: 0, BORDER: 1, IMAGE: 2, TEXT: 3, PUSH_CLIP: 4, POP_CLIP: 5, PATH: 6, STROKE: 7, SPHERE: 8 };
   // EVG measures with Noto Sans; the page draws with its own default stack
   var DEFAULT_FONT = '"Fredoka", "Nunito", "Noto Sans", "Trebuchet MS", sans-serif';
 
@@ -35,6 +35,112 @@
   function family(name) {
     if (!name || name === "Noto Sans") return DEFAULT_FONT;
     return name.indexOf(",") >= 0 ? name + ", sans-serif" : '"' + name.replace(/"/g, "") + '", ' + DEFAULT_FONT;
+  }
+
+  // Textured globes (draw kind 8, crates/rg_engine/src/draw.rs `sphere`): a
+  // WebGL2 canvas off the page casts a ray through every pixel of the box,
+  // reads the map picture where it meets the ball and is then drawn into the
+  // 2D canvas, so the globe keeps its place in the painter's order.
+  var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
+  var SPHERE_FS = "#version 300 es\nprecision highp float; in vec2 uv; out vec4 o;" +
+    "uniform sampler2D tex; uniform vec3 eye, rgt, upv, fwd, sun; uniform vec4 box; uniform vec2 view; uniform float focal, night, lit;" +
+    "void main() {" +
+    "  vec2 px = box.xy + uv * box.zw;" +
+    "  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
+    "  float b = dot(eye, d); vec3 q = eye - b * d; float disc = 1.0 - dot(q, q);" +
+    "  if (disc < 0.0 || -b < sqrt(disc)) discard;" +
+    "  vec3 p = normalize(q - sqrt(disc) * d);" +
+    "  float u = atan(p.y, p.x) / 6.2831853 + 0.5; float v = 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927;" +
+    // the seam at longitude 180: take the derivatives of the u that does not jump there
+    "  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));" +
+    "  if (dot(du2, du2) < dot(du, du)) du = du2;" +
+    "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dFdx(v)), vec2(du.y, dFdy(v))).rgb;" +
+    "  if (lit > 0.5) { float s = dot(p, sun); c *= mix(1.0 - night, 1.0, smoothstep(-0.06, 0.3, s)) * (0.8 + 0.2 * max(s, 0.0)); }" +
+    "  o = vec4(c, 1.0);" +
+    "}";
+
+  function Spheres() {
+    this.ok = false;
+    this.textures = new Map();
+    var c = typeof document !== "undefined" ? document.createElement("canvas") : null;
+    var gl = null;
+    try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
+    if (!gl) return;
+    var prog = gl.createProgram();
+    [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, SPHERE_FS]].forEach(function (x) {
+      var sh = gl.createShader(x[0]);
+      gl.shaderSource(sh, x[1]);
+      gl.compileShader(sh);
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) console.warn("sphere shader: " + gl.getShaderInfoLog(sh));
+      gl.attachShader(prog, sh);
+    });
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
+    this.canvas = c;
+    this.gl = gl;
+    this.prog = prog;
+    this.u = {};
+    var self = this;
+    ["tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
+    var loc = gl.getAttribLocation(prog, "a");
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    this.ok = true;
+  }
+
+  Spheres.prototype.texture = function (src, img) {
+    var t = this.textures.get(src);
+    if (t) return t;
+    var gl = this.gl;
+    t = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.textures.set(src, t);
+    return t;
+  };
+
+  // draws one sphere command into ctx (which has the game's transform);
+  // p: the 20 extra numbers; px: device pixels per game unit
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px) {
+    var gl = this.gl, c = this.canvas;
+    var cw = Math.max(1, Math.min(4096, Math.round(w * px))), ch = Math.max(1, Math.min(4096, Math.round(h * px)));
+    if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
+    gl.viewport(0, c.height - ch, cw, ch);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(this.prog);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture(src, img));
+    var u = this.u;
+    gl.uniform1i(u.tex, 0);
+    gl.uniform3f(u.eye, p[0], p[1], p[2]);
+    gl.uniform3f(u.rgt, p[3], p[4], p[5]);
+    gl.uniform3f(u.upv, p[6], p[7], p[8]);
+    gl.uniform3f(u.fwd, p[9], p[10], p[11]);
+    gl.uniform3f(u.sun, p[12], p[13], p[14]);
+    gl.uniform1f(u.focal, p[15]);
+    gl.uniform2f(u.view, p[16], p[17]);
+    gl.uniform1f(u.night, p[18]);
+    gl.uniform1f(u.lit, p[19]);
+    gl.uniform4f(u.box, x, y, w, h);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
+  };
+
+  var spheres = null;
+  // whether this browser can draw textured globes (the host tells the engine)
+  function canDrawSpheres() {
+    if (!spheres) spheres = new Spheres();
+    return spheres.ok;
   }
 
   function Painter(canvas, images) {
@@ -90,6 +196,13 @@
       if (flags & 1024) { tile = [nums[e], nums[e + 1], nums[e + 2], nums[e + 3]]; e += 4; }
       if (k === KIND.PATH || k === KIND.STROKE) ptsAt = e;
 
+      if (k === KIND.SPHERE) {
+        var simg = s0 >= 0 ? this.images.get(strings[s0]) : null;
+        if (simg && nx >= 20 && w > 0 && h > 0 && canDrawSpheres()) {
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + 20), scale);
+        }
+        continue;
+      }
       if (k === KIND.PUSH_CLIP) {
         ctx.save(); clips++;
         ctx.beginPath(); ctx.rect(x, y, Math.max(0, w), Math.max(0, h)); ctx.clip();
@@ -221,4 +334,5 @@
   };
 
   global.RgPainter = Painter;
+  global.RgPainter.canDrawSpheres = canDrawSpheres;
 })(window);

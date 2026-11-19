@@ -263,6 +263,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
         for (Object[] f : camera.stored()) Engine.put((String) f[0], (byte[]) f[1]);
         Engine.seed(System.currentTimeMillis() % 2147483647L);
+        Engine.textures(true);
         Engine.start("");
         afterCall();
     }
