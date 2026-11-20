@@ -366,7 +366,7 @@ function placeBodies() {
 // sharper map pieces under the ship when it is low: NASA LRO WAC, 22.5° a
 // picture (16 × 8 of them), the 2 × 2 nearest the point under the ship
 const DETAIL: { [id: string]: string } = { moon: "img/moon/d5", mars: "img/mars/d5", earth: "img/earth/d5" };
-const DETAIL_ALT = 1500;
+const DETAIL_ALT = 2500;
 let detailKey = "";
 let detailBody = "";
 function updateDetail() {
@@ -388,9 +388,12 @@ function updateDetail() {
       const u = (lon / (2 * Math.PI) + 0.5) * 16;
       const v = (0.5 - lat / Math.PI) * 8;
       const c0 = Math.floor(u), r0 = Math.min(7, Math.floor(v));
-      const c1 = u - c0 < 0.5 ? c0 - 1 : c0 + 1;
+      // 4 x 2 pieces (the engine takes 8): the ship's piece, one on each
+      // side and one more on the nearer side, so the sharp map reaches past
+      // the horizon before the blurry one shows
+      const c2 = u - c0 < 0.5 ? c0 - 2 : c0 + 2;
       const r1 = v - r0 < 0.5 ? Math.max(0, r0 - 1) : Math.min(7, r0 + 1);
-      const cols = [(c0 + 16) % 16, (c1 + 16) % 16];
+      const cols = [c0 - 1, c0, c0 + 1, c2].map((c) => (c + 16) % 16);
       const rows = r1 === r0 ? [r0] : [r0, r1];
       for (const c of cols) {
         for (const w of rows) {
@@ -1014,7 +1017,8 @@ function adaptEyes(dt: number) {
   dazzle = Math.max(0, dazzle - dt * 0.8);
 }
 let realTime = false;          // tap the TIME cell: real time ↔ the place's own speed-up
-function onTimeCell(px: number, py: number) { return px >= 226 && px <= 358 && py >= 56 && py <= 102; }
+// the TIME cell: the third of the four cells in the top panel (style.css .top, .cell)
+function onTimeCell(px: number, py: number) { return px >= 179 && px <= 262 && py >= 50 && py <= 102; }
 function warpNow(b: Body) {
   if (realTime) return 1;
   const a = AIR[b.id];
