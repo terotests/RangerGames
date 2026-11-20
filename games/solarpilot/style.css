@@ -9,12 +9,18 @@
 .clock { font-size: 11px; color: #7dff8e; letter-spacing: 1px; margin-right: 44px; }
 .rule { width: 330px; height: 1px; background-color: rgba(125, 255, 142, 0.32); margin-top: 5px; margin-bottom: 5px; }
 .target { font-size: 13px; color: #b8ffc2; font-weight: 700; letter-spacing: 2px; height: 17px; }
-.grid { flex-direction: row; width: 330px; margin-top: 3px; }
-.cell { width: 110px; flex-direction: column; align-items: flex-start; }
-.cell.tap { border: 1px solid rgba(125, 255, 142, 0.45); padding-left: 4px; width: 106px; }
+.grid { flex-direction: row; width: 332px; margin-top: 3px; }
+.cell { width: 83px; flex-direction: column; align-items: flex-start; }
+.cell.tap { border: 1px solid rgba(125, 255, 142, 0.45); padding-left: 4px; width: 77px; }
+.cell.temp { padding-left: 7px; width: 76px; }
 .lab { font-size: 9px; color: rgba(125, 255, 142, 0.62); letter-spacing: 1.5px; height: 12px; }
 .val { font-size: 14px; font-weight: 700; color: #b8ffc2; height: 18px; }
 .val.warn { color: #ffb000; }
+.val.hot { color: #ff6a4a; }
+.val.cold { color: #6fb8ff; }
+.tempMark { font-size: 8px; font-weight: 700; letter-spacing: 1px; height: 10px; color: rgba(214, 255, 220, 0.8); }
+.tempMark.hot { color: #ff6a4a; }
+.tempMark.cold { color: #6fb8ff; }
 .codes { flex-direction: row; margin-top: 6px; width: 330px; justify-content: space-between; }
 .code { width: 42px; height: 17px; border: 1px solid rgba(125, 255, 142, 0.3); font-size: 10px; color: rgba(125, 255, 142, 0.45); letter-spacing: 1px; align-items: center; justify-content: center; }
 .code.here { border-color: #ffb000; color: #ffb000; }
@@ -25,18 +31,6 @@
 .spdLab.on { color: #ffcf5a; }
 .spdv { font-size: 20px; font-weight: 700; color: #d6ffdc; height: 25px; text-align: center; justify-content: center; flex-direction: row; width: 130px; }
 
-/* the thermometer across the top */
-.thermo { width: 330px; height: 46px; margin-top: 5px; }
-.thermoBubble { position: absolute; top: 0px; border: 2px solid rgba(255, 255, 255, 0.85); align-items: center; justify-content: center; }
-.thermoNum { font-size: 16px; font-weight: 700; height: 20px; text-align: center; justify-content: center; flex-direction: row; width: 42px; }
-.thermoTag { position: absolute; top: 4px; height: 11px; font-size: 9px; font-weight: 700; color: #d6ffdc; letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
-.thermoBar { position: absolute; top: 21px; height: 5px; }
-.thermoNeedle { position: absolute; top: 18px; width: 2px; height: 11px; background-color: #ffffff; }
-.thermoTick { position: absolute; top: 32px; height: 10px; font-size: 7px; color: rgba(125, 255, 142, 0.6); letter-spacing: 0.5px; text-align: center; justify-content: center; flex-direction: row; }
-.thermoTick.left { justify-content: flex-start; text-align: left; }
-.thermoTick.right { justify-content: flex-end; text-align: right; }
-.thermoTick.cold { color: #6fb8ff; }
-.thermoTick.hot { color: #ff7a4a; }
 
 /* the round map of the solar system */
 .mapDisc { position: absolute; background-color: rgba(1, 22, 9, 0.88); border: 2px solid rgba(125, 255, 142, 0.85); }
