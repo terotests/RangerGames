@@ -1,0 +1,122 @@
+/* Solar Pilot: a green phosphor ship computer. Sharp corners, thin rules,
+   inverted tags, amber for warnings, red-orange for alerts. */
+.screen { width: 100%; height: 100%; overflow: hidden; }
+.scan { position: absolute; left: 0px; width: 100%; height: 3px; background-color: rgba(125, 255, 142, 0.06); }
+
+.top { position: absolute; left: 8px; top: 8px; width: 344px; background-color: rgba(1, 12, 5, 0.74); border: 1px solid rgba(125, 255, 142, 0.5); padding: 6px; }
+.hdr { flex-direction: row; justify-content: space-between; align-items: center; width: 330px; height: 16px; }
+.tag { background-color: #7dff8e; color: #021006; font-size: 11px; font-weight: 700; letter-spacing: 2px; padding-left: 6px; padding-right: 6px; height: 16px; align-items: center; justify-content: center; }
+.clock { font-size: 11px; color: #7dff8e; letter-spacing: 1px; margin-right: 44px; }
+.rule { width: 330px; height: 1px; background-color: rgba(125, 255, 142, 0.32); margin-top: 5px; margin-bottom: 5px; }
+.target { font-size: 13px; color: #b8ffc2; font-weight: 700; letter-spacing: 2px; height: 17px; }
+.grid { flex-direction: row; width: 330px; margin-top: 3px; }
+.cell { width: 110px; flex-direction: column; align-items: flex-start; }
+.cell.tap { border: 1px solid rgba(125, 255, 142, 0.45); padding-left: 4px; width: 106px; }
+.lab { font-size: 9px; color: rgba(125, 255, 142, 0.62); letter-spacing: 1.5px; height: 12px; }
+.val { font-size: 14px; font-weight: 700; color: #b8ffc2; height: 18px; }
+.val.warn { color: #ffb000; }
+.codes { flex-direction: row; margin-top: 6px; width: 330px; justify-content: space-between; }
+.code { width: 42px; height: 17px; border: 1px solid rgba(125, 255, 142, 0.3); font-size: 10px; color: rgba(125, 255, 142, 0.45); letter-spacing: 1px; align-items: center; justify-content: center; }
+.code.here { border-color: #ffb000; color: #ffb000; }
+.code.on { background-color: #7dff8e; color: #021006; border-color: #7dff8e; font-weight: 700; }
+
+.spd { position: absolute; left: 8px; bottom: 10px; width: 150px; background-color: rgba(1, 12, 5, 0.74); border: 1px solid rgba(125, 255, 142, 0.5); padding: 6px; align-items: flex-start; }
+.spdv { font-size: 18px; font-weight: 700; color: #b8ffc2; height: 24px; }
+
+.msg { position: absolute; left: 16px; width: 328px; font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; background-color: rgba(1, 12, 5, 0.82); border: 1px solid rgba(125, 255, 142, 0.6); padding: 8px; align-items: flex-start; }
+.alert { position: absolute; left: 0px; width: 100%; justify-content: center; align-items: center; }
+.alertt { font-size: 14px; font-weight: 700; color: #ff5a3d; letter-spacing: 1.5px; background-color: rgba(30, 4, 0, 0.75); border: 1px solid #ff5a3d; padding: 6px; }
+
+.mark { position: absolute; width: 160px; font-size: 10px; color: #7dff8e; letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
+.mark.seen { color: rgba(125, 255, 142, 0.5); }
+.tbox { position: absolute; border: 1px solid rgba(125, 255, 142, 0.75); }
+.tbox.seen { border-color: rgba(125, 255, 142, 0.3); }
+.edge { position: absolute; width: 44px; height: 22px; font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #7dff8e; align-items: center; justify-content: center; background-color: rgba(1, 12, 5, 0.7); border: 1px solid rgba(125, 255, 142, 0.7); }
+.edge.seen { color: rgba(125, 255, 142, 0.45); border-color: rgba(125, 255, 142, 0.3); }
+
+.glareLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.glare1 { position: absolute; background-color: rgba(255, 236, 180, 0.12); }
+.glare2 { position: absolute; background-color: rgba(255, 248, 225, 0.35); }
+.glareH { position: absolute; width: 140px; height: 2px; background-color: rgba(255, 244, 210, 0.3); }
+
+.stick { position: absolute; border: 1px solid rgba(125, 255, 142, 0.45); background-color: rgba(125, 255, 142, 0.05); }
+.knob { position: absolute; width: 36px; height: 36px; border-radius: 18px; border: 2px solid rgba(125, 255, 142, 0.8); background-color: rgba(125, 255, 142, 0.18); }
+
+/* title */
+.titleBox { position: absolute; left: 14px; top: 60px; width: 332px; background-color: rgba(1, 12, 5, 0.8); border: 1px solid rgba(125, 255, 142, 0.55); padding: 8px; align-items: flex-start; }
+.titleRow { flex-direction: row; justify-content: space-between; align-items: center; width: 314px; height: 16px; }
+.rule2 { width: 314px; height: 1px; background-color: rgba(125, 255, 142, 0.32); margin-top: 5px; margin-bottom: 5px; }
+.bootHead { font-size: 12px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; height: 18px; }
+.bootLine { font-size: 11px; color: #7dff8e; letter-spacing: 1px; height: 16px; }
+.bootDim { font-size: 10px; color: rgba(125, 255, 142, 0.65); letter-spacing: 1px; height: 15px; }
+.bootInfo { margin-top: 6px; align-items: flex-start; }
+.goBox { position: absolute; left: 0px; bottom: 60px; width: 100%; align-items: center; justify-content: center; }
+.go { font-size: 15px; font-weight: 700; color: #021006; background-color: #7dff8e; letter-spacing: 2px; padding: 10px; padding-left: 16px; padding-right: 16px; }
+
+/* orbital navigation */
+.orbitGraphics { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.orbitSegment { position: absolute; }
+.orbitReticleLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
+.orbitSight { position: absolute; width: 50px; height: 50px; align-items: center; justify-content: center; }
+.sightRing { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; border: 2px solid rgba(125, 255, 142, 0.8); background-color: rgba(125, 255, 142, 0.05); }
+.sightCrossH { position: absolute; top: 24px; left: 0px; width: 50px; height: 2px; background-color: rgba(125, 255, 142, 0.7); }
+.sightCrossV { position: absolute; top: 0px; left: 24px; width: 2px; height: 50px; background-color: rgba(125, 255, 142, 0.7); }
+.sightDot { position: absolute; left: 22px; top: 22px; width: 6px; height: 6px; background-color: #d6ffdc; }
+.orbitAimArrow { position: absolute; width: 26px; height: 26px; color: rgba(125, 255, 142, 0.9); font-size: 22px; font-weight: 700; align-items: center; justify-content: center; }
+.sightLabel { position: absolute; width: 120px; font-size: 9px; font-weight: 700; color: #7dff8e; letter-spacing: 1.5px; text-align: center; justify-content: center; flex-direction: row; }
+.sightLabel.ok { color: #7dff8e; }
+.sightLabel.bad { color: #ff4a3d; font-size: 10px; }
+.sightLabel.badDim { color: #7a2a22; font-size: 10px; }
+.sightGoldHalo { position: absolute; left: 0px; top: 0px; width: 50px; height: 50px; border: 2px solid rgba(255, 176, 0, 0.45); }
+.sightRing.aligned { border: 3px solid #ffb000; background-color: rgba(255, 176, 0, 0.16); }
+.sightCrossH.aligned { background-color: #ffcf5a; }
+.sightCrossV.aligned { background-color: #ffcf5a; }
+.sightDot.aligned { background-color: #fff2c8; }
+
+.orbitAssist { position: absolute; left: 8px; width: 344px; bottom: 112px; background-color: rgba(1, 12, 5, 0.78); border: 1px solid rgba(125, 255, 142, 0.5); padding: 7px; align-items: center; }
+.orbitAssist.success { border-color: #7dff8e; }
+.orbitAssistRow { width: 294px; height: 26px; flex-direction: row; align-items: center; justify-content: space-between; }
+.orbitAssistLabel { font-size: 12px; color: #7dff8e; font-weight: 700; letter-spacing: 2px; }
+.orbitAssistTimer { width: 95px; height: 26px; font-size: 20px; font-weight: 700; color: #b8ffc2; align-items: center; justify-content: center; }
+.orbitAssistTimer.aligned { color: #ffcf5a; }
+.orbitAssistCheck { width: 95px; height: 26px; align-items: center; justify-content: center; color: #7dff8e; font-size: 22px; font-weight: 700; }
+.orbitBurnTrack { width: 294px; height: 6px; background-color: rgba(125, 255, 142, 0.16); position: relative; }
+.orbitBurnFill { position: absolute; left: 0px; top: 0px; height: 6px; background-color: rgba(125, 255, 142, 0.85); }
+.orbitBurnFill.aligned { background-color: #ffcf5a; }
+.orbitBurnGlow { position: absolute; left: -3px; top: -3px; width: 300px; height: 12px; border: 1px solid rgba(255, 176, 0, 0.8); }
+.orbitAssistSub { margin-top: 6px; width: 330px; height: 13px; font-size: 9px; color: rgba(125, 255, 142, 0.75); letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
+
+/* the throttle */
+.throttleButton { position: absolute; right: 12px; bottom: 10px; width: 92px; height: 92px; border-radius: 46px; border: 2px solid rgba(125, 255, 142, 0.85); background-color: rgba(1, 30, 12, 0.85); align-items: center; justify-content: center; overflow: hidden; }
+.throttleButton.active { border-color: #d6ffdc; background-color: rgba(40, 140, 70, 0.85); }
+.throttleButton.aligned { border: 3px solid #ffb000; }
+.throttleButton.active.aligned { border: 3px solid #ffd27a; background-color: rgba(120, 100, 20, 0.85); }
+.throttleInner { position: absolute; left: 9px; top: 9px; width: 70px; height: 70px; border-radius: 35px; border: 1px solid rgba(125, 255, 142, 0.4); }
+.throttleGoldHalo { position: absolute; left: 3px; top: 3px; width: 82px; height: 82px; border-radius: 41px; border: 2px solid rgba(255, 176, 0, 0.5); }
+.throttleSymbol { width: 60px; height: 30px; font-size: 24px; color: #b8ffc2; font-weight: 700; align-items: center; justify-content: center; }
+.throttleText { width: 70px; height: 16px; font-size: 10px; font-weight: 700; color: #b8ffc2; letter-spacing: 1.5px; align-items: center; justify-content: center; text-align: center; }
+
+/* level choice on the title */
+.lvlHead { position: absolute; left: 0px; width: 100%; height: 16px; font-size: 12px; font-weight: 700; color: #7dff8e; letter-spacing: 2px; text-align: center; justify-content: center; flex-direction: row; }
+.lvl { position: absolute; background-color: rgba(1, 12, 5, 0.8); border: 1px solid rgba(125, 255, 142, 0.55); align-items: center; justify-content: center; }
+.lvl.on { background-color: #7dff8e; border-color: #7dff8e; }
+.lvlName { font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1.5px; height: 18px; }
+.lvlName.on { color: #021006; }
+.lvlSub { font-size: 9px; color: rgba(125, 255, 142, 0.75); letter-spacing: 1px; height: 13px; margin-top: 3px; }
+.lvlSub.on { color: #0b3a14; }
+
+.warnBox { position: absolute; left: 16px; width: 328px; flex-direction: column; align-items: center; }
+.warn { font-size: 13px; font-weight: 700; letter-spacing: 1.5px; padding: 4px; margin-bottom: 4px; text-align: center; justify-content: center; flex-direction: row; }
+.warn.red { color: #fff0ea; background-color: rgba(200, 20, 0, 0.85); border: 1px solid #ff5a3d; }
+.warn.redDim { color: #ff5a3d; background-color: rgba(40, 4, 0, 0.75); border: 1px solid #ff5a3d; }
+.warn.amber { color: #ffb000; background-color: rgba(30, 18, 0, 0.8); border: 1px solid #ffb000; }
+.warn.green { color: #b8ffc2; background-color: rgba(1, 12, 5, 0.82); border: 1px solid rgba(125, 255, 142, 0.6); }
+.heatTint { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #ff5a14; }
+.deadLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(30, 0, 0, 0.55); }
+.deadBox { position: absolute; left: 24px; width: 312px; flex-direction: column; align-items: center; background-color: rgba(20, 2, 0, 0.9); border: 2px solid #ff5a3d; padding: 12px; }
+.deadHead { font-size: 18px; font-weight: 700; color: #ff5a3d; letter-spacing: 2px; height: 26px; }
+.deadCause { font-size: 13px; font-weight: 700; color: #ffd0c4; letter-spacing: 1px; height: 22px; }
+.deadSub { font-size: 11px; color: #ff9a80; letter-spacing: 1px; height: 18px; }
+.sightRing.danger { border: 3px solid #ff3d2a; background-color: rgba(255, 40, 20, 0.2); }
+.sightCrossH.danger { background-color: #ff3d2a; }
+.sightCrossV.danger { background-color: #ff3d2a; }
