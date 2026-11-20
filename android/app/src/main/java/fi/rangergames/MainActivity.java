@@ -239,7 +239,10 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             File dir = getExternalFilesDir(null);
             if (dir == null) return;
             File f = new File(dir, "private.rgpk");
-            if (!f.isFile()) return;
+            if (!f.isFile()) {
+                Log.i("RangerGames", "private.rgpk: none in " + dir);
+                return;
+            }
             byte[] data = new byte[(int) f.length()];
             try (InputStream in = new FileInputStream(f)) {
                 int off = 0, r;
