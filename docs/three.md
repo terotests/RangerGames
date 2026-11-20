@@ -121,7 +121,8 @@ another copy with its own mixer.
 
 Read: triangle meshes, node hierarchy, skins (up to 4 bones a corner),
 `COLOR_0`, materials' `baseColorFactor` / `emissiveFactor` / `doubleSided`,
-and animation channels for translation, rotation and scale (STEP, LINEAR,
+`KHR_materials_unlit` (the colours are drawn as they are, unlit: for models
+whose light is baked into their vertex colours), and animation channels for translation, rotation and scale (STEP, LINEAR,
 CUBICSPLINE). Not read: textures (a textured model shows its base colour),
 morph targets, cameras and lights in the file. Keep models low-poly
 (hundreds of triangles): the posing and skinning run on the phone's CPU.
@@ -129,6 +130,9 @@ A model that stands still (no clip playing, the same place) under a still
 camera is not posed, lit or projected again: the engine keeps its last
 drawing, so many models are cheap as long as few of them move. Leave an
 idle model without a clip (stop `Idle`) when a game has many of them.
+A model whose bounding sphere (taken from its rest pose, half again larger
+for a skinned one) is wholly outside the camera's view is skipped before it
+is posed.
 `cargo run --release -p rg_engine --example bench3d -- <game> gl` times a
 game's frames.
 
@@ -176,6 +180,9 @@ mixer.addEventListener("marker", (e) => {
 `tools/three/make-soldier.mjs` draws the Nappulasota pieces (a toy soldier
 with a different hat and weapon for each chess piece) in code and writes
 them as skinned, animated `.glb` files: a small glTF writer that is a
-starting point for other original models. Models made with Blender and
+starting point for other original models. `tools/three/glb.mjs` is the shared writer the
+Matka Marsiin models use: `make-astronaut.mjs` (skinned crew with 12 clips)
+and `make-iss.mjs` (the space station's modules with baked lighting, written
+unlit, plus `games/marsiin/lib/station.ts`: free space, hatches and spots). Models made with Blender and
 exported as glTF binary work as well; use only our own or CC0 / CC BY
 models and list the authors in `CREDITS.md`.

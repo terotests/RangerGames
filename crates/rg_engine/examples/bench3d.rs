@@ -1,5 +1,6 @@
 // Times a game's frames in the engine (3D included), without the screen:
 // cargo run --release -p rg_engine --example bench3d -- <game> [gl] ["x,y@frame;…" taps]   (NF=frames)
+// HOLD="x,y@frame" puts a second finger down there and keeps it down (a held button)
 use rg_engine::Engine;
 fn main() {
     let a: Vec<String> = std::env::args().collect();
@@ -19,7 +20,9 @@ fn main() {
     let taps: Vec<(f64, f64, usize)> = a.get(3).map(|s| s.split(';').filter(|x| !x.is_empty()).map(|t| { let (xy, f) = t.split_once('@').unwrap(); let (x, y) = xy.split_once(',').unwrap(); (x.parse().unwrap(), y.parse().unwrap(), f.parse().unwrap()) }).collect()).unwrap_or_default();
     let mut times = vec![];
     let nf: usize = std::env::var("NF").ok().and_then(|x| x.parse().ok()).unwrap_or(600);
+    let hold: Option<(f64, f64, usize)> = std::env::var("HOLD").ok().map(|t| { let (xy, f) = t.split_once('@').unwrap(); let (x, y) = xy.split_once(',').unwrap(); (x.parse().unwrap(), y.parse().unwrap(), f.parse().unwrap()) });
     for f in 0..nf {
+        if let Some((x, y, hf)) = hold { if hf == f { e.pointer(0, 2, x, y); } }
         for &(x, y, tf) in &taps { if tf == f { e.pointer(0, 1, x, y); } if tf + 1 == f { e.pointer(2, 1, x, y); } }
         let t0 = std::time::Instant::now();
         e.frame(16.0).unwrap();
