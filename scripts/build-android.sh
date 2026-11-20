@@ -54,6 +54,9 @@ rm -rf "$ASSETS/voice" && mkdir -p "$ASSETS/voice"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp -RL games "$STAGE/games"
+# games/musiikki is a library of music for Sliqtly Games copies (hidden, not a
+# game): the phone reads the whole pack into memory, so it stays out
+rm -rf "$STAGE/games/musiikki"
 # each game's last commit date: the launcher compares it with a downloaded
 # copy's (game.json "replaces") to show the newer one
 for d in "$STAGE"/games/*/; do
