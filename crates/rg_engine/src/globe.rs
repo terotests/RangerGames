@@ -233,6 +233,12 @@ pub struct Globe {
     /// files, longitude -180…180 left to right, north up): drawn by the host
     /// when it can (`render_3d`'s `textures`), else the regions are drawn
     texture: String,
+    /// sharper pictures over parts of the map: (path, [u0, v0, u1, v1]) in
+    /// the map's own 0…1 coordinates (u east from longitude -180, v south
+    /// from the north pole), drawn over `texture` where the host can
+    detail: Vec<(String, [f64; 4])>,
+    /// the host can draw `detail` (a sphere command with a window)
+    pub detail_ok: bool,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -283,6 +289,8 @@ impl Globe {
             peak_snow: [0.95, 0.97, 1.0],
             lines,
             texture: String::new(),
+            detail: Vec::new(),
+            detail_ok: false,
             drawn: 0,
         }
     }
@@ -335,6 +343,13 @@ impl Globe {
         self.night = a.get("night").as_num(self.night);
         if let Json::Str(t) = a.get("texture") {
             self.texture = t;
+        }
+        if let Json::Arr(v) = a.get("detail") {
+            self.detail = v.iter().take(8).filter_map(|d| {
+                let src = d.get("src").as_str();
+                let w = [d.get("u0").as_num(0.0), d.get("v0").as_num(0.0), d.get("u1").as_num(1.0), d.get("v1").as_num(1.0)];
+                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w)) }
+            }).collect();
         }
         let cell = a.get("cell");
         if !cell.is_null() && cell.as_num(0.0) != self.cell {
@@ -964,6 +979,56 @@ impl Globe {
         let params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
         out.sphere(x0, y0, x1 - x0, y1 - y0, &self.texture, &params);
         self.drawn = 1;
+        if !self.detail_ok {
+            return;
+        }
+        // the sharper pictures: the same ball once more for each, drawn by
+        // the host only inside its window, in the box its part of the
+        // surface takes on the screen
+        for (src, win) in self.detail.iter() {
+            let n = 8;
+            let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+            let mut seen = false;
+            let mut near = false;
+            for i in 0..=n {
+                for j in 0..=n {
+                    let u = win[0] + (win[2] - win[0]) * i as f64 / n as f64;
+                    let v = win[1] + (win[3] - win[1]) * j as f64 / n as f64;
+                    let lon = (u - 0.5) * std::f64::consts::TAU;
+                    let lat = (0.5 - v) * std::f64::consts::PI;
+                    let p = [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()];
+                    if dot(p, cap.e) >= cap.c0 {
+                        seen = true;
+                    }
+                    let q = cam.view(place.world(&p));
+                    if q[2] < cam.near {
+                        near = true;
+                        continue;
+                    }
+                    let s = cam.screen(q);
+                    a0 = a0.min(s[0] as f64);
+                    b0 = b0.min(s[1] as f64);
+                    a1 = a1.max(s[0] as f64);
+                    b1 = b1.max(s[1] as f64);
+                }
+            }
+            if !seen {
+                continue;
+            }
+            let (px0, py0, px1, py1) = if near {
+                (x0, y0, x1, y1)
+            } else {
+                // a margin for the edges between the points
+                let m = 2.0 + (a1 - a0).max(b1 - b0) * 0.08;
+                ((a0 - m).max(x0), (b0 - m).max(y0), (a1 + m).min(x1), (b1 + m).min(y1))
+            };
+            if px1 - px0 < 0.5 || py1 - py0 < 0.5 {
+                continue;
+            }
+            let mut p = params.clone();
+            p.extend(win.iter().map(|v| *v as f32));
+            out.sphere(px0, py0, px1 - px0, py1 - py0, src, &p);
+        }
     }
 }
 
@@ -1020,6 +1085,13 @@ impl Globe {
     pub fn texture_in(&mut self, dir: &str) {
         if !self.texture.is_empty() && !self.texture.starts_with('/') && !dir.is_empty() {
             self.texture = rg_core::vfs::join(dir, &self.texture);
+        }
+        if !dir.is_empty() {
+            for d in self.detail.iter_mut() {
+                if !d.0.starts_with('/') {
+                    d.0 = rg_core::vfs::join(dir, &d.0);
+                }
+            }
         }
     }
 
@@ -1382,6 +1454,39 @@ mod tests {
         // from the far side, B
         g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, false);
         assert_eq!(g.drawn, 1);
+    }
+
+    #[test]
+    fn detail_pictures_are_extra_sphere_commands_with_a_window() {
+        let mut g = Globe::new();
+        // windows round longitude 180 (u 0, facing -x) and round longitude 0 (u 0.5, facing +x)
+        let a = rg_core::json::parse(r#"{"texture":"img/moon.jpg","grid":false,"glow":false,"border":false,
+            "detail":[{"src":"img/d/0_3.jpg","u0":0.45,"v0":0.4,"u1":0.55,"v1":0.6},{"src":"img/d/9.jpg","u0":0.0,"v0":0.4,"u1":0.05,"v1":0.6}]}"#);
+        g.command(&a);
+        g.texture_in("/games/x");
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let cam = cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]);
+        // a host that does not know windows: only the map
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam, &place, None, false, true);
+        assert_eq!(out.count, 1);
+        // with windows: the map and the picture that faces the eye, in a smaller box
+        g.detail_ok = true;
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam, &place, None, false, true);
+        assert_eq!(out.count, 2);
+        let n = &out.nums;
+        let k = 23 + n[22] as usize;
+        assert_eq!(n[k], 8.0);
+        assert_eq!(out.strings[n[k + 18] as usize], "/games/x/img/d/0_3.jpg");
+        assert_eq!(n[k + 22], 24.0);
+        assert_eq!(&n[k + 23 + 20..k + 23 + 24], &[0.45, 0.4, 0.55, 0.6]);
+        assert!(n[k + 3] < n[3] * 0.6 && n[k + 4] < n[4] * 0.8, "{:?} {:?}", &n[1..5], &n[k + 1..k + 5]);
+        // an empty list takes them away
+        g.command(&rg_core::json::parse(r#"{"detail":[]}"#));
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam, &place, None, false, true);
+        assert_eq!(out.count, 1);
     }
 
     #[test]

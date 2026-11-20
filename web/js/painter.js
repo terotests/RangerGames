@@ -43,7 +43,7 @@
   // 2D canvas, so the globe keeps its place in the painter's order.
   var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
   var SPHERE_FS = "#version 300 es\nprecision highp float; in vec2 uv; out vec4 o;" +
-    "uniform sampler2D tex; uniform vec3 eye, rgt, upv, fwd, sun; uniform vec4 box; uniform vec2 view; uniform float focal, night, lit;" +
+    "uniform sampler2D tex; uniform vec3 eye, rgt, upv, fwd, sun; uniform vec4 box, win; uniform vec2 view; uniform float focal, night, lit, useWin;" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
     "  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
@@ -54,7 +54,14 @@
     // the seam at longitude 180: take the derivatives of the u that does not jump there
     "  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));" +
     "  if (dot(du2, du2) < dot(du, du)) du = du2;" +
-    "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dFdx(v)), vec2(du.y, dFdy(v))).rgb;" +
+    "  vec2 dv = vec2(dFdx(v), dFdy(v));" +
+    // a detail picture: only inside its window, the window stretched over the picture
+    "  if (useWin > 0.5) {" +
+    "    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
+    "    if (uw < win.x || uw > win.z || v < win.y || v > win.w) discard;" +
+    "    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;" +
+    "  }" +
+    "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
     "  if (lit > 0.5) { float s = dot(p, sun); c *= mix(1.0 - night, 1.0, smoothstep(-0.06, 0.3, s)) * (0.8 + 0.2 * max(s, 0.0)); }" +
     "  o = vec4(c, 1.0);" +
     "}";
@@ -81,7 +88,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit", "win", "useWin"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -91,7 +98,7 @@
     this.ok = true;
   }
 
-  Spheres.prototype.texture = function (src, img) {
+  Spheres.prototype.texture = function (src, img, clamp) {
     var t = this.textures.get(src);
     if (t) return t;
     var gl = this.gl;
@@ -102,14 +109,14 @@
     gl.generateMipmap(gl.TEXTURE_2D);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, clamp ? gl.CLAMP_TO_EDGE : gl.REPEAT);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.textures.set(src, t);
     return t;
   };
 
   // draws one sphere command into ctx (which has the game's transform);
-  // p: the 20 extra numbers; px: device pixels per game unit
+  // p: the 20 extra numbers (24 with a detail window); px: device pixels per game unit
   Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px) {
     var gl = this.gl, c = this.canvas;
     var cw = Math.max(1, Math.min(4096, Math.round(w * px))), ch = Math.max(1, Math.min(4096, Math.round(h * px)));
@@ -119,7 +126,8 @@
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.activeTexture(gl.TEXTURE0);
-    gl.bindTexture(gl.TEXTURE_2D, this.texture(src, img));
+    var w4 = p.length >= 24;
+    gl.bindTexture(gl.TEXTURE_2D, this.texture(src, img, w4));
     var u = this.u;
     gl.uniform1i(u.tex, 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
@@ -131,6 +139,8 @@
     gl.uniform2f(u.view, p[16], p[17]);
     gl.uniform1f(u.night, p[18]);
     gl.uniform1f(u.lit, p[19]);
+    gl.uniform1f(u.useWin, w4 ? 1 : 0);
+    gl.uniform4f(u.win, w4 ? p[20] : 0, w4 ? p[21] : 0, w4 ? p[22] : 1, w4 ? p[23] : 1);
     gl.uniform4f(u.box, x, y, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
@@ -199,7 +209,7 @@
       if (k === KIND.SPHERE) {
         var simg = s0 >= 0 ? this.images.get(strings[s0]) : null;
         if (simg && nx >= 20 && w > 0 && h > 0 && canDrawSpheres()) {
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + 20), scale);
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 24 ? 24 : 20)), scale);
         }
         continue;
       }
@@ -335,4 +345,6 @@
 
   global.RgPainter = Painter;
   global.RgPainter.canDrawSpheres = canDrawSpheres;
+  // sphere commands with a detail window (24 numbers) are understood
+  global.RgPainter.canDrawDetail = canDrawSpheres;
 })(window);
