@@ -1,8 +1,10 @@
 // Robotti: programming for 5- and 8-year-olds. The robot is out of power:
 // write it a program that takes it to the battery. Levels:
 //   1 Askeleet  a sequence of arrows (tap the arrow buttons), then ▶ runs it
-//   2 Toista    a loop: only a few slots, and a counter for how many times
-//               the slots are repeated (stairs: → ↓ → ↓ … = [→ ↓] × 3)
+//   2 Toista    only a few boxes, but each box repeats its arrow: tapping the
+//               same arrow again makes the box count up (→ ×3), so a path
+//               with turns is "three right, two down": → ×3  ↓ ×2. The
+//               number is big in the box and counts down as the robot walks.
 //   3 Jos-niin  conditions: the robot walks on by itself, and on a coloured
 //               floor tile it turns the way the rule of that colour says
 // A crash is a "bug": the arrow that was running when the robot crashed
@@ -30,7 +32,9 @@ let path: number[] = [];         // the hint path (cells)
 // the program
 let prog: number[] = [];
 let slots = 8;
-let reps = 1;                    // level 2: how many times the slots run
+let cnt: number[] = [];          // level 2: how many times each box repeats its arrow
+let moveSlot: number[] = [];     // the box each step comes from
+const MAXCNT = 6;
 let rules: number[] = [];        // level 3: colour -> direction, -1 unset
 let used: number[] = [];         // level 3: the colours on this board
 let sel = 0;                     // level 3: the rule card being set
@@ -115,33 +119,41 @@ function makeSteps() {
   clear(); start = at(0, 2); goal = at(3, 2); path = [start, at(1, 2), at(2, 2), goal];
 }
 
-// level 2: a pattern repeated; walls frame the stairs
+// level 2: straight legs with turns between them, one box for each leg. A
+// wall stands straight on after every turn, so one step too many is a crash
+// in that box and not a walk off into nowhere.
 function makeLoop() {
   const s = step();
-  const pats = s === 0 ? [[1], [2]] : s === 1 ? [[1, 2], [2, 1], [1, 0], [0, 1]] : [[1, 1, 2], [2, 2, 1], [1, 2, 2], [1, 1, 0], [0, 0, 1]];
-  for (let tries = 0; tries < 400; tries++) {
-    const pat = rg.pick(pats);
-    const n = s === 0 ? rg.range(3, 5) : s === 1 ? rg.range(2, 3) : 2 + (pat.length === 3 && rg.random() < 0.3 ? 0 : 0);
-    // the walk from (0, 0), then shifted so it fits on the board
-    let x = 0, y = 0, minx = 0, miny = 0, maxx = 0, maxy = 0;
-    const pts = [[0, 0]];
-    for (let k = 0; k < n; k++) for (const d of pat) { x += DX[d]; y += DY[d]; pts.push([x, y]); minx = Math.min(minx, x); miny = Math.min(miny, y); maxx = Math.max(maxx, x); maxy = Math.max(maxy, y); }
-    if (maxx - minx >= COLS || maxy - miny >= ROWS) continue;
-    const ox = rg.range(0, COLS - 1 - (maxx - minx)) - minx, oy = rg.range(0, ROWS - 1 - (maxy - miny)) - miny;
+  for (let tries = 0; tries < 800; tries++) {
+    const legs = s === 0 ? rg.range(1, 2) : s === 1 ? rg.range(2, 3) : rg.range(3, 4);
     clear();
-    path = pts.map((p) => at(p[0] + ox, p[1] + oy));
-    start = path[0]; goal = path[path.length - 1];
-    // walls beside the stairs, so the pattern stands out
-    for (const c of path) {
-      const p = cell(c);
-      for (let d = 0; d < 4; d++) {
-        const nx = p.x + DX[d], ny = p.y + DY[d];
-        if (inside(nx, ny) && path.indexOf(at(nx, ny)) < 0 && rg.random() < 0.35) walls[at(nx, ny)] = true;
+    let x = rg.range(0, COLS - 1), y = rg.range(0, ROWS - 1), d = rg.range(0, 3);
+    const pts = [at(x, y)];
+    const stops: number[] = [];
+    let ok = true;
+    for (let t = 0; t < legs && ok; t++) {
+      const len = legs === 1 ? rg.range(3, 5) : rg.range(2, 4);
+      for (let k = 0; k < len; k++) {
+        x += DX[d]; y += DY[d];
+        if (!inside(x, y) || pts.indexOf(at(x, y)) >= 0) { ok = false; break; }
+        pts.push(at(x, y));
+      }
+      if (!ok) break;
+      if (t < legs - 1) {
+        if (inside(x + DX[d], y + DY[d])) stops.push(at(x + DX[d], y + DY[d]));
+        d = rg.random() < 0.5 ? (d + 1) % 4 : (d + 3) % 4;
       }
     }
-    slots = pat.length;
+    if (!ok || stops.some((c) => pts.indexOf(c) >= 0)) continue;
+    for (const c of stops) walls[c] = true;
+    for (let i = 0; i < 3 + s; i++) { const w = rg.range(0, COLS * ROWS - 1); if (pts.indexOf(w) < 0) walls[w] = true; }
+    path = pts; start = pts[0]; goal = pts[pts.length - 1];
+    // the legs must be the only short way: no shortcut around a corner
+    if (bfs(start, goal).length !== pts.length) continue;
+    slots = legs;
     return;
   }
+  clear(); path = [at(0, 2), at(1, 2), at(2, 2), at(3, 2)]; start = path[0]; goal = path[3]; slots = 1;
 }
 
 // level 3: a path with turns; every turn tile is coloured by the way it turns
@@ -191,7 +203,7 @@ function instruct() {
 }
 
 function next() {
-  prog = []; reps = 1; bug = -1; mood = "ok"; running = false; hintT = -10; trail = [];
+  prog = []; cnt = []; bug = -1; mood = "ok"; running = false; hintT = -10; trail = [];
   slots = 8;
   if (K.level === 0) makeSteps();
   else if (K.level === 1) makeLoop();
@@ -210,8 +222,17 @@ function reset() {
 function add(d: number) {
   if (running || K.solved >= 0) return;
   if (bug >= 0 || mood !== "ok") reset();
+  const last = prog.length - 1;
+  if (K.level === 1 && last >= 0 && prog[last] === d) {
+    // the same arrow again: the box counts up
+    if (cnt[last] >= MAXCNT) { rg.sound("wrong"); return; }
+    cnt[last]++;
+    rg.sound("click", { pitch: 1 + cnt[last] * 0.08 }); rg.vibrate(10);
+    rg.say(rg.sayId.number(cnt[last]));
+    return;
+  }
   if (prog.length >= slots) { rg.sound("wrong"); rg.say("tk_r_taynna"); return; }
-  prog.push(d);
+  prog.push(d); cnt.push(1);
   rg.sound("click"); rg.vibrate(10);
   rg.say(DIRSAY[d]);
 }
@@ -219,7 +240,11 @@ function add(d: number) {
 function undo() {
   if (running || K.solved >= 0) return;
   reset();
-  if (prog.length) { prog.pop(); rg.sound("pop"); }
+  if (!prog.length) return;
+  const last = prog.length - 1;
+  if (K.level === 1 && cnt[last] > 1) cnt[last]--;
+  else { prog.pop(); cnt.pop(); }
+  rg.sound("pop");
 }
 
 function setRule(d: number) {
@@ -236,8 +261,8 @@ function run() {
   if (running || K.solved >= 0) return;
   reset();
   if (K.level < 2 && !prog.length) { rg.sound("wrong"); instruct(); return; }
-  moves = [];
-  if (K.level < 2) for (let r = 0; r < (K.level === 1 ? reps : 1); r++) for (const d of prog) moves.push(d);
+  moves = []; moveSlot = [];
+  if (K.level < 2) prog.forEach((d, i) => { for (let r = 0; r < (K.level === 1 ? cnt[i] : 1); r++) { moves.push(d); moveSlot.push(i); } });
   mi = 0; clock = 0.25; running = true;
   trail = [start];
   rg.sound("jump");
@@ -281,7 +306,7 @@ function stepRobot() {
     rdir = moves[mi];
   }
   const nx = rx + DX[rdir], ny = ry + DY[rdir];
-  const slot = K.level === 2 ? -1 : mi % Math.max(1, prog.length);
+  const slot = K.level === 2 ? -1 : moveSlot[mi];
   if (!inside(nx, ny) || walls[at(nx, ny)]) {
     // bump half way into the wall
     ax = rx + DX[rdir] * 0.3; ay = ry + DY[rdir] * 0.3;
@@ -327,12 +352,19 @@ function Board() {
     }
   }
   // footprints of the hint
-  if (K.t - hintT < 6 && K.level < 2) {
+  if (K.t - hintT < 6 && K.level === 0) {
     for (let k = 1; k < path.length; k++) { const p = cell(path[k]); out.push(Circle(cx(p.x), cy(p.y), c * 0.12, "rgba(255,183,3,0.9)")); }
   }
-  // level 2 hint: the first round of the pattern glows
-  if (K.t - hintT < 6 && K.level === 1) {
-    for (let k = 1; k <= slots && k < path.length; k++) { const p = cell(path[k]); out.push(Circle(cx(p.x), cy(p.y), c * 0.22, "rgba(131,56,236,0.8)")); }
+  // level 2 hint: the steps of each leg are counted on the floor
+  if (K.t - hintT < 8 && K.level === 1) {
+    let n = 0;
+    for (let k = 1; k < path.length; k++) {
+      const a = cell(path[k - 1]), p = cell(path[k]);
+      if (k > 1) { const b = cell(path[k - 2]); if (a.x - b.x !== p.x - a.x || a.y - b.y !== p.y - a.y) n = 0; }
+      n++;
+      out.push(Circle(cx(p.x), cy(p.y), c * 0.24, "rgba(131,56,236,0.85)"));
+      out.push(<div className="num" style={{ left: cx(p.x) - 14, top: cy(p.y) - 14, width: 28, height: 28, color: "#ffffff", fontSize: 18 }}>{String(n)}</div>);
+    }
   }
   // level 3 hint: the way out of each coloured tile
   if (K.t - hintT < 6 && K.level === 2) {
@@ -355,39 +387,34 @@ function Board() {
   return out;
 }
 
-// the program strip: one slot per arrow; the slot that runs glows, a bug is red
+// the program strip: one slot per arrow; the slot that runs glows, a bug is red.
+// On level 2 a slot is a box with its arrow and a big ×n, and a dot for each
+// step: the dots fill as the robot walks them.
 function Strip() {
   const out: any[] = [];
   const y = stripY(), h = 54;
   const n = slots, loop = K.level === 1;
-  const w = Math.min(46, Math.floor((width - 40 - (loop ? 110 : 0)) / n));
-  const total = n * w + (loop ? 110 : 0);
-  let x = Math.floor((width - total) / 2);
+  const w = loop ? Math.min(82, Math.floor((width - 40) / n)) : Math.min(46, Math.floor((width - 40) / n));
+  const total = n * w;
+  const x = Math.floor((width - total) / 2);
   out.push(Box(x - 8, y - 4, total + 16, h + 8, loop ? "#8338ec" : "#1d4e89", 14));
-  if (loop) { out.push(<div className="padtext" style={{ position: "absolute", left: x, top: y + 10, width: 34, height: 34 }}>🔁</div>); x += 36; }
-  const now = running && K.level < 2 ? mi % Math.max(1, prog.length) : -1;
+  const now = running && K.level < 2 && mi < moveSlot.length ? moveSlot[mi] : -1;
   for (let i = 0; i < n; i++) {
     const cls = bug === i ? "slot bad" : now === i ? "slot now" : "slot";
     out.push(<div className={cls} style={{ left: x + i * w + 2, top: y + 3, width: w - 4, height: h - 6 }} />);
-    if (i < prog.length) out.push(Arrow(x + i * w + w / 2, y + h / 2, Math.min(16, w * 0.36), prog[i], bug === i ? "#d62828" : "#3a86ff"));
+    if (i >= prog.length) continue;
+    const col = bug === i ? "#d62828" : loop ? "#8338ec" : "#3a86ff";
+    if (!loop) { out.push(Arrow(x + i * w + w / 2, y + h / 2, Math.min(16, w * 0.36), prog[i], col)); continue; }
+    out.push(Arrow(x + i * w + w * 0.27, y + 21, 14, prog[i], col));
+    out.push(<div className="big" style={{ left: x + i * w + w * 0.44, top: y + 2, width: w * 0.52, height: 38, color: col, fontSize: 26 }}>{"×" + cnt[i]}</div>);
+    // a dot for each step of the box; the ones walked are filled
+    let done = 0;
+    if (running || bug >= 0 || mood !== "ok") for (let k = 0; k < mi && k < moveSlot.length; k++) if (moveSlot[k] === i) done++;
+    const dw = Math.min(10, (w - 14) / cnt[i]);
+    for (let k = 0; k < cnt[i]; k++) out.push(Circle(x + i * w + w / 2 - (cnt[i] - 1) * dw / 2 + k * dw, y + 44, 3, k < done ? col : "rgba(131,56,236,0.25)"));
   }
-  if (loop) {
-    const lx = x + n * w + 8;
-    out.push(<div className="big" style={{ left: lx, top: y + 8, width: 36, height: 38, color: "#ffffff" }}>{"×" + reps}</div>);
-    out.push(<div className="pad" id="repdown" onClick={() => setReps(-1)} style={{ left: lx + 36, top: y + 4, width: 30, height: 22, backgroundColor: "#ffffff" }}><div className="tiny" style={{ left: 0, top: 0, width: 30, height: 22, color: "#8338ec" }}>▲</div></div>);
-    out.push(<div className="pad" id="repup" onClick={() => setReps(1)} style={{ left: lx + 36, top: y + 28, width: 30, height: 22, backgroundColor: "#ffffff" }}><div className="tiny" style={{ left: 0, top: 0, width: 30, height: 22, color: "#8338ec" }}>▼</div></div>);
-    if (running) out.push(<div className="tiny" style={{ left: lx - 4, top: y + h + 2, width: 70, height: 16 }}>{(Math.floor(mi / Math.max(1, prog.length)) + 1) + " / " + reps}</div>);
-  }
+  if (loop && K.t - hintT < 6 && prog.length < slots && prog.length === 0) out.push(PointAt(x + w / 2, y + 4, "#f77f00"));
   return out;
-}
-
-function setReps(d: number) {
-  if (running || K.solved >= 0) return;
-  reset();
-  // ▲ (up the screen) adds one, ▼ takes one away
-  reps = rg.clamp(reps - d, 1, 6);
-  rg.sound("click");
-  rg.say(rg.sayId.number(reps));
 }
 
 function Rules() {
@@ -434,7 +461,7 @@ function Pads() {
 function Play() {
   const out: any[] = [];
   const text = K.level === 0 ? rg.t("Vie robotti akulle", "Take the robot to the battery", "Lleva el robot a la batería")
-    : K.level === 1 ? rg.t("Tee kuvio ja toista se", "Make the pattern and repeat it", "Haz el patrón y repítelo")
+    : K.level === 1 ? rg.t("Laske askeleet: nuoli × luku", "Count the steps: arrow × number", "Cuenta los pasos: flecha × número")
     : rg.t("Väri = suunta", "Colour = direction", "Color = dirección");
   for (const e of Header(text, () => instruct(), () => hint())) out.push(e);
   for (const e of Board()) out.push(e);
