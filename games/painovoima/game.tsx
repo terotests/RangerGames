@@ -8,9 +8,9 @@
 // rocket fires its engine until the finger lifts; dragging steers. Without
 // the engine the rocket slowly slows down, so it never gets too fast. A tap
 // on a planet (or its icon at the edge) is a quick flight close to it. When
-// the rocket falls into a planet's pull, the camera turns to watch it from
-// the side: it falls to the surface, bounces back into space, and only then
-// can be steered again.
+// the rocket feels each planet's gravity in its movement. The same follow
+// camera and player controls are used throughout, including during descent
+// and after bouncing back from a surface.
 //
 // The bodies are drawn by the engine (rg.three("planet", …)): the same globe
 // as Muuttolintu's and Kopterilento's, placed in the 3D scene in perspective
@@ -21,6 +21,13 @@
 // seas, Mars's dark lands and Jupiter's bands are rough outlines drawn here.
 
 import { REGIONS } from "lib/world";
+// Speech: rg.say ids play this game's own clips voice/<id>.wav (Google TTS,
+// made with the speak tool) instead of the engine's synthesized ones.
+const __rgSay = rg.say;
+rg.say = function (ids, opts) {
+  const a = Array.isArray(ids) ? ids : [ids];
+  __rgSay(a.map((id) => (!id || String(id).charAt(0) === "/") ? id : rg.asset("voice/" + id + ".wav")), opts);
+};
 
 type Body = {
   id: string; name: string; icon: string;
@@ -52,8 +59,8 @@ const SHIP_R = 0.9;
 const THRUST = 22;
 const MAX_SPEED = 150;      // the engine cannot push the rocket faster than this
 const DRAG = 0.45;          // without the engine the speed fades (1/s)
-const HOLD = 0.28;          // a finger held this long without moving fires the engine
-const STILL = 14;           // px a held finger may wander and still count as still
+const TAP_TIME = 0.36;      // short planet taps still trigger quick travel
+const STILL = 14;           // steering dead zone in screen pixels
 const TURN = 1.7;
 const AUTO_TIME = 2.6;      // the quick flight to a tapped planet, seconds
 const FOV = 65;
@@ -69,8 +76,8 @@ let up = [0, 1, 0];
 let thrusting = 0;
 // quick flight to a tapped planet
 let auto: { b: Body; from: number[]; to: number[]; f0: number[]; t: number } | null = null;
-// falling into a planet's pull: no steering until the bounce has thrown the rocket back out
-let fall: { b: Body; side: number[]; bounced: boolean; t: number } | null = null;
+// Track being in a planet's gravity field for bounce/escape state only.
+let fall: { b: Body; bounced: boolean; t: number } | null = null;
 let visited: any = {};
 let bounces = 0;
 let near: Body | null = null;        // the body whose pull is strongest
@@ -82,9 +89,24 @@ let message = "";
 let messageClock = 0;
 let skyKey = "";
 let cam = { pos: [0, 0, 0], look: [1, 0, 0], up: [0, 1, 0] };
-// the finger on the screen: dragging steers, holding still fires the engine
-let stick: { id: number; x: number; y: number; dx: number; dy: number; t: number; moved: boolean; fire: boolean } | null = null;
+// Steering and throttle are separate: never auto-thrust while dragging.
+let stick: { id: number; x: number; y: number; dx: number; dy: number; t: number; moved: boolean } | null = null;
+let throttlePointer: number | null = null;
 let best = 0;
+
+// Orbital navigation: a sampled no-thrust forecast and a guide ring.
+let orbitTrail: number[][] = [];
+let orbitGuide: number[][] = [];
+let orbitLaneInner: number[][] = [];
+let orbitLaneOuter: number[][] = [];
+let orbitBurnLatch = 0;
+let orbitBurnWasActive = false;
+let orbitStableSeconds = 0;
+let orbitCelebrateBody = "";
+let orbitOutcome = "";
+let orbitBodyId = "";
+let orbitCacheAt = -100;
+const ORBIT_RING_RADIUS = 1.75; // measured from the planet's center
 
 // ---- vectors -------------------------------------------------------------------
 
@@ -313,6 +335,17 @@ function reset() {
   auto = null;
   fall = null;
   stick = null;
+  throttlePointer = null;
+  orbitTrail = [];
+  orbitGuide = [];
+  orbitLaneInner = [];
+  orbitLaneOuter = [];
+  orbitBurnLatch = 0;
+  orbitBurnWasActive = false;
+  orbitStableSeconds = 0;
+  orbitCelebrateBody = "";
+  orbitBodyId = "";
+  orbitCacheAt = -100;
   shipScale = 1;
   placeShip();
   camera(1);
@@ -386,50 +419,42 @@ function camera(snap: number) {
   rg.three("camera", { x: cam.pos[0], y: cam.pos[1], z: cam.pos[2], lookAt: cam.look, up: cam.up, fov: FOV });
 }
 
-// the side view of a fall: the rocket and the ground below it both in sight,
-// the ground at the bottom of the screen
-function fallCamera(snap: number) {
-  if (!fall) return;
-  const b = fall.b;
-  const n = norm(sub(pos, b.pos));
-  const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
-  const mid = sub(pos, mul(n, alt * 0.5));
-  const d = alt * 1.15 + 18;
-  const want = add(add(mid, mul(fall.side, d)), mul(n, d * 0.12));
-  const k = Math.min(1, snap);
-  cam.pos = outside(add(cam.pos, mul(sub(want, cam.pos), k)));
-  cam.look = add(cam.look, mul(sub(mid, cam.look), k));
-  cam.up = norm(add(cam.up, mul(sub(n, cam.up), k)));
-  rg.three("camera", { x: cam.pos[0], y: cam.pos[1], z: cam.pos[2], lookAt: cam.look, up: cam.up, fov: FOV });
-  shipScale = Math.max(1, len(sub(cam.pos, pos)) / 45);
-}
-
 function start() {
   screen = "play";
   rg.sound("click");
   reset();
-  say(rg.t("Pidä sormi paikallaan, niin raketti lentää!", "Hold your finger still and the rocket flies!", "¡Deja el dedo quieto y el cohete vuela!"));
+  say(rg.t("Vedä kääntääksesi. Paina KAASUTA lentääksesi!", "Drag to steer. Hold THRUST to fly!", "Arrastra para girar. Mantén ACELERAR para volar."));
 }
 
 // ---- controls ----------------------------------------------------------------
 
 const PAD_R = 54;
 
+// Large circular touch target for web, Android and desktop mouse.
+// Two fingers: one steers, while another can hold the engine.
+function onThrottleButton(px:number,py:number) {
+  const dx=px-(width-58), dy=py-(height-58);
+  return dx*dx+dy*dy<=54*54;
+}
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { start(); return; }
-  if (fall || auto) return;
-  stick = { id: info.pointer, x: px, y: py, dx: 0, dy: 0, t, moved: false, fire: false };
-  still = { x: px, y: py, t };
+  if (auto) return;
+  if (onThrottleButton(px,py)) {
+    throttlePointer = info.pointer;
+    return;
+  }
+  if (stick) return; // another finger must not steal the steering stick
+  stick = { id: info.pointer, x: px, y: py, dx: 0, dy: 0, t, moved: false };
 }
-// where the finger last stopped, and since when
-let still = { x: 0, y: 0, t: 0 };
-
 function onPointerUp(px: number, py: number, info: any) {
+  if (info.pointer === throttlePointer) {
+    throttlePointer = null;
+    return;
+  }
   if (!stick || stick.id !== info.pointer) return;
-  // a quick tap that did not move: a quick flight to the planet under it
-  const tap = !stick.fire && !stick.moved && t - stick.t < HOLD + 0.1;
+  const tap = !stick.moved && t - stick.t < TAP_TIME;
   stick = null;
-  if (tap && !fall && !auto) {
+  if (tap && !fall && !auto && !onThrottleButton(px,py)) {
     const b = bodyAt(px, py);
     if (b) startAuto(b);
   }
@@ -452,24 +477,37 @@ function axis(d: number) {
 
 function controls() {
   const k = __input.keys;
+  const pointers = __input.pointers || [];
   let yaw = 0, pitch = 0;
   if (k["ArrowLeft"] || k["a"]) yaw += 1;
   if (k["ArrowRight"] || k["d"]) yaw -= 1;
   if (k["ArrowUp"]) pitch += 1;
   if (k["ArrowDown"]) pitch -= 1;
-  if (stick) {
-    for (const p of __input.pointers) {
-      if (!p.down || p.id !== stick.id) continue;
-      stick.dx = p.x - stick.x; stick.dy = p.y - stick.y;
-      if (Math.abs(stick.dx) > STILL || Math.abs(stick.dy) > STILL) stick.moved = true;
-      // the finger moved: the hold starts again from here
-      if (Math.abs(p.x - still.x) > STILL || Math.abs(p.y - still.y) > STILL) still = { x: p.x, y: p.y, t };
-    }
-    if (!stick.fire && t - still.t > HOLD) { stick.fire = true; rg.vibrate(15); }
-    yaw -= axis(stick.dx);
-    pitch -= axis(stick.dy);
+
+  // Sample all fingers, not just the first one. This works when the throttle
+  // button receives its own pointer event rather than the game's global one.
+  let gasDown = false;
+  for (const p of pointers) {
+    if (p.down && (onThrottleButton(p.x,p.y) ||
+      (throttlePointer !== null && p.id === throttlePointer))) gasDown = true;
   }
-  const thrust = !!(k["w"] || k[" "] || (stick && stick.fire));
+  if (stick) {
+    let steeringDown = false;
+    for (const p of pointers) {
+      if (!p.down || p.id !== stick.id) continue;
+      steeringDown = true;
+      stick.dx = p.x - stick.x; stick.dy = p.y - stick.y;
+      if (Math.abs(stick.dx)>STILL || Math.abs(stick.dy)>STILL) stick.moved = true;
+    }
+    if (steeringDown) {
+      yaw -= axis(stick.dx);
+      pitch -= axis(stick.dy);
+    } else {
+      stick = null;
+    }
+  }
+  // Holding a stationary steering finger NEVER ignites the engine.
+  const thrust = !!(k["w"] || k[" "] || gasDown);
   return { yaw, pitch, thrust };
 }
 
@@ -545,34 +583,26 @@ function escape(b: Body) {
 }
 
 function startFall(b: Body) {
-  const n = norm(sub(pos, b.pos));
-  let side = cross(n, vel);
-  if (len(side) < 1e-3) side = cross(n, up);
-  if (len(side) < 1e-3) side = cross(n, [0, 1, 0]);
-  side = norm(side);
-  // look from the side the camera already is on, so it does not swing through the ship
-  if (dot(side, sub(cam.pos, pos)) < 0) side = mul(side, -1);
-  fall = { b, side, bounced: false, t: 0 };
-  stick = null;
+  // Only enable gravity-field status. Never move, rotate, or zoom the camera.
+  fall = { b, bounced: false, t: 0 };
+  // Keep the finger held down when entering the gravity field.
   rg.vibrate(25);
   say(lead(b) + b.name + " " + rg.t("vetää sinua!", "pulls you in!", "¡te atrae!"));
 }
 
 function step(dt: number, c: any) {
-  if (c && !fall) {
-    // turning
+  if (c) {
+    // Manual rotation and thrust also work while a planet is pulling us in.
     if (c.yaw) { fwd = norm(rotate(fwd, up, c.yaw * TURN * dt)); }
     if (c.pitch) { const r = cross(fwd, up); fwd = norm(rotate(fwd, r, c.pitch * TURN * dt)); up = norm(rotate(up, r, c.pitch * TURN * dt)); }
     up = norm(cross(cross(fwd, up), fwd));
     thrusting = c.thrust ? 1 : 0;
     if (c.thrust) vel = add(vel, mul(fwd, THRUST * dt));
   } else {
-    // falling: the nose follows the way the rocket moves
+    // No active controls: preserve the rocket's pointing direction.
     thrusting = 0;
-    const v = norm(vel);
-    if (len(v) > 0.5) fwd = norm(add(fwd, mul(sub(v, fwd), Math.min(1, dt * 3))));
     up = norm(cross(cross(fwd, up), fwd));
-    if (len(up) < 0.5) up = norm(cross(cross(fwd, fall ? fall.side : [0, 1, 0]), fwd));
+    if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
   }
   const g = gravity(pos);
   vel = add(vel, mul(g.acc, dt));
@@ -605,20 +635,15 @@ function step(dt: number, c: any) {
   if (fall) {
     fall.t += dt;
     const out = len(sub(pos, fall.b.pos)) > fall.b.r * fall.b.soi;
-    // back in space (or something went wrong): steering again
-    if ((fall.bounced && out) || fall.t > 30) endFall();
+    // Gravity status ends at the edge of the field; no camera transition.
+    if (out || fall.t > 30) endFall();
   }
 }
 
 function endFall() {
+  // The rocket keeps exactly the orientation the player gave it.
   fall = null;
   near = null;
-  // facing away from the planet, the camera back behind the rocket
-  const v = norm(vel);
-  if (len(v) > 0.5) fwd = v;
-  up = norm(cross(cross(fwd, up), fwd));
-  if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
-  shipScale = 1;
 }
 
 function hit(b: Body, speed: number) {
@@ -645,9 +670,6 @@ function land(b: Body) {
   }
 }
 
-// a fall is shown faster than real time, so it does not take ages
-const FALL_SPEEDUP = 2.2;
-
 function tick(dt: number) {
   t += dt;
   // the planets turn
@@ -666,15 +688,38 @@ function tick(dt: number) {
   if (auto) {
     stepAuto(h);
   } else {
-    const c = fall ? null : controls();
+    // Read controls throughout gravity-assisted descent and ascent too.
+    const c = controls();
     const n = fall ? 8 : 4;
-    const hh = fall ? h * FALL_SPEEDUP : h;
-    for (let i = 0; i < n; i++) step(hh / n, fall ? null : c);
+    // Keep exactly the same simulation speed in space and in gravity.
+    for (let i = 0; i < n; i++) step(h / n, c);
   }
-  if (fall) fallCamera(Math.min(1, dt * 2.5));
-  else camera(auto ? 1 : Math.min(1, dt * 4));
+  // One chase camera for all flight states, including inside gravity fields.
+  camera(auto ? 1 : Math.min(1, dt * 4));
   placeShip();
   if (near) alt = len(sub(pos, near.pos)) - near.r - SHIP_R;
+  updateOrbitPrediction();
+  if (near && !auto) {
+    const maneuver=orbitManeuver(near);
+    if (thrusting) {
+      if (!orbitBurnWasActive) orbitBurnLatch=Math.max(0.2,maneuver.seconds);
+      orbitBurnWasActive=true;
+    } else {
+      orbitBurnWasActive=false;
+      orbitBurnLatch=0;
+    }
+    // Only reward a stable near-orbit, not a single passing frame.
+    orbitStableSeconds=maneuver.ready?orbitStableSeconds+h:0;
+    if (orbitStableSeconds>=1.1 && orbitCelebrateBody!==near.id) {
+      orbitCelebrateBody=near.id;
+      rg.sound("win",{volume:0.55});
+      rg.celebrate(width/2,height*0.34,{big:true});
+    }
+  } else {
+    orbitBurnWasActive=false;
+    orbitBurnLatch=0;
+    orbitStableSeconds=0;
+  }
   sky();
 }
 
@@ -689,6 +734,234 @@ function sky() {
   }
   const key = rgb(col);
   if (key !== skyKey) { skyKey = key; rg.three("scene", { background: key }); }
+}
+
+
+// ---- orbital navigation ------------------------------------------------------
+
+// The suggested ring is safely within the strong part of the game's
+// gravitational field, so its speed estimate follows this game's pullAt().
+function orbitMetrics(b: Body) {
+  const rel = sub(pos, b.pos);
+  const radius = Math.max(b.r + SHIP_R, len(rel));
+  const radial = norm(rel);
+  const radialSpeed = dot(vel, radial);
+  const sideVel = sub(vel, mul(radial, radialSpeed));
+  const sideways = len(sideVel);
+  let tangent = norm(sideVel);
+  if (len(tangent) < 0.1) tangent = norm(cross([0, 1, 0], radial));
+  if (len(tangent) < 0.1) tangent = norm(cross([1, 0, 0], radial));
+
+  const targetRadius = b.r * ORBIT_RING_RADIUS;
+  const targetSpeed = Math.sqrt(Math.max(0, pullAt(b, targetRadius) * targetRadius));
+  const localSpeed = Math.sqrt(Math.max(0, pullAt(b, radius) * radius));
+  const ratio = localSpeed > 0.01 ? sideways / localSpeed : 0;
+  const atGuide = Math.abs(radius - targetRadius) < b.r * 0.3;
+  let status = rg.t("KOHOTA / LASKE", "ADJUST HEIGHT", "AJUSTA ALTURA");
+  if (atGuide) {
+    if (Math.abs(radialSpeed) > Math.max(3, localSpeed * 0.27))
+      status = rg.t("TASAA PYSTYVAUHTI", "REDUCE RADIAL SPEED", "REDUCE VELOCIDAD RADIAL");
+    else if (ratio < 0.86)
+      status = rg.t("LIIAN HIDAS", "TOO SLOW", "MUY LENTO");
+    else if (ratio > 1.14)
+      status = rg.t("LIIAN NOPEA", "TOO FAST", "MUY RÁPIDO");
+    else
+      status = rg.t("LÄHELLÄ KIERTORATAA", "NEAR ORBIT", "CASI EN ÓRBITA");
+  }
+  return {radial, radius, radialSpeed, sideways, tangent, targetRadius,
+          targetSpeed, localSpeed, ratio, status, atGuide};
+}
+
+
+// A simple, actionable maneuver planner: a desired velocity at the guide
+// ring minus the current velocity. Its direction is where to point the nose.
+// Time = required change in speed / engine acceleration, updated in flight.
+// Because gravity keeps acting and the ship moves, this is a LIVE ESTIMATE.
+function orbitManeuver(b:Body) {
+  const m=orbitMetrics(b);
+  const heightError=m.targetRadius-m.radius;
+  // A modest radial component takes the rocket toward the guide ring.
+  // At the ring, radial velocity is reduced to zero.
+  const desiredRadial=Math.max(-14,Math.min(14,heightError*0.15));
+  const desired=add(mul(m.tangent,m.targetSpeed),mul(m.radial,desiredRadial));
+  const delta=sub(desired,vel);
+  const dv=len(delta);
+  const seconds=dv/THRUST;
+  const ready=Math.abs(heightError)<b.r*0.22
+    && Math.abs(m.radialSpeed)<Math.max(2.4,m.localSpeed*0.13)
+    && Math.abs(m.sideways-m.localSpeed)<Math.max(1.4,m.localSpeed*0.11);
+  const direction=dv>0.001?mul(delta,1/dv):m.tangent;
+  const locked=dot(fwd,direction)>0.952;
+  // Both speed-up and slow-down use the very same forward-thrust control.
+  // Minus means the green aiming reticle points partly retrograde.
+  const sign=m.sideways>m.targetSpeed? "−" : "+";
+  return {m,delta,dv,seconds,direction,locked,ready,sign};
+}
+
+// The green crosshair floats at the direction in which the engine should push.
+// The flight camera never changes; only this HUD marker moves as you steer.
+function orbitReticle() {
+  if(!near || auto) return null;
+  const p=orbitManeuver(near);
+  if(p.ready) return null;
+  const f=norm(sub(cam.look,cam.pos));
+  const right=norm(cross(f,cam.up));
+  const upcam=cross(right,f);
+  const q=project(add(pos,mul(p.direction,100)));
+  let px=q?q.x:width/2+dot(p.direction,right)*300;
+  let py=q?q.y:height/2-dot(p.direction,upcam)*300;
+  if(!q && Math.abs(px-width/2)<8) px=width/2+70;
+  const minY=148,maxY=Math.max(220,height-245);
+  px=Math.max(34,Math.min(width-34,px));
+  py=Math.max(minY,Math.min(maxY,py));
+  const shipPoint=project(pos);
+  const sx=shipPoint?shipPoint.x:width*0.5;
+  const sy=shipPoint?shipPoint.y:height*0.4;
+  const dx=px-sx,dy=py-sy;
+  const distance=Math.sqrt(dx*dx+dy*dy);
+  const ux=distance>0.1?dx/distance:0;
+  const uy=distance>0.1?dy/distance:-1;
+  const ax=Math.max(20,Math.min(width-20,sx+ux*58));
+  const ay=Math.max(146,Math.min(maxY-8,sy+uy*58));
+  const angle=Math.atan2(dy,dx)*180/Math.PI;
+  return <div className="orbitReticleLayer">
+    {!p.locked && distance>70
+      ? <div className="orbitAimArrow" style={{left:ax-13,top:ay-13,
+          transform:"rotate("+angle+"deg)"}}>➤</div>
+      : null}
+    <div className={p.locked?"orbitSight locked":"orbitSight"} style={{left:px-25,top:py-25}}>
+      {p.locked?<div className="sightGoldHalo"/>:null}
+      <div className={p.locked?"sightRing aligned":"sightRing"}/>
+      <div className={p.locked?"sightCrossH aligned":"sightCrossH"}/>
+      <div className={p.locked?"sightCrossV aligned":"sightCrossV"}/>
+      <div className={p.locked?"sightDot aligned":"sightDot"}/>
+    </div>
+  </div>;
+}
+
+// Predict the unpowered flight using exactly the same in-game gravity()
+// as the actual rocket. Stop at an impact (before the game's bounce) or
+// once the rocket leaves the selected body's sphere of influence.
+function updateOrbitPrediction() {
+  if (!near || auto) {
+    orbitTrail=[]; orbitGuide=[]; orbitLaneInner=[]; orbitLaneOuter=[];
+    orbitBodyId=""; orbitOutcome="";
+    return;
+  }
+  const b=near;
+  if (orbitBodyId===b.id && t-orbitCacheAt<0.24) return;
+  orbitCacheAt=t;
+  orbitBodyId=b.id;
+  const m=orbitMetrics(b);
+  orbitGuide=[]; orbitLaneInner=[]; orbitLaneOuter=[];
+  const u=m.radial, v=m.tangent;
+  for(let j=0;j<=64;j++) {
+    const a=j*Math.PI*2/64;
+    const circle=add(mul(u,Math.cos(a)),mul(v,Math.sin(a)));
+    orbitGuide.push(add(b.pos,mul(circle,m.targetRadius)));
+    orbitLaneInner.push(add(b.pos,mul(circle,m.targetRadius-b.r*0.09)));
+    orbitLaneOuter.push(add(b.pos,mul(circle,m.targetRadius+b.r*0.09)));
+  }
+  let pp=[pos[0],pos[1],pos[2]];
+  let vv=[vel[0],vel[1],vel[2]];
+  orbitTrail=[pp];
+  orbitOutcome="orbit";
+  const dtPred=0.26;
+  const maxSteps=300; // 78 s: at least one revolution for most bodies
+  for(let i=0;i<maxSteps;i++){
+    const g=gravity(pp);
+    vv=add(vv,mul(g.acc,dtPred));
+    // Match space drag/cap for the part of the forecast outside gravity.
+    if(!g.who) {
+      const s=len(vv);
+      if(s>MAX_SPEED) vv=mul(vv,Math.max(MAX_SPEED,s-60*dtPred)/s);
+      vv=mul(vv,Math.exp(-DRAG*dtPred));
+    }
+    pp=add(pp,mul(vv,dtPred));
+    if(i%3===2) orbitTrail.push(pp);
+    const radius=len(sub(pp,b.pos));
+    if(radius<=b.r+SHIP_R){
+      orbitTrail.push(pp);
+      orbitOutcome="impact";
+      break;
+    }
+    if(radius>=b.r*b.soi){
+      orbitTrail.push(pp);
+      orbitOutcome="escape";
+      break;
+    }
+  }
+}
+
+// Hide projected line sections behind the solid planet (no X-ray overlay).
+function orbitVisible(p:number[], b:Body) {
+  const ray=sub(p,cam.pos);
+  const dist=len(ray);
+  if(dist<0.001) return false;
+  const rayDir=mul(ray,1/dist);
+  const origin=sub(cam.pos,b.pos);
+  const half=dot(origin,rayDir);
+  const discriminant=half*half-(dot(origin,origin)-b.r*b.r);
+  if(discriminant<=0) return true;
+  const hitDist=-half-Math.sqrt(discriminant);
+  return !(hitDist>0 && hitDist<dist-0.5);
+}
+function orbitSegment(a:any,c:any,color:string,thickness:number) {
+  const dx=c.x-a.x, dy=c.y-a.y;
+  const dist=Math.sqrt(dx*dx+dy*dy);
+  if(dist<1 || dist>width*1.35) return null;
+  if(Math.min(a.x,c.x)>width+30 || Math.max(a.x,c.x)<-30
+     || Math.min(a.y,c.y)>height+30 || Math.max(a.y,c.y)<-30) return null;
+  return <div className="orbitSegment"
+      style={{left:(a.x+c.x)*0.5-dist*0.5,top:(a.y+c.y)*0.5-thickness*0.5,
+        width:dist,height:thickness,backgroundColor:color,
+        transform:"rotate("+(Math.atan2(dy,dx)*180/Math.PI)+"deg)"}} />;
+}
+function orbitProjected(points:number[][],b:Body,color:string,dashed:boolean) {
+  const out:any[]=[];
+  for(let i=1;i<points.length;i++) {
+    if(dashed && (i%2)===0) continue;
+    const p=points[i-1], q=points[i];
+    if(!orbitVisible(p,b)||!orbitVisible(q,b)) continue;
+    const a=project(p),c=project(q);
+    if(a&&c){
+      const seg=orbitSegment(a,c,color,dashed?1.25:2.1);
+      if(seg)out.push(seg);
+    }
+  }
+  return out;
+}
+function orbitGraphic() {
+  if(!near||auto||!orbitGuide.length) return null;
+  const b=near;
+  const predictedColor=orbitOutcome==="impact"?"rgba(255,164,103,0.48)":
+    orbitOutcome==="escape"?"rgba(109,195,240,0.43)":"rgba(110,244,184,0.55)";
+  return <div className="orbitGraphics">
+    {orbitProjected(orbitLaneInner,b,"rgba(100,220,175,0.18)",true)}
+    {orbitProjected(orbitLaneOuter,b,"rgba(100,220,175,0.18)",true)}
+    {orbitProjected(orbitGuide,b,"rgba(164,255,215,0.46)",true)}
+    {orbitProjected(orbitTrail,b,predictedColor,false)}
+  </div>;
+}
+function orbitHud() {
+  if(!near||auto) return null;
+  const p=orbitManeuver(near);
+  const sec=p.ready?0:Math.max(0,p.seconds);
+  const full=orbitBurnWasActive?Math.max(orbitBurnLatch,0.3):Math.max(sec,0.3);
+  const remaining=p.ready?1:Math.max(0,Math.min(1,sec/full));
+  const aligned=p.locked&&!p.ready;
+  return <div className={p.ready?"orbitAssist success":"orbitAssist"}>
+    <div className="orbitAssistRow">
+      <div className="orbitAssistLabel">◉ ORBIT ASSIST</div>
+      {p.ready
+        ? <div className="orbitAssistCheck">✓</div>
+        : <div className={aligned?"orbitAssistTimer aligned":"orbitAssistTimer"}>{fmt(sec,1)+" s"}</div>}
+    </div>
+    <div className="orbitBurnTrack">
+      {aligned?<div className="orbitBurnGlow"/>:null}
+      <div className={aligned?"orbitBurnFill aligned":"orbitBurnFill"} style={{width:remaining*294}}/>
+    </div>
+  </div>;
 }
 
 // ---- the view ----------------------------------------------------------------
@@ -787,9 +1060,9 @@ function view() {
           <div className="text">{rg.t("Lennä planeettojen luo. Lähellä planeetta vetää sinua puoleensa, ja pinnalta pomppaat kuin kumipallo. Käy jokaisella!",
             "Fly to the planets. Close up a planet pulls you in, and you bounce off its surface like a rubber ball. Visit every one!",
             "Vuela hacia los planetas. De cerca un planeta te atrae y rebotas en su superficie como una pelota de goma. ¡Visítalos todos!")}</div>
-          <div className="text small">{rg.t("Pidä sormi paikallaan: raketti kaasuttaa. Liu'uta sormea: raketti kääntyy. Napauta planeettaa: pikalento sen luo.",
-            "Hold your finger still: the rocket fires. Slide it: the rocket turns. Tap a planet: a quick flight to it.",
-            "Deja el dedo quieto: el cohete acelera. Deslízalo: el cohete gira. Toca un planeta: vuelo rápido hacia él.")}</div>
+          <div className="text small">{rg.t("Vedä sormella kääntääksesi. Pidä erillistä KAASUTA-painiketta pohjassa lentääksesi, myös toisella sormella. Napauta planeettaa pikalentoa varten.",
+            "Drag to steer. Hold the separate THRUST button to fly, even with a second finger. Tap a planet for quick travel.",
+            "Arrastra para girar. Mantén el botón ACELERAR para volar, incluso con otro dedo. Toca un planeta para viajar rápido.")}</div>
           <div className="go">{rg.t("Napauta ja lähde!", "Tap to go!", "¡Toca para salir!")}</div>
           {best > 0 ? <div className="text small">{rg.t("Kaikki käyty pienimmillä pompuilla", "All visited with the fewest bounces", "Todos visitados con menos botes")}: {best}</div> : null}
         </div>
@@ -797,6 +1070,8 @@ function view() {
     );
   }
   const speed = auto ? autoSpeed : len(vel);
+  const maneuver = near && !auto ? orbitManeuver(near) : null;
+  const aimingCorrectly = !!(maneuver && maneuver.locked && !maneuver.ready);
   const badges = BODIES.map((b) => <div className={visited[b.id] ? "badge on" : "badge"}>{Ico(b, 15)}</div>);
   const pull = near ? nearAcc / FALL : 0;
   const info = near
@@ -807,18 +1082,31 @@ function view() {
     : <div className="pill col"><div className="pline">{rg.t("Avaruudessa: mikään ei vedä", "In space: nothing pulls", "En el espacio: nada te atrae")}</div></div>;
   return (
     <div className="screen">
+      {orbitGraphic()}
+      {orbitReticle()}
       {fall || auto ? null : markers()}
       <div className="hud">
         {info}
         <div className="row">{badges}</div>
       </div>
+      {orbitHud()}
       <div className="speed">{fmt(speed * 64 / 1000)} {rg.t("t. km/s", "k km/s", "mil km/s")}{thrusting ? " 🔥" : ""}</div>
       {t - lastBounce < 0.7 ? <div className="boing" style={{ top: height * 0.38 }}><div className="boingt">{bounceText}</div></div> : null}
       {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3 }}>{message}</div> : null}
       {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
         <div className="knob" style={{ left: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dx)), top: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dy)) }}></div>
       </div> : null}
-      {stick && stick.fire && !stick.moved ? <div className="hold" style={{ left: stick.x - 30, top: stick.y - 30 }}>🔥</div> : null}
+      <div className={aimingCorrectly
+          ? (thrusting>0?"throttleButton active aligned":"throttleButton aligned")
+          : (thrusting>0?"throttleButton active":"throttleButton")}
+        onPointerDown={(e:any) => { throttlePointer = e.pointer; }}
+        onPointerUp={(e:any) => { if (throttlePointer === e.pointer) throttlePointer = null; }}>
+        {aimingCorrectly?<div className="throttleGoldHalo"/>:null}
+        <div className="throttleShine"/>
+        <div className="throttleInner"/>
+        <div className="throttleSymbol">▲</div>
+        <div className="throttleText">{rg.t("KAASU","THRUST","GAS")}</div>
+      </div>
     </div>
   );
 }
