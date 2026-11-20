@@ -373,6 +373,7 @@ function onThrottleButton(px: number, py: number) {
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { if (onStart(px, py) && t > 0.6) start(); return; }
   if (dead) { if (t - dead.t > 1.5 && checkpoint) loadCheckpoint(); return; }
+  if (onNvButton(px, py)) { setNightVision(!nightVision); return; }
   if (field && !auto && onTimeCell(px, py)) {
     realTime = !realTime;
     orbitCacheAt = -100;
@@ -662,6 +663,18 @@ function step(dt: number, c: any) {
 }
 
 // time runs slower in the air, so that an entry can be watched (and flown)
+let nightVision = false;       // the YÖNÄKÖ button: the night side amplified, green
+function nvBox() { return { x: 8, y: height - 108, w: 96, h: 28 }; }
+function onNvButton(px: number, py: number) { const b = nvBox(); return px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h; }
+function setNightVision(on: boolean) {
+  nightVision = on;
+  for (const b of BODIES) {
+    const base = surface(b.id).night;
+    rg.three("planet", { id: b.id, night: on ? Math.min(base, 0.35) : base });
+  }
+  rg.sound("click");
+  say(on ? rg.t("Yönäkö päällä", "Night vision on", "Visión nocturna activada") : rg.t("Yönäkö pois", "Night vision off", "Visión nocturna desactivada"));
+}
 let realTime = false;          // tap the TIME cell: real time ↔ the place's own speed-up
 function onTimeCell(px: number, py: number) { return px >= 226 && px <= 358 && py >= 56 && py <= 102; }
 function warpNow(b: Body) {
@@ -1351,6 +1364,11 @@ function view() {
         <div className="spdv">{speed}</div>
         <div className="lab">{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
       </div>
+      {(() => {
+        const nb = nvBox();
+        return <div className={nightVision ? "nvBtn on" : "nvBtn"} style={{ left: nb.x, top: nb.y, width: nb.w, height: nb.h }}>{rg.t("YÖNÄKÖ", "NIGHT VIS", "VISIÓN NOC")}</div>;
+      })()}
+      {nightVision ? <div className="nvTint" /> : null}
       {warnings()}
       {heatQ > Q_MAX * 0.15 ? <div className="heatTint" style={{ opacity: Math.min(0.55, heatQ / Q_MAX * 0.5) }} /> : null}
       {dead ? deadView() : null}
