@@ -1,102 +1,103 @@
-/* Solar Pilot: a green phosphor ship computer. Sharp corners, thin rules,
-   inverted tags, amber for warnings, red-orange for alerts. */
 .screen { width: 100%; height: 100%; overflow: hidden; }
-.scan { position: absolute; left: 0px; width: 100%; height: 3px; background-color: rgba(125, 255, 142, 0.06); }
+.overlay { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; align-items: center; justify-content: center; background-color: rgba(6, 8, 30, 0.45); padding: 20px; }
+.big { font-size: 34px; font-weight: 700; color: #ffffff; }
+.text { font-size: 17px; color: #ffffff; margin-top: 14px; text-align: center; max-width: 330px; }
+.text.small { font-size: 14px; opacity: 0.85; }
+.go { margin-top: 24px; font-size: 22px; font-weight: 700; color: #241e4e; background-color: #ffd166; padding: 14px; padding-left: 24px; padding-right: 24px; border-radius: 28px; }
 
-.top { position: absolute; left: 8px; top: 8px; width: 344px; background-color: rgba(1, 12, 5, 0.74); border: 1px solid rgba(125, 255, 142, 0.5); padding: 6px; }
-.hdr { flex-direction: row; justify-content: space-between; align-items: center; width: 330px; height: 16px; }
-.tag { background-color: #7dff8e; color: #021006; font-size: 11px; font-weight: 700; letter-spacing: 2px; padding-left: 6px; padding-right: 6px; height: 16px; align-items: center; justify-content: center; }
-.clock { font-size: 11px; color: #7dff8e; letter-spacing: 1px; }
-.rule { width: 330px; height: 1px; background-color: rgba(125, 255, 142, 0.32); margin-top: 5px; margin-bottom: 5px; }
-.target { font-size: 13px; color: #b8ffc2; font-weight: 700; letter-spacing: 2px; height: 17px; }
-.grid { flex-direction: row; width: 330px; margin-top: 3px; }
-.cell { width: 110px; flex-direction: column; align-items: flex-start; }
-.lab { font-size: 9px; color: rgba(125, 255, 142, 0.62); letter-spacing: 1.5px; height: 12px; }
-.val { font-size: 14px; font-weight: 700; color: #b8ffc2; height: 18px; }
-.val.warn { color: #ffb000; }
-.codes { flex-direction: row; margin-top: 6px; width: 330px; justify-content: space-between; }
-.code { width: 42px; height: 17px; border: 1px solid rgba(125, 255, 142, 0.3); font-size: 10px; color: rgba(125, 255, 142, 0.45); letter-spacing: 1px; align-items: center; justify-content: center; }
-.code.here { border-color: #ffb000; color: #ffb000; }
-.code.on { background-color: #7dff8e; color: #021006; border-color: #7dff8e; font-weight: 700; }
+.hud { position: absolute; left: 10px; top: 10px; flex-direction: column; align-items: flex-start; }
+.pill { background-color: rgba(10, 14, 40, 0.66); color: #ffffff; padding: 6px; padding-left: 12px; padding-right: 12px; border-radius: 14px; }
+.col { flex-direction: column; align-items: flex-start; }
+.pname { font-size: 15px; font-weight: 700; color: #ffd166; }
+.pline { font-size: 12px; color: #ffffff; }
+.row { flex-direction: row; margin-top: 6px; }
+.badge { font-size: 15px; width: 26px; height: 26px; border-radius: 13px; align-items: center; justify-content: center; margin-right: 4px; background-color: rgba(255, 255, 255, 0.12); opacity: 0.35; }
+.badge.on { opacity: 1; background-color: rgba(255, 209, 102, 0.55); }
+.speed { position: absolute; left: 12px; bottom: 16px; font-size: 14px; font-weight: 700; color: #ffffff; background-color: rgba(10, 14, 40, 0.55); padding: 6px; padding-left: 12px; padding-right: 12px; border-radius: 14px; }
 
-.spd { position: absolute; left: 8px; bottom: 10px; width: 150px; background-color: rgba(1, 12, 5, 0.74); border: 1px solid rgba(125, 255, 142, 0.5); padding: 6px; align-items: flex-start; }
-.spdv { font-size: 18px; font-weight: 700; color: #b8ffc2; height: 24px; }
+.mark { position: absolute; width: 160px; font-size: 12px; color: #ffffff; text-align: center; justify-content: center; flex-direction: row; }
+.mark.seen { color: #ffd166; }
+.edge { position: absolute; width: 32px; height: 32px; border-radius: 16px; font-size: 18px; opacity: 0.8; align-items: center; justify-content: center; background-color: rgba(255, 255, 255, 0.18); border-width: 2px; border-color: rgba(255, 255, 255, 0.5); }
 
-.msg { position: absolute; left: 16px; width: 328px; font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; background-color: rgba(1, 12, 5, 0.82); border: 1px solid rgba(125, 255, 142, 0.6); padding: 8px; align-items: flex-start; }
-.alert { position: absolute; left: 0px; width: 100%; justify-content: center; align-items: center; }
-.alertt { font-size: 14px; font-weight: 700; color: #ff5a3d; letter-spacing: 1.5px; background-color: rgba(30, 4, 0, 0.75); border: 1px solid #ff5a3d; padding: 6px; }
+.boing { position: absolute; left: 0px; width: 100%; justify-content: center; align-items: center; }
+.boingt { font-size: 34px; font-weight: 700; color: #ffd166; }
+.msg { position: absolute; left: 20px; right: 20px; font-size: 20px; font-weight: 700; color: #ffffff; text-align: center; justify-content: center; flex-direction: row; background-color: rgba(61, 52, 139, 0.75); padding: 10px; border-radius: 18px; }
 
-.mark { position: absolute; width: 160px; font-size: 10px; color: #7dff8e; letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
-.mark.seen { color: rgba(125, 255, 142, 0.5); }
-.tbox { position: absolute; border: 1px solid rgba(125, 255, 142, 0.75); }
-.tbox.seen { border-color: rgba(125, 255, 142, 0.3); }
-.edge { position: absolute; width: 44px; height: 22px; font-size: 11px; font-weight: 700; letter-spacing: 1px; color: #7dff8e; align-items: center; justify-content: center; background-color: rgba(1, 12, 5, 0.7); border: 1px solid rgba(125, 255, 142, 0.7); }
-.edge.seen { color: rgba(125, 255, 142, 0.45); border-color: rgba(125, 255, 142, 0.3); }
+.btn { position: absolute; font-size: 32px; align-items: center; justify-content: center; background-color: rgba(255, 255, 255, 0.16); border-width: 3px; border-color: rgba(255, 255, 255, 0.55); }
+.btn.down { background-color: rgba(255, 209, 102, 0.55); }
+.stick { position: absolute; background-color: rgba(255, 255, 255, 0.1); border-width: 2px; border-color: rgba(255, 255, 255, 0.4); }
+.knob { position: absolute; width: 36px; height: 36px; border-radius: 18px; background-color: rgba(255, 255, 255, 0.6); }
+.edge.seen { border-color: #ffd166; }
+.hold { position: absolute; width: 60px; height: 60px; border-radius: 30px; font-size: 28px; align-items: center; justify-content: center; background-color: rgba(255, 183, 3, 0.25); border-width: 2px; border-color: rgba(255, 209, 102, 0.7); }
 
-.glareLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
-.glare1 { position: absolute; background-color: rgba(255, 236, 180, 0.12); }
-.glare2 { position: absolute; background-color: rgba(255, 248, 225, 0.35); }
-.glareH { position: absolute; width: 140px; height: 2px; background-color: rgba(255, 244, 210, 0.3); }
 
-.stick { position: absolute; border: 1px solid rgba(125, 255, 142, 0.45); background-color: rgba(125, 255, 142, 0.05); }
-.knob { position: absolute; width: 36px; height: 36px; border-radius: 18px; border: 2px solid rgba(125, 255, 142, 0.8); background-color: rgba(125, 255, 142, 0.18); }
 
-/* title */
-.titleBox { position: absolute; left: 14px; top: 60px; width: 332px; background-color: rgba(1, 12, 5, 0.8); border: 1px solid rgba(125, 255, 142, 0.55); padding: 8px; align-items: flex-start; }
-.titleRow { flex-direction: row; justify-content: space-between; align-items: center; width: 314px; height: 16px; }
-.rule2 { width: 314px; height: 1px; background-color: rgba(125, 255, 142, 0.32); margin-top: 5px; margin-bottom: 5px; }
-.bootHead { font-size: 12px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; height: 18px; }
-.bootLine { font-size: 11px; color: #7dff8e; letter-spacing: 1px; height: 16px; }
-.bootDim { font-size: 10px; color: rgba(125, 255, 142, 0.65); letter-spacing: 1px; height: 15px; }
-.bootInfo { margin-top: 6px; align-items: flex-start; }
-.goBox { position: absolute; left: 0px; bottom: 60px; width: 100%; align-items: center; justify-content: center; }
-.go { font-size: 15px; font-weight: 700; color: #021006; background-color: #7dff8e; letter-spacing: 2px; padding: 10px; padding-left: 16px; padding-right: 16px; }
 
-/* orbital navigation */
-.orbitGraphics { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
-.orbitSegment { position: absolute; }
-.orbitReticleLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; }
-.orbitSight { position: absolute; width: 50px; height: 50px; align-items: center; justify-content: center; }
-.sightRing { position: absolute; left: 5px; top: 5px; width: 40px; height: 40px; border: 2px solid rgba(125, 255, 142, 0.8); background-color: rgba(125, 255, 142, 0.05); }
-.sightCrossH { position: absolute; top: 24px; left: 0px; width: 50px; height: 2px; background-color: rgba(125, 255, 142, 0.7); }
-.sightCrossV { position: absolute; top: 0px; left: 24px; width: 2px; height: 50px; background-color: rgba(125, 255, 142, 0.7); }
-.sightDot { position: absolute; left: 22px; top: 22px; width: 6px; height: 6px; background-color: #d6ffdc; }
-.orbitAimArrow { position: absolute; width: 26px; height: 26px; color: rgba(125, 255, 142, 0.9); font-size: 22px; font-weight: 700; align-items: center; justify-content: center; }
-.sightLabel { position: absolute; width: 120px; font-size: 9px; font-weight: 700; color: #7dff8e; letter-spacing: 1.5px; text-align: center; justify-content: center; flex-direction: row; }
-.sightGoldHalo { position: absolute; left: 0px; top: 0px; width: 50px; height: 50px; border: 2px solid rgba(255, 176, 0, 0.45); }
-.sightRing.aligned { border: 3px solid #ffb000; background-color: rgba(255, 176, 0, 0.16); }
-.sightCrossH.aligned { background-color: #ffcf5a; }
-.sightCrossV.aligned { background-color: #ffcf5a; }
-.sightDot.aligned { background-color: #fff2c8; }
+/* Lightweight orbital navigation. Only title, time and the slim gauge. */
+.orbitGraphics { position:absolute; left:0px; top:0px; width:100%; height:100%; }
+.orbitSegment { position:absolute; border-radius:2px; }
+.orbitReticleLayer { position:absolute; left:0px; top:0px; width:100%; height:100%; }
+.orbitSight { position:absolute; width:50px; height:50px; align-items:center; justify-content:center; }
+.sightRing { position:absolute; left:4px; top:4px; width:42px; height:42px; border:2px solid rgba(124,245,190,0.76); border-radius:24px; background-color:rgba(28,120,98,0.07); }
+.sightCrossH { position:absolute; top:24px; left:11px; width:28px; height:2px; background-color:rgba(149,254,209,0.78); }
+.sightCrossV { position:absolute; top:11px; left:24px; width:2px; height:28px; background-color:rgba(149,254,209,0.78); }
+.sightDot { position:absolute; left:22px; top:22px; width:6px; height:6px; border-radius:3px; background-color:#d6ffea; }
+.orbitSight.locked .sightRing { background-color:rgba(107,255,165,0.22); border-color:rgba(174,255,204,0.96); }
+.orbitSight.locked .sightDot { background-color:#fcfff8; }
+.orbitAssist { position:absolute; left:13px; right:13px; bottom:114px; height:65px;
+ background-color:rgba(6,22,29,0.68); border:1px solid rgba(116,208,169,0.31); border-radius:14px;
+ padding:9px; gap:8px; align-items:center; }
+.orbitAssistRow { width:294px; height:29px; flex-direction:row; align-items:center; justify-content:space-between; }
+.orbitAssistLabel { font-size:13px; color:rgba(173,247,215,0.88); font-weight:700; letter-spacing:1px; }
+.orbitAssistTimer { width:95px; height:28px; font-size:23px; font-weight:700; color:#ecfff4;
+ align-items:center; justify-content:center; }
+.orbitAssistCheck { width:95px; height:28px; align-items:center; justify-content:center;
+ color:#aaffc9; font-size:27px; font-weight:700; }
+.orbitBurnTrack { width:294px; height:6px; background-color:rgba(57,107,95,0.42);
+ border-radius:4px; position:relative; }
+.orbitBurnFill { position:absolute; left:0px; top:0px; height:6px; border-radius:4px;
+ background-color:rgba(126,244,179,0.82); }
+.orbitAssist.success { border-color:rgba(137,255,189,0.59); }
 
-.orbitAssist { position: absolute; left: 8px; width: 344px; bottom: 112px; background-color: rgba(1, 12, 5, 0.78); border: 1px solid rgba(125, 255, 142, 0.5); padding: 7px; align-items: center; }
-.orbitAssist.success { border-color: #7dff8e; }
-.orbitAssistRow { width: 294px; height: 26px; flex-direction: row; align-items: center; justify-content: space-between; }
-.orbitAssistLabel { font-size: 12px; color: #7dff8e; font-weight: 700; letter-spacing: 2px; }
-.orbitAssistTimer { width: 95px; height: 26px; font-size: 20px; font-weight: 700; color: #b8ffc2; align-items: center; justify-content: center; }
-.orbitAssistTimer.aligned { color: #ffcf5a; }
-.orbitAssistCheck { width: 95px; height: 26px; align-items: center; justify-content: center; color: #7dff8e; font-size: 22px; font-weight: 700; }
-.orbitBurnTrack { width: 294px; height: 6px; background-color: rgba(125, 255, 142, 0.16); position: relative; }
-.orbitBurnFill { position: absolute; left: 0px; top: 0px; height: 6px; background-color: rgba(125, 255, 142, 0.85); }
-.orbitBurnFill.aligned { background-color: #ffcf5a; }
-.orbitBurnGlow { position: absolute; left: -3px; top: -3px; width: 300px; height: 12px; border: 1px solid rgba(255, 176, 0, 0.8); }
-.orbitAssistSub { margin-top: 6px; width: 330px; height: 13px; font-size: 9px; color: rgba(125, 255, 142, 0.75); letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
+/* A glossy round sci-fi throttle, visibly distinct in active state. */
+.throttleButton { position:absolute; right:12px; bottom:10px; width:92px; height:92px;
+ border-radius:47px; border:3px solid rgba(135,248,187,0.91);
+ background-color:#10594b;
+ align-items:center; justify-content:center; gap:1px; overflow:hidden; }
+.throttleButton.active { border-color:#c7ffe0; background-color:#17875e; }
+.throttleInner { position:absolute; left:7px; top:7px; width:72px; height:72px;
+ border-radius:37px; border:1px solid rgba(186,255,219,0.47);
+ background-color:rgba(11,63,55,0.24); }
+.throttleShine { position:absolute; left:13px; top:7px; width:64px; height:25px;
+ border-radius:20px; background-color:rgba(224,255,237,0.25); }
+.throttleSymbol { width:60px; height:35px; font-size:27px; color:#d6ffe8;
+ font-weight:700; align-items:center; justify-content:center; }
+.throttleText { width:75px; height:18px; font-size:11px; font-weight:700; color:#eafff2;
+ letter-spacing:1px; align-items:center; justify-content:center; }
 
-/* the throttle */
-.throttleButton { position: absolute; right: 12px; bottom: 10px; width: 92px; height: 92px; border-radius: 46px; border: 2px solid rgba(125, 255, 142, 0.85); background-color: rgba(1, 30, 12, 0.85); align-items: center; justify-content: center; overflow: hidden; }
-.throttleButton.active { border-color: #d6ffdc; background-color: rgba(40, 140, 70, 0.85); }
-.throttleButton.aligned { border: 3px solid #ffb000; }
-.throttleButton.active.aligned { border: 3px solid #ffd27a; background-color: rgba(120, 100, 20, 0.85); }
-.throttleInner { position: absolute; left: 9px; top: 9px; width: 70px; height: 70px; border-radius: 35px; border: 1px solid rgba(125, 255, 142, 0.4); }
-.throttleGoldHalo { position: absolute; left: 3px; top: 3px; width: 82px; height: 82px; border-radius: 41px; border: 2px solid rgba(255, 176, 0, 0.5); }
-.throttleSymbol { width: 60px; height: 30px; font-size: 24px; color: #b8ffc2; font-weight: 700; align-items: center; justify-content: center; }
-.throttleText { width: 70px; height: 16px; font-size: 10px; font-weight: 700; color: #b8ffc2; letter-spacing: 1.5px; align-items: center; justify-content: center; text-align: center; }
 
-/* level choice on the title */
-.lvlHead { position: absolute; left: 0px; width: 100%; height: 16px; font-size: 12px; font-weight: 700; color: #7dff8e; letter-spacing: 2px; text-align: center; justify-content: center; flex-direction: row; }
-.lvl { position: absolute; background-color: rgba(1, 12, 5, 0.8); border: 1px solid rgba(125, 255, 142, 0.55); align-items: center; justify-content: center; }
-.lvl.on { background-color: #7dff8e; border-color: #7dff8e; }
-.lvlName { font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1.5px; height: 18px; }
-.lvlName.on { color: #021006; }
-.lvlSub { font-size: 9px; color: rgba(125, 255, 142, 0.75); letter-spacing: 1px; height: 13px; margin-top: 3px; }
-.lvlSub.on { color: #0b3a14; }
+/* Shared golden alignment cue: sight, throttle and burn gauge light up together.
+   Borders are 3–4 px, with a second translucent halo instead of box shadows. */
+.orbitAimArrow { position:absolute; width:26px; height:26px; color:rgba(160,252,210,0.88);
+  font-size:23px; font-weight:700; align-items:center; justify-content:center; }
+.sightGoldHalo { position:absolute; left:0px; top:0px; width:50px; height:50px;
+  border-radius:26px; border:3px solid rgba(255,230,116,0.40);
+  background-color:rgba(255,214,91,0.08); }
+.sightRing.aligned { border:4px solid #ffe083;
+  background-color:rgba(242,199,61,0.16); }
+.sightCrossH.aligned { background-color:#ffe89e; }
+.sightCrossV.aligned { background-color:#ffe89e; }
+.sightDot.aligned { background-color:#fff8d1; }
+.orbitAssistTimer.aligned { color:#ffeaa0; }
+.orbitBurnGlow { position:absolute; left:-3px; top:-3px; width:300px; height:12px;
+  border-radius:8px; border:3px solid rgba(255,222,102,0.88);
+  background-color:rgba(246,211,84,0.13); }
+.orbitBurnFill.aligned { background-color:#9dffd0; }
+.throttleButton.aligned { border:4px solid #ffe17c; background-color:#176b52; }
+.throttleButton.active.aligned { border:4px solid #fff09e; background-color:#249b71; }
+.throttleGoldHalo { position:absolute; left:3px; top:3px; width:80px; height:80px;
+  border-radius:43px; border:3px solid rgba(255,224,97,0.48);
+  background-color:rgba(253,214,97,0.08); }
+/* Small, precisely centered label under the throttle glyph. */
+.throttleText { width:68px; height:16px; font-size:10px; font-weight:700;
+  color:#eefff4; letter-spacing:0.4px; align-items:center; justify-content:center; text-align:center; }

@@ -17,16 +17,16 @@ const TEXT: Record<string, T> = {
 
   // Robotti
   tk_r_askeleet: ["Robotin akku on tyhjä. Tee sille ohjelma: paina nuolia, ja käynnistä vihreästä napista.", "The robot's battery is empty. Make it a program: press the arrows, then start with the green button.", "La batería del robot está vacía. Hazle un programa: pulsa las flechas y empieza con el botón verde."],
-  tk_r_toista: ["Robotilla on vain vähän paikkoja ohjelmalle. Tee kuvio kerran ja valitse, montako kertaa se toistetaan.", "The robot has only a few places for its program. Make the pattern once and choose how many times it repeats.", "El robot tiene pocos huecos para su programa. Haz el patrón una vez y elige cuántas veces se repite."],
+  tk_r_toista: ["Robotilla on vain vähän laatikoita. Paina samaa nuolta monta kertaa, niin laatikkoon tulee luku. Robotti toistaa askeleen niin monta kertaa.", "The robot has only a few boxes. Press the same arrow many times and the box gets a number. The robot repeats the step that many times.", "El robot tiene pocas cajas. Pulsa la misma flecha varias veces y la caja tendrá un número. El robot repite el paso ese número de veces."],
   tk_r_jos: ["Robotti kävelee itse. Kun se astuu värilliselle ruudulle, se kääntyy. Valitse jokaiselle värille nuoli.", "The robot walks by itself. When it steps on a coloured square, it turns. Choose an arrow for each colour.", "El robot camina solo. Cuando pisa una casilla de color, gira. Elige una flecha para cada color."],
-  tk_r_tormasi: ["Hups, robotti törmäsi! Punainen nuoli on bugi eli virhe. Korjaa se.", "Oops, the robot crashed! The red arrow is a bug, a mistake. Fix it.", "¡Uy, el robot chocó! La flecha roja es un error. Arréglalo."],
+  tk_r_tormasi: ["Hups, robotti törmäsi! Punainen laatikko on bugi eli virhe. Korjaa se.", "Oops, the robot crashed! The red box is a bug, a mistake. Fix it.", "¡Uy, el robot chocó! La caja roja es un error. Arréglala."],
   tk_r_tormasi_jos: ["Hups, robotti törmäsi! Tarkista värien nuolet.", "Oops, the robot crashed! Check the arrows of the colours.", "¡Uy, el robot chocó! Revisa las flechas de los colores."],
   tk_r_ei_perille: ["Ohjelma loppui, mutta akku jäi kauas. Lisää askeleita.", "The program ended, but the battery is still far away. Add more steps.", "El programa terminó, pero la batería sigue lejos. Añade pasos."],
   tk_r_ikuinen: ["Robotti kulkee ympyrää eikä pääse perille.", "The robot goes round and round and never gets there.", "El robot da vueltas y no llega."],
   tk_r_perilla: ["Robotti sai virtaa!", "The robot got power!", "¡El robot tiene energía!"],
   tk_r_taynna: ["Ohjelma on täynnä.", "The program is full.", "El programa está lleno."],
   tk_r_vihje_askeleet: ["Seuraa keltaisia pisteitä. Ensimmäinen nuoli on", "Follow the yellow dots. The first arrow is", "Sigue los puntos amarillos. La primera flecha es"],
-  tk_r_vihje_toista: ["Katso violetteja pisteitä. Se on kuvio, joka toistuu. Tee se kerran, ja laske, montako kertaa se mahtuu matkalle.", "Look at the purple dots. That is the pattern that repeats. Make it once and count how many times it fits on the way.", "Mira los puntos morados. Es el patrón que se repite. Hazlo una vez y cuenta cuántas veces cabe en el camino."],
+  tk_r_vihje_toista: ["Laske ruudut ennen mutkaa. Paina samaa nuolta yhtä monta kertaa. Mutkan jälkeen tulee uusi laatikko.", "Count the squares before the turn. Press the same arrow that many times. After the turn comes a new box.", "Cuenta las casillas antes de la curva. Pulsa la misma flecha ese número de veces. Después de la curva viene una caja nueva."],
   tk_r_vihje_jos: ["Valkoinen nuoli näyttää, mihin polku jatkuu värillisen ruudun jälkeen.", "The white arrow shows where the path goes after the coloured square.", "La flecha blanca muestra adónde sigue el camino después de la casilla de color."],
 
   // Omenalinjasto: the start
