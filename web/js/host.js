@@ -56,7 +56,10 @@
         self.restoreSaves();
         self.x.rg_seed(Date.now() % 2147483647);
         // ?notex: planets drawn from their regions even where textures work
-        if (self.x.rg_textures && global.RgPainter && global.RgPainter.canDrawSpheres && !params.has("notex") && global.RgPainter.canDrawSpheres()) self.x.rg_textures(1);
+        if (self.x.rg_textures && global.RgPainter && global.RgPainter.canDrawSpheres && !params.has("notex") && global.RgPainter.canDrawSpheres()) {
+          self.x.rg_textures(1);
+          if (self.x.rg_detail && global.RgPainter.canDrawDetail && !params.has("nodetail")) self.x.rg_detail(1);
+        }
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
         else self.gl3d = null;
