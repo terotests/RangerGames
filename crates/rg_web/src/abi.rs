@@ -175,6 +175,12 @@ pub extern "C" fn rg_textures(on: i32) {
     with(|e| e.textures = on != 0)
 }
 
+/// on: the page installs games from the download list (host.js, rg.store)
+#[no_mangle]
+pub extern "C" fn rg_store(on: i32) {
+    with(|e| e.store = on != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())

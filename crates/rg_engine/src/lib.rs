@@ -178,6 +178,10 @@ pub struct GameInfo {
     /// a picture for the launcher's tile, in the game's folder ("icon.png");
     /// `icon` (an emoji) is used where there is none
     pub image: String,
+    /// a game installed from the download list (⚙️ → Lataa pelejä): the
+    /// host's `_store.json` in its folder ({id, version, source, …});
+    /// Null for the games the app came with
+    pub store: Json,
 }
 
 impl GameInfo {
@@ -209,6 +213,7 @@ impl GameInfo {
             speech: !matches!(j.get("speech"), Json::Bool(false)),
             section: s("section", ""),
             image: s("image", ""),
+            store: Json::Null,
         }
     }
 
@@ -224,6 +229,7 @@ impl GameInfo {
             member("speech", Json::Bool(self.speech)),
             member("section", Json::Str(self.section.clone())),
             member("image", Json::Str(if self.image.is_empty() { String::new() } else { format!("{}/{}", self.dir, self.image) })),
+            member("store", self.store.clone()),
         ])
     }
 }
@@ -269,6 +275,9 @@ pub struct Engine {
     /// the host draws textured globes (draw kind 8): planets with a
     /// `texture` are sent as one sphere command instead of their regions
     pub textures: bool,
+    /// the host installs games from the download list (rg.store: the
+    /// "store" commands and sensor events)
+    pub store: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -299,6 +308,7 @@ impl Engine {
             scene: scene3d::Scene::new(),
             gl3d: false,
             textures: false,
+            store: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -349,7 +359,18 @@ impl Engine {
                 continue;
             }
             let j = json::parse(&self.vfs.read_text(&manifest));
-            out.push(GameInfo::from_json(&id, &dir, &j));
+            let mut info = GameInfo::from_json(&id, &dir, &j);
+            // a downloaded game: the host's note of it; one the player
+            // removed is gone from the list now, its files at the next start
+            let note = format!("{}/_store.json", dir);
+            if self.vfs.exists(&note) {
+                let st = json::parse(&self.vfs.read_text(&note));
+                if st.get("removed").as_bool() {
+                    continue;
+                }
+                info.store = st;
+            }
+            out.push(info);
         }
         out.sort_by(|a, b| {
             a.order.partial_cmp(&b.order).unwrap_or(std::cmp::Ordering::Equal).then(a.name.cmp(&b.name))
@@ -441,6 +462,14 @@ impl Engine {
     pub fn sensor(&mut self, name: &str, data: &str) {
         let mut e = rg_core::input::event("sensor", name, 0, 0.0, 0.0);
         e.target = data.to_string();
+        // rg.store: the host installed or removed a game; the event carries
+        // the games as they are now, for rg.games()
+        if name == "store" {
+            if let Json::Obj(mut members) = json::parse(data) {
+                members.push(member("_games", self.games_json()));
+                e.target = Json::Obj(members).write();
+            }
+        }
         self.input.push(e);
     }
 
@@ -638,6 +667,7 @@ impl Engine {
             // false when there is no launcher to go back to (a game played
             // alone from a link): no close button, exit stays in the game
             member("menu", Json::Bool(self.has_launcher())),
+            member("store", Json::Bool(self.store)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());

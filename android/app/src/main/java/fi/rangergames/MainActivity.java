@@ -54,6 +54,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private Mic mic;
     private Camera camera;
     private Bluetooth bluetooth;
+    private Store store;
     private SharedPreferences saves;
     private Thread thread;
     private volatile boolean running;
@@ -77,6 +78,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         mic = new Mic(this, input, sound);
         camera = new Camera(this, input);
         bluetooth = new Bluetooth(this, input);
+        store = new Store(this, input);
         // the 3D scene (GLES, depth-tested) under the 2D view, which is
         // transparent where nothing is painted
         glView = new GLSurfaceView(this);
@@ -256,6 +258,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         int n = Engine.mount("/games", asset(this, "games.rgpk"));
         if (n < 0) throw new IllegalStateException("games.rgpk is not a pack");
         mountPrivate();
+        // games installed from the download list (⚙️ → Lataa pelejä)
+        store.mountAll();
+        Engine.store(true);
         for (Map.Entry<String, ?> e : saves.getAll().entrySet()) {
             if (e.getKey().startsWith("/save/") && e.getValue() instanceof String) {
                 Engine.put(e.getKey(), ((String) e.getValue()).getBytes(StandardCharsets.UTF_8));
@@ -294,7 +299,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             }
             Object in;
             while ((in = input.poll()) != null) {
-                if (in instanceof Object[] && !(in instanceof String[])) {
+                if (in instanceof Runnable) {
+                    // the download list's results, done on this thread (Store)
+                    ((Runnable) in).run();
+                    afterCall();
+                } else if (in instanceof Object[] && !(in instanceof String[])) {
                     // a file for the virtual directory (a photo), then its event
                     Object[] f = (Object[]) in;
                     Engine.put((String) f[0], (byte[]) f[1]);
@@ -395,6 +404,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "camera": camera.take(name); break;
             case "photo-delete": camera.delete(name); break;
             case "net": bluetooth.command(name, opts); break;
+            case "store": store.command(name, opts); break;
             case "persist":
                 saves.edit().putString(name, args instanceof String ? (String) args : String.valueOf(args)).apply();
                 break;

@@ -186,6 +186,12 @@ pub extern "system" fn Java_fi_rangergames_Engine_textures(_env: JNIEnv, _c: JCl
     with(|e| e.textures = on != 0);
 }
 
+/// on: the app installs games from the download list (Store.java)
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_store(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| e.store = on != 0);
+}
+
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_tris(env: JNIEnv, _c: JClass) -> jfloatArray {
     with(|e| {
