@@ -565,6 +565,7 @@ function thermometer() {
   const x0 = thermoX(273.15), x1 = thermoX(1273.15);
   const ticks = [[-273, 0.0], [-200, 73.15], [0, 273.15], [1000, 1273.15], [5500, 5773]];
   const feel = thermoFeel(c);
+  const numText = (c > 0 ? "+" : "") + c + "°";
   const B = 46;
   const bx = Math.max(0, Math.min(THERMO_W - B, x - B / 2));
   // VARJO beside the bubble, on the side with room
@@ -582,22 +583,21 @@ function thermometer() {
       return <div className={cls} style={{ left, width: w }}>{String(tk[0])}</div>;
     })}
     <div className="thermoBubble" style={{ left: bx, width: B, height: B, borderRadius: B / 2, backgroundColor: feel.bg }}>
-      <div className="thermoEmoji">{feel.emoji}</div>
-      <div className="thermoNum" style={{ color: feel.ink }}>{(c > 0 ? "+" : "") + c + "°"}</div>
+      <div className="thermoNum" style={{ color: feel.ink, fontSize: numText.length <= 4 ? 16 : numText.length === 5 ? 14 : 12 }}>{numText}</div>
     </div>
     {shadowNow ? <div className="thermoTag" style={{ left: shadowLeft ? bx - 66 : bx + B + 6, width: 60 }}>{rg.t("VARJOSSA", "IN SHADOW", "EN SOMBRA")}</div> : null}
   </div>;
 }
-// how the temperature feels, for the bubble: an emoji and a colour
+// the bubble's colours for the temperature
 function thermoFeel(c: number) {
-  if (c < -150) return { emoji: "🧊", bg: "#2f5bdc", ink: "#ffffff" };
-  if (c < -20) return { emoji: "🥶", bg: "#3d8de8", ink: "#ffffff" };
-  if (c < 10) return { emoji: "❄️", bg: "#6cc8f0", ink: "#06202c" };
-  if (c < 30) return { emoji: "🙂", bg: "#7ddc86", ink: "#062a0c" };
-  if (c < 60) return { emoji: "😅", bg: "#ffd25a", ink: "#3a2600" };
-  if (c < 300) return { emoji: "🥵", bg: "#ff9a3d", ink: "#2e1300" };
-  if (c < 1500) return { emoji: "🔥", bg: "#ff5a2a", ink: "#ffffff" };
-  return { emoji: "☀️", bg: "#ffe14a", ink: "#3a2000" };
+  if (c < -150) return { bg: "#2f5bdc", ink: "#ffffff" };
+  if (c < -20) return { bg: "#3d8de8", ink: "#ffffff" };
+  if (c < 10) return { bg: "#6cc8f0", ink: "#06202c" };
+  if (c < 30) return { bg: "#7ddc86", ink: "#062a0c" };
+  if (c < 60) return { bg: "#ffd25a", ink: "#3a2600" };
+  if (c < 300) return { bg: "#ff9a3d", ink: "#2e1300" };
+  if (c < 1500) return { bg: "#ff5a2a", ink: "#ffffff" };
+  return { bg: "#ffe14a", ink: "#3a2000" };
 }
 
 // the round map of the solar system, bottom left (the thrust button's twin)

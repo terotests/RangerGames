@@ -28,8 +28,7 @@
 /* the thermometer across the top */
 .thermo { width: 330px; height: 46px; margin-top: 5px; }
 .thermoBubble { position: absolute; top: 0px; border: 2px solid rgba(255, 255, 255, 0.85); align-items: center; justify-content: center; }
-.thermoEmoji { font-size: 15px; height: 18px; text-align: center; justify-content: center; flex-direction: row; width: 40px; }
-.thermoNum { font-size: 11px; font-weight: 700; height: 14px; text-align: center; justify-content: center; flex-direction: row; width: 42px; }
+.thermoNum { font-size: 16px; font-weight: 700; height: 20px; text-align: center; justify-content: center; flex-direction: row; width: 42px; }
 .thermoTag { position: absolute; top: 4px; height: 11px; font-size: 9px; font-weight: 700; color: #d6ffdc; letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
 .thermoBar { position: absolute; top: 21px; height: 5px; }
 .thermoNeedle { position: absolute; top: 18px; width: 2px; height: 11px; background-color: #ffffff; }
