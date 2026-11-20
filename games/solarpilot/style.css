@@ -41,6 +41,9 @@
 .mapShip.dim { background-color: rgba(125, 255, 142, 0.35); }
 
 .msg { position: absolute; left: 16px; width: 328px; font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; background-color: rgba(1, 12, 5, 0.82); border: 1px solid rgba(125, 255, 142, 0.6); padding: 8px; align-items: flex-start; }
+.radio { position: absolute; width: 300px; flex-direction: column; align-items: flex-start; background-color: rgba(18, 12, 0, 0.84); border: 1px solid rgba(255, 176, 0, 0.7); padding: 6px 8px; }
+.radioLab { font-size: 9px; color: #ffb000; letter-spacing: 1.5px; height: 13px; }
+.radioTxt { font-size: 12px; font-weight: 700; color: #ffe2a0; letter-spacing: 0.5px; }
 .alert { position: absolute; left: 0px; width: 100%; justify-content: center; align-items: center; }
 .alertt { font-size: 14px; font-weight: 700; color: #ff5a3d; letter-spacing: 1.5px; background-color: rgba(30, 4, 0, 0.75); border: 1px solid #ff5a3d; padding: 6px; }
 
@@ -144,3 +147,18 @@
 .findHead { font-size: 10px; font-weight: 700; color: #ffcf5a; letter-spacing: 2px; height: 14px; }
 .findTitle { font-size: 16px; font-weight: 700; color: #fff3cf; letter-spacing: 1.5px; height: 22px; margin-top: 2px; }
 .findFact { font-size: 11px; color: #ffe6a8; width: 292px; margin-top: 3px; }
+.lbtn { position: absolute; border: 2px solid #ffb000; background-color: rgba(30, 20, 0, 0.88); align-items: center; justify-content: center; }
+.lbtnT { font-size: 12px; font-weight: 700; color: #ffd27a; letter-spacing: 1.5px; }
+.briefLayer { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0, 6, 2, 0.55); }
+.brief { position: absolute; width: 320px; flex-direction: column; align-items: flex-start; background-color: rgba(1, 12, 5, 0.94); border: 1px solid rgba(125, 255, 142, 0.7); padding: 10px; }
+.briefHead { font-size: 12px; font-weight: 700; color: #b8ffc2; letter-spacing: 1.5px; height: 20px; }
+.briefScene { position: relative; background-color: #020a05; border: 1px solid rgba(125, 255, 142, 0.3); margin-bottom: 6px; overflow: hidden; }
+.briefGround { position: absolute; left: 0px; height: 20px; background-color: #7d7a74; }
+.briefGround.mars { background-color: #b0603a; }
+.briefShip { position: absolute; width: 22px; height: 8px; background-color: #c3c7cc; border-radius: 3px; }
+.briefLander { position: absolute; width: 12px; height: 10px; background-color: #d9a93a; }
+.briefLeg { position: absolute; width: 2px; height: 5px; background-color: #8d939b; }
+.briefFlame { position: absolute; background-color: #ffa040; border-radius: 3px; }
+.briefStep { font-size: 11px; color: rgba(125, 255, 142, 0.55); letter-spacing: 1px; height: 17px; }
+.briefStep.on { color: #ffd27a; font-weight: 700; }
+.orbitAssist.danger { border-color: #ff5a3d; }

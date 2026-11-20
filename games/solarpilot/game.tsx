@@ -266,6 +266,124 @@ function say(text: string) {
   rg.sound("note", { note: 86, len: 0.05, wave: "square", volume: 0.18 });
 }
 
+// ---- ground control ------------------------------------------------------------
+// Short radio calls: static, then the call through a narrow radio band
+// (rg.sound radio). The Finnish voice files are Google speech made in Sliqtly
+// (sounds/radio/<id>.wav, not in the repository); other languages show the text.
+const RADIO: { [id: string]: string[] } = {
+  start: ["Solar Pilot, lennonjohto kuulee. Valitse kohde. Hyvää matkaa!", "Solar Pilot, ground control hears you. Choose a target. Good flight!", "Solar Pilot, control de tierra te escucha. Elige un destino. ¡Buen viaje!"],
+  orbit: ["Kiertorata vahvistettu. Onnittelut, hyvää työtä!", "Orbit confirmed. Congratulations, good work!", "Órbita confirmada. ¡Enhorabuena, buen trabajo!"],
+  orbit_moon: ["Kuun kiertorata vahvistettu. Onnittelut!", "Lunar orbit confirmed. Congratulations!", "Órbita lunar confirmada. ¡Enhorabuena!"],
+  orbit_mars: ["Marsin kiertorata vahvistettu. Hieno suoritus!", "Mars orbit confirmed. Well done!", "Órbita de Marte confirmada. ¡Bien hecho!"],
+  impact: ["Olet törmäyskurssilla! Nosta rataa heti.", "You are on an impact course! Raise your orbit now.", "¡Rumbo de impacto! Sube la órbita ya."],
+  escape: ["Nopeus liian suuri, olet pakoradalla. Jarruta.", "Too fast, you are on an escape path. Brake.", "Demasiado rápido, trayectoria de escape. Frena."],
+  heat: ["Lämpökilpi kuumenee! Loivenna tulokulmaa.", "The heat shield is heating up! Make the entry shallower.", "¡El escudo térmico se calienta! Suaviza el ángulo."],
+  chute: ["Laskuvarjo auki. Hyvältä näyttää.", "Parachute open. Looking good.", "Paracaídas abierto. Buen aspecto."],
+  land: ["Laskeutuminen vahvistettu. Tervetuloa pinnalle, Solar Pilot!", "Touchdown confirmed. Welcome to the surface, Solar Pilot!", "Aterrizaje confirmado. ¡Bienvenido a la superficie, Solar Pilot!"],
+  field: ["Olet kohteen painovoimakentässä. Valmistaudu jarrutukseen.", "You are in the target's gravity field. Get ready to brake.", "Estás en el campo gravitatorio del destino. Prepárate para frenar."],
+  mission: ["Seuraava tehtävä: laskeudu pinnalle laskeutumismodulilla. Katso ohje näytöltä.", "Next task: land on the surface with the landing module. See the briefing on screen.", "Siguiente tarea: aterriza con el módulo de aterrizaje. Mira las instrucciones."],
+  undock: ["Moduli irti. Hyvää laskeutumista!", "Module away. Good landing!", "Módulo separado. ¡Buen aterrizaje!"],
+  lander_ok: ["Moduli on laskeutunut pinnalle. Onnittelut, tehtävä suoritettu!", "The module has landed. Congratulations, task complete!", "El módulo ha aterrizado. ¡Enhorabuena, tarea cumplida!"],
+  too_fast: ["Liian kova vauhti! Jarruta raketeilla.", "Too fast! Brake with the rockets.", "¡Demasiado rápido! Frena con los cohetes."],
+};
+
+// ---- the landing module ----------------------------------------------------------
+// At the Moon and Mars a stable orbit opens the next task: a briefing, then
+// the module comes off (the orbiter stays in its orbit) and flies down on its
+// own rockets. Its guidance asks for a falling speed that shrinks with the
+// height (vdesc), so following the sight and burning ends in a soft touchdown.
+const LANDER_ACC: { [id: string]: number } = { moon: 0.0045, mars: 0.009 };   // km/s²
+const LANDER_SAFE = 0.006;      // km/s: a harder touchdown breaks the module
+let lander = false;
+let mother: any = null;          // the orbiter left in orbit: { pos, vel }
+let brief: any = null;           // the briefing on screen: { t, id }
+let missionAt = -1;
+let landerDone: { [id: string]: boolean } = {};
+function landerAcc(b: Body) { return LANDER_ACC[b.id] || b.acc; }
+function canUndock() { return !!(field && !auto && !landed && !lander && !dead && !brief && LANDER_ACC[field.id] && visited[field.id]); }
+function undockBox() { return { x: width - 170, y: height - 236, w: 158, h: 40 }; }
+function inBox(px: number, py: number, b: any) { return px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h; }
+function briefButton() { return { x: midX(110), y: height * 0.16 + 318, w: 140, h: 40 }; }
+function landerVdesc(alt: number) { return Math.min(0.3, 0.0012 + 0.03 * Math.sqrt(Math.max(0, alt))); }
+// the height of the module's feet above the ground, km
+function landerAlt(b: Body) { return len(sub(pos, b.pos)) - b.r - SHIP_R; }
+
+function undock() {
+  const b = field!;
+  mother = { pos, vel };
+  lander = true;
+  const n = norm(sub(pos, b.pos));
+  pos = add(pos, mul(n, -0.04));
+  // the nose back along the path, ready for the braking burn
+  fwd = norm(mul(vel, -1));
+  up = norm(sub(n, mul(fwd, dot(n, fwd))));
+  saveCheckpoint();
+  orbitCacheAt = -100;
+  rg.sound("whoosh");
+  rg.vibrate(40);
+  radioClock = 0;
+  radio("undock", 0);
+}
+// back to the orbiter (from the ground or from flight)
+function dock() {
+  if (!mother || !field) return;
+  const b = field;
+  pos = mother.pos; vel = mother.vel;
+  const n = norm(sub(pos, b.pos));
+  fwd = norm(vel);
+  up = norm(sub(n, mul(fwd, dot(n, fwd))));
+  lander = false; mother = null; landed = false; chute = false;
+  camOff = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
+  lookOff = add(mul(fwd, CAM_AHEAD), mul(up, -CAM_DOWN));
+  cam.up = up;
+  orbitCacheAt = -100;
+  saveCheckpoint();
+  rg.sound("click");
+  say(rg.t("Telakoitu emoalukseen", "Docked with the orbiter", "Acoplado a la nave nodriza"));
+}
+function landerDown(b: Body, speed: number) {
+  rg.sound("win", { volume: 0.6 });
+  rg.vibrate(60);
+  rg.celebrate(width / 2, height * 0.4, { big: true });
+  say(b.name + ": " + rg.t("moduli laskeutui ", "module landed ", "módulo aterrizado ") + fmt(speed * 1000, 1) + " m/s");
+  radioClock = 0;
+  radio("lander_ok", 0);
+  // stands on its legs: nose to the sky
+  const n = norm(sub(pos, b.pos));
+  let tg = sub(up, mul(n, dot(up, n)));
+  if (len(tg) < 0.1) tg = cross(n, [0, 1, 0]);
+  fwd = n; up = norm(tg);
+  landerDone[b.id] = true;
+  reach(b);
+}
+function landerManeuver(b: Body) {
+  const m = orbitMetrics(b);
+  const rel = sub(pos, b.pos);
+  const r = len(rel);
+  const n = mul(rel, 1 / r);
+  const vdesc = landerVdesc(r - b.r - SHIP_R);
+  const delta = sub(mul(n, -vdesc), vel);
+  const dv = len(delta);
+  const seconds = dv / (landerAcc(b) * warpNow(b));
+  const direction = dv > 1e-6 ? mul(delta, 1 / dv) : n;
+  const locked = dot(fwd, direction) > 0.95;
+  const coast = dv < Math.max(0.001, vdesc * 0.12);
+  return { m, dv, seconds, direction, locked, ready: false, coast, heightError: 0 };
+}
+let radioText = "";
+let radioClock = 0;
+const radioLast: { [id: string]: number } = {};
+// gap: seconds before the same call may come again
+function radio(id: string, gap = 60) {
+  if (radioClock > 0 || (radioLast[id] !== undefined && t - radioLast[id] < gap)) return;
+  radioLast[id] = t;
+  const r = RADIO[id];
+  radioText = rg.t(r[0], r[1], r[2]).toUpperCase();
+  radioClock = 5.5;
+  if (rg.lang !== "en" && rg.lang !== "es") rg.sound("sounds/radio/" + id + ".wav", { radio: true });
+  else rg.sound("whoosh", { volume: 0.4 });
+}
+
 // ---- the game ----------------------------------------------------------------
 
 function init() {
@@ -310,6 +428,11 @@ function build() {
   rg.three("add", { id: "shock", shape: "sphere", size: [1], detail: 10, color: "#ffd27a", emissive: true, visible: false });
   rg.three("add", { id: "trail", shape: "cone", size: [0.9, 5], detail: 10, color: "#ff8a2a", emissive: true, visible: false });
   rg.three("add", { id: "canopy", shape: "dome", size: [1.6], detail: 12, color: "#ff5a3d", visible: false });
+  // the landing module: a gold descent stage, a grey cabin, four legs, an orange flame
+  rg.three("add", { id: "lbody", shape: "box", size: [0.9, 0.9, 0.6], color: "#d9a93a", visible: false });
+  rg.three("add", { id: "ltop", shape: "cylinder", size: [0.32, 0.42, 0.5], detail: 8, color: "#b8bcc2", visible: false });
+  for (let i = 0; i < 4; i++) rg.three("add", { id: "lleg" + i, shape: "box", size: [0.06, 0.06, 0.8], color: "#5d636b", visible: false });
+  rg.three("add", { id: "lflame", shape: "cone", size: [0.26, 1.0], detail: 8, color: "#ffa040", emissive: true, visible: false });
 }
 
 // the start: a circular low Earth orbit over Europe in daylight
@@ -339,6 +462,7 @@ function reset() {
   orbitBurnLatch = 0; orbitBurnWasActive = false; orbitStableSeconds = 0;
   orbitBodyId = ""; orbitCacheAt = -100;
   dead = null; chute = false; shieldHp = 1; heatQ = 0; gLoad = 0;
+  lander = false; mother = null; brief = null; missionAt = -1; landerDone = {};
   saveCheckpoint();
   placeAll();
   camera(1);
@@ -411,23 +535,67 @@ function updateDetail() {
   detailBody = id;
 }
 
+let partBase = [0, 0, 0];         // where the model goes, relative to the ship
 function part(id: string, off: number[], a: number[], b: number[], c: number[], extra?: any) {
   const right = cross(fwd, up);
   const toWorld = (v: number[]) => add(add(mul(right, v[0]), mul(up, v[1])), mul(fwd, -v[2]));
   const e = euler(toWorld(a), toWorld(b), toWorld(c));
-  const p = toWorld(mul(off, SHIP_SCALE));   // relative to the ship (= the origin)
+  const p = add(partBase, toWorld(mul(off, SHIP_SCALE)));   // relative to the ship (= the origin)
   const args: any = { id, x: p[0], y: p[1], z: p[2], rx: e.rx, ry: e.ry, rz: e.rz, sx: SHIP_SCALE, sy: SHIP_SCALE, sz: SHIP_SCALE, visible: true };
   if (extra) for (const k in extra) args[k] = extra[k];
   rg.three("set", args);
 }
 
 const PARTS = ["body", "band", "window", "wingL", "wingR", "fin", "flame", "flame2", "shock", "trail", "canopy"];
-function hideShip() { for (const id of PARTS) rg.three("set", { id, visible: false }); }
+const LPARTS = ["lbody", "ltop", "lleg0", "lleg1", "lleg2", "lleg3", "lflame"];
+function hideShip() { for (const id of PARTS.concat(LPARTS)) rg.three("set", { id, visible: false }); }
+
+const NOSE = [[1, 0, 0], [0, 0, -1], [0, 1, 0]];
+const TAIL = [[1, 0, 0], [0, 0, 1], [0, -1, 0]];
+const FLAT = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+// the orbiter's hull, without flames
+function placeHull() {
+  part("body", [0, 0, -0.3], NOSE[0], NOSE[1], NOSE[2]);
+  part("band", [0, 0, 0.62], NOSE[0], NOSE[1], NOSE[2]);
+  part("window", [0, 0.26, -0.45], FLAT[0], FLAT[1], FLAT[2]);
+  part("wingL", [-0.65, -0.07, 0.55], FLAT[0], FLAT[1], FLAT[2]);
+  part("wingR", [0.65, -0.07, 0.55], FLAT[0], FLAT[1], FLAT[2]);
+  part("fin", [0, 0.4, 0.58], FLAT[0], FLAT[1], FLAT[2]);
+}
+function placeLander() {
+  for (const id of ["flame", "flame2", "shock", "trail", "canopy"]) rg.three("set", { id, visible: false });
+  // the orbiter where it is now, nose along its path
+  if (mother && field) {
+    const f0 = fwd, u0 = up;
+    const n = norm(sub(mother.pos, field.pos));
+    fwd = norm(mother.vel);
+    up = norm(sub(n, mul(fwd, dot(n, fwd))));
+    partBase = sub(mother.pos, pos);
+    placeHull();
+    partBase = [0, 0, 0];
+    fwd = f0; up = u0;
+  } else for (const id of PARTS) rg.three("set", { id, visible: false });
+  part("lbody", [0, 0, 0], FLAT[0], FLAT[1], FLAT[2]);
+  part("ltop", [0, 0, -0.5], NOSE[0], NOSE[1], NOSE[2]);
+  const legs = [[-0.5, -0.5], [0.5, -0.5], [-0.5, 0.5], [0.5, 0.5]];
+  for (let i = 0; i < 4; i++) part("lleg" + i, [legs[i][0], legs[i][1], 0.55], FLAT[0], FLAT[1], FLAT[2]);
+  const f = thrusting > 0 ? 0.8 + 0.25 * Math.sin(t * 47) : 0;
+  part("lflame", [0, 0, 0.75 + 0.5 * f], TAIL[0], TAIL[1], TAIL[2], { visible: f > 0, sy: Math.max(0.01, f) * SHIP_SCALE });
+  if (chute && len(vel) > 1e-6) {
+    const f0 = fwd, u0 = up, v = len(vel);
+    fwd = mul(vel, 1 / v);
+    up = norm(sub(u0, mul(fwd, dot(u0, fwd))));
+    if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
+    const w = SHIP_SCALE * (0.3 + 0.9 * chuteK);
+    part("canopy", [0, 0, 3.2], TAIL[0], TAIL[1], TAIL[2], { visible: true, sx: w, sy: SHIP_SCALE * 0.8, sz: w });
+    fwd = f0; up = u0;
+  }
+}
 
 function placeShip() {
-  const nose = [[1, 0, 0], [0, 0, -1], [0, 1, 0]];
-  const tail = [[1, 0, 0], [0, 0, 1], [0, -1, 0]];
-  const flat = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+  if (lander) { placeLander(); return; }
+  for (const id of LPARTS) rg.three("set", { id, visible: false });
+  const nose = NOSE, tail = TAIL, flat = FLAT;
   part("body", [0, 0, -0.3], nose[0], nose[1], nose[2]);
   part("band", [0, 0, 0.62], nose[0], nose[1], nose[2]);
   part("window", [0, 0.26, -0.45], flat[0], flat[1], flat[2]);
@@ -489,7 +657,15 @@ function camera(snap: number) {
   let want = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
   let wantLook = add(mul(fwd, CAM_AHEAD), mul(up, -CAM_DOWN));
   let wantUp = up;
-  if (chute && field) {
+  if (lander && field && !chute) {
+    const r = norm(sub(pos, field.pos));
+    let s = len(vel) > 1e-5 ? cross(r, vel) : cross(r, fwd);
+    if (len(s) < 1e-6) s = cross(r, [0, 1, 0]);
+    s = norm(s);
+    want = add(mul(s, CAM_BACK * 1.6), mul(r, CAM_BACK * 0.5));
+    wantLook = [0, 0, 0];
+    wantUp = r;
+  } else if (chute && field) {
     // under the canopy: watch from the side, the canopy above the ship
     const r = norm(sub(pos, field.pos));
     let s = cross(r, fwd);
@@ -514,14 +690,15 @@ function start() {
   rg.sound("click");
   reset();
   say(rg.t("Matala Maan kiertorata, 400 km. Valitse kohde.", "Low Earth orbit, 400 km. Choose a target.", "Órbita terrestre baja, 400 km. Elige un destino."));
+  radioClock = 0;
+  radio("start", 0);
 }
 
 // ---- controls ----------------------------------------------------------------
 
 const PAD_R = 54;
 
-// the thermometer across the top: the temperature round the ship, -273 °C
-// (blue) to the Sun's surface (5500 °C) on a log scale of kelvins
+// the temperature round the ship: -273 °C to the Sun's surface (5500 °C)
 const T_MAX = 5800;
 const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
 // the temperature the ship's hull settles to here: the Sun's warmth by the
@@ -670,6 +847,9 @@ function onThrottleButton(px: number, py: number) {
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { if (onStart(px, py) && t > 0.6) start(); return; }
   if (dead) { if (t - dead.t > 1.5 && checkpoint) loadCheckpoint(); return; }
+  if (brief) { if (inBox(px, py, briefButton()) && t - brief.t > 1) { brief = null; rg.sound("click"); } return; }
+  if (canUndock() && inBox(px, py, undockBox())) { undock(); return; }
+  if (lander && landed && mother && inBox(px, py, undockBox())) { dock(); return; }
   if (onMap(px, py)) return;
   if (field && !auto && onTimeCell(px, py)) {
     realTime = !realTime;
@@ -878,6 +1058,7 @@ function enterField(b: Body, v: number[]) {
   saveCheckpoint();
   rg.vibrate(25);
   if (s > 0 && !auto) say(rg.t("Gravitaatiokenttä: ", "Gravity field: ", "Campo gravitatorio: ") + b.name);
+  if (!visited[b.id]) radio("field", 120);
 }
 
 function leaveField() {
@@ -885,6 +1066,7 @@ function leaveField() {
   cruise = len(vel) * b.warp;
   field = null;
   landed = false;
+  lander = false; mother = null;
   say(rg.t("Supercruise päällä", "Supercruise engaged", "Supercrucero activado"));
 }
 
@@ -902,9 +1084,19 @@ function collide(b: Body) {
   const vn = dot(vel, n);
   if (vn >= 0) return;
   const speed = len(vel);
+  if (lander && !AIR[b.id]) {
+    if (speed <= LANDER_SAFE) {
+      if (!landed) landerDown(b, speed);
+      vel = [0, 0, 0];
+      landed = true;
+    } else die(rg.t("MODULI TUHOUTUI ", "MODULE DESTROYED ", "MÓDULO DESTRUIDO ") + fmt(speed * 1000, 0) + " M/S");
+    return;
+  }
   if (AIR[b.id] && b.land) {
     if (speed < 0.016) {
-      if (!landed) {
+      if (lander) {
+        if (!landed) landerDown(b, speed);
+      } else if (!landed) {
         touchDown(b, speed);
         // stand level on the ground: nose to the horizon, roof to the sky
         let f = sub(fwd, mul(n, dot(fwd, n)));
@@ -941,7 +1133,13 @@ function step(dt: number, c: any) {
     const sdt = dt * warpNow(b);
     air(b, dt, sdt);
     if (dead) return;
-    if (thrusting) vel = add(vel, mul(fwd, b.acc * accK() * sdt));
+    if (thrusting) vel = add(vel, mul(fwd, (lander ? landerAcc(b) : b.acc * accK()) * sdt));
+    if (mother) {
+      const md = sub(b.pos, mother.pos);
+      const mr = len(md);
+      mother.vel = add(mother.vel, mul(md, b.gm / (mr * mr * mr) * sdt));
+      mother.pos = add(mother.pos, mul(mother.vel, sdt));
+    }
     const d = sub(b.pos, pos);
     const r = len(d);
     vel = add(vel, mul(d, b.gm / (r * r * r) * sdt));
@@ -1021,6 +1219,14 @@ let realTime = false;          // tap the TIME cell: real time ↔ the place's o
 function onTimeCell(px: number, py: number) { return px >= 179 && px <= 262 && py >= 50 && py <= 102; }
 function warpNow(b: Body) {
   if (realTime) return 1;
+  if (lander && !landed) {
+    const alt = landerAlt(b);
+    const w = Math.max(1, Math.min(b.warp, alt * 20));
+    const a = AIR[b.id];
+    if (!a || alt > b.atm) return w;
+    const wa = chute ? 30 : heatQ < 0.3 && gLoad < 1 ? 40 : heatQ < 2 && gLoad < 4 ? 15 : 6;
+    return Math.min(w, wa);
+  }
   const a = AIR[b.id];
   if (!a || landed) return b.warp;
   const alt = len(sub(pos, b.pos)) - b.r;
@@ -1047,6 +1253,7 @@ function air(b: Body, dt: number, sdt: number) {
     rg.sound("whoosh");
     rg.vibrate(60);
     say(rg.t("Laskuvarjo auki", "Parachute open", "Paracaídas abierto"));
+    radio("chute", 30);
   }
   // the canopy opens over ~25 s of the ship's time, so the jolt stays bearable
   if (chute) chuteK = Math.min(1, chuteK + sdt / 25);
@@ -1084,12 +1291,13 @@ function alignNose(b: Body, dt: number) {
 }
 
 function saveCheckpoint() {
-  checkpoint = { pos, vel, fwd, up, field: field ? field.id : "", cruise, simT };
+  checkpoint = { pos, vel, fwd, up, field: field ? field.id : "", cruise, simT, lander, mother: mother ? { pos: mother.pos, vel: mother.vel } : null };
 }
 function loadCheckpoint() {
   const c = checkpoint;
   dead = null; chute = false; chuteK = 0; shieldHp = 1; heatQ = 0; gLoad = 0; shake = 0; impactIn = -1; landed = false; auto = null;
   pos = c.pos; vel = c.vel; fwd = c.fwd; up = c.up; cruise = c.cruise; simT = c.simT; hullK = -1;
+  lander = c.lander; mother = c.mother ? { pos: c.mother.pos, vel: c.mother.vel } : null;
   field = null;
   for (const b of BODIES) if (b.id === c.field) field = b;
   camOff = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
@@ -1125,6 +1333,8 @@ function touchDown(b: Body, speed: number) {
   rg.sound("win", { volume: 0.5 });
   rg.vibrate(60);
   say(b.name + ": " + rg.t("laskeutuminen ", "touchdown ", "aterrizaje ") + fmt(speed * 1000, 0) + " m/s");
+  radioClock = 0;
+  radio("land", 20);
   reach(b);
 }
 
@@ -1144,6 +1354,13 @@ function tick(dt: number) {
   t += dt;
   adaptEyes(Math.min(dt, 0.1));
   if (messageClock > 0) messageClock -= dt;
+  if (radioClock > 0) radioClock -= dt;
+  if (missionAt > 0 && t > missionAt && screen === "play" && !dead && field && !auto) {
+    missionAt = -1;
+    brief = { t, id: field.id };
+    radioClock = 0;
+    radio("mission", 0);
+  }
   if (screen !== "play") {
     // the title: the camera circles the Earth at 16 000 km
     const earth = BODIES[3];
@@ -1191,9 +1408,23 @@ function updateOrbit(h: number) {
     if (orbitStableSeconds >= 1.5 && !visited[field.id]) {
       say(field.name + ": " + rg.t("vakaa kiertorata", "stable orbit", "órbita estable"));
       rg.sound("win", { volume: 0.55 });
+      radioClock = 0;
+      radio(field.id === "moon" ? "orbit_moon" : field.id === "mars" ? "orbit_mars" : "orbit", 0);
+      if (LANDER_ACC[field.id] && !landerDone[field.id]) missionAt = t + 7;
       reach(field);
     }
   } else { orbitBurnWasActive = false; orbitBurnLatch = 0; orbitStableSeconds = 0; }
+  // ground control watches the path: a crash ahead on an airless body (into
+  // an air it is the way down), flying off after arriving, a hot entry
+  if (field && !auto && !landed && !dead) {
+    if (orbitOutcome === "impact" && !AIR[field.id] && !lander && impactIn > 0 && impactIn < 120) radio("impact", 45);
+    if (lander) {
+      const alt = landerAlt(field);
+      if (alt < 3 && -dot(vel, norm(sub(pos, field.pos))) > landerVdesc(alt) * 2.2 + 0.004) radio("too_fast", 25);
+    }
+    else if (orbitOutcome === "escape" && !visited[field.id] && t - (radioLast.field !== undefined ? radioLast.field : -99) > 12) radio("escape", 60);
+    if (heatQ > Q_MAX * 0.6) radio("heat", 40);
+  }
 }
 
 // the sky turns to the colour of the air low in an atmosphere
@@ -1230,6 +1461,7 @@ function orbitMetrics(b: Body) {
 }
 
 function orbitManeuver(b: Body) {
+  if (lander) return landerManeuver(b);
   const m = orbitMetrics(b);
   const heightError = m.targetRadius - m.radius;
   const vr = Math.max(-0.35 * b.vc, Math.min(0.35 * b.vc, heightError / (6 * b.warp)));
@@ -1412,9 +1644,97 @@ function orbitGraphic() {
     {orbitProjected(orbitTrail, b, predictedColor, false)}
   </div>;
 }
+function landerHud(b: Body) {
+  const rel = sub(pos, b.pos);
+  const r = len(rel);
+  const alt = landerAlt(b);
+  const vz = -dot(vel, mul(rel, 1 / r));
+  const want = landerVdesc(alt);
+  if (landed) {
+    return <div className="orbitAssist success">
+      <div className="orbitAssistRow">
+        <div className="orbitAssistLabel">{rg.t("▣ MODULI PINNALLA", "▣ MODULE LANDED", "▣ MÓDULO EN SUPERFICIE")}</div>
+        <div className="orbitAssistCheck">✓</div>
+      </div>
+      <div className="orbitAssistSub">{rg.t("NOKKA YLÖS + TYÖNTÖ = NOUSU", "NOSE UP + THRUST = LIFT-OFF", "MORRO ARRIBA + EMPUJE = DESPEGUE")}</div>
+    </div>;
+  }
+  const p = landerManeuver(b);
+  const fast = vz > want * 1.6 + 0.003;
+  return <div className={fast ? "orbitAssist danger" : "orbitAssist"}>
+    <div className="orbitAssistRow">
+      <div className="orbitAssistLabel">{rg.t("◉ LASKEUTUMINEN", "◉ DESCENT", "◉ DESCENSO")}</div>
+      <div className={p.locked && !p.coast ? "orbitAssistTimer aligned" : "orbitAssistTimer"}>{fmt(vz * 1000, 0) + " M/S"}</div>
+    </div>
+    <div className="orbitAssistSub">{(p.coast ? rg.t("KURSSI OK · LIUU", "ON COURSE · COAST", "EN RUMBO · DERIVA") : rg.t("KOHDISTA JA JARRUTA", "ALIGN AND BRAKE", "ALINEA Y FRENA"))
+      + " · " + rg.t("ALASPÄIN ", "DOWN ", "BAJADA ") + fmt(want * 1000, 0) + " M/S · " + rg.t("POHJAAN ALLE ", "TOUCH DOWN UNDER ", "TOCAR SUELO BAJO ") + fmt(LANDER_SAFE * 1000, 0) + " M/S"}</div>
+  </div>;
+}
+
+function landerButtons() {
+  const out: any[] = [];
+  const bx = undockBox();
+  if (canUndock()) out.push(<div className="lbtn" style={{ left: bx.x, top: bx.y, width: bx.w, height: bx.h }}><div className="lbtnT">{rg.t("IRROTA MODULI", "UNDOCK MODULE", "SEPARAR MÓDULO")}</div></div>);
+  if (lander && landed && mother) out.push(<div className="lbtn" style={{ left: bx.x, top: bx.y, width: bx.w, height: bx.h }}><div className="lbtnT">{rg.t("PALAA EMOALUKSEEN", "BACK TO ORBITER", "VOLVER A LA NAVE")}</div></div>);
+  if (lander && mother && field) {
+    const q = project(mother.pos);
+    if (q && q.y > 120 && q.y < height - 240) out.push(<div className="mark seen" style={{ left: Math.max(4, Math.min(width - 164, q.x - 80)), top: q.y - 22 }}>{rg.t("EMOALUS ", "ORBITER ", "NAVE ") + distText(len(sub(mother.pos, pos)))}</div>);
+  }
+  return out;
+}
+
+// the briefing: a little 2D film of the landing, looping, and the steps
+function briefView() {
+  const u = (t - brief.t) % 10;
+  const mars = brief.id === "mars";
+  const W = 300, G = 150;
+  const xo = 20 + 26 * u;
+  let lx = xo, ly = 38, flame = "", step = 0;
+  if (u >= 2) {
+    const s1 = Math.min(u - 2, 2.5);
+    lx = 72 + 26 * s1 - 4.4 * s1 * s1;
+    ly = 38 + 4 * s1 * s1;
+    step = 1; flame = u < 4.5 ? "front" : "";
+    if (u >= 4.5) {
+      const s2 = Math.min(u - 4.5, 3) / 3;
+      lx += 6 * s2;
+      ly = 63 + (G - 12 - 63) * (1 - (1 - s2) * (1 - s2));
+      step = 2; flame = u < 7.5 ? "down" : "";
+    }
+    if (u >= 7.5) step = 3;
+  }
+  const steps = mars
+    ? [rg.t("1  IRROTA MODULI", "1  UNDOCK THE MODULE", "1  SEPARA EL MÓDULO"),
+       rg.t("2  KÄÄNNÄ NOKKA TÄHTÄIMEEN JA JARRUTA", "2  TURN THE NOSE TO THE SIGHT AND BRAKE", "2  GIRA EL MORRO A LA MIRA Y FRENA"),
+       rg.t("3  LÄMPÖKILPI JA VARJO, LOPUKSI RAKETIT", "3  HEAT SHIELD, CHUTE, THEN THE ROCKETS", "3  ESCUDO, PARACAÍDAS, LUEGO COHETES"),
+       rg.t("4  PINNALLA!", "4  ON THE SURFACE!", "4  ¡EN LA SUPERFICIE!")]
+    : [rg.t("1  IRROTA MODULI", "1  UNDOCK THE MODULE", "1  SEPARA EL MÓDULO"),
+       rg.t("2  KÄÄNNÄ NOKKA TÄHTÄIMEEN JA JARRUTA", "2  TURN THE NOSE TO THE SIGHT AND BRAKE", "2  GIRA EL MORRO A LA MIRA Y FRENA"),
+       rg.t("3  LASKEUDU PYSTYYN, ALLE 6 M/S", "3  COME DOWN UPRIGHT, UNDER 6 M/S", "3  BAJA VERTICAL, MENOS DE 6 M/S"),
+       rg.t("4  PINNALLA!", "4  ON THE SURFACE!", "4  ¡EN LA SUPERFICIE!")];
+  const bb = briefButton();
+  return <div className="briefLayer">
+    <div className="brief" style={{ top: height * 0.16, left: midX(20) }}>
+      <div className="briefHead">{rg.t("TEHTÄVÄ: LASKEUTUMINEN · ", "TASK: LANDING · ", "TAREA: ATERRIZAJE · ") + (mars ? "MARS" : rg.t("KUU", "MOON", "LUNA"))}</div>
+      <div className="briefScene" style={{ width: W, height: 170 }}>
+        <div className={mars ? "briefGround mars" : "briefGround"} style={{ top: G, width: W }} />
+        <div className="briefShip" style={{ left: xo - 11, top: 26 }} />
+        <div className="briefLander" style={{ left: lx - 6, top: ly }} />
+        <div className="briefLeg" style={{ left: lx - 8, top: ly + 9 }} />
+        <div className="briefLeg" style={{ left: lx + 6, top: ly + 9 }} />
+        {flame === "front" ? <div className="briefFlame" style={{ left: lx + 7, top: ly + 2, width: 9 + 3 * Math.sin(t * 40), height: 5 }} /> : null}
+        {flame === "down" ? <div className="briefFlame" style={{ left: lx - 2, top: ly + 13, width: 5, height: 8 + 3 * Math.sin(t * 40) }} /> : null}
+      </div>
+      {steps.map((x, i) => <div className={i === step ? "briefStep on" : "briefStep"}>{x}</div>)}
+    </div>
+    <div className="lbtn" style={{ left: bb.x, top: bb.y, width: bb.w, height: bb.h }}><div className="lbtnT">{rg.t("SELVÄ", "GOT IT", "ENTENDIDO")}</div></div>
+  </div>;
+}
+
 function orbitHud() {
   if (!field || auto) return null;
   const b = field;
+  if (lander) return landerHud(b);
   if (landed) {
     return <div className="orbitAssist success">
       <div className="orbitAssistRow">
@@ -1653,10 +1973,14 @@ function warnings() {
   const b = field;
   const on = Math.floor(t * 4) % 2 === 0;
   const out: any[] = [];
-  if (impactIn >= 0 && impactIn < 30 && !chute && heatQ < 0.05)
-    out.push(<div className={on ? "warn red" : "warn redDim"}>{rg.t("TÖRMÄYS ", "IMPACT ", "IMPACTO ") + fmt(impactIn, impactIn < 10 ? 1 : 0) + " S"}</div>);
   const alt = len(sub(pos, b.pos)) - b.r;
-  if (alt < b.h * 0.3 && dot(vel, norm(sub(pos, b.pos))) < 0 && !chute)
+  if (lander) {
+    const vz = -dot(vel, norm(sub(pos, b.pos)));
+    if (landerAlt(b) < 20 && vz > landerVdesc(alt) * 2 + 0.004)
+      out.push(<div className={on ? "warn red" : "warn redDim"}>{rg.t("LIIAN NOPEA · JARRUTA", "TOO FAST · BRAKE", "DEMASIADO RÁPIDO · FRENA")}</div>);
+  } else if (impactIn >= 0 && impactIn < 30 && !chute && heatQ < 0.05)
+    out.push(<div className={on ? "warn red" : "warn redDim"}>{rg.t("TÖRMÄYS ", "IMPACT ", "IMPACTO ") + fmt(impactIn, impactIn < 10 ? 1 : 0) + " S"}</div>);
+  if (!lander && alt < b.h * 0.3 && dot(vel, norm(sub(pos, b.pos))) < 0 && !chute)
     out.push(<div className={on ? "warn red" : "warn redDim"}>{rg.t("MATALA KORKEUS ", "LOW ALTITUDE ", "ALTITUD BAJA ") + grp(alt) + " KM"}</div>);
   if (heatQ > Q_MAX * 0.4)
     out.push(<div className={heatQ > Q_MAX * 0.8 && on ? "warn red" : "warn amber"}>{rg.t("LÄMPÖKILPI ", "HEAT SHIELD ", "ESCUDO TÉRMICO ") + Math.round(heatQ / Q_MAX * 100) + " % · " + rg.t("KUNTO ", "INTEGRITY ", "ESTADO ") + Math.max(0, Math.round(shieldHp * 100)) + " %"}</div>);
@@ -1692,7 +2016,8 @@ function view() {
     timeText = "WARP";
   } else if (b) {
     target = b.name.toUpperCase() + (landed ? rg.t(" · PINNALLA", " · LANDED", " · EN SUPERFICIE") : "");
-    altText = grp(Math.max(0, len(sub(pos, b.pos)) - b.r)) + " KM";
+    const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
+    altText = lander && alt < 10 ? fmt(Math.max(0, landerAlt(b)) * 1000, 0) + " M" : grp(alt) + " KM";
     speed = speedText(len(vel));
     timeText = "×" + Math.round(warpNow(b)) + (realTime ? rg.t(" TOSI", " REAL", " REAL") : "");
     const r = len(sub(pos, b.pos));
@@ -1729,15 +2054,21 @@ function view() {
       <div className="spd" style={{ left: width / 2 - 72 }}>
         <div className="spdLab">{rg.t("NOPEUS", "VELOCITY", "VELOCIDAD")}</div>
         <div className="spdv">{speed}</div>
-        <div className={thrusting ? "spdLab on" : "spdLab"}>{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
+        <div className={thrusting ? "spdLab on" : "spdLab"}>{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt((lander ? landerAcc(b) : b.acc * accK()) * 1000 / 9.81, 1) + " G" : " ")}</div>
       </div>
       {dazzle > 0.01 ? <div className="dazzle" style={{ opacity: dazzle }} /> : null}
       {warnings()}
       {findToastView()}
       {heatQ > Q_MAX * 0.15 ? <div className="heatTint" style={{ opacity: Math.min(0.55, heatQ / Q_MAX * 0.5) }} /> : null}
+      {landerButtons()}
+      {brief && !dead ? briefView() : null}
       {dead ? deadView() : null}
       {t - lastBounce < 1.0 ? <div className="alert" style={{ top: height * 0.4 }}><div className="alertt">{bounceText}</div></div> : null}
       {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3, left: midX(16) }}>{"> " + message + cursor()}</div> : null}
+      {radioClock > 0 && !brief ? <div className="radio" style={{ top: height * 0.3 - 74, left: midX(30) }}>
+        <div className="radioLab">{rg.t("LENNONJOHTO", "GROUND CONTROL", "CONTROL DE TIERRA") + (Math.floor(t * 4) % 2 ? "  ·))" : "  ·)")}</div>
+        <div className="radioTxt">{radioText}</div>
+      </div> : null}
       {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
         <div className="knob" style={{ left: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dx)), top: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dy)) }}></div>
       </div> : null}
