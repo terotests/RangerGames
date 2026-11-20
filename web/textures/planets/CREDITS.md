@@ -13,4 +13,8 @@ unchanged (only renamed).
 | jupiter.jpg | [File:Solarsystemscope texture 2k jupiter.jpg](https://commons.wikimedia.org/wiki/File:Solarsystemscope_texture_2k_jupiter.jpg) |
 | sun.jpg | [File:Solarsystemscope texture 2k sun.jpg](https://commons.wikimedia.org/wiki/File:Solarsystemscope_texture_2k_sun.jpg) |
 
+moon.jpg: NASA's Scientific Visualization Studio, CGI Moon Kit (LRO LROC WAC
+color mosaic), public domain: [svs.gsfc.nasa.gov/4720](https://svs.gsfc.nasa.gov/4720)
+(lroc_color_2k.jpg, unchanged).
+
 Games that use them credit "Solar System Scope (CC BY 4.0)".
