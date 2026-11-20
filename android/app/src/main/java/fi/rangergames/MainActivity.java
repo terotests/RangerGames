@@ -260,6 +260,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         mountPrivate();
         // games installed from the download list (⚙️ → Lataa pelejä)
         store.mountAll();
+        // and new versions of them, in the background, now and every few hours
+        store.autoUpdate();
         Engine.store(true);
         for (Map.Entry<String, ?> e : saves.getAll().entrySet()) {
             if (e.getKey().startsWith("/save/") && e.getValue() instanceof String) {

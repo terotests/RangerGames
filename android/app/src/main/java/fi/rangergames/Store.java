@@ -14,11 +14,14 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Queue;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.regex.Pattern;
@@ -36,6 +39,11 @@ import java.util.regex.Pattern;
  * before it is kept: every path must be inside the game's own folder (an
  * add-on's: &lt;base&gt;/addons/&lt;id&gt;/), so a download cannot replace the
  * launcher or another game.
+ *
+ * A pack's sounds (.wav, .mp3, .ogg: the speech clips, most of its bytes)
+ * are not put in memory: they stay in the pack file and {@link #readLazy}
+ * reads one when it is played. With every game downloaded the packs are
+ * hundreds of MB, more than the old phone has to spare.
  */
 final class Store {
     private static final String TAG = "RangerGames";
@@ -48,6 +56,15 @@ final class Store {
     private final ExecutorService net = Executors.newSingleThreadExecutor();
     /** installed games: id → {version, kind, extends, name, source, at} (game thread only) */
     private JSONObject index;
+    /** a sound of an installed pack, left in the pack file: where it is */
+    private static final class Lazy {
+        final File file;
+        final long off;
+        final int size;
+        Lazy(File file, long off, int size) { this.file = file; this.off = off; this.size = size; }
+    }
+    /** /games/... path → its place in a pack file (any thread reads it) */
+    private static final Map<String, Lazy> lazy = new ConcurrentHashMap<>();
 
     Store(Context c, Queue<Object> input) {
         this.input = input;
@@ -100,7 +117,7 @@ final class Store {
             File f = new File(dir, id + ".rgpk");
             if (e == null || !f.isFile()) continue;
             try {
-                int n = Engine.mount("/games", readFile(f));
+                int n = mountFile(f);
                 if (n < 0) throw new IOException("not a pack");
                 note(id, e, false);
                 Log.i(TAG, "store: " + id + " v" + e.optInt("version") + ", " + n + " files");
@@ -208,6 +225,76 @@ final class Store {
         });
     }
 
+    /** the download list the app checks for updates (the same as rg.store.url) */
+    static final String CATALOG = "https://sliqtly.com/games/catalog.json";
+    /** how often a running app looks for new versions of the installed games */
+    static final long UPDATE_EVERY_MS = 6L * 3600 * 1000;
+    private final java.util.concurrent.ScheduledExecutorService timer = Executors.newSingleThreadScheduledExecutor();
+
+    /**
+     * Keeps the installed games up to date: at start and then every
+     * {@link #UPDATE_EVERY_MS} the download list is read, and a game whose
+     * accepted version is newer than the installed one is downloaded again
+     * in the background. The old version plays until the new pack is whole
+     * and checked; without a network nothing changes.
+     */
+    void autoUpdate() {
+        timer.scheduleWithFixedDelay(new Runnable() {
+            @Override
+            public void run() {
+                input.add(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (index.length() > 0) checkUpdates();
+                    }
+                });
+            }
+        }, 20, UPDATE_EVERY_MS / 1000, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
+    /** reads the list (network thread) and installs the newer versions (game thread) */
+    private void checkUpdates() {
+        net.execute(new Runnable() {
+            @Override
+            public void run() {
+                HttpURLConnection c = null;
+                try {
+                    c = open(CATALOG);
+                    if (c.getResponseCode() != 200) return;
+                    ByteArrayOutputStream out = new ByteArrayOutputStream();
+                    try (InputStream in = c.getInputStream()) {
+                        byte[] b = new byte[16384];
+                        int n;
+                        while ((n = in.read(b)) > 0) {
+                            out.write(b, 0, n);
+                            if (out.size() > (4 << 20)) return;
+                        }
+                    }
+                    final JSONArray games = new JSONObject(out.toString("UTF-8")).optJSONArray("games");
+                    if (games == null) return;
+                    input.add(new Runnable() {
+                        @Override
+                        public void run() {
+                            for (int i = 0; i < games.length(); i++) {
+                                JSONObject g = games.optJSONObject(i);
+                                if (g == null) continue;
+                                JSONObject have = index.optJSONObject(g.optString("id"));
+                                if (have != null && g.optInt("version", 0) > have.optInt("version", 0)) {
+                                    Log.i(TAG, "store: updating " + g.optString("id") + " to v" + g.optInt("version"));
+                                    install(g);
+                                }
+                            }
+                        }
+                    });
+                } catch (Exception e) {
+                    Log.i(TAG, "store: no update check (" + e + ")");
+                } finally {
+                    if (c != null) c.disconnect();
+                }
+            }
+        });
+    }
+
     private void install(final JSONObject g) {
         final String id = g.optString("id");
         final String kind = "addon".equals(g.optString("kind")) ? "addon" : "game";
@@ -271,8 +358,9 @@ final class Store {
                             }
                         }
                     }
-                    final byte[] data = readFile(tmp);
+                    byte[] data = readFile(tmp);
                     String why = check(data, prefix);
+                    data = null;
                     if (why != null) {
                         Log.w(TAG, "store: " + id + ": " + why);
                         later(error(id, "bad-pack", 0));
@@ -283,7 +371,7 @@ final class Store {
                     input.add(new Runnable() {
                         @Override
                         public void run() {
-                            mounted(g, id, kind, ext, data);
+                            mounted(g, id, kind, ext, keep);
                         }
                     });
                 } catch (java.net.UnknownHostException | java.net.SocketTimeoutException | java.net.ConnectException e) {
@@ -302,10 +390,81 @@ final class Store {
         });
     }
 
+    static boolean isSound(String path) {
+        String p = path.toLowerCase(java.util.Locale.ROOT);
+        return p.endsWith(".wav") || p.endsWith(".mp3") || p.endsWith(".ogg");
+    }
+
+    /**
+     * Mounts a pack file over /games: everything but the sounds goes into
+     * memory, the sounds are only noted (path → place in the file) for
+     * {@link #readLazy}. The file count, or -1 when it is not a pack.
+     */
+    static int mountFile(File f) throws IOException {
+        try (RandomAccessFile r = new RandomAccessFile(f, "r")) {
+            long len = r.length();
+            if (!"RGPK1".equals(rline(r))) return -1;
+            long count = Long.parseLong(rline(r));
+            ByteArrayOutputStream body = new ByteArrayOutputStream();
+            Map<String, Lazy> found = new java.util.HashMap<>();
+            int kept = 0;
+            for (long i = 0; i < count; i++) {
+                String path = rline(r);
+                String sz = rline(r);
+                if (path == null || sz == null) return -1;
+                long size = Long.parseLong(sz);
+                long off = r.getFilePointer();
+                if (size < 0 || off + size > len) return -1;
+                if (isSound(path)) {
+                    found.put("/games/" + path, new Lazy(f, off, (int) size));
+                } else {
+                    byte[] b = new byte[(int) size];
+                    r.readFully(b);
+                    body.write((path + "\n" + size + "\n").getBytes(StandardCharsets.UTF_8));
+                    body.write(b);
+                    kept++;
+                }
+                r.seek(off + size);
+            }
+            ByteArrayOutputStream pack = new ByteArrayOutputStream(body.size() + 32);
+            pack.write(("RGPK1\n" + kept + "\n").getBytes(StandardCharsets.UTF_8));
+            body.writeTo(pack);
+            body = null;
+            if (kept > 0 && Engine.mount("/games", pack.toByteArray()) < 0) return -1;
+            lazy.putAll(found);
+            return (int) count;
+        }
+    }
+
+    private static String rline(RandomAccessFile r) throws IOException {
+        ByteArrayOutputStream o = new ByteArrayOutputStream(64);
+        int c;
+        while ((c = r.read()) >= 0 && c != '\n') {
+            if (o.size() > 4096) return null;
+            o.write(c);
+        }
+        if (c < 0) return null;
+        return new String(o.toByteArray(), StandardCharsets.UTF_8);
+    }
+
+    /** A sound of an installed pack, read from its file (null: not one). Any thread. */
+    static byte[] readLazy(String path) {
+        Lazy z = lazy.get(path);
+        if (z == null) return null;
+        try (RandomAccessFile r = new RandomAccessFile(z.file, "r")) {
+            r.seek(z.off);
+            byte[] b = new byte[z.size];
+            r.readFully(b);
+            return b;
+        } catch (IOException e) {
+            return null;
+        }
+    }
+
     /** the downloaded pack into /games and the index (game thread) */
-    private void mounted(JSONObject g, String id, String kind, String ext, byte[] data) {
+    private void mounted(JSONObject g, String id, String kind, String ext, File pack) {
         try {
-            int n = Engine.mount("/games", data);
+            int n = mountFile(pack);
             if (n < 0) throw new IOException("not a pack");
             JSONObject e = new JSONObject();
             e.put("version", g.optInt("version", 1));
@@ -339,6 +498,8 @@ final class Store {
             note(id, e, true);
             index.remove(id);
             writeIndex();
+            String at = "/games/" + folder(id, e.optString("kind"), e.optString("extends")) + "/";
+            for (Iterator<String> it = lazy.keySet().iterator(); it.hasNext(); ) if (it.next().startsWith(at)) it.remove();
             new File(dir, id + ".rgpk").delete();
             JSONObject ev = new JSONObject();
             ev.put("type", "removed");
