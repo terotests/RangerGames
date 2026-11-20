@@ -519,7 +519,7 @@ const PAD_R = 54;
 
 // the thermometer across the top: the temperature round the ship, -273 °C
 // (blue) to the Sun's surface (5500 °C) on a log scale of kelvins
-const T_MIN = 2.7, T_MAX = 5800, THERMO_W = 330;
+const T_MAX = 5800;
 const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
 // the temperature the ship's hull settles to here: the Sun's warmth by the
 // distance (in a shadow the cold of space, ~100 K), near the ground the
@@ -554,50 +554,17 @@ function envTempK() {
   if (heatQ > 0.05) return Math.max(hullK, 300 + Math.min(1, heatQ / Q_MAX) * 1900);
   return hullK;
 }
-function thermoX(kelvin: number) {
-  const l0 = Math.log(T_MIN), l1 = Math.log(T_MAX);
-  return THERMO_W * Math.max(0, Math.min(1, (Math.log(Math.max(T_MIN, kelvin)) - l0) / (l1 - l0)));
-}
-function thermometer() {
-  const k = envTempK();
-  const c = Math.round(k - 273.15);
-  const x = thermoX(k);
-  const x0 = thermoX(273.15), x1 = thermoX(1273.15);
-  const ticks = [[-273, 0.0], [-200, 73.15], [0, 273.15], [1000, 1273.15], [5500, 5773]];
-  const feel = thermoFeel(c);
-  const numText = (c > 0 ? "+" : "") + c + "°";
-  const B = 46;
-  const bx = Math.max(0, Math.min(THERMO_W - B, x - B / 2));
-  // VARJO beside the bubble, on the side with room
-  const shadowLeft = bx > THERMO_W / 2;
-  return <div className="thermo">
-    <div className="thermoBar" style={{ left: 0, width: x0, background: "linear-gradient(90deg, #2f6bff, #6fe0ff)", borderTopLeftRadius: 3, borderBottomLeftRadius: 3 }} />
-    <div className="thermoBar" style={{ left: x0, width: x1 - x0, background: "linear-gradient(90deg, #7dff8e, #ffcf5a)" }} />
-    <div className="thermoBar" style={{ left: x1, width: THERMO_W - x1, background: "linear-gradient(90deg, #ff9a3d, #ff4a2a)", borderTopRightRadius: 3, borderBottomRightRadius: 3 }} />
-    <div className="thermoNeedle" style={{ left: x - 1 }} />
-    {ticks.map((tk) => {
-      const tx = thermoX(tk[1]);
-      const w = 34;
-      const left = tk[0] === -273 ? 0 : tk[0] === 5500 ? THERMO_W - w : tx - w / 2;
-      const cls = tk[0] === -273 ? "thermoTick cold left" : tk[0] === 5500 ? "thermoTick hot right" : "thermoTick";
-      return <div className={cls} style={{ left, width: w }}>{String(tk[0])}</div>;
-    })}
-    <div className="thermoBubble" style={{ left: bx, width: B, height: B, borderRadius: B / 2, backgroundColor: feel.bg }}>
-      <div className="thermoNum" style={{ color: feel.ink, fontSize: numText.length <= 4 ? 16 : numText.length === 5 ? 14 : 12 }}>{numText}</div>
-    </div>
-    {shadowNow ? <div className="thermoTag" style={{ left: shadowLeft ? bx - 66 : bx + B + 6, width: 60 }}>{rg.t("VARJOSSA", "IN SHADOW", "EN SOMBRA")}</div> : null}
+// the temperature cell beside altitude and gravity: a red ▲ when very hot,
+// a blue ▼ below -50 °C, VARJOSSA in a shadow otherwise
+function tempCell() {
+  const c = Math.round(envTempK() - 273.15);
+  const hot = c >= 60, cold = c < -50;
+  const mark = hot ? "▲ " + rg.t("KUUMA", "HOT", "CALIENTE") : cold ? "▼ " + rg.t("KYLMÄ", "COLD", "FRÍO") : shadowNow ? rg.t("VARJOSSA", "IN SHADOW", "EN SOMBRA") : "";
+  return <div className="cell temp">
+    <div className="lab">{rg.t("LÄMPÖTILA", "TEMPERATURE", "TEMPERATURA")}</div>
+    <div className={hot ? "val hot" : cold ? "val cold" : "val"}>{(c > 0 ? "+" : "") + c + " °C"}</div>
+    <div className={hot ? "tempMark hot" : cold ? "tempMark cold" : "tempMark"}>{mark}</div>
   </div>;
-}
-// the bubble's colours for the temperature
-function thermoFeel(c: number) {
-  if (c < -150) return { bg: "#2f5bdc", ink: "#ffffff" };
-  if (c < -20) return { bg: "#3d8de8", ink: "#ffffff" };
-  if (c < 10) return { bg: "#6cc8f0", ink: "#06202c" };
-  if (c < 30) return { bg: "#7ddc86", ink: "#062a0c" };
-  if (c < 60) return { bg: "#ffd25a", ink: "#3a2600" };
-  if (c < 300) return { bg: "#ff9a3d", ink: "#2e1300" };
-  if (c < 1500) return { bg: "#ff5a2a", ink: "#ffffff" };
-  return { bg: "#ffe14a", ink: "#3a2000" };
 }
 
 // the round map of the solar system, bottom left (the thrust button's twin)
@@ -1322,7 +1289,7 @@ function orbitReticle() {
   const ux = distance > 0.1 ? dx / distance : 0;
   const uy = distance > 0.1 ? dy / distance : -1;
   const ax = Math.max(20, Math.min(width - 20, sx + ux * 58));
-  const ay = Math.max(174, Math.min(maxY - 8, sy + uy * 58));
+  const ay = Math.max(134, Math.min(maxY - 8, sy + uy * 58));
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   // red and blinking on a course into the ground
   const danger = orbitOutcome === "impact" && !chute && Math.floor(t * 4) % 2 ? " danger" : "";
@@ -1538,7 +1505,7 @@ function spots() {
       let ax = dot(dd, rr), ay = -dot(dd, u);
       const l = Math.sqrt(ax * ax + ay * ay) || 1;
       ax /= l; ay /= l;
-      const top = 168, bottom = height - 200;
+      const top = 128, bottom = height - 200;
       const cy = (top + bottom) / 2;
       const k = Math.min((width / 2 - 26) / Math.max(0.01, Math.abs(ax)), (bottom - top) / 2 / Math.max(0.01, Math.abs(ay)));
       out.push({ b, d, edge: true, x: width / 2 + ax * k, y: cy + ay * k, rpx: 16 });
@@ -1580,27 +1547,27 @@ function markers() {
     if (!s.edge) {
       if (s.rpx > width * 0.6) continue;
       const box = Math.max(16, Math.min(80, s.rpx * 2 + 10));
-      if (s.y > 148 && s.y < height - 40) out.push(<div className={done(b) ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
+      if (s.y > 108 && s.y < height - 40) out.push(<div className={done(b) ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
       const y = s.y - box / 2 - 15;
-      if (y < 150 || y > height - 60) continue;
+      if (y < 110 || y > height - 60) continue;
       out.push(<div className={done(b) ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
         {(done(b) ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
     } else {
       if (b === field) continue;
       // slide along the edge: 0, +1, -1, +2, -2 … steps from where it points
-      const alongX = s.y < 178 || s.y > height - 210;
+      const alongX = s.y < 138 || s.y > height - 210;
       let x = s.x, y = s.y;
       let k = 1;
       while (k < 12 && clashes(px, py, x, y)) {
         const n = Math.ceil(k / 2) * (k % 2 ? 1 : -1);
         if (alongX) x = Math.max(26, Math.min(width - 26, s.x + n * 48));
-        else y = Math.max(168, Math.min(height - 200, s.y + n * 26));
+        else y = Math.max(128, Math.min(height - 200, s.y + n * 26));
         k = k + 1;
       }
       // the edge is full: stack the tag in a row inwards
       let row = 1;
       while (row < 6 && clashes(px, py, x, y)) {
-        if (alongX) y = s.y + (s.y < 178 ? 1 : -1) * row * 26;
+        if (alongX) y = s.y + (s.y < 138 ? 1 : -1) * row * 26;
         else x = s.x + (s.x < width / 2 ? 1 : -1) * row * 48;
         row = row + 1;
       }
@@ -1695,7 +1662,7 @@ function warnings() {
     out.push(<div className="warn amber">{rg.t("LIIAN NOPEA LASKUVARJOLLE", "TOO FAST FOR THE PARACHUTE", "DEMASIADO RÁPIDO PARA EL PARACAÍDAS")}</div>);
   if (chute) out.push(<div className="warn green">{rg.t("LASKUVARJO AUKI · ", "PARACHUTE OPEN · ", "PARACAÍDAS ABIERTO · ") + fmt(len(vel) * 1000, 0) + " M/S"}</div>);
   if (!out.length) return null;
-  return <div className="warnBox" style={{ top: 174, left: midX(16) }}>{out}</div>;
+  return <div className="warnBox" style={{ top: 134, left: midX(16) }}>{out}</div>;
 }
 
 function deadView() {
@@ -1750,8 +1717,8 @@ function view() {
           <div className="cell"><div className="lab">{b && !auto ? rg.t("KORKEUS", "ALTITUDE", "ALTITUD") : rg.t("ETÄISYYS", "DISTANCE", "DISTANCIA")}</div><div className="val">{altText}</div></div>
           <div className="cell"><div className="lab">{rg.t("PAINOVOIMA", "GRAVITY", "GRAVEDAD")}</div><div className="val">{gText}</div></div>
           <div className={b && !auto ? "cell tap" : "cell"}><div className="lab">{rg.t("AIKA", "TIME", "TIEMPO")}</div><div className={timeText === "WARP" ? "val warn" : "val"}>{timeText}</div></div>
+          {tempCell()}
         </div>
-        {thermometer()}
       </div>
       {orbitHud()}
       {miniMap()}
