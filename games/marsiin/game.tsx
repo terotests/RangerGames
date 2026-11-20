@@ -152,6 +152,8 @@ let dose = 0;
 let pressure = 101.3;
 let leak: any = null;
 let bumpT = -9;
+let camD = 2.2;
+let flyK = 0;     // 0 upright .. 1 flying head first (the camera rises above the body)   // the third person camera's distance, eased out after a wall
 let items: Item[] = [];
 let crew: Crew[] = [];
 let crewTalk = -1, crewTalkT = 0, crewSayIdx = 0;
@@ -340,6 +342,7 @@ function moveBody(dt: number) {
     if (inside(q) >= 0) pos = q;
     else { hit = Math.max(hit, Math.abs(vel[k])); vel[k] = -vel[k] * 0.25; }
   }
+  hit = Math.max(hit, keepBodyIn());
   if (hit > 0.18 && t - bumpT > 0.4) {
     bumpT = t;
     rg.sound("hit", { volume: Math.min(1, hit) * 0.6, pitch: 0.7 });
@@ -348,7 +351,19 @@ function moveBody(dt: number) {
   }
   // the body: upright when still, head first when flying
   const flying = len(vel) > 0.25 && pushing || len(vel) > 0.45;
-  const target = flying ? quatOf(f, mul(u, -1)) : quatOf(u, f);
+  flyK += ((flying ? 1 : 0) - flyK) * Math.min(1, dt * 2.5);
+  let target = flying ? quatOf(f, mul(u, -1)) : quatOf(u, f);
+  // in a hatch the body lines up with it, head the way you look (it is too
+  // narrow to float across)
+  for (const h of HATCHES) {
+    const d = sub(pos, h.p), ax = hatchAxis(h);
+    const along = dot(d, ax);
+    if (Math.abs(along) < 0.9 && len(sub(d, mul(ax, along))) < 0.8) {
+      const a = mul(ax, dot(f, ax) >= 0 ? 1 : -1);
+      target = quatOf(a, Math.abs(dot(u, a)) < 0.9 ? mul(u, -1) : f);
+      break;
+    }
+  }
   bodyQ = slerp(bodyQ, target, Math.min(1, dt * (flying ? 2.5 : 3.5)));
   if (!doing) {
     let a = "Float";
@@ -358,6 +373,39 @@ function moveBody(dt: number) {
     else if (flying) a = "Glide";
     anim(player, a, 0.35);
   }
+}
+// The head and the feet too: pos is the middle of the body, and the free boxes
+// keep it only 0.36 m off the walls, less than half a body. The body's two ends
+// (along its long axis, as it is turned now) are kept inside the boxes as well;
+// a end outside moves the body back by as much. Returns the speed lost.
+const BODY_UP = 0.45, BODY_DOWN = 0.55;   // the model reaches 0.85 m up, 0.95 m down
+function keepBodyIn(): number {
+  const ax = qrot(bodyQ, [0, 1, 0]);
+  let lost = 0;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const s of [BODY_UP, -BODY_DOWN]) {
+      const e = add(pos, mul(ax, s));
+      if (inside(e) >= 0) continue;
+      // the nearest of the boxes the middle is in
+      let best: number[] | null = null, bd = 1e9, bc: V = e;
+      for (const b of FREE) {
+        if (!(pos[0] >= b[0] && pos[0] <= b[3] && pos[1] >= b[1] && pos[1] <= b[4] && pos[2] >= b[2] && pos[2] <= b[5])) continue;
+        const c: V = [clamp(e[0], b[0], b[3]), clamp(e[1], b[1], b[4]), clamp(e[2], b[2], b[5])];
+        const d = len(sub(c, e));
+        if (d < bd) { bd = d; best = b; bc = c; }
+      }
+      if (!best || bd > 0.6) continue;
+      const fix = sub(bc, e);
+      const np = add(pos, fix);
+      if (inside(np) < 0) continue;
+      pos = np;
+      // the speed into the wall stops
+      const n = norm(fix);
+      const into = -dot(vel, n);
+      if (into > 0) { vel = add(vel, mul(n, into * 1.2)); lost = Math.max(lost, into); }
+    }
+  }
+  return lost;
 }
 // outside every box (after a sharp turn at a hatch): back to the nearest box's middle
 function nudgeIn(dt: number) {
@@ -648,15 +696,25 @@ function camera() {
   // behind and a little above, pulled in where a wall is closer
   // over the right shoulder: you are a little to the left and low on the screen
   const want = 2.2;
-  const back = norm(add(add(mul(f, -1), mul(u, 0.3)), mul(r, 0.16)));
+  // flying head first the legs trail behind you: the camera goes up over them
+  const back = norm(add(add(mul(f, -1), mul(u, 0.3 + 0.7 * flyK)), mul(r, 0.16)));
+  // the free boxes keep 0.36 m off the walls; the eye stays 0.26 m off them, or
+  // the camera's near plane would cut the wall's triangles
   let d = 0.3;
-  for (let s = 0.3; s <= want; s += 0.1) {
-    if (inside(add(pos, mul(back, s)), 0.33) < 0) break;
+  for (let s = 0.3; s <= want + 0.001; s += 0.05) {
+    if (inside(add(pos, mul(back, s)), 0.1) < 0) break;
     d = s;
   }
+  // in at once when a wall comes between, out slowly (no jumping back and forth)
+  camD = d < camD ? d : Math.min(d, camD + 0.03);
+  d = camD;
   eye = add(pos, mul(back, d));
   at = add(add(add(pos, mul(f, 2.2)), mul(u, 0.5)), mul(r, 0.18));
-  return { eye: add(eye, sh), at, up, fov: 74, hide: d < 0.7 };
+  // the eye inside the body (its feet or head) would cut it open: then it is not drawn
+  const ax = qrot(bodyQ, [0, 1, 0]);
+  const k = clamp(dot(sub(eye, pos), ax), -0.95, 0.85);
+  const near = len(sub(eye, add(pos, mul(ax, k))));
+  return { eye: add(eye, sh), at, up, fov: 74, hide: d < 0.7 || near < 0.42 };
 }
 
 function planets(sky: Sky) {
