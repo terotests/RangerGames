@@ -181,6 +181,13 @@ pub extern "C" fn rg_store(on: i32) {
     with(|e| e.store = on != 0)
 }
 
+/// The host draws a sphere command's map only inside the window its 4 extra
+/// numbers give (a planet's `detail` pictures).
+#[no_mangle]
+pub extern "C" fn rg_detail(on: i32) {
+    with(|e| e.detail = on != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())

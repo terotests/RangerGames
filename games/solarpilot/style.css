@@ -20,8 +20,29 @@
 .code.here { border-color: #ffb000; color: #ffb000; }
 .code.on { background-color: #7dff8e; color: #021006; border-color: #7dff8e; font-weight: 700; }
 
-.spd { position: absolute; left: 8px; bottom: 10px; width: 150px; background-color: rgba(1, 12, 5, 0.74); border: 1px solid rgba(125, 255, 142, 0.5); padding: 6px; align-items: flex-start; }
-.spdv { font-size: 18px; font-weight: 700; color: #b8ffc2; height: 24px; }
+.spd { position: absolute; bottom: 22px; width: 144px; height: 68px; border-radius: 34px; background-color: rgba(1, 22, 9, 0.84); border: 2px solid rgba(125, 255, 142, 0.7); align-items: center; justify-content: center; }
+.spdLab { font-size: 8px; color: rgba(125, 255, 142, 0.62); letter-spacing: 2px; height: 11px; text-align: center; justify-content: center; flex-direction: row; width: 130px; }
+.spdLab.on { color: #ffcf5a; }
+.spdv { font-size: 20px; font-weight: 700; color: #d6ffdc; height: 25px; text-align: center; justify-content: center; flex-direction: row; width: 130px; }
+
+/* the thermometer across the top */
+.thermo { width: 330px; height: 30px; margin-top: 5px; }
+.thermoTag { position: absolute; top: 0px; height: 11px; font-size: 9px; font-weight: 700; color: #d6ffdc; letter-spacing: 1px; text-align: center; justify-content: center; flex-direction: row; }
+.thermoBar { position: absolute; top: 13px; height: 5px; }
+.thermoNeedle { position: absolute; top: 10px; width: 2px; height: 11px; background-color: #ffffff; }
+.thermoTick { position: absolute; top: 20px; height: 10px; font-size: 7px; color: rgba(125, 255, 142, 0.6); letter-spacing: 0.5px; text-align: center; justify-content: center; flex-direction: row; }
+.thermoTick.left { justify-content: flex-start; text-align: left; }
+.thermoTick.right { justify-content: flex-end; text-align: right; }
+.thermoTick.cold { color: #6fb8ff; }
+.thermoTick.hot { color: #ff7a4a; }
+
+/* the round map of the solar system */
+.mapDisc { position: absolute; background-color: rgba(1, 22, 9, 0.88); border: 2px solid rgba(125, 255, 142, 0.85); }
+.mapOrbit { position: absolute; border: 1px solid rgba(125, 255, 142, 0.2); }
+.mapDot { position: absolute; }
+.mapHere { position: absolute; border: 1px solid #ffb000; }
+.mapShip { position: absolute; width: 4px; height: 4px; border-radius: 2px; background-color: #d6ffdc; }
+.mapShip.dim { background-color: rgba(125, 255, 142, 0.35); }
 
 .msg { position: absolute; left: 16px; width: 328px; font-size: 13px; font-weight: 700; color: #b8ffc2; letter-spacing: 1px; background-color: rgba(1, 12, 5, 0.82); border: 1px solid rgba(125, 255, 142, 0.6); padding: 8px; align-items: flex-start; }
 .alert { position: absolute; left: 0px; width: 100%; justify-content: center; align-items: center; }
@@ -120,3 +141,10 @@
 .sightRing.danger { border: 3px solid #ff3d2a; background-color: rgba(255, 40, 20, 0.2); }
 .sightCrossH.danger { background-color: #ff3d2a; }
 .sightCrossV.danger { background-color: #ff3d2a; }
+.dazzle { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #fffdf2; }
+
+/* a bonus find */
+.findToast { position: absolute; width: 312px; background-color: rgba(20, 14, 0, 0.88); border: 2px solid #ffcf5a; border-radius: 14px; padding: 10px; align-items: flex-start; }
+.findHead { font-size: 10px; font-weight: 700; color: #ffcf5a; letter-spacing: 2px; height: 14px; }
+.findTitle { font-size: 16px; font-weight: 700; color: #fff3cf; letter-spacing: 1.5px; height: 22px; margin-top: 2px; }
+.findFact { font-size: 11px; color: #ffe6a8; width: 292px; margin-top: 3px; }

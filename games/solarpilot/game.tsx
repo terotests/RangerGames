@@ -35,6 +35,7 @@ type Body = {
   sky: string;
   turn: number;
   vc: number; warp: number; acc: number; reach: number; g0: number;
+  bonus: boolean;    // a bonus find (not a gravity field): BONUS below
 };
 
 // ---- vectors -------------------------------------------------------------------
@@ -67,7 +68,7 @@ const MOON_DIR = norm([0.45, 0.1, 0.89]);
 
 function body(id: string, code: string, name: string, pos: number[], r: number, gm: number, rot: number, tilt: number,
               h: number, soi: number, land: boolean, atm: number, sky: string, turn: number): Body {
-  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0 };
+  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0, bonus: false };
 }
 
 const BODIES: Body[] = [
@@ -80,6 +81,94 @@ const BODIES: Body[] = [
   body("mars", "MAR", "Mars", orbitPos(227.9e6, 60, -0.02), 3390, 42828, 88643, 0.44, 300, 3, true, 60, "#b07a58", 0),
   body("jupiter", "JUP", rg.t("Jupiter", "Jupiter", "Júpiter"), orbitPos(778.5e6, -40, 0.02), 69911, 1.26687e8, 35730, 0.05, 5000, 2, false, 300, "#7d6a52", 0),
 ];
+
+// ---- bonus finds ---------------------------------------------------------------
+// Small bodies at (roughly) their real places in late 2026. They show on the
+// map and as tags only near (`seen`), are found within `find`, and a find is
+// kept (rg.save "found"). Supercruise slows down near them, which is a hint.
+// The regions (belt, Kuiper belt, Oort cloud) are found by flying into them.
+function eclPos(au: number, deg: number, lat: number) {
+  const a = au * AU, t = deg * Math.PI / 180, p = lat * Math.PI / 180;
+  return [a * Math.cos(p) * Math.cos(t), a * Math.sin(p), a * Math.cos(p) * Math.sin(t)];
+}
+type BonusInfo = { find: number; seen: number; color: string; fact: string };
+const BONUS: Body[] = [];
+const BONUS_INFO: { [id: string]: BonusInfo } = {};
+function bonus(id: string, code: string, name: string, p: number[], r: number, find: number, seenAu: number, color: string, fact: string) {
+  const b = body(id, code, name, p, r, 0, 0, 0, 0, 1, false, 0, "", 0);
+  b.bonus = true;
+  b.reach = find * 0.8;
+  BONUS.push(b);
+  BONUS_INFO[id] = { find, seen: seenAu * AU, color, fact };
+}
+bonus("ceres", "CER", "Ceres", eclPos(2.77, 150, 3), 470, 100000, 0.6, "#a59d92",
+  rg.t("Asteroidivyöhykkeen suurin kappale ja kääpiöplaneetta, halkaisija 940 km.", "The largest body of the asteroid belt, a dwarf planet 940 km across.", "El mayor cuerpo del cinturón de asteroides, un planeta enano de 940 km."));
+bonus("vesta", "VES", "Vesta", eclPos(2.36, 250, -4), 263, 80000, 0.6, "#b8ad9c",
+  rg.t("Kirkkain asteroidi. Etelänavalla on 500 km leveä törmäyskraatteri.", "The brightest asteroid. Its south pole has a 500 km wide impact crater.", "El asteroide más brillante. Su polo sur tiene un cráter de 500 km."));
+bonus("apophis", "APO", "Apophis", eclPos(0.92, 25, 1), 0.17, 20000, 0.1, "#8f8579",
+  rg.t("Maan lähelle tuleva asteroidi. 13.4.2029 se ohittaa Maan vain 32 000 km:n päästä.", "A near-Earth asteroid. On 13 April 2029 it passes only 32,000 km from the Earth.", "Un asteroide cercano. El 13-4-2029 pasará a solo 32 000 km de la Tierra."));
+bonus("hektor", "HEK", "Hektor", eclPos(5.2, 20, 5), 100, 50000, 1, "#7d6655",
+  rg.t("Jupiterin troijalainen: 60° Jupiterin edellä (L4). Kiertää Aurinkoa samassa ajassa kuin Jupiter.", "A Jupiter trojan 60° ahead of Jupiter (L4). It goes round the Sun in Jupiter's time.", "Un troyano de Júpiter, 60° por delante (L4). Gira alrededor del Sol al ritmo de Júpiter."));
+bonus("patroclus", "PAT", "Patroklos", eclPos(5.2, -100, -6), 60, 50000, 1, "#806b5c",
+  rg.t("Troijalainen 60° Jupiterin jäljessä (L5). Se on kaksoisasteroidi: kaksi kappaletta kiertää toisiaan.", "A trojan 60° behind Jupiter (L5). It is a double: two bodies circling each other.", "Un troyano 60° por detrás de Júpiter (L5). Es doble: dos cuerpos que giran juntos."));
+bonus("halley", "HAL", rg.t("Halleyn komeetta", "Halley's Comet", "Cometa Halley"), eclPos(35.1, 255, -16), 5.5, 50000, 4, "#5f5a55",
+  rg.t("Nyt radan uloimmassa kohdassa Neptunuksen takana: jäinen ja ilman pyrstöä. Kierros 76 vuotta, kulkee planeettoja vastaan, rata 18° kallellaan. Palaa Maan lähelle 2061.",
+       "Now at the far end of its orbit beyond Neptune: icy, no tail. One round takes 76 years, against the planets, tilted 18°. Back near the Earth in 2061.",
+       "Ahora en el punto más lejano de su órbita, sin cola. Una vuelta dura 76 años, al revés que los planetas, inclinada 18°. Vuelve en 2061."));
+bonus("pluto", "PLU", "Pluto", eclPos(34.8, 300, -2), 1188, 200000, 5, "#c9b49a",
+  rg.t("Kuiperin vyöhykkeen kääpiöplaneetta. Auringon valo tulee tänne 4,8 tunnissa.", "A dwarf planet of the Kuiper belt. Sunlight takes 4.8 hours to get here.", "Planeta enano del cinturón de Kuiper. La luz del Sol tarda 4,8 horas en llegar."));
+bonus("atlas", "3I", "3I/ATLAS", eclPos(12.5, 170, 5), 2.8, 30000, 2, "#9a8f86",
+  rg.t("Tähtienvälinen vierailija, löydetty 2025. Tullut toisen tähden luota 58 km/s ja lähtee pois, eikä palaa koskaan.", "An interstellar visitor found in 2025. It came from another star at 58 km/s and leaves for good.", "Un visitante interestelar descubierto en 2025. Vino de otra estrella a 58 km/s y no volverá."));
+// the regions: [id, name, inner AU, outer AU, fact]
+const REGIONS: any[] = [
+  ["belt", rg.t("Asteroidivyöhyke", "Asteroid belt", "Cinturón de asteroides"), 2.1, 3.3,
+    rg.t("2,1–3,3 AU Marsin ja Jupiterin välissä. Kappaleiden välit ovat miljoonia kilometrejä. Ceres ja Vesta ovat täällä jossain.", "2.1–3.3 AU between Mars and Jupiter. The rocks are millions of km apart. Ceres and Vesta are here somewhere.", "2,1–3,3 UA entre Marte y Júpiter. Las rocas están a millones de km. Ceres y Vesta están por aquí.")],
+  ["kuiper", rg.t("Kuiperin vyöhyke", "Kuiper belt", "Cinturón de Kuiper"), 30, 50,
+    rg.t("30–50 AU Neptunuksen takana: jäisiä kappaleita, kuten Pluto. Monet lyhytjaksoiset komeetat syntyvät täällä.", "30–50 AU beyond Neptune: icy bodies such as Pluto. Many short-period comets come from here.", "30–50 UA tras Neptuno: cuerpos helados como Plutón. De aquí vienen muchos cometas.")],
+  ["oort", rg.t("Oortin pilvi", "Oort cloud", "Nube de Oort"), 2000, 1e9,
+    rg.t("Yli 2000 AU: Aurinko on täältä vain kirkas tähti. Pilvi voi ulottua 100 000 AU:hun asti. Pitkäjaksoisten komeettojen koti.", "Beyond 2000 AU the Sun is only a bright star. The cloud may reach 100,000 AU. Home of the long-period comets.", "Más allá de 2000 UA el Sol es solo una estrella. La nube puede llegar a 100 000 UA.")],
+];
+const FIND_TOTAL = 8 + 3;
+let found: { [id: string]: boolean } = {};
+let findToast: { title: string; fact: string; t: number } | null = null;
+let findQueue: any[] = [];       // finds made at the same time are shown in turn
+function loadFound() {
+  found = {};
+  const s = rg.load("found", "");
+  if (s) for (const id of String(s).split(",")) if (id) found[id] = true;
+}
+function discover(id: string, name: string, fact: string) {
+  if (found[id]) return;
+  found[id] = true;
+  rg.save("found", Object.keys(found).join(","));
+  findQueue.push({ title: name, fact, t: 0, n: Object.keys(found).length });
+  rg.celebrate(width / 2, height * 0.3, { count: 16 });
+  rg.vibrate(40);
+}
+function checkFinds() {
+  for (const b of BONUS) {
+    if (!found[b.id] && len(sub(b.pos, pos)) - b.r < BONUS_INFO[b.id].find) discover(b.id, b.name, BONUS_INFO[b.id].fact);
+  }
+  const au = len(pos) / AU;
+  for (const g of REGIONS) {
+    if (!found[g[0]] && au >= g[2] && au <= g[3]) discover(g[0], g[1], g[4]);
+  }
+}
+function shade(hexColor: string, k: number) {
+  const c = hex(hexColor);
+  return rgb([Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)]);
+}
+function bonusSeen(b: Body) { return len(sub(b.pos, pos)) < BONUS_INFO[b.id].seen; }
+function done(b: Body) { return b.bonus ? !!found[b.id] : !!visited[b.id]; }
+function findToastView() {
+  if (!findToast) return null;
+  const n = (findToast as any).n;
+  return <div className="findToast" style={{ left: midX(12), top: Math.round(height * 0.42) }}>
+    <div className="findHead">{"✦ " + rg.t("LÖYTÖ ", "FIND ", "HALLAZGO ") + n + "/" + FIND_TOTAL}</div>
+    <div className="findTitle">{findToast.title.toUpperCase()}</div>
+    <div className="findFact">{findToast.fact}</div>
+  </div>;
+}
 
 const ORBIT_GAME_S = 90;     // one target orbit takes this many seconds of play
 const BURN_S = 3;            // full throttle reaches the orbital speed in this many seconds
@@ -181,6 +270,7 @@ function say(text: string) {
 
 function init() {
   best = rg.load("best", 0);
+  loadFound();
   build();
   reset();
 }
@@ -195,6 +285,16 @@ function build() {
     const args = surface(b.id);
     args.id = b.id; args.r = b.r; args.tilt = b.tilt; args.spin = b.turn;
     args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
+    rg.three("planet", args);
+  }
+  for (const b of BONUS) {
+    // a cratered ball: the Moon's craters in the body's own colour
+    const args = surface("moon");
+    args.texture = "";
+    const col = BONUS_INFO[b.id].color;
+    args.ocean = col;
+    args.colors = { sea: shade(col, 0.7), rim: shade(col, 1.15), floor: shade(col, 0.9), bright: shade(col, 1.25) };
+    args.id = b.id; args.r = b.r; args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
     rg.three("planet", args);
   }
   // the ship: a grey hull, an amber canopy, a blue ion flame
@@ -251,10 +351,60 @@ function placeBodies() {
     const p = R(b.pos);
     rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2], spin });
   }
+  for (const b of BONUS) {
+    const p = R(b.pos);
+    rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2] });
+  }
+  updateDetail();
   const s = R([0, 0, 0]);
   rg.three("space", { sun: s });
   const l = norm(mul(pos, -1));
   rg.three("light", { id: "sun", type: "directional", x: l[0], y: l[1], z: l[2], intensity: 0.95 });
+}
+
+// sharper map pieces under the ship when it is low: NASA LRO WAC, 22.5° a
+// picture (16 × 8 of them), the 2 × 2 nearest the point under the ship
+const DETAIL: { [id: string]: string } = { moon: "img/moon/d5" };
+const DETAIL_ALT = 1500;
+let detailKey = "";
+let detailBody = "";
+function updateDetail() {
+  let key = "";
+  let list: any[] = [];
+  const b = field;
+  if (b && DETAIL[b.id]) {
+    const d = sub(pos, b.pos);
+    const r = len(d);
+    if (r - b.r < DETAIL_ALT) {
+      // the planet's own frame, as the engine turns it (scene3d.rs axes)
+      const spin = b.rot ? b.turn + simT * 2 * Math.PI / b.rot : b.turn;
+      const ss = Math.sin(spin), cs = Math.cos(spin), st = Math.sin(b.tilt), ct = Math.cos(b.tilt);
+      const ax = [cs * ct, cs * st, -ss];
+      const ay = [-ss * ct, -ss * st, -cs];
+      const az = [-st, ct, 0];
+      const lon = Math.atan2(dot(d, ay), dot(d, ax));
+      const lat = Math.asin(Math.max(-1, Math.min(1, dot(d, az) / r)));
+      const u = (lon / (2 * Math.PI) + 0.5) * 16;
+      const v = (0.5 - lat / Math.PI) * 8;
+      const c0 = Math.floor(u), r0 = Math.min(7, Math.floor(v));
+      const c1 = u - c0 < 0.5 ? c0 - 1 : c0 + 1;
+      const r1 = v - r0 < 0.5 ? Math.max(0, r0 - 1) : Math.min(7, r0 + 1);
+      const cols = [(c0 + 16) % 16, (c1 + 16) % 16];
+      const rows = r1 === r0 ? [r0] : [r0, r1];
+      for (const c of cols) {
+        for (const w of rows) {
+          list.push({ src: DETAIL[b.id] + "/" + c + "_" + w + ".jpg", u0: c / 16, v0: w / 8, u1: (c + 1) / 16, v1: (w + 1) / 8 });
+          key += c + "_" + w + " ";
+        }
+      }
+    }
+  }
+  const id = b ? b.id : "";
+  if (key === detailKey && id === detailBody) return;
+  if (detailBody && detailBody !== id) rg.three("planet", { id: detailBody, detail: [] });
+  if (id && DETAIL[id]) rg.three("planet", { id, detail: list });
+  detailKey = key;
+  detailBody = id;
 }
 
 function part(id: string, off: number[], a: number[], b: number[], c: number[], extra?: any) {
@@ -366,6 +516,146 @@ function start() {
 
 const PAD_R = 54;
 
+// the thermometer across the top: the temperature round the ship, -273 °C
+// (blue) to the Sun's surface (5500 °C) on a log scale of kelvins
+const T_MIN = 2.7, T_MAX = 5800, THERMO_W = 330;
+const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
+function envTempK() {
+  const d = len(pos);
+  let k = Math.min(T_MAX, 278.6 / Math.sqrt(Math.max(d, 1) / AU));
+  const b = field;
+  if (b && !auto && SURFACE_C[b.id] !== undefined) {
+    const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
+    const top = Math.max(b.atm, 10);
+    const s = SURFACE_C[b.id] + 273.15;
+    if (landed) k = s;
+    else if (alt < top) k = k + (s - k) * (1 - alt / top);
+  }
+  // in a shadow the ship cools towards the cold of space (as fast as the eyes adapt)
+  if (shadowNow || eyes > 0) k = k + (Math.min(k, 100) - k) * eyes;
+  if (heatQ > 0.05) k = Math.max(k, 300 + Math.min(1, heatQ / Q_MAX) * 1900);
+  return k;
+}
+function thermoX(kelvin: number) {
+  const l0 = Math.log(T_MIN), l1 = Math.log(T_MAX);
+  return THERMO_W * Math.max(0, Math.min(1, (Math.log(Math.max(T_MIN, kelvin)) - l0) / (l1 - l0)));
+}
+function thermometer() {
+  const k = envTempK();
+  const c = Math.round(k - 273.15);
+  const x = thermoX(k);
+  const x0 = thermoX(273.15), x1 = thermoX(1273.15);
+  const ticks = [[-273, 0.0], [-200, 73.15], [0, 273.15], [1000, 1273.15], [5500, 5773]];
+  const tagW = 64;
+  return <div className="thermo">
+    <div className="thermoTag" style={{ left: Math.max(0, Math.min(THERMO_W - tagW, x - tagW / 2)), width: tagW }}>{(c > 0 ? "+" : "") + c + " °C"}</div>
+    <div className="thermoBar" style={{ left: 0, width: x0, background: "linear-gradient(90deg, #2f6bff, #6fe0ff)", borderTopLeftRadius: 3, borderBottomLeftRadius: 3 }} />
+    <div className="thermoBar" style={{ left: x0, width: x1 - x0, background: "linear-gradient(90deg, #7dff8e, #ffcf5a)" }} />
+    <div className="thermoBar" style={{ left: x1, width: THERMO_W - x1, background: "linear-gradient(90deg, #ff9a3d, #ff4a2a)", borderTopRightRadius: 3, borderBottomRightRadius: 3 }} />
+    <div className="thermoNeedle" style={{ left: x - 1 }} />
+    {ticks.map((tk) => {
+      const tx = thermoX(tk[1]);
+      const w = 34;
+      const left = tk[0] === -273 ? 0 : tk[0] === 5500 ? THERMO_W - w : tx - w / 2;
+      const cls = tk[0] === -273 ? "thermoTick cold left" : tk[0] === 5500 ? "thermoTick hot right" : "thermoTick";
+      return <div className={cls} style={{ left, width: w }}>{String(tk[0])}</div>;
+    })}
+  </div>;
+}
+
+// the round map of the solar system, bottom left (the thrust button's twin)
+const MAP_R = 46;
+function mapCentre() { return { x: 12 + MAP_R, y: height - 10 - MAP_R }; }
+function onMap(px: number, py: number) {
+  const c = mapCentre(), dx = px - c.x, dy = py - c.y;
+  return dx * dx + dy * dy <= MAP_R * MAP_R;
+}
+const MAP_COLORS: { [id: string]: string } = { sun: "#ffcf5a", mercury: "#b9ada0", venus: "#e6c983", earth: "#64b0ff", mars: "#ea8052", jupiter: "#dcb68e" };
+// a point of the ecliptic (x-z plane) on the map: the distance from the Sun
+// as its square root, so the inner planets do not crowd the Sun
+let mapMax = 778.5e6;           // the map's edge: Jupiter, or farther when the ship is
+function mapPoint(p: number[]) {
+  const c = mapCentre();
+  const d = Math.sqrt(p[0] * p[0] + p[2] * p[2]);
+  const r = (MAP_R - 6) * Math.sqrt(Math.min(1.08, d / mapMax));
+  const a = Math.atan2(p[2], p[0]);
+  return { x: c.x + r * Math.cos(a), y: c.y - r * Math.sin(a), r };
+}
+// Halley's orbit (a 17.8 AU, e 0.967, tilted 18°, the far end where the comet is now)
+let halleyOrbit: number[][] = [];
+function makeHalleyOrbit() {
+  const h = BONUS.filter((x) => x.id === "halley")[0];
+  const A = norm(h.pos);
+  let n0 = sub([0, 1, 0], mul(A, A[1]));
+  n0 = norm(n0);
+  const N = norm(rotate(n0, A, 18 * Math.PI / 180));
+  const B = norm(cross(N, A));
+  const a = 17.83 * AU, e = 0.967;
+  halleyOrbit = [];
+  for (let i = 0; i <= 72; i++) {
+    // even steps of the true anomaly: dense where it turns round the Sun
+    const u = i / 72;
+    const nu = Math.PI * (2 * u - 1);
+    const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
+    halleyOrbit.push(add(mul(A, -r * Math.cos(nu)), mul(B, r * Math.sin(nu))));
+  }
+}
+function mapRing(au: number, color: string) {
+  const c = mapCentre();
+  const r = (MAP_R - 6) * Math.sqrt(au * AU / mapMax);
+  if (r > MAP_R - 2 || r < 1.5) return null;
+  return <div className="mapOrbit" style={{ left: c.x - r, top: c.y - r, width: r * 2, height: r * 2, borderRadius: r, borderColor: color }} />;
+}
+function miniMap() {
+  const c = mapCentre();
+  const out: any[] = [];
+  mapMax = Math.max(778.5e6, Math.sqrt(pos[0] * pos[0] + pos[2] * pos[2]) * 1.12);
+  out.push(<div className="mapDisc" style={{ left: c.x - MAP_R, top: c.y - MAP_R, width: MAP_R * 2, height: MAP_R * 2, borderRadius: MAP_R }} />);
+  // the asteroid belt and the Kuiper belt as faint rings
+  out.push(mapRing(2.1, "rgba(214,180,120,0.22)"));
+  out.push(mapRing(3.3, "rgba(214,180,120,0.22)"));
+  out.push(mapRing(30, "rgba(140,190,255,0.22)"));
+  out.push(mapRing(50, "rgba(140,190,255,0.22)"));
+  if (found["halley"]) {
+    if (!halleyOrbit.length) makeHalleyOrbit();
+    for (let i = 1; i < halleyOrbit.length; i += 2) {
+      const seg = orbitSegment(mapPoint(halleyOrbit[i - 1]), mapPoint(halleyOrbit[i]), "rgba(190,220,255,0.45)", 1);
+      if (seg) out.push(seg);
+    }
+  }
+  for (const b of BODIES) {
+    if (b.id === "sun" || b.id === "moon") continue;
+    const q = mapPoint(b.pos);
+    out.push(<div className="mapOrbit" style={{ left: c.x - q.r, top: c.y - q.r, width: q.r * 2, height: q.r * 2, borderRadius: q.r }} />);
+  }
+  const ship = mapPoint(pos);
+  if (auto) {
+    const q = mapPoint(auto.b.pos);
+    const seg = orbitSegment(ship, q, "rgba(255,176,0,0.55)", 1);
+    if (seg) out.push(seg);
+  }
+  for (const b of BODIES) {
+    if (b.id === "moon") continue;
+    const q = mapPoint(b.pos);
+    const s = b.id === "sun" ? 7 : b.id === "jupiter" ? 6 : 4;
+    if (b === field || (auto && auto.b === b)) {
+      out.push(<div className="mapHere" style={{ left: q.x - 5.5, top: q.y - 5.5, width: 11, height: 11, borderRadius: 5.5 }} />);
+    }
+    out.push(<div className="mapDot" style={{ left: q.x - s / 2, top: q.y - s / 2, width: s, height: s, borderRadius: s / 2, backgroundColor: MAP_COLORS[b.id] }} />);
+  }
+  // bonus bodies: only near (white, blinking) or once found (gold)
+  for (const b of BONUS) {
+    const near = bonusSeen(b);
+    if (!near && !found[b.id]) continue;
+    const q = mapPoint(b.pos);
+    if (near && !found[b.id] && (t * 3) % 1 > 0.6) continue;
+    out.push(<div className="mapDot" style={{ left: q.x - 1.5, top: q.y - 1.5, width: 3, height: 3, borderRadius: 1.5, backgroundColor: found[b.id] ? "#ffcf5a" : "#ffffff" }} />);
+  }
+  const blink = (t * 2) % 1 < 0.6;
+  out.push(<div className={blink ? "mapShip" : "mapShip dim"} style={{ left: ship.x - 2, top: ship.y - 2 }} />);
+  return out;
+}
+
 function onThrottleButton(px: number, py: number) {
   const dx = px - (width - 58), dy = py - (height - 58);
   return dx * dx + dy * dy <= 54 * 54;
@@ -373,6 +663,7 @@ function onThrottleButton(px: number, py: number) {
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { if (onStart(px, py) && t > 0.6) start(); return; }
   if (dead) { if (t - dead.t > 1.5 && checkpoint) loadCheckpoint(); return; }
+  if (onMap(px, py)) return;
   if (field && !auto && onTimeCell(px, py)) {
     realTime = !realTime;
     orbitCacheAt = -100;
@@ -510,6 +801,15 @@ function stepAuto(dt: number) {
   if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
   thrusting = u < 0.85 ? 1 : 0;
   simT += dt * 60;
+  if (u >= 1 && a.b.bonus) {
+    auto = null;
+    thrusting = 0;
+    vel = [0, 0, 0];
+    cruise = 0;
+    fwd = want;
+    say(a.b.name + " " + distText(Math.max(0, len(sub(a.b.pos, pos)) - a.b.r)));
+    return;
+  }
   if (u >= 1) {
     auto = null;
     thrusting = 0;
@@ -552,7 +852,13 @@ function cruiseCap() {
     if (e < bestE) { bestE = e; cb = b; }
   }
   const floor = 0.5 * vesc(cb, cb.reach) * cb.warp;
-  return Math.max(floor, bestE * CRUISE_K);
+  let cap = Math.max(floor, bestE * CRUISE_K);
+  // slower near a bonus body (a hint that something is near)
+  for (const b of BONUS) {
+    const e = len(sub(pos, b.pos)) - b.reach;
+    cap = Math.min(cap, Math.max(400, e * CRUISE_K));
+  }
+  return cap;
 }
 
 function enterField(b: Body, v: number[]) {
@@ -662,6 +968,47 @@ function step(dt: number, c: any) {
 }
 
 // time runs slower in the air, so that an entry can be watched (and flown)
+// the middle column's left edge on a wide screen (the HUD stays at the left)
+function midX(off: number) { return Math.max(0, (width - 360) / 2) + off; }
+// the eyes adapt: in a body's shadow the night side slowly comes out of the
+// dark (eyes 0 → 1 in ~10 s); back in the sunlight they adapt faster and the
+// light dazzles for a moment
+let eyes = 0;                  // how dark-adapted the eyes are, 0…1
+let eyesSent = -1;
+let dazzle = 0;                // the white glare on leaving the shadow, 0…1
+let shadowNow = false;
+const EYES_NIGHT = 0.3;        // the planets' night when fully adapted (base ~0.94)
+function setEyes(a: number) {
+  eyes = a;
+  if (Math.abs(a - eyesSent) < 0.01 && a !== 0 && a !== 1) return;
+  if (a === eyesSent) return;
+  eyesSent = a;
+  for (const b of BODIES) {
+    const base = surface(b.id).night;
+    rg.three("planet", { id: b.id, night: base + (Math.min(base, EYES_NIGHT) - base) * a });
+  }
+}
+// whether a body stands between the ship and the Sun (its shadow as a cylinder)
+function inShadow() {
+  const s = norm(mul(pos, -1));
+  for (const b of BODIES) {
+    if (b.id === "sun") continue;
+    const d = sub(b.pos, pos);
+    const along = dot(d, s);
+    if (along <= 0) continue;
+    if (len(sub(d, mul(s, along))) < b.r) return true;
+  }
+  return false;
+}
+function adaptEyes(dt: number) {
+  const dark = screen === "play" && !dead && inShadow();
+  if (shadowNow && !dark && eyes > 0.2) dazzle = Math.max(dazzle, eyes * 0.55);
+  shadowNow = dark;
+  // dark adaptation slow (~10 s), light adaptation ~2 s
+  const a = dark ? Math.min(1, eyes + dt / 10) : Math.max(0, eyes - dt / 2);
+  setEyes(a);
+  dazzle = Math.max(0, dazzle - dt * 0.8);
+}
 let realTime = false;          // tap the TIME cell: real time ↔ the place's own speed-up
 function onTimeCell(px: number, py: number) { return px >= 226 && px <= 358 && py >= 56 && py <= 102; }
 function warpNow(b: Body) {
@@ -787,6 +1134,7 @@ function reach(b: Body) {
 
 function tick(dt: number) {
   t += dt;
+  adaptEyes(Math.min(dt, 0.1));
   if (messageClock > 0) messageClock -= dt;
   if (screen !== "play") {
     // the title: the camera circles the Earth at 16 000 km
@@ -813,6 +1161,9 @@ function tick(dt: number) {
     const n = field ? 10 : 2;
     for (let i = 0; i < n; i++) step(h / n, c);
   }
+  checkFinds();
+  if (findToast) { findToast.t += dt; if (findToast.t > 7) findToast = null; }
+  if (!findToast && findQueue.length) findToast = findQueue.shift();
   placeAll();
   camera(auto ? 1 : Math.min(1, dt * 5));
   updateOrbit(h);
@@ -933,7 +1284,7 @@ function orbitReticle() {
   const ux = distance > 0.1 ? dx / distance : 0;
   const uy = distance > 0.1 ? dy / distance : -1;
   const ax = Math.max(20, Math.min(width - 20, sx + ux * 58));
-  const ay = Math.max(146, Math.min(maxY - 8, sy + uy * 58));
+  const ay = Math.max(158, Math.min(maxY - 8, sy + uy * 58));
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   // red and blinking on a course into the ground
   const danger = orbitOutcome === "impact" && !chute && Math.floor(t * 4) % 2 ? " danger" : "";
@@ -1120,7 +1471,8 @@ function spots() {
   const f = norm(sub(cam.look, cam.pos));
   const rr = norm(cross(f, cam.up));
   const u = cross(rr, f);
-  for (const b of BODIES) {
+  const list = BODIES.concat(BONUS.filter((x) => bonusSeen(x)));
+  for (const b of list) {
     const d = len(sub(b.pos, pos)) - b.r;
     const s = project(b.pos);
     if (s && s.x > 0 && s.x < width && s.y > 0 && s.y < height) {
@@ -1130,7 +1482,7 @@ function spots() {
       let ax = dot(dd, rr), ay = -dot(dd, u);
       const l = Math.sqrt(ax * ax + ay * ay) || 1;
       ax /= l; ay /= l;
-      const top = 140, bottom = height - 200;
+      const top = 152, bottom = height - 200;
       const cy = (top + bottom) / 2;
       const k = Math.min((width / 2 - 26) / Math.max(0.01, Math.abs(ax)), (bottom - top) / 2 / Math.max(0.01, Math.abs(ay)));
       out.push({ b, d, edge: true, x: width / 2 + ax * k, y: cy + ay * k, rpx: 16 });
@@ -1172,32 +1524,32 @@ function markers() {
     if (!s.edge) {
       if (s.rpx > width * 0.6) continue;
       const box = Math.max(16, Math.min(80, s.rpx * 2 + 10));
-      if (s.y > 120 && s.y < height - 40) out.push(<div className={visited[b.id] ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
+      if (s.y > 132 && s.y < height - 40) out.push(<div className={done(b) ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
       const y = s.y - box / 2 - 15;
-      if (y < 122 || y > height - 60) continue;
-      out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
-        {(visited[b.id] ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
+      if (y < 134 || y > height - 60) continue;
+      out.push(<div className={done(b) ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
+        {(done(b) ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
     } else {
       if (b === field) continue;
       // slide along the edge: 0, +1, -1, +2, -2 … steps from where it points
-      const alongX = s.y < 150 || s.y > height - 210;
+      const alongX = s.y < 162 || s.y > height - 210;
       let x = s.x, y = s.y;
       let k = 1;
       while (k < 12 && clashes(px, py, x, y)) {
         const n = Math.ceil(k / 2) * (k % 2 ? 1 : -1);
         if (alongX) x = Math.max(26, Math.min(width - 26, s.x + n * 48));
-        else y = Math.max(140, Math.min(height - 200, s.y + n * 26));
+        else y = Math.max(152, Math.min(height - 200, s.y + n * 26));
         k = k + 1;
       }
       // the edge is full: stack the tag in a row inwards
       let row = 1;
       while (row < 6 && clashes(px, py, x, y)) {
-        if (alongX) y = s.y + (s.y < 150 ? 1 : -1) * row * 26;
+        if (alongX) y = s.y + (s.y < 162 ? 1 : -1) * row * 26;
         else x = s.x + (s.x < width / 2 ? 1 : -1) * row * 48;
         row = row + 1;
       }
       px.push(x); py.push(y);
-      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: x - 22, top: y - 11 }}>{b.code}</div>);
+      out.push(<div className={done(b) ? "edge seen" : "edge"} style={{ left: x - 22, top: y - 11 }}>{b.code}</div>);
     }
   }
   return out;
@@ -1254,6 +1606,7 @@ function titleView() {
           <div className="bootDim">{rg.t("VEDÄ = OHJAUS · TYÖNTÖ = MOOTTORI", "DRAG = STEER · THRUST = ENGINE", "ARRASTRA = GIRAR · EMPUJE = MOTOR")}</div>
           <div className="bootDim">{rg.t("NAPAUTA KOHDETTA = MATKA SEN LUO", "TAP A TARGET = CRUISE TO IT", "TOCA UN DESTINO = VIAJA HACIA ÉL")}</div>
           <div className="bootDim">{rg.t("SEURAA VIHREÄÄ TÄHTÄINTÄ", "FOLLOW THE GREEN SIGHT", "SIGUE LA MIRA VERDE")}</div>
+          {Object.keys(found).length > 0 ? <div className="bootDim">{"✦ " + rg.t("LÖYDÖT ", "FINDS ", "HALLAZGOS ") + Object.keys(found).length + "/" + FIND_TOTAL}</div> : null}
           {best > 0 ? <div className="bootDim">{rg.t("PARAS: KAIKKI ", "BEST: ALL WITH ", "MEJOR: TODOS CON ") + best + rg.t(" TÖRMÄYKSELLÄ", " IMPACTS", " IMPACTOS")}</div> : null}
         </div> : null}
       </div>
@@ -1286,13 +1639,13 @@ function warnings() {
     out.push(<div className="warn amber">{rg.t("LIIAN NOPEA LASKUVARJOLLE", "TOO FAST FOR THE PARACHUTE", "DEMASIADO RÁPIDO PARA EL PARACAÍDAS")}</div>);
   if (chute) out.push(<div className="warn green">{rg.t("LASKUVARJO AUKI · ", "PARACHUTE OPEN · ", "PARACAÍDAS ABIERTO · ") + fmt(len(vel) * 1000, 0) + " M/S"}</div>);
   if (!out.length) return null;
-  return <div className="warnBox" style={{ top: 146 }}>{out}</div>;
+  return <div className="warnBox" style={{ top: 158, left: midX(16) }}>{out}</div>;
 }
 
 function deadView() {
   const d = dead!;
   return <div className="deadLayer">
-    <div className="deadBox" style={{ top: height * 0.32 }}>
+    <div className="deadBox" style={{ top: height * 0.32, left: midX(24) }}>
       <div className="deadHead">{rg.t("!! ALUS MENETETTY !!", "!! SHIP LOST !!", "!! NAVE PERDIDA !!")}</div>
       <div className="deadCause">{d.cause}</div>
       <div className="deadSub">{t - d.t > 1.5 ? rg.t("NAPAUTA: LATAA VARMUUSKOPIO", "TAP: RESTORE BACKUP", "TOCA: RESTAURAR COPIA") + cursor() : " "}</div>
@@ -1327,7 +1680,6 @@ function view() {
   }
   const maneuver = b && !auto && !landed ? orbitManeuver(b) : null;
   const aimingCorrectly = !!(maneuver && maneuver.locked && !maneuver.ready && !maneuver.coast);
-  const codes = BODIES.map((x) => <div className={visited[x.id] ? "code on" : (x === field ? "code here" : "code")}>{x.code}</div>);
   return (
     <div className="screen">
       {sunGlare()}
@@ -1343,19 +1695,22 @@ function view() {
           <div className="cell"><div className="lab">{rg.t("PAINOVOIMA", "GRAVITY", "GRAVEDAD")}</div><div className="val">{gText}</div></div>
           <div className={b && !auto ? "cell tap" : "cell"}><div className="lab">{rg.t("AIKA", "TIME", "TIEMPO")}</div><div className={timeText === "WARP" ? "val warn" : "val"}>{timeText}</div></div>
         </div>
-        <div className="codes">{codes}</div>
+        {thermometer()}
       </div>
       {orbitHud()}
-      <div className="spd">
-        <div className="lab">{rg.t("NOPEUS", "VELOCITY", "VELOCIDAD")}</div>
+      {miniMap()}
+      <div className="spd" style={{ left: width / 2 - 72 }}>
+        <div className="spdLab">{rg.t("NOPEUS", "VELOCITY", "VELOCIDAD")}</div>
         <div className="spdv">{speed}</div>
-        <div className="lab">{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
+        <div className={thrusting ? "spdLab on" : "spdLab"}>{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
       </div>
+      {dazzle > 0.01 ? <div className="dazzle" style={{ opacity: dazzle }} /> : null}
       {warnings()}
+      {findToastView()}
       {heatQ > Q_MAX * 0.15 ? <div className="heatTint" style={{ opacity: Math.min(0.55, heatQ / Q_MAX * 0.5) }} /> : null}
       {dead ? deadView() : null}
       {t - lastBounce < 1.0 ? <div className="alert" style={{ top: height * 0.4 }}><div className="alertt">{bounceText}</div></div> : null}
-      {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3 }}>{"> " + message + cursor()}</div> : null}
+      {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3, left: midX(16) }}>{"> " + message + cursor()}</div> : null}
       {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
         <div className="knob" style={{ left: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dx)), top: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dy)) }}></div>
       </div> : null}
