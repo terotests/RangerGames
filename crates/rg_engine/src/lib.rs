@@ -187,6 +187,14 @@ pub struct GameInfo {
     /// with Google TTS speech): when it is installed, that game leaves the
     /// list and this one takes its place (its order and section)
     pub replaces: String,
+    /// a game the app came with that an installed download replaces: that
+    /// game's id (the launcher shows one of the two, the player's choice or
+    /// else the newer)
+    pub replaced_by: String,
+    /// when the game's files last changed (RFC 3339): a built-in game's last
+    /// commit (`_built.json`, written by the build), a download's acceptance
+    /// (`_store.json` "updated"); empty when unknown
+    pub updated: String,
 }
 
 impl GameInfo {
@@ -220,6 +228,8 @@ impl GameInfo {
             image: s("image", ""),
             store: Json::Null,
             replaces: s("replaces", ""),
+            replaced_by: String::new(),
+            updated: String::new(),
         }
     }
 
@@ -237,6 +247,8 @@ impl GameInfo {
             member("image", Json::Str(if self.image.is_empty() { String::new() } else { format!("{}/{}", self.dir, self.image) })),
             member("store", self.store.clone()),
             member("replaces", Json::Str(self.replaces.clone())),
+            member("replacedBy", Json::Str(self.replaced_by.clone())),
+            member("updated", Json::Str(self.updated.clone())),
         ])
     }
 }
@@ -371,6 +383,10 @@ impl Engine {
             }
             let j = json::parse(&self.vfs.read_text(&manifest));
             let mut info = GameInfo::from_json(&id, &dir, &j);
+            let built = format!("{}/_built.json", dir);
+            if self.vfs.exists(&built) {
+                info.updated = json::parse(&self.vfs.read_text(&built)).get("updated").as_str();
+            }
             // a downloaded game: the host's note of it; one the player
             // removed is gone from the list now, its files at the next start
             let note = format!("{}/_store.json", dir);
@@ -379,27 +395,31 @@ impl Engine {
                 if st.get("removed").as_bool() {
                     continue;
                 }
+                let up = st.get("updated").as_str();
+                if !up.is_empty() {
+                    info.updated = up;
+                }
                 info.store = st;
             }
             out.push(info);
         }
         // an installed download that replaces a game the app came with takes
-        // that game's place: its order and section, and the old one leaves
-        let mut gone: Vec<String> = Vec::new();
+        // that game's order and section; the old one is marked (replaced_by)
+        // and the launcher shows one of the two
         for i in 0..out.len() {
             if out[i].store.is_null() || out[i].replaces.is_empty() || out[i].replaces == out[i].id {
                 continue;
             }
             let r = out[i].replaces.clone();
-            if let Some(old) = out.iter().find(|g| g.id == r && g.store.is_null()).cloned() {
-                out[i].order = old.order;
+            let id = out[i].id.clone();
+            if let Some(k) = out.iter().position(|g| g.id == r && g.store.is_null()) {
+                out[i].order = out[k].order;
                 if out[i].section.is_empty() {
-                    out[i].section = old.section.clone();
+                    out[i].section = out[k].section.clone();
                 }
-                gone.push(r);
+                out[k].replaced_by = id;
             }
         }
-        out.retain(|g| !(g.store.is_null() && gone.contains(&g.id)));
         out.sort_by(|a, b| {
             a.order.partial_cmp(&b.order).unwrap_or(std::cmp::Ordering::Equal).then(a.name.cmp(&b.name))
         });

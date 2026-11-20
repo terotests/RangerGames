@@ -490,7 +490,7 @@
   function storeFolder(m) { return m.kind === "addon" ? m["extends"] + "/addons/" + m.id : m.id; }
 
   Host.prototype.storeNote = function (m, removed) {
-    var n = { id: m.id, version: m.version, kind: m.kind, "extends": m["extends"] || "", source: m.source || "" };
+    var n = { id: m.id, version: m.version, kind: m.kind, "extends": m["extends"] || "", source: m.source || "", updated: m.updated || "" };
     if (removed) n.removed = true;
     this.putFile("/games/" + storeFolder(m) + "/_store.json", enc.encode(JSON.stringify(n)));
   };
@@ -549,7 +549,7 @@
     if (kind === "game" && !this.storeIndex[id] && this.readFile("/games/" + id + "/game.json")) { err(id, "taken"); return; }
     if (kind === "addon" && !this.readFile("/games/" + ext + "/game.json")) { err(id, "no-base"); return; }
     if ((+a.bytes || 0) > STORE_MAX) { err(id, "too-big"); return; }
-    var meta = { id: id, version: +a.version || 1, kind: kind, "extends": ext, name: String(a.name || id), source: String(a.source || "") };
+    var meta = { id: id, version: +a.version || 1, kind: kind, "extends": ext, name: String(a.name || id), source: String(a.source || ""), updated: String(a.updated || "") };
     var told = 0;
     this.download(String(a.pack), +a.bytes || 0, function (u, got, total) {
       if (got - told >= 262144) { told = got; self.storeEvent({ type: "progress", id: id, done: got, total: total }); }

@@ -59,3 +59,10 @@
 .bar { width: 220px; height: 14px; border-radius: 7px; margin-top: 10px; margin-right: 10px; background-color: rgba(0, 0, 0, 0.3); }
 .barfill { height: 14px; border-radius: 7px; background-color: #06d6a0; }
 .ogrey { background-color: #5a4b9c; }
+/* the menu over the page: a long press on a tile, or which of a replaced game to show */
+.mback { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); align-items: center; justify-content: center; }
+.menu { width: 316px; padding: 16px; padding-bottom: 18px; border-radius: 22px; background-color: #2b2d6e; align-items: center; }
+.micon { font-size: 44px; }
+.mtitle { font-size: 20px; font-weight: 700; color: #ffd166; text-align: center; margin-top: 4px; margin-bottom: 6px; }
+.mline { font-size: 16px; color: #ffffff; text-align: center; margin-top: 4px; }
+.mhint { width: 280px; font-size: 13px; color: #c9c8ff; text-align: center; margin-top: 6px; }

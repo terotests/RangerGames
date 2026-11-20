@@ -54,6 +54,13 @@ rm -rf "$ASSETS/voice" && mkdir -p "$ASSETS/voice"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
 cp -RL games "$STAGE/games"
+# each game's last commit date: the launcher compares it with a downloaded
+# copy's (game.json "replaces") to show the newer one
+for d in "$STAGE"/games/*/; do
+  id=$(basename "$d")
+  up=$(git log -1 --format=%cI -- "games/$id" 2>/dev/null || true)
+  if [[ -f "$d/game.json" && -n "$up" ]]; then printf '{"updated":"%s"}' "$up" > "$d/_built.json"; fi
+done
 for d in "$STAGE"/games/_voice/*/; do
   lang=$(basename "$d")
   mkdir -p "$ASSETS/voice/$lang"

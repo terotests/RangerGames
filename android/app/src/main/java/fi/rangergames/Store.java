@@ -135,6 +135,7 @@ final class Store {
         n.put("kind", e.optString("kind", "game"));
         n.put("extends", e.optString("extends", ""));
         n.put("source", e.optString("source", ""));
+        n.put("updated", e.optString("updated", ""));
         if (removed) n.put("removed", true);
         String at = folder(id, e.optString("kind"), e.optString("extends"));
         Engine.put("/games/" + at + "/_store.json", n.toString().getBytes(StandardCharsets.UTF_8));
@@ -472,6 +473,7 @@ final class Store {
             e.put("extends", ext);
             e.put("name", g.optString("name", id));
             e.put("source", g.optString("source", ""));
+            e.put("updated", g.optString("updated", ""));   // when the admin accepted this version
             e.put("at", System.currentTimeMillis());
             index.put(id, e);
             writeIndex();
