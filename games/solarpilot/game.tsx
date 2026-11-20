@@ -251,10 +251,56 @@ function placeBodies() {
     const p = R(b.pos);
     rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2], spin });
   }
+  updateDetail();
   const s = R([0, 0, 0]);
   rg.three("space", { sun: s });
   const l = norm(mul(pos, -1));
   rg.three("light", { id: "sun", type: "directional", x: l[0], y: l[1], z: l[2], intensity: 0.95 });
+}
+
+// sharper map pieces under the ship when it is low: NASA LRO WAC, 22.5° a
+// picture (16 × 8 of them), the 2 × 2 nearest the point under the ship
+const DETAIL: { [id: string]: string } = { moon: "img/moon/d5" };
+const DETAIL_ALT = 1500;
+let detailKey = "";
+let detailBody = "";
+function updateDetail() {
+  let key = "";
+  let list: any[] = [];
+  const b = field;
+  if (b && DETAIL[b.id]) {
+    const d = sub(pos, b.pos);
+    const r = len(d);
+    if (r - b.r < DETAIL_ALT) {
+      // the planet's own frame, as the engine turns it (scene3d.rs axes)
+      const spin = b.rot ? b.turn + simT * 2 * Math.PI / b.rot : b.turn;
+      const ss = Math.sin(spin), cs = Math.cos(spin), st = Math.sin(b.tilt), ct = Math.cos(b.tilt);
+      const ax = [cs * ct, cs * st, -ss];
+      const ay = [-ss * ct, -ss * st, -cs];
+      const az = [-st, ct, 0];
+      const lon = Math.atan2(dot(d, ay), dot(d, ax));
+      const lat = Math.asin(Math.max(-1, Math.min(1, dot(d, az) / r)));
+      const u = (lon / (2 * Math.PI) + 0.5) * 16;
+      const v = (0.5 - lat / Math.PI) * 8;
+      const c0 = Math.floor(u), r0 = Math.min(7, Math.floor(v));
+      const c1 = u - c0 < 0.5 ? c0 - 1 : c0 + 1;
+      const r1 = v - r0 < 0.5 ? Math.max(0, r0 - 1) : Math.min(7, r0 + 1);
+      const cols = [(c0 + 16) % 16, (c1 + 16) % 16];
+      const rows = r1 === r0 ? [r0] : [r0, r1];
+      for (const c of cols) {
+        for (const w of rows) {
+          list.push({ src: DETAIL[b.id] + "/" + c + "_" + w + ".jpg", u0: c / 16, v0: w / 8, u1: (c + 1) / 16, v1: (w + 1) / 8 });
+          key += c + "_" + w + " ";
+        }
+      }
+    }
+  }
+  const id = b ? b.id : "";
+  if (key === detailKey && id === detailBody) return;
+  if (detailBody && detailBody !== id) rg.three("planet", { id: detailBody, detail: [] });
+  if (id && DETAIL[id]) rg.three("planet", { id, detail: list });
+  detailKey = key;
+  detailBody = id;
 }
 
 function part(id: string, off: number[], a: number[], b: number[], c: number[], extra?: any) {
@@ -366,6 +412,99 @@ function start() {
 
 const PAD_R = 54;
 
+// the thermometer across the top: the temperature round the ship, -273 °C
+// (blue) to the Sun's surface (5500 °C) on a log scale of kelvins
+const T_MIN = 2.7, T_MAX = 5800, THERMO_W = 330;
+const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
+function envTempK() {
+  const d = len(pos);
+  let k = Math.min(T_MAX, 278.6 / Math.sqrt(Math.max(d, 1) / AU));
+  const b = field;
+  if (b && !auto && SURFACE_C[b.id] !== undefined) {
+    const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
+    const top = Math.max(b.atm, 10);
+    const s = SURFACE_C[b.id] + 273.15;
+    if (landed) k = s;
+    else if (alt < top) k = k + (s - k) * (1 - alt / top);
+  }
+  // in a shadow the ship cools towards the cold of space (as fast as the eyes adapt)
+  if (shadowNow || eyes > 0) k = k + (Math.min(k, 100) - k) * eyes;
+  if (heatQ > 0.05) k = Math.max(k, 300 + Math.min(1, heatQ / Q_MAX) * 1900);
+  return k;
+}
+function thermoX(kelvin: number) {
+  const l0 = Math.log(T_MIN), l1 = Math.log(T_MAX);
+  return THERMO_W * Math.max(0, Math.min(1, (Math.log(Math.max(T_MIN, kelvin)) - l0) / (l1 - l0)));
+}
+function thermometer() {
+  const k = envTempK();
+  const c = Math.round(k - 273.15);
+  const x = thermoX(k);
+  const x0 = thermoX(273.15), x1 = thermoX(1273.15);
+  const ticks = [[-273, 0.0], [-200, 73.15], [0, 273.15], [1000, 1273.15], [5500, 5773]];
+  const tagW = 64;
+  return <div className="thermo">
+    <div className="thermoTag" style={{ left: Math.max(0, Math.min(THERMO_W - tagW, x - tagW / 2)), width: tagW }}>{(c > 0 ? "+" : "") + c + " °C"}</div>
+    <div className="thermoBar" style={{ left: 0, width: x0, background: "linear-gradient(90deg, #2f6bff, #6fe0ff)", borderTopLeftRadius: 3, borderBottomLeftRadius: 3 }} />
+    <div className="thermoBar" style={{ left: x0, width: x1 - x0, background: "linear-gradient(90deg, #7dff8e, #ffcf5a)" }} />
+    <div className="thermoBar" style={{ left: x1, width: THERMO_W - x1, background: "linear-gradient(90deg, #ff9a3d, #ff4a2a)", borderTopRightRadius: 3, borderBottomRightRadius: 3 }} />
+    <div className="thermoNeedle" style={{ left: x - 1 }} />
+    {ticks.map((tk) => {
+      const tx = thermoX(tk[1]);
+      const w = 34;
+      const left = tk[0] === -273 ? 0 : tk[0] === 5500 ? THERMO_W - w : tx - w / 2;
+      const cls = tk[0] === -273 ? "thermoTick cold left" : tk[0] === 5500 ? "thermoTick hot right" : "thermoTick";
+      return <div className={cls} style={{ left, width: w }}>{String(tk[0])}</div>;
+    })}
+  </div>;
+}
+
+// the round map of the solar system, bottom left (the thrust button's twin)
+const MAP_R = 46;
+function mapCentre() { return { x: 12 + MAP_R, y: height - 10 - MAP_R }; }
+function onMap(px: number, py: number) {
+  const c = mapCentre(), dx = px - c.x, dy = py - c.y;
+  return dx * dx + dy * dy <= MAP_R * MAP_R;
+}
+const MAP_COLORS: { [id: string]: string } = { sun: "#ffcf5a", mercury: "#b9ada0", venus: "#e6c983", earth: "#64b0ff", mars: "#ea8052", jupiter: "#dcb68e" };
+// a point of the ecliptic (x-z plane) on the map: the distance from the Sun
+// as its square root, so the inner planets do not crowd the Sun
+function mapPoint(p: number[]) {
+  const c = mapCentre();
+  const d = Math.sqrt(p[0] * p[0] + p[2] * p[2]);
+  const r = (MAP_R - 6) * Math.sqrt(Math.min(1.08, d / 778.5e6));
+  const a = Math.atan2(p[2], p[0]);
+  return { x: c.x + r * Math.cos(a), y: c.y - r * Math.sin(a), r };
+}
+function miniMap() {
+  const c = mapCentre();
+  const out: any[] = [];
+  out.push(<div className="mapDisc" style={{ left: c.x - MAP_R, top: c.y - MAP_R, width: MAP_R * 2, height: MAP_R * 2, borderRadius: MAP_R }} />);
+  for (const b of BODIES) {
+    if (b.id === "sun" || b.id === "moon") continue;
+    const q = mapPoint(b.pos);
+    out.push(<div className="mapOrbit" style={{ left: c.x - q.r, top: c.y - q.r, width: q.r * 2, height: q.r * 2, borderRadius: q.r }} />);
+  }
+  const ship = mapPoint(pos);
+  if (auto) {
+    const q = mapPoint(auto.b.pos);
+    const seg = orbitSegment(ship, q, "rgba(255,176,0,0.55)", 1);
+    if (seg) out.push(seg);
+  }
+  for (const b of BODIES) {
+    if (b.id === "moon") continue;
+    const q = mapPoint(b.pos);
+    const s = b.id === "sun" ? 7 : b.id === "jupiter" ? 6 : 4;
+    if (b === field || (auto && auto.b === b)) {
+      out.push(<div className="mapHere" style={{ left: q.x - 5.5, top: q.y - 5.5, width: 11, height: 11, borderRadius: 5.5 }} />);
+    }
+    out.push(<div className="mapDot" style={{ left: q.x - s / 2, top: q.y - s / 2, width: s, height: s, borderRadius: s / 2, backgroundColor: MAP_COLORS[b.id] }} />);
+  }
+  const blink = (t * 2) % 1 < 0.6;
+  out.push(<div className={blink ? "mapShip" : "mapShip dim"} style={{ left: ship.x - 2, top: ship.y - 2 }} />);
+  return out;
+}
+
 function onThrottleButton(px: number, py: number) {
   const dx = px - (width - 58), dy = py - (height - 58);
   return dx * dx + dy * dy <= 54 * 54;
@@ -373,7 +512,7 @@ function onThrottleButton(px: number, py: number) {
 function onPointerDown(px: number, py: number, info: any) {
   if (screen === "title") { if (onStart(px, py) && t > 0.6) start(); return; }
   if (dead) { if (t - dead.t > 1.5 && checkpoint) loadCheckpoint(); return; }
-  if (onNvButton(px, py)) { setNightVision(!nightVision); return; }
+  if (onMap(px, py)) return;
   if (field && !auto && onTimeCell(px, py)) {
     realTime = !realTime;
     orbitCacheAt = -100;
@@ -663,17 +802,46 @@ function step(dt: number, c: any) {
 }
 
 // time runs slower in the air, so that an entry can be watched (and flown)
-let nightVision = false;       // the YÖNÄKÖ button: the night side amplified, green
-function nvBox() { return { x: 8, y: height - 108, w: 96, h: 28 }; }
-function onNvButton(px: number, py: number) { const b = nvBox(); return px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h; }
-function setNightVision(on: boolean) {
-  nightVision = on;
+// the middle column's left edge on a wide screen (the HUD stays at the left)
+function midX(off: number) { return Math.max(0, (width - 360) / 2) + off; }
+// the eyes adapt: in a body's shadow the night side slowly comes out of the
+// dark (eyes 0 → 1 in ~10 s); back in the sunlight they adapt faster and the
+// light dazzles for a moment
+let eyes = 0;                  // how dark-adapted the eyes are, 0…1
+let eyesSent = -1;
+let dazzle = 0;                // the white glare on leaving the shadow, 0…1
+let shadowNow = false;
+const EYES_NIGHT = 0.3;        // the planets' night when fully adapted (base ~0.94)
+function setEyes(a: number) {
+  eyes = a;
+  if (Math.abs(a - eyesSent) < 0.01 && a !== 0 && a !== 1) return;
+  if (a === eyesSent) return;
+  eyesSent = a;
   for (const b of BODIES) {
     const base = surface(b.id).night;
-    rg.three("planet", { id: b.id, night: on ? Math.min(base, 0.35) : base });
+    rg.three("planet", { id: b.id, night: base + (Math.min(base, EYES_NIGHT) - base) * a });
   }
-  rg.sound("click");
-  say(on ? rg.t("Yönäkö päällä", "Night vision on", "Visión nocturna activada") : rg.t("Yönäkö pois", "Night vision off", "Visión nocturna desactivada"));
+}
+// whether a body stands between the ship and the Sun (its shadow as a cylinder)
+function inShadow() {
+  const s = norm(mul(pos, -1));
+  for (const b of BODIES) {
+    if (b.id === "sun") continue;
+    const d = sub(b.pos, pos);
+    const along = dot(d, s);
+    if (along <= 0) continue;
+    if (len(sub(d, mul(s, along))) < b.r) return true;
+  }
+  return false;
+}
+function adaptEyes(dt: number) {
+  const dark = screen === "play" && !dead && inShadow();
+  if (shadowNow && !dark && eyes > 0.2) dazzle = Math.max(dazzle, eyes * 0.55);
+  shadowNow = dark;
+  // dark adaptation slow (~10 s), light adaptation ~2 s
+  const a = dark ? Math.min(1, eyes + dt / 10) : Math.max(0, eyes - dt / 2);
+  setEyes(a);
+  dazzle = Math.max(0, dazzle - dt * 0.8);
 }
 let realTime = false;          // tap the TIME cell: real time ↔ the place's own speed-up
 function onTimeCell(px: number, py: number) { return px >= 226 && px <= 358 && py >= 56 && py <= 102; }
@@ -800,6 +968,7 @@ function reach(b: Body) {
 
 function tick(dt: number) {
   t += dt;
+  adaptEyes(Math.min(dt, 0.1));
   if (messageClock > 0) messageClock -= dt;
   if (screen !== "play") {
     // the title: the camera circles the Earth at 16 000 km
@@ -946,7 +1115,7 @@ function orbitReticle() {
   const ux = distance > 0.1 ? dx / distance : 0;
   const uy = distance > 0.1 ? dy / distance : -1;
   const ax = Math.max(20, Math.min(width - 20, sx + ux * 58));
-  const ay = Math.max(146, Math.min(maxY - 8, sy + uy * 58));
+  const ay = Math.max(158, Math.min(maxY - 8, sy + uy * 58));
   const angle = Math.atan2(dy, dx) * 180 / Math.PI;
   // red and blinking on a course into the ground
   const danger = orbitOutcome === "impact" && !chute && Math.floor(t * 4) % 2 ? " danger" : "";
@@ -1143,7 +1312,7 @@ function spots() {
       let ax = dot(dd, rr), ay = -dot(dd, u);
       const l = Math.sqrt(ax * ax + ay * ay) || 1;
       ax /= l; ay /= l;
-      const top = 140, bottom = height - 200;
+      const top = 152, bottom = height - 200;
       const cy = (top + bottom) / 2;
       const k = Math.min((width / 2 - 26) / Math.max(0.01, Math.abs(ax)), (bottom - top) / 2 / Math.max(0.01, Math.abs(ay)));
       out.push({ b, d, edge: true, x: width / 2 + ax * k, y: cy + ay * k, rpx: 16 });
@@ -1185,27 +1354,27 @@ function markers() {
     if (!s.edge) {
       if (s.rpx > width * 0.6) continue;
       const box = Math.max(16, Math.min(80, s.rpx * 2 + 10));
-      if (s.y > 120 && s.y < height - 40) out.push(<div className={visited[b.id] ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
+      if (s.y > 132 && s.y < height - 40) out.push(<div className={visited[b.id] ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
       const y = s.y - box / 2 - 15;
-      if (y < 122 || y > height - 60) continue;
+      if (y < 134 || y > height - 60) continue;
       out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
         {(visited[b.id] ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
     } else {
       if (b === field) continue;
       // slide along the edge: 0, +1, -1, +2, -2 … steps from where it points
-      const alongX = s.y < 150 || s.y > height - 210;
+      const alongX = s.y < 162 || s.y > height - 210;
       let x = s.x, y = s.y;
       let k = 1;
       while (k < 12 && clashes(px, py, x, y)) {
         const n = Math.ceil(k / 2) * (k % 2 ? 1 : -1);
         if (alongX) x = Math.max(26, Math.min(width - 26, s.x + n * 48));
-        else y = Math.max(140, Math.min(height - 200, s.y + n * 26));
+        else y = Math.max(152, Math.min(height - 200, s.y + n * 26));
         k = k + 1;
       }
       // the edge is full: stack the tag in a row inwards
       let row = 1;
       while (row < 6 && clashes(px, py, x, y)) {
-        if (alongX) y = s.y + (s.y < 150 ? 1 : -1) * row * 26;
+        if (alongX) y = s.y + (s.y < 162 ? 1 : -1) * row * 26;
         else x = s.x + (s.x < width / 2 ? 1 : -1) * row * 48;
         row = row + 1;
       }
@@ -1299,13 +1468,13 @@ function warnings() {
     out.push(<div className="warn amber">{rg.t("LIIAN NOPEA LASKUVARJOLLE", "TOO FAST FOR THE PARACHUTE", "DEMASIADO RÁPIDO PARA EL PARACAÍDAS")}</div>);
   if (chute) out.push(<div className="warn green">{rg.t("LASKUVARJO AUKI · ", "PARACHUTE OPEN · ", "PARACAÍDAS ABIERTO · ") + fmt(len(vel) * 1000, 0) + " M/S"}</div>);
   if (!out.length) return null;
-  return <div className="warnBox" style={{ top: 146 }}>{out}</div>;
+  return <div className="warnBox" style={{ top: 158, left: midX(16) }}>{out}</div>;
 }
 
 function deadView() {
   const d = dead!;
   return <div className="deadLayer">
-    <div className="deadBox" style={{ top: height * 0.32 }}>
+    <div className="deadBox" style={{ top: height * 0.32, left: midX(24) }}>
       <div className="deadHead">{rg.t("!! ALUS MENETETTY !!", "!! SHIP LOST !!", "!! NAVE PERDIDA !!")}</div>
       <div className="deadCause">{d.cause}</div>
       <div className="deadSub">{t - d.t > 1.5 ? rg.t("NAPAUTA: LATAA VARMUUSKOPIO", "TAP: RESTORE BACKUP", "TOCA: RESTAURAR COPIA") + cursor() : " "}</div>
@@ -1340,7 +1509,6 @@ function view() {
   }
   const maneuver = b && !auto && !landed ? orbitManeuver(b) : null;
   const aimingCorrectly = !!(maneuver && maneuver.locked && !maneuver.ready && !maneuver.coast);
-  const codes = BODIES.map((x) => <div className={visited[x.id] ? "code on" : (x === field ? "code here" : "code")}>{x.code}</div>);
   return (
     <div className="screen">
       {sunGlare()}
@@ -1356,24 +1524,21 @@ function view() {
           <div className="cell"><div className="lab">{rg.t("PAINOVOIMA", "GRAVITY", "GRAVEDAD")}</div><div className="val">{gText}</div></div>
           <div className={b && !auto ? "cell tap" : "cell"}><div className="lab">{rg.t("AIKA", "TIME", "TIEMPO")}</div><div className={timeText === "WARP" ? "val warn" : "val"}>{timeText}</div></div>
         </div>
-        <div className="codes">{codes}</div>
+        {thermometer()}
       </div>
       {orbitHud()}
-      <div className="spd">
-        <div className="lab">{rg.t("NOPEUS", "VELOCITY", "VELOCIDAD")}</div>
+      {miniMap()}
+      <div className="spd" style={{ left: width / 2 - 72 }}>
+        <div className="spdLab">{rg.t("NOPEUS", "VELOCITY", "VELOCIDAD")}</div>
         <div className="spdv">{speed}</div>
-        <div className="lab">{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
+        <div className={thrusting ? "spdLab on" : "spdLab"}>{thrusting ? rg.t("MOOTTORI PÄÄLLÄ", "ENGINE ON", "MOTOR ENCENDIDO") : (b && !auto ? rg.t("TYÖNTÖ ", "THRUST ", "EMPUJE ") + fmt(b.acc * accK() * 1000 / 9.81, 1) + " G" : " ")}</div>
       </div>
-      {(() => {
-        const nb = nvBox();
-        return <div className={nightVision ? "nvBtn on" : "nvBtn"} style={{ left: nb.x, top: nb.y, width: nb.w, height: nb.h }}>{rg.t("YÖNÄKÖ", "NIGHT VIS", "VISIÓN NOC")}</div>;
-      })()}
-      {nightVision ? <div className="nvTint" /> : null}
+      {dazzle > 0.01 ? <div className="dazzle" style={{ opacity: dazzle }} /> : null}
       {warnings()}
       {heatQ > Q_MAX * 0.15 ? <div className="heatTint" style={{ opacity: Math.min(0.55, heatQ / Q_MAX * 0.5) }} /> : null}
       {dead ? deadView() : null}
       {t - lastBounce < 1.0 ? <div className="alert" style={{ top: height * 0.4 }}><div className="alertt">{bounceText}</div></div> : null}
-      {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3 }}>{"> " + message + cursor()}</div> : null}
+      {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3, left: midX(16) }}>{"> " + message + cursor()}</div> : null}
       {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>
         <div className="knob" style={{ left: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dx)), top: PAD_R - 18 + Math.max(-PAD_R, Math.min(PAD_R, stick.dy)) }}></div>
       </div> : null}
