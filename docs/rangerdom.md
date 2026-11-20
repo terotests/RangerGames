@@ -63,6 +63,9 @@ cd crates/rg_web_dom && CARGO_TARGET_DIR=../../target/dom cargo run --release --
 - Kaikki 58 peliä käynnistyvät ja pyörivät ilman virheitä.
 - Käynnistys: noin 75–140 ms (EVG-polulla 8–50 ms). Lisä on `webapi.js`:n
   (15 000 riviä) ajaminen joka pelin alussa.
+  2026-11-20: `webapi.js` käännetään build-aikana CErXes-unitiksi
+  (`crates/rg_web_dom/build.rs`), ja käynnistys ajaa sen: `webapi.js`:n osuus
+  64 ms → 22 ms, 58 pelin käynnistykset yhteensä 5,2 s → 2,8 s.
 - Ruutu, joka ei muutu: noin 0,2 ms. Ruutu, jossa paljon muuttuu
   (näkymän vaihto): 10–30 ms, josta melkein kaikki on DOMin tyylilaskentaa
   ja render treen tekemistä JS:ssä; EVG:n asettelu on alle 1 ms.

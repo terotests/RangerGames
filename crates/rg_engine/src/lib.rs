@@ -63,6 +63,11 @@ pub trait DomBackend {
     /// The scripts the game's script engine runs before the runtime: the
     /// DOM itself, ready for a page of `w` x `h` (name, source).
     fn boot(&self, w: f64, h: f64) -> Vec<(String, String)>;
+    /// A boot script compiled ahead (a CErXes unit as text, made from the
+    /// same source), run in place of compiling it: None compiles it.
+    fn unit(&self, _name: &str) -> Option<&'static str> {
+        None
+    }
     /// One frame, after `__frame` put the tree into the document: lays the
     /// page out and draws it into `out`. `eval` runs JS in the game's script;
     /// `image` gives a picture's natural size by its path in the virtual
@@ -556,7 +561,11 @@ impl Engine {
         if let Some(d) = self.dom.as_mut().filter(|_| on) {
             d.reset();
             for (name, src) in d.boot(self.ui.width, self.ui.height) {
-                if let Err(e) = s.eval(&src, &name) {
+                let ran = match d.unit(&name) {
+                    Some(u) => s.run_unit(u, &src, &name),
+                    None => s.eval(&src, &name),
+                };
+                if let Err(e) = ran {
                     return self.fail(e);
                 }
             }

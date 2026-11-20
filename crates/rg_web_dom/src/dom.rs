@@ -18,6 +18,8 @@ use std::rc::Rc;
 
 const PRELUDE: &str = include_str!("../../../.deps/RangerDOM/js/prelude.js");
 const WEBAPI: &str = include_str!("../../../.deps/RangerDOM/js/webapi.js");
+/// webapi.js compiled at build time (build.rs), "" when it did not compile
+const WEBAPI_UNIT: &str = include_str!(concat!(env!("OUT_DIR"), "/webapi.unit"));
 const HOST: &str = include_str!("../../../.deps/RangerDOM/js/host.js");
 
 /// The page the game's view goes into.
@@ -259,6 +261,10 @@ impl DomBackend for DomRender {
                 ),
             ),
         ]
+    }
+
+    fn unit(&self, name: &str) -> Option<&'static str> {
+        if name == "webapi.js" && !WEBAPI_UNIT.is_empty() { Some(WEBAPI_UNIT) } else { None }
     }
 
     fn reset(&mut self) {

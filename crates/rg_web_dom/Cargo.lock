@@ -191,6 +191,7 @@ dependencies = [
 name = "rg_web_dom"
 version = "0.1.0"
 dependencies = [
+ "cerxes",
  "ranger",
  "rangerdom_json",
  "rangerdom_view",

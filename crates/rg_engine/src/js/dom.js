@@ -87,7 +87,11 @@ var __rgDom = (function () {
       el.style.cssText = parts.join("; ");
       return;
     }
-    for (j = 0; j < chg.length; j++) el.style.setProperty(chg[j], now[chg[j]]);
+    // (all as one change where RangerDOM has it: one write of the style
+    // attribute and one restyle check, not one for each property)
+    var st = el.style;
+    if (st._setMany) { var vals = []; for (j = 0; j < chg.length; j++) vals.push(now[chg[j]]); st._setMany(chg, vals); return; }
+    for (j = 0; j < chg.length; j++) st.setProperty(chg[j], now[chg[j]]);
   }
 
   function tagOf(t) {
