@@ -36,6 +36,7 @@ type Body = {
   turn: number;
   vc: number; warp: number; acc: number; reach: number; g0: number;
   bonus: boolean;    // a bonus find (not a gravity field): BONUS below
+  parent: string;    // a moon of this planet: shown (tags) only near it
 };
 
 // ---- vectors -------------------------------------------------------------------
@@ -68,8 +69,19 @@ const MOON_DIR = norm([0.45, 0.1, 0.89]);
 
 function body(id: string, code: string, name: string, pos: number[], r: number, gm: number, rot: number, tilt: number,
               h: number, soi: number, land: boolean, atm: number, sky: string, turn: number): Body {
-  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0, bonus: false };
+  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0, bonus: false, parent: "" };
 }
+// a moon: `dist` km from its planet towards `dir` (rough), turned to face it
+function moon(id: string, code: string, name: string, parent: Body, dist: number, dir: number[], r: number, gm: number,
+              h: number, land: boolean, atm: number, sky: string): Body {
+  const d = norm(dir);
+  const b = body(id, code, name, add(parent.pos, mul(d, dist)), r, gm, 0, 0, h, 3, land, atm, sky, Math.atan2(-d[2], -d[0]));
+  b.parent = parent.id;
+  return b;
+}
+const SATURN = body("saturn", "SAT", rg.t("Saturnus", "Saturn", "Saturno"), orbitPos(1433.5e6, 205, 0.01), 58232, 3.7931e7, 38362, 0.47, 5000, 2.2, false, 300, "#8d7a5a", 0);
+const URANUS = body("uranus", "URA", rg.t("Uranus", "Uranus", "Urano"), orbitPos(2872.5e6, 30, -0.01), 25362, 5.794e6, -62064, 1.71, 3000, 2.5, false, 300, "#7fb7bd", 0);
+const NEPTUNE = body("neptune", "NEP", rg.t("Neptunus", "Neptune", "Neptuno"), orbitPos(4495.1e6, 300, 0.02), 24622, 6.8365e6, 57996, 0.49, 3000, 2.5, false, 300, "#4f6fc0", 0);
 
 const BODIES: Body[] = [
   body("sun", "SOL", rg.t("Aurinko", "Sun", "Sol"), [0, 0, 0], 696000, 1.32712e11, 2.19e6, 0.13, 348000, 2.5, false, 0, "", 0),
@@ -80,7 +92,29 @@ const BODIES: Body[] = [
        Math.atan2(MOON_DIR[2], -MOON_DIR[0])),
   body("mars", "MAR", "Mars", orbitPos(227.9e6, 60, -0.02), 3390, 42828, 88643, 0.44, 300, 3, true, 60, "#b07a58", 0),
   body("jupiter", "JUP", rg.t("Jupiter", "Jupiter", "Júpiter"), orbitPos(778.5e6, -40, 0.02), 69911, 1.26687e8, 35730, 0.05, 5000, 2, false, 300, "#7d6a52", 0),
+  SATURN, URANUS, NEPTUNE,
 ];
+// the big moons of the giant planets, on the side that faces the Sun (maps: NASA Trek)
+{
+  const jup = BODIES[6];
+  const sun = (p: Body, k: number, up: number) => add(mul(norm(p.pos), -1), [Math.sin(k) * 0.9, up, Math.cos(k) * 0.9]);
+  BODIES.push(
+    moon("io", "IO", "Io", jup, 421700, sun(jup, 0.4, 0.05), 1821.6, 5959.9, 100, true, 0, ""),
+    moon("europa", "EUR", "Europa", jup, 671034, sun(jup, -0.5, 0.08), 1560.8, 3202.7, 100, true, 0, ""),
+    moon("ganymede", "GAN", rg.t("Ganymedes", "Ganymede", "Ganímedes"), jup, 1070412, sun(jup, 1.3, -0.06), 2634.1, 9887.8, 150, true, 0, ""),
+    moon("callisto", "CAL", rg.t("Kallisto", "Callisto", "Calisto"), jup, 1882709, sun(jup, -1.4, 0.1), 2410.3, 7179.3, 150, true, 0, ""),
+    moon("titan", "TIT", "Titan", SATURN, 1221870, sun(SATURN, 0.9, 0.12), 2574.7, 8978.1, 1200, true, 600, "#c98a3a"),
+    moon("enceladus", "ENC", rg.t("Enceladus", "Enceladus", "Encélado"), SATURN, 237948, sun(SATURN, -0.9, 0.1), 252.1, 7.211, 20, true, 0, ""),
+    moon("triton", "TRI", rg.t("Triton", "Triton", "Tritón"), NEPTUNE, 354759, sun(NEPTUNE, 0.6, 0.15), 1353.4, 1427.6, 100, true, 0, ""),
+  );
+}
+// how near a planet its moons show as tags (km)
+const MOONS_NEAR: { [id: string]: number } = { jupiter: 2.5e7, saturn: 1.5e7, neptune: 5e6 };
+function shown(b: Body) {
+  if (!b.parent || b === field) return true;
+  const p = BODIES.filter((x) => x.id === b.parent)[0];
+  return len(sub(p.pos, pos)) < MOONS_NEAR[b.parent];
+}
 
 // ---- bonus finds ---------------------------------------------------------------
 // Small bodies at (roughly) their real places in late 2026. They show on the
@@ -183,7 +217,8 @@ for (const b of BODIES) {
 
 // air for entry: sea-level density (kg/m³), scale height (km), the height
 // (km) where the parachute opens. Venus and Jupiter at the 1-bar level
-const AIR: any = { earth: [1.225, 8.5, 9], venus: [65, 15.9, 50], mars: [0.02, 11.1, 9], jupiter: [0.16, 27, 0] };
+const AIR: any = { earth: [1.225, 8.5, 9], venus: [65, 15.9, 50], mars: [0.02, 11.1, 9], jupiter: [0.16, 27, 0],
+  saturn: [0.19, 59.5, 0], uranus: [0.42, 27.7, 0], neptune: [0.45, 19.7, 0], titan: [5.3, 21, 40] };
 const BETA = 380, BETA_CHUTE = 8;   // ballistic coefficient (kg/m²) of the ship, with the parachute
 const Q_MAX = 4;              // MW/m² the heat shield takes
 const G_MAX = 12;             // g the crew takes
@@ -267,24 +302,29 @@ function say(text: string) {
 }
 
 // ---- ground control ------------------------------------------------------------
-// Short radio calls: static, then the call through a narrow radio band
-// (rg.sound radio). The Finnish voice files are Google speech made in Sliqtly
-// (sounds/radio/<id>.wav, not in the repository); other languages show the text.
+// Two voices. Ground control (a man's voice, sounds/radio/<id>.wav) sends
+// short calls through static and a narrow radio band (rg.sound radio); the
+// ship's computer (sounds/pc/<id>.wav, clear) gives the flying instructions.
+// The Finnish voice files are Google speech made in Sliqtly (not in the
+// repository); other languages show the text.
 const RADIO: { [id: string]: string[] } = {
-  start: ["Solar Pilot, lennonjohto kuulee. Valitse kohde. Hyvää matkaa!", "Solar Pilot, ground control hears you. Choose a target. Good flight!", "Solar Pilot, control de tierra te escucha. Elige un destino. ¡Buen viaje!"],
+  start: ["Solar Pilot, lennonjohto. Hyvää matkaa!", "Solar Pilot, ground control. Have a good flight!", "Solar Pilot, control de tierra. ¡Buen viaje!"],
+  status: ["Solar Pilot, lennonjohto. Mikä on status?", "Solar Pilot, ground control. What is your status?", "Solar Pilot, control de tierra. ¿Cuál es tu estado?"],
+  cruise: ["Status: kurssi kunnossa, matka jatkuu.", "Status: course nominal, cruising on.", "Estado: rumbo correcto, el viaje continúa."],
   orbit: ["Kiertorata vahvistettu. Onnittelut, hyvää työtä!", "Orbit confirmed. Congratulations, good work!", "Órbita confirmada. ¡Enhorabuena, buen trabajo!"],
   orbit_moon: ["Kuun kiertorata vahvistettu. Onnittelut!", "Lunar orbit confirmed. Congratulations!", "Órbita lunar confirmada. ¡Enhorabuena!"],
   orbit_mars: ["Marsin kiertorata vahvistettu. Hieno suoritus!", "Mars orbit confirmed. Well done!", "Órbita de Marte confirmada. ¡Bien hecho!"],
-  impact: ["Olet törmäyskurssilla! Nosta rataa heti.", "You are on an impact course! Raise your orbit now.", "¡Rumbo de impacto! Sube la órbita ya."],
-  escape: ["Nopeus liian suuri, olet pakoradalla. Jarruta.", "Too fast, you are on an escape path. Brake.", "Demasiado rápido, trayectoria de escape. Frena."],
-  heat: ["Lämpökilpi kuumenee! Loivenna tulokulmaa.", "The heat shield is heating up! Make the entry shallower.", "¡El escudo térmico se calienta! Suaviza el ángulo."],
+  impact: ["Varoitus: törmäyskurssi! Kohdista nokka ristikkoon ja kaasuta, niin rata nousee.", "Warning: impact course! Point the nose at the crosshair and throttle to raise the orbit.", "¡Aviso: rumbo de impacto! Apunta al retículo y acelera para subir la órbita."],
+  escape: ["Olet pakoradalla. Avaruudessa ei ole jarrua: kohdista nokka ristikkoon ja kaasuta, niin palaat takaisin.", "You are on an escape path. There are no brakes in space: point the nose at the crosshair and throttle to come back.", "Trayectoria de escape. En el espacio no hay frenos: apunta al retículo y acelera para volver."],
+  align: ["Rata ei ole vielä vakaa. Kohdista nokka ristikkoon ja kaasuta, niin rata tasapainottuu.", "The orbit is not stable yet. Point the nose at the crosshair and throttle to balance it.", "La órbita aún no es estable. Apunta al retículo y acelera para equilibrarla."],
+  heat: ["Varoitus: lämpökilpi kuumenee. Loivenna tulokulmaa.", "Warning: the heat shield is heating up. Make the entry shallower.", "Aviso: el escudo térmico se calienta. Suaviza el ángulo."],
   chute: ["Laskuvarjo auki. Hyvältä näyttää.", "Parachute open. Looking good.", "Paracaídas abierto. Buen aspecto."],
   land: ["Laskeutuminen vahvistettu. Tervetuloa pinnalle, Solar Pilot!", "Touchdown confirmed. Welcome to the surface, Solar Pilot!", "Aterrizaje confirmado. ¡Bienvenido a la superficie, Solar Pilot!"],
-  field: ["Olet kohteen painovoimakentässä. Valmistaudu jarrutukseen.", "You are in the target's gravity field. Get ready to brake.", "Estás en el campo gravitatorio del destino. Prepárate para frenar."],
+  field: ["Kohteen painovoimakenttä saavutettu. Kohdista nokka ristikkoon ja kaasuta, niin pääset kiertoradalle.", "Target gravity field reached. Point the nose at the crosshair and throttle to get into orbit.", "Campo gravitatorio alcanzado. Apunta al retículo y acelera para entrar en órbita."],
   mission: ["Seuraava tehtävä: laskeudu pinnalle laskeutumismodulilla. Katso ohje näytöltä.", "Next task: land on the surface with the landing module. See the briefing on screen.", "Siguiente tarea: aterriza con el módulo de aterrizaje. Mira las instrucciones."],
   undock: ["Moduli irti. Hyvää laskeutumista!", "Module away. Good landing!", "Módulo separado. ¡Buen aterrizaje!"],
   lander_ok: ["Moduli on laskeutunut pinnalle. Onnittelut, tehtävä suoritettu!", "The module has landed. Congratulations, task complete!", "El módulo ha aterrizado. ¡Enhorabuena, tarea cumplida!"],
-  too_fast: ["Liian kova vauhti! Jarruta raketeilla.", "Too fast! Brake with the rockets.", "¡Demasiado rápido! Frena con los cohetes."],
+  too_fast: ["Liian kova vauhti! Käännä nokka ristikkoon ja kaasuta.", "Too fast! Point the nose at the crosshair and throttle.", "¡Demasiado rápido! Apunta al retículo y acelera."],
 };
 
 // ---- the landing module ----------------------------------------------------------
@@ -292,15 +332,16 @@ const RADIO: { [id: string]: string[] } = {
 // the module comes off (the orbiter stays in its orbit) and flies down on its
 // own rockets. Its guidance asks for a falling speed that shrinks with the
 // height (vdesc), so following the sight and burning ends in a soft touchdown.
-const LANDER_ACC: { [id: string]: number } = { moon: 0.0045, mars: 0.009 };   // km/s²
+const LANDERS: { [id: string]: boolean } = { moon: true, mars: true, mercury: true, io: true, europa: true, ganymede: true, callisto: true, titan: true, enceladus: true, triton: true };
 const LANDER_SAFE = 0.006;      // km/s: a harder touchdown breaks the module
 let lander = false;
 let mother: any = null;          // the orbiter left in orbit: { pos, vel }
 let brief: any = null;           // the briefing on screen: { t, id }
 let missionAt = -1;
 let landerDone: { [id: string]: boolean } = {};
-function landerAcc(b: Body) { return LANDER_ACC[b.id] || b.acc; }
-function canUndock() { return !!(field && !auto && !landed && !lander && !dead && !brief && LANDER_ACC[field.id] && visited[field.id]); }
+// the module's rockets: 2.6 × the ground's gravity (km/s²)
+function landerAcc(b: Body) { return 2.6 * b.g0; }
+function canUndock() { return !!(field && !auto && !landed && !lander && !dead && !brief && LANDERS[field.id] && visited[field.id]); }
 function undockBox() { return { x: width - 170, y: height - 236, w: 158, h: 40 }; }
 function inBox(px: number, py: number, b: any) { return px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h; }
 function briefButton() { return { x: midX(110), y: height * 0.16 + 318, w: 140, h: 40 }; }
@@ -321,7 +362,6 @@ function undock() {
   orbitCacheAt = -100;
   rg.sound("whoosh");
   rg.vibrate(40);
-  radioClock = 0;
   radio("undock", 0);
 }
 // back to the orbiter (from the ground or from flight)
@@ -346,7 +386,6 @@ function landerDown(b: Body, speed: number) {
   rg.vibrate(60);
   rg.celebrate(width / 2, height * 0.4, { big: true });
   say(b.name + ": " + rg.t("moduli laskeutui ", "module landed ", "módulo aterrizado ") + fmt(speed * 1000, 1) + " m/s");
-  radioClock = 0;
   radio("lander_ok", 0);
   // stands on its legs: nose to the sky
   const n = norm(sub(pos, b.pos));
@@ -372,16 +411,32 @@ function landerManeuver(b: Body) {
 }
 let radioText = "";
 let radioClock = 0;
+let radioQueue: string[] = [];
+let radioPc = false;            // the call on screen is the ship's computer
+const PC: { [id: string]: boolean } = { cruise: true, impact: true, escape: true, heat: true, field: true, align: true, too_fast: true };
+let alignWait = 0;
 const radioLast: { [id: string]: number } = {};
-// gap: seconds before the same call may come again
+// a call waits for the one before it to end (the engine also queues the
+// sounds: rg.sound queue). gap: seconds before the same call may come again
 function radio(id: string, gap = 60) {
-  if (radioClock > 0 || (radioLast[id] !== undefined && t - radioLast[id] < gap)) return;
+  if (radioLast[id] !== undefined && t - radioLast[id] < gap) return;
+  if (radioQueue.indexOf(id) >= 0) return;
   radioLast[id] = t;
+  radioQueue.push(id);
+  if (radioClock <= 0) radioNext();
+}
+function radioNext() {
+  const id = radioQueue.shift();
+  if (!id) return;
   const r = RADIO[id];
   radioText = rg.t(r[0], r[1], r[2]).toUpperCase();
-  radioClock = 5.5;
-  if (rg.lang !== "en" && rg.lang !== "es") rg.sound("sounds/radio/" + id + ".wav", { radio: true });
-  else rg.sound("whoosh", { volume: 0.4 });
+  radioPc = !!PC[id];
+  // about the length of the call: (static,) the words, the end click
+  radioClock = (radioPc ? 0.6 : 1.4) + r[0].length * 0.075;
+  if (rg.lang !== "en" && rg.lang !== "es") {
+    if (radioPc) rg.sound("sounds/pc/" + id + ".wav", { queue: true });
+    else rg.sound("sounds/radio/" + id + ".wav", { radio: true, queue: true });
+  } else rg.sound(radioPc ? "click" : "whoosh", { volume: 0.4 });
 }
 
 // ---- the game ----------------------------------------------------------------
@@ -415,6 +470,7 @@ function build() {
     args.id = b.id; args.r = b.r; args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
     rg.three("planet", args);
   }
+  buildRings();
   // the ship: a grey hull, an amber canopy, a blue ion flame
   rg.three("add", { id: "body", shape: "cone", size: [0.5, 2.2], detail: 10, color: "#c3c7cc" });
   rg.three("add", { id: "band", shape: "cylinder", size: [0.42, 0.48, 0.4], detail: 10, color: "#4a5058" });
@@ -450,7 +506,7 @@ function reset() {
   cruise = 0;
   simT = 0;
   hullK = -1;
-  visited = {};
+  visited = { earth: true };   // the start orbit: reached, no congratulations
   bounces = 0;
   message = "";
   skyKey = "";
@@ -481,15 +537,65 @@ function placeBodies() {
     rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2] });
   }
   updateDetail();
+  placeRings();
   const s = R([0, 0, 0]);
   rg.three("space", { sun: s });
   const l = norm(mul(pos, -1));
   rg.three("light", { id: "sun", type: "directional", x: l[0], y: l[1], z: l[2], intensity: 0.95 });
 }
 
+// Saturn's rings (C, B and A ring) as flat pieces in its equator plane. The
+// engine draws planets before shapes, so a piece behind the planet's disc
+// is hidden by hand
+const RINGS: any[] = [[74658, 92000, "#6b6455"], [92000, 117580, "#d6c6a0"], [122170, 136775, "#b5a684"]];
+const RING_SEG = 72;
+let ringsOn = true;
+function ringFrame() {
+  const st = Math.sin(SATURN.tilt), ct = Math.cos(SATURN.tilt);
+  return { e1: [ct, st, 0], e2: [0, 0, 1], n: [-st, ct, 0] };
+}
+function buildRings() {
+  const f = ringFrame();
+  RINGS.forEach((g: any, i: number) => {
+    const rm = (g[0] + g[1]) / 2;
+    for (let j = 0; j < RING_SEG; j++) {
+      const a = (j + 0.5) / RING_SEG * 2 * Math.PI;
+      const rad = add(mul(f.e1, Math.cos(a)), mul(f.e2, Math.sin(a)));
+      const tan = add(mul(f.e1, -Math.sin(a)), mul(f.e2, Math.cos(a)));
+      const e = euler(tan, rad, cross(tan, rad));   // the plane: x along the ring, y across it
+      rg.three("add", { id: "ring" + i + "_" + j, shape: "plane", size: [2 * Math.PI * rm / RING_SEG * 1.04, g[1] - g[0]], color: g[2], rx: e.rx, ry: e.ry, rz: e.rz, visible: false });
+    }
+  });
+  ringsOn = true;
+}
+function placeRings() {
+  const ds = len(sub(SATURN.pos, cam.pos));
+  if (ds > 4e7) {
+    if (ringsOn) { for (let i = 0; i < RINGS.length; i++) for (let j = 0; j < RING_SEG; j++) rg.three("set", { id: "ring" + i + "_" + j, visible: false }); }
+    ringsOn = false;
+    return;
+  }
+  ringsOn = true;
+  const f = ringFrame();
+  const toSat = mul(sub(SATURN.pos, cam.pos), 1 / ds);
+  const disc = Math.cos(Math.asin(Math.min(1, SATURN.r / ds)));
+  RINGS.forEach((g: any, i: number) => {
+    const rm = (g[0] + g[1]) / 2;
+    for (let j = 0; j < RING_SEG; j++) {
+      const a = (j + 0.5) / RING_SEG * 2 * Math.PI;
+      const c = add(SATURN.pos, mul(add(mul(f.e1, Math.cos(a)), mul(f.e2, Math.sin(a))), rm));
+      const v = sub(c, cam.pos);
+      const dc = len(v);
+      const behind = dc > ds && dot(v, toSat) / dc > disc;
+      const p = R(c);
+      rg.three("set", { id: "ring" + i + "_" + j, x: p[0], y: p[1], z: p[2], visible: !behind });
+    }
+  });
+}
+
 // sharper map pieces under the ship when it is low: NASA LRO WAC, 22.5° a
 // picture (16 × 8 of them), the 2 × 2 nearest the point under the ship
-const DETAIL: { [id: string]: string } = { moon: "img/moon/d5", mars: "img/mars/d5", earth: "img/earth/d5" };
+const DETAIL: { [id: string]: string } = { moon: "img/moon/d5", mars: "img/mars/d5", earth: "img/earth/d5", mercury: "img/mercury/d5", venus: "img/venus/d5" };
 const DETAIL_ALT = 2500;
 let detailKey = "";
 let detailBody = "";
@@ -690,7 +796,7 @@ function start() {
   rg.sound("click");
   reset();
   say(rg.t("Matala Maan kiertorata, 400 km. Valitse kohde.", "Low Earth orbit, 400 km. Choose a target.", "Órbita terrestre baja, 400 km. Elige un destino."));
-  radioClock = 0;
+  radioQueue = []; radioClock = 0;
   radio("start", 0);
 }
 
@@ -700,7 +806,8 @@ const PAD_R = 54;
 
 // the temperature round the ship: -273 °C to the Sun's surface (5500 °C)
 const T_MAX = 5800;
-const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
+const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500,
+  saturn: -140, uranus: -195, neptune: -200, io: -130, europa: -160, ganymede: -160, callisto: -140, titan: -179, enceladus: -200, triton: -235 };
 // the temperature the ship's hull settles to here: the Sun's warmth by the
 // distance (in a shadow the cold of space, ~100 K), near the ground the
 // surface's own temperature
@@ -754,7 +861,8 @@ function onMap(px: number, py: number) {
   const c = mapCentre(), dx = px - c.x, dy = py - c.y;
   return dx * dx + dy * dy <= MAP_R * MAP_R;
 }
-const MAP_COLORS: { [id: string]: string } = { sun: "#ffcf5a", mercury: "#b9ada0", venus: "#e6c983", earth: "#64b0ff", mars: "#ea8052", jupiter: "#dcb68e" };
+const MAP_COLORS: { [id: string]: string } = { sun: "#ffcf5a", mercury: "#b9ada0", venus: "#e6c983", earth: "#64b0ff", mars: "#ea8052", jupiter: "#dcb68e",
+  saturn: "#e3cf9c", uranus: "#a8e0e6", neptune: "#5a7fe0" };
 // a point of the ecliptic (x-z plane) on the map: the distance from the Sun
 // as its square root, so the inner planets do not crowd the Sun
 let mapMax = 778.5e6;           // the map's edge: Jupiter, or farther when the ship is
@@ -793,7 +901,7 @@ function mapRing(au: number, color: string) {
 function miniMap() {
   const c = mapCentre();
   const out: any[] = [];
-  mapMax = Math.max(778.5e6, Math.sqrt(pos[0] * pos[0] + pos[2] * pos[2]) * 1.12);
+  mapMax = Math.max(4.7e9, Math.sqrt(pos[0] * pos[0] + pos[2] * pos[2]) * 1.12);
   out.push(<div className="mapDisc" style={{ left: c.x - MAP_R, top: c.y - MAP_R, width: MAP_R * 2, height: MAP_R * 2, borderRadius: MAP_R }} />);
   // the asteroid belt and the Kuiper belt as faint rings
   out.push(mapRing(2.1, "rgba(214,180,120,0.22)"));
@@ -808,7 +916,7 @@ function miniMap() {
     }
   }
   for (const b of BODIES) {
-    if (b.id === "sun" || b.id === "moon") continue;
+    if (b.id === "sun" || b.id === "moon" || b.parent) continue;
     const q = mapPoint(b.pos);
     out.push(<div className="mapOrbit" style={{ left: c.x - q.r, top: c.y - q.r, width: q.r * 2, height: q.r * 2, borderRadius: q.r }} />);
   }
@@ -819,9 +927,9 @@ function miniMap() {
     if (seg) out.push(seg);
   }
   for (const b of BODIES) {
-    if (b.id === "moon") continue;
+    if (b.id === "moon" || b.parent) continue;
     const q = mapPoint(b.pos);
-    const s = b.id === "sun" ? 7 : b.id === "jupiter" ? 6 : 4;
+    const s = b.id === "sun" ? 7 : b.id === "jupiter" || b.id === "saturn" ? 6 : 4;
     if (b === field || (auto && auto.b === b)) {
       out.push(<div className="mapHere" style={{ left: q.x - 5.5, top: q.y - 5.5, width: 11, height: 11, borderRadius: 5.5 }} />);
     }
@@ -1058,7 +1166,7 @@ function enterField(b: Body, v: number[]) {
   saveCheckpoint();
   rg.vibrate(25);
   if (s > 0 && !auto) say(rg.t("Gravitaatiokenttä: ", "Gravity field: ", "Campo gravitatorio: ") + b.name);
-  if (!visited[b.id]) radio("field", 120);
+  if (!visited[b.id]) { radio("status", 120); radio("field", 120); }
 }
 
 function leaveField() {
@@ -1333,7 +1441,6 @@ function touchDown(b: Body, speed: number) {
   rg.sound("win", { volume: 0.5 });
   rg.vibrate(60);
   say(b.name + ": " + rg.t("laskeutuminen ", "touchdown ", "aterrizaje ") + fmt(speed * 1000, 0) + " m/s");
-  radioClock = 0;
   radio("land", 20);
   reach(b);
 }
@@ -1344,7 +1451,7 @@ function reach(b: Body) {
   const n = Object.keys(visited).length;
   rg.celebrate(width / 2, height * 0.32, { count: 18 });
   if (n === BODIES.length) {
-    say(rg.t("Kaikki 7 kohdetta saavutettu!", "All 7 targets reached!", "¡Los 7 destinos alcanzados!"));
+    say(rg.t("Kaikki " + n + " kohdetta saavutettu!", "All " + n + " targets reached!", "¡Los " + n + " destinos alcanzados!"));
     rg.celebrate(width / 2, height * 0.35, { big: true });
     if (bounces < best || best === 0) { best = Math.max(1, bounces); rg.save("best", best); }
   }
@@ -1354,11 +1461,10 @@ function tick(dt: number) {
   t += dt;
   adaptEyes(Math.min(dt, 0.1));
   if (messageClock > 0) messageClock -= dt;
-  if (radioClock > 0) radioClock -= dt;
+  if (radioClock > 0) { radioClock -= dt; if (radioClock <= 0) radioNext(); }
   if (missionAt > 0 && t > missionAt && screen === "play" && !dead && field && !auto) {
     missionAt = -1;
     brief = { t, id: field.id };
-    radioClock = 0;
     radio("mission", 0);
   }
   if (screen !== "play") {
@@ -1408,9 +1514,8 @@ function updateOrbit(h: number) {
     if (orbitStableSeconds >= 1.5 && !visited[field.id]) {
       say(field.name + ": " + rg.t("vakaa kiertorata", "stable orbit", "órbita estable"));
       rg.sound("win", { volume: 0.55 });
-      radioClock = 0;
       radio(field.id === "moon" ? "orbit_moon" : field.id === "mars" ? "orbit_mars" : "orbit", 0);
-      if (LANDER_ACC[field.id] && !landerDone[field.id]) missionAt = t + 7;
+      if (LANDERS[field.id] && !landerDone[field.id]) missionAt = t + 7;
       reach(field);
     }
   } else { orbitBurnWasActive = false; orbitBurnLatch = 0; orbitStableSeconds = 0; }
@@ -1425,6 +1530,21 @@ function updateOrbit(h: number) {
     else if (orbitOutcome === "escape" && !visited[field.id] && t - (radioLast.field !== undefined ? radioLast.field : -99) > 12) radio("escape", 60);
     if (heatQ > Q_MAX * 0.6) radio("heat", 40);
   }
+  // an orbit that needs a correction for a while and nobody is burning:
+  // ground control reminds how (the crosshair and the throttle)
+  if (field && !auto && !landed && !dead && !lander && !thrusting && orbitOutcome !== "impact" && orbitOutcome !== "escape") {
+    const m = orbitManeuver(field);
+    alignWait = m.ready || m.coast ? 0 : alignWait + h;
+    if (alignWait > 10 && t - (radioLast.field !== undefined ? radioLast.field : -99) > 20) radio("align", 75);
+  } else alignWait = 0;
+  // a long quiet cruise: ground control asks, the computer answers
+  if (!dead && !landed && !lander && radioClock <= 0 && t - radioQuietFrom() > 150
+      && (auto || !field || orbitStableSeconds > 0)) { radio("status", 0); radio("cruise", 0); }
+}
+function radioQuietFrom() {
+  let last = 0;
+  for (const k in radioLast) last = Math.max(last, radioLast[k]);
+  return last;
 }
 
 // the sky turns to the colour of the air low in an atmosphere
@@ -1686,7 +1806,8 @@ function landerButtons() {
 // the briefing: a little 2D film of the landing, looping, and the steps
 function briefView() {
   const u = (t - brief.t) % 10;
-  const mars = brief.id === "mars";
+  const bb0 = BODIES.filter((x) => x.id === brief.id)[0];
+  const mars = !!(AIR[brief.id] && AIR[brief.id][2] > 0);
   const W = 300, G = 150;
   const xo = 20 + 26 * u;
   let lx = xo, ly = 38, flame = "", step = 0;
@@ -1715,9 +1836,9 @@ function briefView() {
   const bb = briefButton();
   return <div className="briefLayer">
     <div className="brief" style={{ top: height * 0.16, left: midX(20) }}>
-      <div className="briefHead">{rg.t("TEHTÄVÄ: LASKEUTUMINEN · ", "TASK: LANDING · ", "TAREA: ATERRIZAJE · ") + (mars ? "MARS" : rg.t("KUU", "MOON", "LUNA"))}</div>
+      <div className="briefHead">{rg.t("TEHTÄVÄ: LASKEUTUMINEN · ", "TASK: LANDING · ", "TAREA: ATERRIZAJE · ") + bb0.name.toUpperCase()}</div>
       <div className="briefScene" style={{ width: W, height: 170 }}>
-        <div className={mars ? "briefGround mars" : "briefGround"} style={{ top: G, width: W }} />
+        <div className="briefGround" style={{ top: G, width: W, backgroundColor: MAP_COLORS[brief.id] || (brief.id === "mars" ? "#b0603a" : brief.id === "titan" ? "#a8742e" : "#7d7a74") }} />
         <div className="briefShip" style={{ left: xo - 11, top: 26 }} />
         <div className="briefLander" style={{ left: lx - 6, top: ly }} />
         <div className="briefLeg" style={{ left: lx - 8, top: ly + 9 }} />
@@ -1818,7 +1939,7 @@ function spots() {
   const f = norm(sub(cam.look, cam.pos));
   const rr = norm(cross(f, cam.up));
   const u = cross(rr, f);
-  const list = BODIES.concat(BONUS.filter((x) => bonusSeen(x)));
+  const list = BODIES.filter((x) => shown(x)).concat(BONUS.filter((x) => bonusSeen(x)));
   for (const b of list) {
     const d = len(sub(b.pos, pos)) - b.r;
     const s = project(b.pos);
@@ -2066,7 +2187,7 @@ function view() {
       {t - lastBounce < 1.0 ? <div className="alert" style={{ top: height * 0.4 }}><div className="alertt">{bounceText}</div></div> : null}
       {messageClock > 0 ? <div className="msg" style={{ top: height * 0.3, left: midX(16) }}>{"> " + message + cursor()}</div> : null}
       {radioClock > 0 && !brief ? <div className="radio" style={{ top: height * 0.3 - 74, left: midX(30) }}>
-        <div className="radioLab">{rg.t("LENNONJOHTO", "GROUND CONTROL", "CONTROL DE TIERRA") + (Math.floor(t * 4) % 2 ? "  ·))" : "  ·)")}</div>
+        <div className="radioLab">{(radioPc ? rg.t("ALUKSEN TIETOKONE", "SHIP COMPUTER", "ORDENADOR DE A BORDO") : rg.t("LENNONJOHTO", "GROUND CONTROL", "CONTROL DE TIERRA")) + (Math.floor(t * 4) % 2 ? "  ·))" : "  ·)")}</div>
         <div className="radioTxt">{radioText}</div>
       </div> : null}
       {stick && stick.moved ? <div className="stick" style={{ left: stick.x - PAD_R, top: stick.y - PAD_R, width: PAD_R * 2, height: PAD_R * 2, borderRadius: PAD_R }}>

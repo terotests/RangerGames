@@ -195,12 +195,30 @@ function surfaceBase(id: string): any {
               festoon: "#6f5a4a", oval: "#f4efe4", spot: "#b75a3a" },
     glow: "#e9dcc2", cell: 15, night: 0.93,
   };
+  // the outer planets: Jupiter's bands in their own colours
+  const giant: any = {
+    saturn: { pole: "#a8987a", belt: "#c9ad7c", belt2: "#d6bd8c", belt3: "#bba27a", zone: "#efe0bc", zone2: "#e3d1a8", eq: "#eadbb5", festoon: "#b39a74", oval: "#f2e8d0", spot: "#d0b386", ocean: "#e3cf9c" },
+    uranus: { pole: "#b8e4ea", belt: "#a6dbe2", belt2: "#addfe5", belt3: "#a2d7de", zone: "#bde6eb", zone2: "#b3e1e7", eq: "#b0dfe5", festoon: "#9fd3da", oval: "#c8ecf0", spot: "#a8dce3", ocean: "#ace0e6" },
+    neptune: { pole: "#3f5fae", belt: "#4a6cc4", belt2: "#5a7cd2", belt3: "#405fb8", zone: "#6a8ade", zone2: "#5878cc", eq: "#5d7fd6", festoon: "#34509c", oval: "#dfe8ff", spot: "#26407e", ocean: "#5a7fe0" },
+  };
+  if (giant[id]) return { regions: jupiterRegions(), ocean: giant[id].ocean, colors: giant[id], glow: giant[id].zone, cell: 15, night: 0.93 };
+  // the moons: the Moon's craters in their own colours
+  const moons: any = { io: ["#c9b24e", "#8a6a2a"], europa: ["#e8ded0", "#a0785a"], ganymede: ["#a49a8c", "#6e6458"], callisto: ["#6f665c", "#3e3832"],
+    titan: ["#c98a3a", "#8a5a22"], enceladus: ["#f0f2f4", "#b9c4cc"], triton: ["#dcc8be", "#9c8278"] };
+  if (moons[id]) {
+    const [l, d] = moons[id];
+    return { regions: moonRegions(), ocean: l, colors: { sea: d, rim: l, floor: l, bright: l }, cell: 15, night: 0.96 };
+  }
   return { regions: sunRegions(), ocean: "#fff0c4", colors: { gran: "#ffe39a", gran2: "#fff6d8", penumbra: "#c9772e", spot: "#5a2408" }, glow: "#ffd36b", glowing: true };
 }
 
-// real maps (Solar System Scope, CC BY 4.0) where the host draws textured
-// globes; the regions above stay for hosts that do not
-const MAPS: { [id: string]: string } = { earth: "img/earth.jpg", mars: "img/mars.jpg", mercury: "img/mercury.jpg", venus: "img/venus.jpg", jupiter: "img/jupiter.jpg", sun: "img/sun.jpg", moon: "img/moon.jpg" };
+// real maps where the host draws textured globes: Solar System Scope (CC BY
+// 4.0), the Moon and the big moons NASA (public domain), Saturn, Uranus,
+// Neptune and Triton drawn for this game
+// (the regions above stay for hosts that do not draw maps)
+const MAPS: { [id: string]: string } = { earth: "img/earth.jpg", mars: "img/mars.jpg", mercury: "img/mercury.jpg", venus: "img/venus.jpg", jupiter: "img/jupiter.jpg", sun: "img/sun.jpg", moon: "img/moon.jpg",
+  saturn: "img/saturn.jpg", uranus: "img/uranus.jpg", neptune: "img/neptune.jpg", io: "img/io.jpg", europa: "img/europa.jpg", ganymede: "img/ganymede.jpg",
+  callisto: "img/callisto.jpg", titan: "img/titan.jpg", enceladus: "img/enceladus.jpg", triton: "img/triton.jpg" };
 export function surface(id: string): any {
   const s = surfaceBase(id);
   if (MAPS[id]) s.texture = MAPS[id];

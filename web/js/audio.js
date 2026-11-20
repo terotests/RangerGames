@@ -102,13 +102,14 @@
       if (vol !== 1) this.master.gain.value = saved;
       return;
     }
-    this.playFile(name, vol, pitch, false, !!(opts && opts.radio));
+    this.playFile(name, vol, pitch, false, !!(opts && opts.radio), !!(opts && opts.queue));
   };
 
   // a radio voice: a squelch of static, the voice through a narrow band
   // with a little grit, a hiss under it and a click at the end
-  Audio.prototype.radioChain = function (s, vol) {
-    var c = this.ctx, t = c.currentTime, len = s.buffer.duration / (s.playbackRate.value || 1);
+  // returns how long the whole call takes (from `t`, the voice starts 0.26 s in)
+  Audio.prototype.radioChain = function (s, vol, t) {
+    var c = this.ctx, len = s.buffer.duration / (s.playbackRate.value || 1);
     var hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 420;
     var lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2900;
     var pk = c.createBiquadFilter(); pk.type = "peaking"; pk.frequency.value = 1700; pk.gain.value = 6;
@@ -121,18 +122,28 @@
     this.noise(len + 0.3, 0.06 * vol, 2200, 1800, t + 0.05);
     this.tone("square", 1450, 1450, 0.05, 0.08 * vol, t + 0.3 + len);
     this.noise(0.12, 0.35 * vol, 2400, 900, t + 0.32 + len);
-    return 0.26;
+    return 0.45 + len;
   };
 
-  Audio.prototype.playFile = function (path, vol, pitch, loop, radio) {
+  // queue: the sound waits until the queued sounds before it have ended (a
+  // spoken line after a spoken line); radio: played as a radio call
+  Audio.prototype.playFile = function (path, vol, pitch, loop, radio, queue) {
     var self = this;
     var go = function (buf) {
       if (!buf || !self.ready()) return null;
       var s = self.ctx.createBufferSource();
       s.buffer = buf; s.loop = !!loop; s.playbackRate.value = pitch || 1;
-      if (radio && !loop) { s.start(self.ctx.currentTime + self.radioChain(s, vol)); return s; }
-      var g = self.ctx.createGain(); g.gain.value = vol;
-      s.connect(g); g.connect(self.master); s.start();
+      var now = self.ctx.currentTime;
+      var at = queue && !loop ? Math.max(now, self.queueEnd || 0) : now;
+      var len = buf.duration / (pitch || 1);
+      if (radio && !loop) {
+        len = self.radioChain(s, vol, at);
+        s.start(at + 0.26);
+      } else {
+        var g = self.ctx.createGain(); g.gain.value = vol;
+        s.connect(g); g.connect(self.master); s.start(at);
+      }
+      if (queue && !loop) self.queueEnd = at + len + 0.15;
       return s;
     };
     var have = this.buffers[path];

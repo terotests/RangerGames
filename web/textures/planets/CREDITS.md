@@ -18,3 +18,18 @@ color mosaic), public domain: [svs.gsfc.nasa.gov/4720](https://svs.gsfc.nasa.gov
 (lroc_color_2k.jpg, unchanged).
 
 Games that use them credit "Solar System Scope (CC BY 4.0)".
+
+Moons (2048×1024 or smaller, from level tiles of [NASA Solar System Treks](https://trek.nasa.gov/),
+public domain; joined, scaled, and where noted tinted or gap-filled):
+
+| File | Source |
+| --- | --- |
+| io.jpg | NASA/JPL/USGS, Galileo SSI + Voyager colour merge (`Io_GalileoSSI_Voyager_Global_Mosaic_ClrMerge_1km`) |
+| europa.jpg | NASA/JPL/USGS, Voyager + Galileo SSI mosaic (`Europa_Voyager_GalileoSSI_global_mosaic_500m`), tinted, gaps filled |
+| ganymede.jpg | NASA/JPL/USGS, Voyager + Galileo SSI colour mosaic (`Ganymede_Voyager_GalileoSSI_Global_ClrMosaic_1435m`) |
+| callisto.jpg | NASA/JPL/USGS, Voyager + Galileo SSI mosaic (`Callisto_Voyager_GalileoSSI_global_mosaic_1km`), tinted, gaps filled |
+| titan.jpg | NASA/JPL/Space Science Institute, Cassini ISS map by Erich Karkoschka (`TitanISS2018June`), tinted |
+| enceladus.jpg | NASA/JPL/Space Science Institute, Cassini ISS mosaic (`Enceladus_cyl_KH`) |
+
+saturn.jpg, uranus.jpg, neptune.jpg and triton.jpg are our own drawings
+(made with a script, RangerGames, same licence as the repository).
