@@ -326,6 +326,7 @@ function reset() {
   landed = false;
   cruise = 0;
   simT = 0;
+  hullK = -1;
   visited = {};
   bounces = 0;
   message = "";
@@ -520,9 +521,12 @@ const PAD_R = 54;
 // (blue) to the Sun's surface (5500 °C) on a log scale of kelvins
 const T_MIN = 2.7, T_MAX = 5800, THERMO_W = 330;
 const SURFACE_C: { [id: string]: number } = { mercury: 167, venus: 464, earth: 15, moon: -20, mars: -63, jupiter: -110, sun: 5500 };
-function envTempK() {
+// the temperature the ship's hull settles to here: the Sun's warmth by the
+// distance (in a shadow the cold of space, ~100 K), near the ground the
+// surface's own temperature
+function envTargetK() {
   const d = len(pos);
-  let k = Math.min(T_MAX, 278.6 / Math.sqrt(Math.max(d, 1) / AU));
+  let k = shadowNow ? 100 : Math.min(T_MAX, 278.6 / Math.sqrt(Math.max(d, 1) / AU));
   const b = field;
   if (b && !auto && SURFACE_C[b.id] !== undefined) {
     const alt = Math.max(0, len(sub(pos, b.pos)) - b.r);
@@ -531,10 +535,24 @@ function envTempK() {
     if (landed) k = s;
     else if (alt < top) k = k + (s - k) * (1 - alt / top);
   }
-  // in a shadow the ship cools towards the cold of space (as fast as the eyes adapt)
-  if (shadowNow || eyes > 0) k = k + (Math.min(k, 100) - k) * eyes;
-  if (heatQ > 0.05) k = Math.max(k, 300 + Math.min(1, heatQ / Q_MAX) * 1900);
   return k;
+}
+// the hull warms and cools slowly, in the ship's own time (so faster when
+// time is sped up): halfway to the new temperature in ~10 minutes
+let hullK = -1;
+let hullSimT = 0;
+const HULL_TAU = 900;
+function updateHull() {
+  const target = envTargetK();
+  const ds = Math.max(0, simT - hullSimT);
+  hullSimT = simT;
+  if (hullK < 0 || ds > 86400 * 30) hullK = target;
+  else hullK = hullK + (target - hullK) * (1 - Math.exp(-ds / HULL_TAU));
+}
+function envTempK() {
+  // the entry's hot plasma round the ship shows at once
+  if (heatQ > 0.05) return Math.max(hullK, 300 + Math.min(1, heatQ / Q_MAX) * 1900);
+  return hullK;
 }
 function thermoX(kelvin: number) {
   const l0 = Math.log(T_MIN), l1 = Math.log(T_MAX);
@@ -546,9 +564,9 @@ function thermometer() {
   const x = thermoX(k);
   const x0 = thermoX(273.15), x1 = thermoX(1273.15);
   const ticks = [[-273, 0.0], [-200, 73.15], [0, 273.15], [1000, 1273.15], [5500, 5773]];
-  const tagW = 64;
+  const tagW = shadowNow ? 110 : 64;
   return <div className="thermo">
-    <div className="thermoTag" style={{ left: Math.max(0, Math.min(THERMO_W - tagW, x - tagW / 2)), width: tagW }}>{(c > 0 ? "+" : "") + c + " °C"}</div>
+    <div className="thermoTag" style={{ left: Math.max(0, Math.min(THERMO_W - tagW, x - tagW / 2)), width: tagW }}>{(c > 0 ? "+" : "") + c + " °C" + (shadowNow ? rg.t(" · VARJO", " · SHADOW", " · SOMBRA") : "")}</div>
     <div className="thermoBar" style={{ left: 0, width: x0, background: "linear-gradient(90deg, #2f6bff, #6fe0ff)", borderTopLeftRadius: 3, borderBottomLeftRadius: 3 }} />
     <div className="thermoBar" style={{ left: x0, width: x1 - x0, background: "linear-gradient(90deg, #7dff8e, #ffcf5a)" }} />
     <div className="thermoBar" style={{ left: x1, width: THERMO_W - x1, background: "linear-gradient(90deg, #ff9a3d, #ff4a2a)", borderTopRightRadius: 3, borderBottomRightRadius: 3 }} />
@@ -1081,7 +1099,7 @@ function saveCheckpoint() {
 function loadCheckpoint() {
   const c = checkpoint;
   dead = null; chute = false; chuteK = 0; shieldHp = 1; heatQ = 0; gLoad = 0; shake = 0; impactIn = -1; landed = false; auto = null;
-  pos = c.pos; vel = c.vel; fwd = c.fwd; up = c.up; cruise = c.cruise; simT = c.simT;
+  pos = c.pos; vel = c.vel; fwd = c.fwd; up = c.up; cruise = c.cruise; simT = c.simT; hullK = -1;
   field = null;
   for (const b of BODIES) if (b.id === c.field) field = b;
   camOff = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
@@ -1162,6 +1180,7 @@ function tick(dt: number) {
     for (let i = 0; i < n; i++) step(h / n, c);
   }
   checkFinds();
+  updateHull();
   if (findToast) { findToast.t += dt; if (findToast.t > 7) findToast = null; }
   if (!findToast && findQueue.length) findToast = findQueue.shift();
   placeAll();
