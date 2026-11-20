@@ -1395,7 +1395,7 @@ function orbitVisible(p: number[], b: Body) {
 function orbitSegment(a: any, c: any, color: string, thickness: number) {
   const dx = c.x - a.x, dy = c.y - a.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
-  if (dist < 1 || dist > width * 1.35) return null;
+  if (dist < 1) return null;
   if (Math.min(a.x, c.x) > width + 30 || Math.max(a.x, c.x) < -30 || Math.min(a.y, c.y) > height + 30 || Math.max(a.y, c.y) < -30) return null;
   return <div className="orbitSegment"
     style={{ left: (a.x + c.x) * 0.5 - dist * 0.5, top: (a.y + c.y) * 0.5 - thickness * 0.5, width: dist, height: thickness, backgroundColor: color,
@@ -1403,23 +1403,41 @@ function orbitSegment(a: any, c: any, color: string, thickness: number) {
 }
 function orbitProjected(points: number[][], b: Body, color: string, dashed: boolean) {
   const out: any[] = [];
+  const f = norm(sub(cam.look, cam.pos));
+  const near = Math.max(1e-3, dot(sub(pos, cam.pos), f) * 0.5);
   for (let i = 1; i < points.length; i++) {
     if (dashed && (i % 2) === 0) continue;
-    const p = points[i - 1], q = points[i];
+    let p = points[i - 1], q = points[i];
     if (!orbitVisible(p, b) || !orbitVisible(q, b)) continue;
+    // cut at a plane in front of the camera (half way to the ship), so a
+    // piece passing by the camera does not swing across the screen
+    const zp = dot(sub(p, cam.pos), f), zq = dot(sub(q, cam.pos), f);
+    if (zp < near && zq < near) continue;
+    if (zp < near) p = add(p, mul(sub(q, p), (near - zp) / (zq - zp)));
+    else if (zq < near) q = add(p, mul(sub(q, p), (near - zp) / (zq - zp)));
     const a = project(p), c = project(q);
-    if (a && c) { const seg = orbitSegment(a, c, color, dashed ? 1.25 : 2); if (seg) out.push(seg); }
+    if (a && c) { const seg = orbitSegment(a, c, color, dashed ? 1 : 1.25); if (seg) out.push(seg); }
   }
   return out;
 }
+function fmtAlpha(x: number) { return String(Math.round(x * 100) / 100); }
 function orbitGraphic() {
   if (!field || auto || !orbitGuide.length || landed) return null;
   const b = field;
-  const predictedColor = orbitOutcome === "impact" ? "rgba(255,120,70,0.6)" : orbitOutcome === "escape" ? "rgba(255,190,60,0.5)" : "rgba(125,255,142,0.6)";
+  // seen edge-on (the camera in the orbit's plane) an orbit is one line
+  // through the screen that tells nothing: it fades out
+  const f = norm(sub(cam.look, cam.pos));
+  const n = cross(sub(pos, b.pos), vel);
+  const nl = len(n);
+  const k = nl > 0 ? Math.abs(dot(f, n)) / nl : 1;
+  const fade = Math.max(0, Math.min(1, (k - 0.12) / 0.25));
+  if (fade <= 0) return null;
+  const a = (x: number) => fmtAlpha(x * fade);
+  const predictedColor = orbitOutcome === "impact" ? "rgba(255,120,70," + a(0.5) + ")" : orbitOutcome === "escape" ? "rgba(255,190,60," + a(0.4) + ")" : "rgba(125,255,142," + a(0.35) + ")";
   return <div className="orbitGraphics">
-    {orbitProjected(orbitLaneInner, b, "rgba(125,255,142,0.16)", true)}
-    {orbitProjected(orbitLaneOuter, b, "rgba(125,255,142,0.16)", true)}
-    {orbitProjected(orbitGuide, b, "rgba(170,255,185,0.45)", true)}
+    {orbitProjected(orbitLaneInner, b, "rgba(125,255,142," + a(0.16) + ")", true)}
+    {orbitProjected(orbitLaneOuter, b, "rgba(125,255,142," + a(0.16) + ")", true)}
+    {orbitProjected(orbitGuide, b, "rgba(170,255,185," + a(0.3) + ")", true)}
     {orbitProjected(orbitTrail, b, predictedColor, false)}
   </div>;
 }
