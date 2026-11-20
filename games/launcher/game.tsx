@@ -11,7 +11,7 @@
 // the app and then plays without a network, in its game.json section or in
 // the Ladatut section.
 
-type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string; store?: any };
+type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string; store?: any; replaces?: string };
 // an entry of the download list (Sliqtly Games /games/catalog.json)
 type Offer = { id: string; name: string; description: string; icon: string; color: string; version: number; bytes: number; pack: string; kind: string; extends?: string; i18n?: any };
 type Section = { id: string; icon: string; color: string; fi: string; en: string; es: string };
@@ -79,7 +79,8 @@ const NET_ERRORS: { [k: string]: string[] } = {
 };
 
 function sectionOf(g: Game) {
-  const s = g.section || SECTION_OF[g.id] || (g.store ? "ladatut" : "muut");
+  // a download that replaces a game the app came with goes where that game was
+  const s = g.section || SECTION_OF[g.id] || (g.replaces && SECTION_OF[g.replaces]) || (g.store ? "ladatut" : "muut");
   for (const x of SECTIONS) if (x.id === s) return s;
   return "muut";
 }

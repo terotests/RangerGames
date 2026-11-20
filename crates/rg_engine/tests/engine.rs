@@ -219,3 +219,23 @@ fn a_row_does_not_wrap_unless_asked() {
     assert!(title.0 > one.0 + 30.0, "the title beside the number: {:?} {:?}", one, title);
     assert!(lines >= 2, "the description wraps in its column");
 }
+
+#[test]
+fn an_installed_download_replaces_the_game_it_names() {
+    let mut e = Engine::new();
+    e.vfs.add_text("/games/mansepoli/game.json", r#"{ "name": "Mansepoli", "order": 51, "section": "aly" }"#);
+    e.vfs.add_text("/games/g1/game.json", r#"{ "name": "Mansepoli", "replaces": "mansepoli" }"#);
+    // not installed (no _store.json): both are there
+    let ids: Vec<String> = e.games().iter().map(|g| g.id.clone()).collect();
+    assert!(ids.contains(&"mansepoli".to_string()) && ids.contains(&"g1".to_string()));
+    // installed: the download takes the old game's place
+    e.vfs.add_text("/games/g1/_store.json", r#"{ "id": "g1", "version": 1 }"#);
+    let gs = e.games();
+    assert!(!gs.iter().any(|g| g.id == "mansepoli"));
+    let g = gs.iter().find(|g| g.id == "g1").unwrap();
+    assert_eq!(g.order, 51.0);
+    assert_eq!(g.section, "aly");
+    // removed again: the old game comes back
+    e.vfs.add_text("/games/g1/_store.json", r#"{ "id": "g1", "version": 1, "removed": true }"#);
+    assert!(e.games().iter().any(|g| g.id == "mansepoli"));
+}

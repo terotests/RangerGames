@@ -182,6 +182,11 @@ pub struct GameInfo {
     /// host's `_store.json` in its folder ({id, version, source, …});
     /// Null for the games the app came with
     pub store: Json,
+    /// a downloaded game that stands in for a game the app came with
+    /// (`"replaces": "mansepoli"` in game.json, e.g. the Sliqtly Games copy
+    /// with Google TTS speech): when it is installed, that game leaves the
+    /// list and this one takes its place (its order and section)
+    pub replaces: String,
 }
 
 impl GameInfo {
@@ -214,6 +219,7 @@ impl GameInfo {
             section: s("section", ""),
             image: s("image", ""),
             store: Json::Null,
+            replaces: s("replaces", ""),
         }
     }
 
@@ -230,6 +236,7 @@ impl GameInfo {
             member("section", Json::Str(self.section.clone())),
             member("image", Json::Str(if self.image.is_empty() { String::new() } else { format!("{}/{}", self.dir, self.image) })),
             member("store", self.store.clone()),
+            member("replaces", Json::Str(self.replaces.clone())),
         ])
     }
 }
@@ -376,6 +383,23 @@ impl Engine {
             }
             out.push(info);
         }
+        // an installed download that replaces a game the app came with takes
+        // that game's place: its order and section, and the old one leaves
+        let mut gone: Vec<String> = Vec::new();
+        for i in 0..out.len() {
+            if out[i].store.is_null() || out[i].replaces.is_empty() || out[i].replaces == out[i].id {
+                continue;
+            }
+            let r = out[i].replaces.clone();
+            if let Some(old) = out.iter().find(|g| g.id == r && g.store.is_null()).cloned() {
+                out[i].order = old.order;
+                if out[i].section.is_empty() {
+                    out[i].section = old.section.clone();
+                }
+                gone.push(r);
+            }
+        }
+        out.retain(|g| !(g.store.is_null() && gone.contains(&g.id)));
         out.sort_by(|a, b| {
             a.order.partial_cmp(&b.order).unwrap_or(std::cmp::Ordering::Equal).then(a.name.cmp(&b.name))
         });
