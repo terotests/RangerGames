@@ -117,8 +117,9 @@ let up = [0, 1, 0];
 let thrusting = 0;
 let field: Body | null = null;   // the body whose gravity the ship is in
 let landed = false;
-let auto: { b: Body; c0: number; c1: number; dir: number[]; f0: number[]; t: number; dur: number } | null = null;
+let auto: { b: Body; c0: number; c1: number; dir: number[]; dir1: number[]; f0: number[]; t: number; dur: number } | null = null;
 let autoSpeed = 0;
+let aimAlt = 0;                 // where the approach path's closest point was aimed (km above the surface)
 let visited: any = {};
 let bounces = 0;
 let lastBounce = -10;
@@ -334,7 +335,7 @@ function onPointerUp(px: number, py: number, info: any) {
   const tap = !stick.moved && t - stick.t < TAP_TIME;
   stick = null;
   if (tap && !auto && !onThrottleButton(px, py)) {
-    if (level < 2 && sightAt && Math.hypot(px - sightAt[0], py - sightAt[1]) < 42) {
+    if (level === 0 && sightAt && Math.hypot(px - sightAt[0], py - sightAt[1]) < 42) {
       autoAlign = true;
       rg.sound("note", { note: 79, len: 0.08, wave: "square", volume: 0.25 });
       return;
@@ -397,7 +398,16 @@ function startAuto(b: Body) {
   const c1 = b.r + arrivalAlt(b);
   if (c0 < c1 * 1.05) return;
   const dur = Math.max(2.6, Math.min(7, 2 + 0.75 * Math.log(c0 / c1) / Math.LN10));
-  auto = { b, c0, c1, dir: mul(d, 1 / c0), f0: fwd, t: 0, dur };
+  const dir = mul(d, 1 / c0);
+  // above the cadet level the arrival point is off the straight line, in a
+  // random direction, so every approach comes in at its own angle
+  let dir1 = dir;
+  if (level > 0) {
+    let side = cross(dir, [Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5]);
+    if (len(side) < 1e-3) side = cross(dir, [0, 1, 0]);
+    dir1 = norm(rotate(dir, norm(side), (0.25 + Math.random() * 0.45) * (level === 2 ? 1.5 : 1)));
+  }
+  auto = { b, c0, c1, dir, dir1, f0: fwd, t: 0, dur };
   field = null;
   landed = false;
   autoAlign = false;
@@ -417,7 +427,8 @@ function stepAuto(dt: number) {
   const prev = pos;
   // the distance shrinks geometrically: fast far away, gentle near the target
   const c = a.c0 * Math.pow(a.c1 / a.c0, e);
-  pos = add(a.b.pos, mul(a.dir, c));
+  const dirNow = norm(add(mul(a.dir, 1 - e), mul(a.dir1, e)));
+  pos = add(a.b.pos, mul(dirNow, c));
   autoSpeed = len(sub(pos, prev)) / Math.max(1e-6, dt);
   const want = norm(sub(a.b.pos, pos));
   const w = Math.min(1, u * 2.2);
@@ -430,7 +441,7 @@ function stepAuto(dt: number) {
   if (u >= 1) {
     auto = null;
     thrusting = 0;
-    const radial = a.dir;
+    const radial = a.dir1;
     let tangent = norm(cross([0, 1, 0], radial));
     if (len(tangent) < 0.5) tangent = norm(cross([1, 0, 0], radial));
     const b = a.b;
@@ -439,27 +450,32 @@ function stepAuto(dt: number) {
       // a circular parking orbit at the arrival height, the nose prograde
       fwd = tangent;
       up = radial;
+      camOff = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
+      lookOff = add(mul(fwd, CAM_AHEAD), mul(up, -CAM_DOWN));
+      cam.up = up;
     } else {
-      // falling in from the arrival point a little faster than escape speed,
-      // aimed so that the closest point (periapsis) is near the target height;
-      // the pilot brakes there into orbit
-      const rp = b.r + b.h * (level === 1 ? 1.2 + Math.random() * 0.6 : 0.5 + Math.random() * 3.5);
+      // falling in a little faster than escape speed in a random plane, aimed
+      // off the target height: the closest point may be too high, too low or
+      // even on the surface. The nose still points at the planet (no camera
+      // jump); the pilot turns to the green sight and corrects the course
+      // before braking into orbit at the closest point
+      const spin = Math.random() * Math.PI * 2;
+      tangent = norm(rotate(tangent, radial, spin));
+      const lo = level === 1 ? -1.5 : -4, hi = level === 1 ? 5 : 10;
+      aimAlt = b.h * (lo + Math.random() * (hi - lo));
+      const rp = Math.max(b.r * 0.25, b.r + aimAlt);
       const s = vesc(b, a.c1) * (level === 1 ? 1.03 : 1.1);
       const vp = Math.sqrt(s * s - 2 * b.gm / a.c1 + 2 * b.gm / rp);
       const vt = Math.min(s, rp * vp / a.c1);
       const vr = Math.sqrt(Math.max(0, s * s - vt * vt));
       v = add(mul(tangent, vt), mul(radial, -vr));
-      fwd = norm(v);
-      up = norm(sub(radial, mul(fwd, dot(radial, fwd))));
-      if (len(up) < 0.5) up = radial;
     }
-    camOff = add(mul(fwd, -CAM_BACK), mul(up, CAM_UP));
-    lookOff = add(mul(fwd, CAM_AHEAD), mul(up, -CAM_DOWN));
-    cam.up = up;
     enterField(b, v);
     if (level === 0) say(b.name + ": " + rg.t("pysäköintirata ", "parking orbit ", "órbita de espera ") + grp(a.c1 - b.r) + " km. " +
       rg.t("Laske tavoitteeseen ", "Lower to ", "Baja a ") + grp(b.h) + " km.");
-    else say(b.name + ": " + rg.t("lähestymisrata. Jarruta lähimmässä kohdassa, tavoite ", "approach path. Brake at the closest point, target ", "trayectoria de aproximación. Frena en el punto más cercano, objetivo ") + grp(b.h) + " km.");
+    else say(b.name + ": " + rg.t("lähestymisrata, lähin kohta ", "approach path, closest point ", "trayectoria de aproximación, punto más cercano ") +
+      (aimAlt < 0 ? rg.t("PINNAN ALLA", "BELOW THE SURFACE", "BAJO LA SUPERFICIE") : grp(aimAlt) + " km") + ". " +
+      rg.t("Korjaa rata, tavoite ", "Correct the course, target ", "Corrige el rumbo, objetivo ") + grp(b.h) + " km.");
   }
 }
 
