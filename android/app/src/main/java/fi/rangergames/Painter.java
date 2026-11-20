@@ -54,7 +54,12 @@ final class Painter {
     private final HashMap<String, int[]> maps = new HashMap<>();
     private final HashMap<String, int[]> mapSizes = new HashMap<>();
     private int[] sphereOut = new int[0];
-    private Bitmap sphereBitmap;
+    // The globe pictures go round a ring: the hardware canvas only records
+    // drawBitmap, and the render thread reads the pixels later, so a bitmap
+    // written again for the next globe or the next frame could show the new
+    // picture in the old box (the Moon flicked aside for a moment).
+    private final Bitmap[] sphereBitmaps = new Bitmap[6];
+    private int sphereNext;
     /** pixels of the cast globe per game unit (the bitmap is drawn smoothed) */
     private static final float SPHERE_RES = 0.5f;
 
@@ -146,14 +151,18 @@ final class Painter {
         int ow = Math.max(1, Math.round(w * SPHERE_RES)), oh = Math.max(1, Math.round(h * SPHERE_RES));
         if (sphereOut.length < ow * oh) sphereOut = new int[ow * oh];
         Sphere.cast(sphereOut, ow, oh, x, y, w, h, tex, size[0], size[1], nums, at);
-        if (sphereBitmap == null || sphereBitmap.getWidth() < ow || sphereBitmap.getHeight() < oh) {
-            if (sphereBitmap != null) sphereBitmap.recycle();
-            sphereBitmap = Bitmap.createBitmap(Math.max(ow, 64), Math.max(oh, 64), Bitmap.Config.ARGB_8888);
+        int slot = sphereNext;
+        sphereNext = (sphereNext + 1) % sphereBitmaps.length;
+        Bitmap bm = sphereBitmaps[slot];
+        if (bm == null || bm.getWidth() < ow || bm.getHeight() < oh) {
+            // no recycle(): an earlier frame may still be drawing the old one
+            bm = Bitmap.createBitmap(Math.max(ow, 64), Math.max(oh, 64), Bitmap.Config.ARGB_8888);
+            sphereBitmaps[slot] = bm;
         }
-        sphereBitmap.setPixels(sphereOut, 0, ow, 0, 0, ow, oh);
+        bm.setPixels(sphereOut, 0, ow, 0, 0, ow, oh);
         src.set(0, 0, ow, oh);
         rf.set(x, y, x + w, y + h);
-        c.drawBitmap(sphereBitmap, src, rf, image);
+        c.drawBitmap(bm, src, rf, image);
     }
 
     private void roundRect(float x, float y, float w, float h, float tl, float tr, float br, float bl) {
