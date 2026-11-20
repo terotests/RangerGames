@@ -45,3 +45,17 @@
 .linked { margin-top: 8px; font-size: 14px; font-weight: 700; color: #06d6a0; padding: 4px; padding-left: 12px; padding-right: 12px; border-radius: 12px; background-color: rgba(0, 0, 0, 0.25); }
 .rbtn { height: 44px; margin-left: 6px; margin-right: 6px; padding-left: 16px; padding-right: 16px; border-radius: 12px; align-items: center; justify-content: center; font-size: 18px; font-weight: 700; color: #ffffff; background-color: rgba(255, 255, 255, 0.08); opacity: 0.55; }
 .rbtn.on { background-color: rgba(255, 255, 255, 0.28); border-width: 3px; border-color: #ffd166; opacity: 1; }
+/* the download page (⚙️ → Lataa pelejä) */
+.offer { width: 336px; margin-left: 12px; margin-top: 10px; padding: 12px; border-radius: 20px; background-color: rgba(255, 255, 255, 0.08); }
+.orow { flex-direction: row; align-items: center; margin-top: 4px; }
+.oicon { width: 56px; height: 56px; border-radius: 16px; align-items: center; justify-content: center; font-size: 32px; }
+.otext { flex-grow: 1; margin-left: 10px; flex-shrink: 1; }
+.oname { font-size: 18px; font-weight: 700; color: #ffffff; flex-grow: 1; }
+.ometa { font-size: 13px; color: #c9c8ff; margin-top: 2px; }
+.odesc { font-size: 14px; color: #e6e4ff; margin-top: 6px; }
+.obtn { height: 44px; padding-left: 18px; padding-right: 18px; margin-top: 8px; margin-right: 8px; border-radius: 22px; align-items: center; justify-content: center; font-size: 17px; font-weight: 700; color: #ffffff; }
+.green { background-color: #06a77d; }
+.dim { opacity: 0.45; }
+.bar { width: 220px; height: 14px; border-radius: 7px; margin-top: 10px; margin-right: 10px; background-color: rgba(0, 0, 0, 0.3); }
+.barfill { height: 14px; border-radius: 7px; background-color: #06d6a0; }
+.ogrey { background-color: #5a4b9c; }

@@ -42,6 +42,9 @@ final class Engine {
     /** on: the app draws textured globes (draw kind 8, {@link Sphere}). */
     static native void textures(boolean on);
 
+    /** on: the app installs games from the download list ({@link Store}, rg.store). */
+    static native void store(boolean on);
+
     /** The frame's 3D triangles, 6 floats a corner: x, y (dp of the game), depth 0…1, r, g, b. */
     static native float[] tris();
 

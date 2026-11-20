@@ -199,6 +199,27 @@ var rg = {
   // a path in the game's folder, for <img src>
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
   games: function () { return __games; },
+  // Downloadable games (the launcher's ⚙️ → Lataa pelejä): the list of games
+  // the admin accepted on Sliqtly Games, installed into the app to play
+  // offline. rg.store.available: this host can install (the phone app, the
+  // web build). catalog() asks for the list, install(entry) installs one of
+  // its entries, remove(id) takes an installed game away. Answers come to
+  // onStore(ev): {type: "catalog", games: [...]}, {type: "progress", id,
+  // done, total}, {type: "installed", id, version}, {type: "removed", id},
+  // {type: "error", id?, reason: "offline" | "http" | "bad-pack" | "too-big"
+  // | "no-base" | "storage", status?}. rg.games() is up to date before
+  // onStore hears of an install; an installed game's rg.games() entry has
+  // store: {id, version, kind, extends, source}.
+  store: {
+    available: false,
+    url: "https://sliqtly.com/games/catalog.json",
+    catalog: function () { __cmds.push(["store", "catalog", { url: rg.store.url }]); },
+    install: function (g) {
+      __cmds.push(["store", "install", { id: String(g.id), pack: String(g.pack), version: +g.version || 1, name: String(g.name || g.id),
+        kind: g.kind === "addon" ? "addon" : "game", "extends": g["extends"] ? String(g["extends"]) : "", bytes: +g.bytes || 0, source: rg.store.url }]);
+    },
+    remove: function (id) { __cmds.push(["store", "remove", { id: String(id) }]); }
+  },
   // seeded random numbers, the same on every platform
   // (rg_core's Rng: Park and Miller's minimal standard generator)
   seed: function (n) { __seed = Math.floor(n) % 2147483647; if (__seed < 0) __seed += 2147483647; if (__seed === 0) __seed = 1; },
@@ -470,6 +491,10 @@ function __frame(arg) {
       else if (e.key === "mic") { if (typeof onMic === "function" && data) onMic(data); }
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
+      else if (e.key === "store") {
+        if (data && data._games) { __games = data._games; delete data._games; }
+        if (typeof onStore === "function" && data) onStore(data);
+      }
       else if (e.key === "wheel") { if (data) __orbitWheel(data.dy); if (typeof onWheel === "function" && data) onWheel(data.dy, data); }
       else if (typeof onSensor === "function") onSensor(e.key, data);
     }
@@ -598,6 +623,7 @@ function __start(arg) {
   rg.net.peers = []; rg.net.links = []; rg.net.reason = "";
   __speech = a.speech !== false;
   rg.renderers = a.renderers || ["evg"];
+  rg.store.available = !!a.store;
   rg.renderer = a.renderer || "evg";
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();

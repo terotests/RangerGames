@@ -6,8 +6,14 @@
 // tile then turns that game's speech on or off. ⚙️ on the front page opens
 // the settings page: the language and connecting two phones (rg.net; the
 // link stays up from game to game and the friend's phone follows this one).
+// There "📥 Lataa pelejä" (rg.store, where the app can install games) lists
+// the games accepted for download on Sliqtly Games: one is installed into
+// the app and then plays without a network, in its game.json section or in
+// the Ladatut section.
 
-type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string };
+type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string; store?: any };
+// an entry of the download list (Sliqtly Games /games/catalog.json)
+type Offer = { id: string; name: string; description: string; icon: string; color: string; version: number; bytes: number; pack: string; kind: string; extends?: string; i18n?: any };
 type Section = { id: string; icon: string; color: string; fi: string; en: string; es: string };
 
 const SECTIONS: Section[] = [
@@ -19,6 +25,7 @@ const SECTIONS: Section[] = [
   { id: "seikkailu", icon: "🚀", color: "#ef476f", fi: "Seikkailut", en: "Adventures", es: "Aventuras" },
   { id: "rakennus", icon: "🔨", color: "#f77f00", fi: "Rakennuspelit", en: "Building", es: "Construcción" },
   { id: "tietokoneet", icon: "💻", color: "#3a86ff", fi: "Tietokoneet", en: "Computers", es: "Ordenadores" },
+  { id: "ladatut", icon: "📥", color: "#0f9d76", fi: "Ladatut", en: "Downloaded", es: "Descargados" },
   { id: "muut", icon: "🎈", color: "#7b2cbf", fi: "Muut", en: "Other", es: "Otros" },
 ];
 // games whose game.json has no "section"
@@ -42,6 +49,12 @@ let settings = false;          // ⚙️: tiles turn speech on and off instead o
 let section = "";              // the open section, "" the front page
 let page = "";                 // "settings": the settings page
 let netNote = "";              // on the settings page: what went wrong last
+// the download page (page "store")
+let offers: Offer[] = [];      // the list as last read
+let storeState = "";           // "loading", "ready", "error"
+let storeNote = "";            // what went wrong last, or what was done
+let busyId = "";               // the game being downloaded
+let busyDone = 0, busyTotal = 0;
 // Scrolling: a page taller than the screen moves with a finger or mouse drag
 // (a flick keeps it going a moment) and with the mouse wheel. A drag that
 // moved more than DRAG_SLOP is not a tap, so it does not open the tile it
@@ -66,7 +79,7 @@ const NET_ERRORS: { [k: string]: string[] } = {
 };
 
 function sectionOf(g: Game) {
-  const s = g.section || SECTION_OF[g.id] || "muut";
+  const s = g.section || SECTION_OF[g.id] || (g.store ? "ladatut" : "muut");
   for (const x of SECTIONS) if (x.id === s) return s;
   return "muut";
 }
@@ -124,7 +137,8 @@ function openSection(s: string) {
 }
 
 function onBack() {
-  if (page) { page = ""; rg.sound("click"); }
+  if (page === "store") { page = "settings"; rg.sound("click"); }
+  else if (page) { page = ""; rg.sound("click"); }
   else if (section) { section = ""; rg.save("section", ""); rg.sound("click"); } else rg.exit();
 }
 
@@ -267,8 +281,163 @@ function Settings() {
       <div className="flags">{rg.langs.map((l) => Flag(l))}</div>
     </div>,
     NetPanel(),
+    StorePanel(),
     RendererPanel(),
     <div className="phint">{rg.t("Pelien puhe: avaa peliryhmä ja paina ⚙️.", "Speech per game: open a group and tap ⚙️.", "Voz de cada juego: abre un grupo y toca ⚙️.")}</div>
+  ];
+}
+
+// ------------------------------------------------------------ downloads --
+
+const STORE_ERRORS: { [k: string]: string[] } = {
+  "offline": ["Ei verkkoyhteyttä. Yhdistä Wi-Fiin ja yritä uudelleen.", "No network. Connect to Wi-Fi and try again.", "Sin conexión. Conéctate a Wi-Fi e inténtalo de nuevo."],
+  "http": ["Palvelin ei vastannut oikein. Yritä myöhemmin.", "The server did not answer properly. Try later.", "El servidor no respondió bien. Inténtalo más tarde."],
+  "bad-pack": ["Peli ei latautunut oikein.", "The game did not download properly.", "El juego no se descargó bien."],
+  "too-big": ["Peli on liian iso tähän puhelimeen.", "The game is too big for this phone.", "El juego es demasiado grande para este teléfono."],
+  "no-base": ["Lisäosan peli puuttuu: lataa ensin se.", "The add-on's game is missing: download it first.", "Falta el juego del complemento: descárgalo primero."],
+  "taken": ["Puhelimessa on jo samanniminen peli.", "The phone already has a game with this name.", "El teléfono ya tiene un juego con este nombre."],
+  "storage": ["Puhelimen muisti on täynnä.", "The phone's storage is full.", "El almacenamiento del teléfono está lleno."]
+};
+
+function StorePanel() {
+  if (!rg.store.available) return null;
+  const n = games.filter((g) => g.store).length;
+  return (
+    <div className="panel">
+      <div className="ptitle">📥 {rg.t("Lataa pelejä", "Download games", "Descargar juegos")}</div>
+      <div className="nhint">{rg.t("Uusia pelejä verkosta. Ladattu peli toimii ilman verkkoa.", "New games from the net. A downloaded game plays offline.", "Juegos nuevos de la red. Un juego descargado funciona sin conexión.")}</div>
+      {n ? <div className="nhint">{rg.t("Ladattuja pelejä: " + n, "Downloaded games: " + n, "Juegos descargados: " + n)}</div> : null}
+      <div className="nbtn blue" id="open-store" onClick={tap(() => openStore())}>📥 {rg.t("Lataa pelejä", "Download games", "Descargar juegos")}</div>
+    </div>
+  );
+}
+
+function openStore() {
+  page = "store"; storeNote = ""; storeState = "loading";
+  rg.sound("click"); rg.vibrate(15);
+  rg.store.catalog();
+}
+
+function installed(id: string) {
+  for (const g of games) if (g.id === id && g.store) return g;
+  return null;
+}
+
+function offerName(o: Offer) {
+  const tr = o.i18n && o.i18n[rg.lang];
+  return tr && tr.name ? tr.name : o.name;
+}
+
+function gameName(id: string) {
+  for (const g of games) if (g.id === id) return nameOf(g);
+  for (const o of offers) if (o.id === id) return offerName(o);
+  return id;
+}
+
+function onStore(ev: any) {
+  games = rg.games();   // an install or removal changed the list
+  if (ev.type === "catalog") {
+    offers = ev.games || []; storeState = "ready";
+  } else if (ev.type === "progress") {
+    if (ev.id === busyId) { busyDone = ev.done; busyTotal = ev.total; }
+  } else if (ev.type === "installed") {
+    busyId = "";
+    storeNote = "✅ " + gameName(ev.id) + rg.t(" on ladattu! Löydät sen pelivalikosta.", " is downloaded! You find it in the game menu.", " ¡descargado! Lo encuentras en el menú.");
+    rg.sound("win"); rg.vibrate([40, 60, 40]);
+    rg.celebrate(width / 2, 160, { big: true });
+  } else if (ev.type === "removed") {
+    storeNote = "🗑️ " + gameName(ev.id) + rg.t(" poistettu.", " removed.", " eliminado.");
+    rg.sound("pop");
+  } else if (ev.type === "error") {
+    const e = STORE_ERRORS[ev.reason] || STORE_ERRORS["http"];
+    if (!ev.id) storeState = "error";
+    if (ev.id === busyId) busyId = "";
+    storeNote = rg.t(e[0], e[1], e[2]);
+    rg.sound("wrong");
+  }
+}
+
+function mb(n: number) { return (Math.max(0.1, n / 1048576)).toFixed(1).replace(".", rg.lang === "en" ? "." : ",") + " Mt"; }
+
+function installOffer(o: Offer) {
+  if (busyId) return;
+  busyId = o.id; busyDone = 0; busyTotal = o.bytes; storeNote = "";
+  rg.sound("click"); rg.vibrate(15);
+  rg.store.install(o);
+}
+
+function removeGame(id: string) {
+  if (busyId) return;
+  rg.sound("click");
+  rg.store.remove(id);
+}
+
+function OfferRow(o: Offer, i: number) {
+  const have = installed(o.id);
+  const busy = busyId === o.id;
+  const addon = o.kind === "addon";
+  const baseMissing = addon && !games.some((g) => g.id === o.extends);
+  let action: any;
+  if (busy) {
+    const pct = busyTotal > 0 ? Math.min(100, Math.floor((100 * busyDone) / busyTotal)) : 0;
+    action = [
+      <div className="bar"><div className="barfill" style={{ width: Math.round(2.2 * pct) }} /></div>,
+      <div className="ometa">{rg.t("Ladataan… ", "Downloading… ", "Descargando… ") + pct + " %"}</div>
+    ];
+  } else if (have && (have.store.version || 0) >= o.version) {
+    action = [
+      addon ? null : <div className="obtn green" id={"play-" + o.id} onClick={tap(() => open(o.id))}>▶ {rg.t("Pelaa", "Play", "Jugar")}</div>,
+      <div className="obtn ogrey" id={"remove-" + o.id} onClick={tap(() => removeGame(o.id))}>{rg.t("Poista", "Remove", "Eliminar")}</div>
+    ];
+  } else if (baseMissing) {
+    action = <div className="ometa">{rg.t("Lisäosa peliin " + gameName(o.extends || "") + ": lataa se ensin.", "Add-on for " + gameName(o.extends || "") + ": download it first.", "Complemento de " + gameName(o.extends || "") + ": descárgalo primero.")}</div>;
+  } else {
+    action = <div className={busyId ? "obtn pink dim" : "obtn pink"} id={"get-" + o.id} onClick={tap(() => installOffer(o))}>{have ? "⬆ " + rg.t("Päivitä", "Update", "Actualizar") : "⬇ " + rg.t("Lataa", "Download", "Descargar")}</div>;
+  }
+  return (
+    <div className="offer" id={"offer-" + o.id}>
+      <div className="orow">
+        <div className="oicon" style={{ backgroundColor: o.color || "#4f7cff" }}>{o.icon || "🎮"}</div>
+        <div className="otext">
+          <div className="oname">{offerName(o)}</div>
+          <div className="ometa">{(addon ? rg.t("Lisäosa · ", "Add-on · ", "Complemento · ") : "") + mb(o.bytes) + (have ? rg.t(" · ladattu", " · downloaded", " · descargado") : "")}</div>
+        </div>
+      </div>
+      {o.description ? <div className="odesc">{o.description}</div> : null}
+      <div className="orow">{action}</div>
+    </div>
+  );
+}
+
+function StorePage() {
+  let body: any;
+  if (storeState === "loading") {
+    body = [<div className="nicon" style={{ transform: "rotate(" + Math.round(t * 120) % 360 + "deg)" }}>⏳</div>, <div className="nlabel">{rg.t("Haetaan pelilistaa…", "Fetching the game list…", "Buscando la lista…")}</div>];
+  } else if (storeState === "error") {
+    body = [
+      <div className="nicon">📡</div>,
+      <div className="nnote">{storeNote}</div>,
+      <div className="nbtn blue" id="store-retry" onClick={tap(() => openStore())}>🔄 {rg.t("Yritä uudelleen", "Try again", "Reintentar")}</div>
+    ];
+  } else if (!offers.length) {
+    body = <div className="nhint">{rg.t("Ladattavia pelejä ei ole vielä.", "No games to download yet.", "Todavía no hay juegos para descargar.")}</div>;
+  } else {
+    body = offers.map((o, i) => OfferRow(o, i));
+  }
+  const mine = games.filter((g) => g.store && !offers.some((o) => o.id === g.id));
+  return [
+    <div className="shead">
+      <div className="sback" id="back" onClick={tap(() => onBack())}>←</div>
+      <div className="stitle">📥 {rg.t("Lataa pelejä", "Download games", "Descargar juegos")}</div>
+    </div>,
+    storeNote && storeState !== "error" ? <div className="phint">{storeNote}</div> : null,
+    storeState === "ready" ? <div className="phint">{rg.t("Ladattu peli toimii ilman verkkoa.", "A downloaded game plays offline.", "Un juego descargado funciona sin conexión.")}</div> : null,
+    body,
+    // installed games no longer in the list: can still be played or removed
+    mine.length && storeState === "ready" ? <div className="panel">
+      <div className="ptitle">{rg.t("Ladatut", "Downloaded", "Descargados")}</div>
+      {mine.map((g) => <div className="orow"><div className="oname">{(g.icon || "🎮") + " " + nameOf(g)}</div><div className="obtn ogrey" id={"remove-" + g.id} onClick={tap(() => removeGame(g.id))}>{rg.t("Poista", "Remove", "Eliminar")}</div></div>)}
+    </div> : null
   ];
 }
 
@@ -353,6 +522,7 @@ function scrolled(children: any) {
 function view() {
   const bg = bubbles.map((b) => <div className="bubble" style={{ left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, backgroundColor: b.c }} />);
   if (page === "settings") return <div className="screen">{bg}{scrolled(Settings())}</div>;
+  if (page === "store") return <div className="screen">{bg}{scrolled(StorePage())}</div>;
   if (section) {
     let sec = SECTIONS[SECTIONS.length - 1];
     for (const x of SECTIONS) if (x.id === section) sec = x;

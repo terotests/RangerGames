@@ -63,12 +63,16 @@
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
         else self.gl3d = null;
-        self.attach();
-        self.resize();
-        var first = params.get("game") || (global.RG_PAGE && global.RG_PAGE.game) || "";
-        self.status.style.display = "none";
-        self.start(first);
-        global.requestAnimationFrame(function (t) { self.loop(t); });
+        // rg.store: games installed from the download list, kept in IndexedDB
+        if (self.x.rg_store && global.indexedDB) self.x.rg_store(1);
+        return self.storeRestore().then(function () {
+          self.attach();
+          self.resize();
+          var first = params.get("game") || (global.RG_PAGE && global.RG_PAGE.game) || "";
+          self.status.style.display = "none";
+          self.start(first);
+          global.requestAnimationFrame(function (t) { self.loop(t); });
+        });
       });
     });
   };
@@ -435,6 +439,135 @@
     };
     input.click();
   };
+  // ------------------------------------------------------------ rg.store --
+  // Downloadable games (the launcher's ⚙️ → Lataa pelejä), as the phone app
+  // does them (android/…/Store.java): the list from Sliqtly Games, a game's
+  // pack checked to hold only its own folder, mounted over /games and kept
+  // in IndexedDB ("rg-store") for the next visit.
+  var STORE_ID = /^[a-z0-9][a-z0-9_-]{0,63}$/, STORE_MAX = 66 * 1048576;
+
+  Host.prototype.storeDb = function () {
+    if (this.storeDbP) return this.storeDbP;
+    this.storeDbP = new Promise(function (res) {
+      try {
+        var r = global.indexedDB.open("rg-store", 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore("packs"); };
+        r.onsuccess = function () { res(r.result); };
+        r.onerror = function () { res(null); };
+      } catch (e) { res(null); }
+    });
+    return this.storeDbP;
+  };
+
+  // one IndexedDB request on the packs: its result, null on failure
+  Host.prototype.storeReq = function (mode, f) {
+    return this.storeDb().then(function (db) {
+      if (!db) return null;
+      return new Promise(function (res) {
+        try {
+          var r = f(db.transaction("packs", mode).objectStore("packs"));
+          r.onsuccess = function () { res(r.result); };
+          r.onerror = function () { res(null); };
+        } catch (e) { res(null); }
+      });
+    });
+  };
+
+  Host.prototype.storeRestore = function () {
+    var self = this;
+    this.storeIndex = {};
+    if (!this.x.rg_store || !global.indexedDB) return Promise.resolve();
+    return this.storeReq("readonly", function (st) { return st.getAll(); }).then(function (list) {
+      (list || []).forEach(function (e) {
+        if (!e || !e.meta || !e.bytes) return;
+        if (self.mountPack("/games", new Uint8Array(e.bytes)) < 0) return;
+        self.storeIndex[e.meta.id] = e.meta;
+        self.storeNote(e.meta, false);
+      });
+    }).catch(function (e) { console.warn("store", e); });
+  };
+
+  function storeFolder(m) { return m.kind === "addon" ? m["extends"] + "/addons/" + m.id : m.id; }
+
+  Host.prototype.storeNote = function (m, removed) {
+    var n = { id: m.id, version: m.version, kind: m.kind, "extends": m["extends"] || "", source: m.source || "" };
+    if (removed) n.removed = true;
+    this.putFile("/games/" + storeFolder(m) + "/_store.json", enc.encode(JSON.stringify(n)));
+  };
+
+  Host.prototype.storeEvent = function (ev) { this.sendSensor("store", ev); };
+
+  // why the bytes are not a pack of the folder `prefix` (null: they are)
+  Host.storeCheck = function (b, prefix) {
+    var pos = 0;
+    function line() {
+      var i = pos;
+      while (i < b.length && b[i] !== 10) { if (i - pos > 4096) return null; i++; }
+      if (i >= b.length) return null;
+      var s = dec.decode(b.subarray(pos, i)); pos = i + 1; return s;
+    }
+    if (line() !== "RGPK1") return "not RGPK1";
+    var count = parseInt(line(), 10);
+    if (!(count >= 1 && count <= 100000)) return "file count";
+    for (var k = 0; k < count; k++) {
+      var p = line(), size = parseInt(line(), 10);
+      if (p === null || p.indexOf(prefix) !== 0 || p.length === prefix.length) return "outside the folder: " + p;
+      if (/\.\.|\/\/|\\|\u0000/.test(p) || /\/_store\.json$/.test(p)) return "bad path: " + p;
+      if (!(size >= 0) || pos + size > b.length) return "ends inside " + p;
+      pos += size;
+    }
+    return null;
+  };
+
+  Host.prototype.storeCommand = function (name, a) {
+    var self = this;
+    var err = function (id, reason, status) {
+      var ev = { type: "error", reason: reason };
+      if (id) ev.id = id;
+      if (status) ev.status = status;
+      self.storeEvent(ev);
+    };
+    if (name === "catalog") {
+      fetch(a.url, { cache: "no-cache" }).then(function (r) {
+        if (!r.ok) { err(null, "http", r.status); return null; }
+        return r.json().then(function (c) { self.storeEvent({ type: "catalog", games: (c && c.games) || [] }); });
+      }).catch(function () { err(null, "offline"); });
+      return;
+    }
+    if (name === "remove") {
+      var m = this.storeIndex[a.id];
+      if (!m) { err(a.id, "not-installed"); return; }
+      this.storeNote(m, true);
+      delete this.storeIndex[a.id];
+      this.storeReq("readwrite", function (st) { return st["delete"](a.id); });
+      this.storeEvent({ type: "removed", id: a.id });
+      return;
+    }
+    if (name !== "install") return;
+    var id = String(a.id || ""), kind = a.kind === "addon" ? "addon" : "game", ext = String(a["extends"] || "");
+    if (!STORE_ID.test(id) || id === "launcher" || (kind === "addon" && !STORE_ID.test(ext)) || !/^https:\/\//.test(String(a.pack))) { err(id, "bad-pack"); return; }
+    if (kind === "game" && !this.storeIndex[id] && this.readFile("/games/" + id + "/game.json")) { err(id, "taken"); return; }
+    if (kind === "addon" && !this.readFile("/games/" + ext + "/game.json")) { err(id, "no-base"); return; }
+    if ((+a.bytes || 0) > STORE_MAX) { err(id, "too-big"); return; }
+    var meta = { id: id, version: +a.version || 1, kind: kind, "extends": ext, name: String(a.name || id), source: String(a.source || "") };
+    var told = 0;
+    this.download(String(a.pack), +a.bytes || 0, function (u, got, total) {
+      if (got - told >= 262144) { told = got; self.storeEvent({ type: "progress", id: id, done: got, total: total }); }
+    }).then(function (buf) {
+      var bytes = new Uint8Array(buf);
+      if (bytes.length > STORE_MAX) { err(id, "too-big"); return; }
+      var why = Host.storeCheck(bytes, storeFolder(meta) + "/");
+      if (why || self.mountPack("/games", bytes) < 0) { console.warn("store " + id + ": " + why); err(id, "bad-pack"); return; }
+      self.storeIndex[id] = meta;
+      self.storeNote(meta, false);
+      self.storeReq("readwrite", function (st) { return st.put({ meta: meta, bytes: buf }, id); });
+      self.storeEvent({ type: "installed", id: id, version: meta.version });
+    }).catch(function (e) {
+      var m = /: (\d+)$/.exec(String(e && e.message));
+      if (m) err(id, "http", +m[1]); else err(id, "offline");
+    });
+  };
+
   Host.prototype.putFile = function (path, bytes) {
     var a = this.put(path), b = this.put(bytes);
     this.x.rg_put(a[0], a[1], b[0], b[1]);
@@ -472,6 +605,7 @@
       case "pack": this.loadPack(name, String(args)); break;
       case "sensor": this.sensor(name, args !== false); break;
       case "net": if (this.net) this.net.command(name, args); break;
+      case "store": this.storeCommand(name, args || {}); break;
       case "camera": this.camera(name); break;
       case "photo-delete": try { localStorage.removeItem("rgimg:/save/photos/" + name + ".jpg"); localStorage.removeItem("rgimg:/save/photos/" + name + "_t.jpg"); } catch (e) { } break;
       case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;

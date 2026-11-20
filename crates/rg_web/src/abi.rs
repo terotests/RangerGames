@@ -175,6 +175,12 @@ pub extern "C" fn rg_textures(on: i32) {
     with(|e| e.textures = on != 0)
 }
 
+/// on: the page installs games from the download list (host.js, rg.store)
+#[no_mangle]
+pub extern "C" fn rg_store(on: i32) {
+    with(|e| e.store = on != 0)
+}
+
 /// The host draws a sphere command's map only inside the window its 4 extra
 /// numbers give (a planet's `detail` pictures).
 #[no_mangle]
