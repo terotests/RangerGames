@@ -102,7 +102,7 @@
       if (vol !== 1) this.master.gain.value = saved;
       return;
     }
-    this.playFile(name, vol, pitch, false, !!(opts && opts.radio), !!(opts && opts.queue));
+    this.playFile(name, vol, pitch, false, !!(opts && opts.radio), !!(opts && opts.queue), opts);
   };
 
   // a radio voice: a squelch of static, the voice through a narrow band
@@ -127,7 +127,18 @@
 
   // queue: the sound waits until the queued sounds before it have ended (a
   // spoken line after a spoken line); radio: played as a radio call
-  Audio.prototype.playFile = function (path, vol, pitch, loop, radio, queue) {
+  // fx (rg.sound's options): lowpass / highpass (Hz) filter the sound,
+  // static (0..1) lays a hiss under it
+  Audio.prototype.fxChain = function (s, vol, t, fx) {
+    var c = this.ctx, node = s;
+    if (fx.highpass) { var hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = fx.highpass; node.connect(hp); node = hp; }
+    if (fx.lowpass) { var lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = fx.lowpass; node.connect(lp); node = lp; }
+    var g = c.createGain(); g.gain.value = vol;
+    node.connect(g); g.connect(this.master);
+    if (fx.static > 0) this.noise(s.buffer.duration / (s.playbackRate.value || 1) + 0.1, Math.min(1, fx.static) * 0.25 * vol, 2400, 1600, t);
+  };
+
+  Audio.prototype.playFile = function (path, vol, pitch, loop, radio, queue, fx) {
     var self = this;
     var go = function (buf) {
       if (!buf || !self.ready()) return null;
@@ -139,6 +150,8 @@
       if (radio && !loop) {
         len = self.radioChain(s, vol, at);
         s.start(at + 0.26);
+      } else if (fx && !loop && (fx.lowpass || fx.highpass || fx.static > 0)) {
+        self.fxChain(s, vol, at, fx); s.start(at);
       } else {
         var g = self.ctx.createGain(); g.gain.value = vol;
         s.connect(g); g.connect(self.master); s.start(at);
