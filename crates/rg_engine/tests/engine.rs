@@ -219,3 +219,28 @@ fn a_row_does_not_wrap_unless_asked() {
     assert!(title.0 > one.0 + 30.0, "the title beside the number: {:?} {:?}", one, title);
     assert!(lines >= 2, "the description wraps in its column");
 }
+
+#[test]
+fn an_installed_download_replaces_the_game_it_names() {
+    let mut e = Engine::new();
+    e.vfs.add_text("/games/mansepoli/game.json", r#"{ "name": "Mansepoli", "order": 51, "section": "aly" }"#);
+    e.vfs.add_text("/games/mansepoli/_built.json", r#"{ "updated": "2026-11-14T10:00:00Z" }"#);
+    e.vfs.add_text("/games/g1/game.json", r#"{ "name": "Mansepoli", "replaces": "mansepoli" }"#);
+    // not installed (no _store.json): nothing is replaced
+    let gs = e.games();
+    assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().replaced_by, "");
+    assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().updated, "2026-11-14T10:00:00Z");
+    // installed: the download takes the old game's place, the old one is marked
+    e.vfs.add_text("/games/g1/_store.json", r#"{ "id": "g1", "version": 1, "updated": "2026-11-20T18:48:21Z" }"#);
+    let gs = e.games();
+    assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().replaced_by, "g1");
+    let g = gs.iter().find(|g| g.id == "g1").unwrap();
+    assert_eq!(g.order, 51.0);
+    assert_eq!(g.section, "aly");
+    assert_eq!(g.updated, "2026-11-20T18:48:21Z");
+    // removed again: the old game is not replaced
+    e.vfs.add_text("/games/g1/_store.json", r#"{ "id": "g1", "version": 1, "removed": true }"#);
+    let gs = e.games();
+    assert!(!gs.iter().any(|g| g.id == "g1"));
+    assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().replaced_by, "");
+}

@@ -11,7 +11,7 @@
 // the app and then plays without a network, in its game.json section or in
 // the Ladatut section.
 
-type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string; store?: any };
+type Game = { image?: string; id: string; name: string; description: string; icon: string; color: string; players: string; i18n?: any; speech?: boolean; section?: string; store?: any; replaces?: string; replacedBy?: string; updated?: string };
 // an entry of the download list (Sliqtly Games /games/catalog.json)
 type Offer = { id: string; name: string; description: string; icon: string; color: string; version: number; bytes: number; pack: string; kind: string; extends?: string; i18n?: any };
 type Section = { id: string; icon: string; color: string; fi: string; en: string; es: string };
@@ -70,6 +70,18 @@ let dragged = false;           // the last press was a drag: no tap
 let flick = 0;                 // the speed after a flick, pixels per second
 let lastY = 0;
 
+// A downloaded game can replace one the app came with (its game.json
+// "replaces"). Only one of the two is shown: the player's choice, kept in
+// `use` (the built-in game's id → "apk" or "store"), or else the newer by
+// `updated` (the built-in game's last commit, the download's acceptance).
+// The app's own game always stays, so the choice can be changed back.
+let use: any = {};
+// a menu over the page: { kind: "game", id } from a long press on a tile,
+// { kind: "replace", id } when a downloaded game would replace an old one
+let menu: any = null;
+const HOLD = 0.6;              // seconds a tile is held for its menu
+let holdT = -1, holdX = 0, holdY = 0;
+
 const NET_ERRORS: { [k: string]: string[] } = {
   "no-bluetooth": ["Tässä laitteessa ei ole Bluetoothia.", "This device has no Bluetooth.", "Este dispositivo no tiene Bluetooth."],
   "bluetooth-off": ["Bluetooth ei mennyt päälle.", "Bluetooth did not turn on.", "El Bluetooth no se encendió."],
@@ -79,14 +91,131 @@ const NET_ERRORS: { [k: string]: string[] } = {
 };
 
 function sectionOf(g: Game) {
-  const s = g.section || SECTION_OF[g.id] || (g.store ? "ladatut" : "muut");
+  // a download that replaces a game the app came with goes where that game was
+  const s = g.section || SECTION_OF[g.id] || (g.replaces && SECTION_OF[g.replaces]) || (g.store ? "ladatut" : "muut");
   for (const x of SECTIONS) if (x.id === s) return s;
   return "muut";
 }
-function gamesIn(s: string) { return games.filter((g) => sectionOf(g) === s); }
+function gamesIn(s: string) { return games.filter((g) => visible(g) && sectionOf(g) === s); }
+
+function byId(id: string) {
+  for (const g of games) if (g.id === id) return g;
+  return null;
+}
+// an RFC 3339 time as minutes, for comparing ("2026-11-20T18:48:21Z",
+// "2026-11-17T22:19:48+02:00"); 0 when unknown. Months count as 31 days:
+// only the order matters.
+function stamp(s?: string) {
+  if (!s || s.length < 16) return 0;
+  const n = (a: number, b: number) => parseInt(s.slice(a, b), 10) || 0;
+  let m = (((n(0, 4) * 12 + n(5, 7)) * 31 + n(8, 10)) * 24 + n(11, 13)) * 60 + n(14, 16);
+  const z = s.slice(s.length - 6);
+  if (z.charAt(0) === "+" || z.charAt(0) === "-") m -= (z.charAt(0) === "-" ? -1 : 1) * (n(s.length - 5, s.length - 3) * 60 + n(s.length - 2, s.length));
+  return m;
+}
+// the date for people: 20.11.2026
+function day(s?: string) {
+  if (!s || s.length < 10) return "?";
+  return parseInt(s.slice(8, 10), 10) + "." + parseInt(s.slice(5, 7), 10) + "." + s.slice(0, 4);
+}
+// whether the download is shown instead of the built-in game it replaces
+function storeWins(b: Game, d: Game) {
+  const u = use[b.id];
+  if (u === "apk") return false;
+  if (u === "store") return true;
+  return stamp(d.updated) >= stamp(b.updated);
+}
+// the built-in game a download replaces, when it does
+function baseOf(d: Game) {
+  const b = d.store && d.replaces ? byId(d.replaces) : null;
+  return b && b.replacedBy === d.id ? b : null;
+}
+function visible(g: Game) {
+  if (g.replacedBy) { const d = byId(g.replacedBy); return !d || !storeWins(g, d); }
+  const b = baseOf(g);
+  return b ? storeWins(b, g) : true;
+}
+function choose(baseId: string, v: string) {
+  use[baseId] = v;
+  rg.save("use", use);
+  menu = null;
+  rg.sound("click"); rg.vibrate(15);
+}
+
+// what the long-press menu offers for a tile (nothing: no menu)
+function menuActions(g: Game) {
+  const out: any[] = [];
+  const b = baseOf(g);
+  const d = g.replacedBy ? byId(g.replacedBy) : null;
+  if (b) out.push({ id: "use-apk", label: "📦 " + rg.t("Käytä sovelluksen omaa", "Use the app's own", "Usar el de la app") + " (" + day(b.updated) + ")", cls: "blue", act: () => choose(b.id, "apk") });
+  if (d) out.push({ id: "use-store", label: "⬇ " + rg.t("Käytä ladattua", "Use the downloaded one", "Usar el descargado") + " (" + day(d.updated) + ")", cls: "pink", act: () => choose(g.id, "store") });
+  const del = g.store ? g : d;
+  if (del && rg.store.available) out.push({ id: "remove", label: "🗑️ " + rg.t("Poista ladattu peli", "Remove the download", "Eliminar la descarga"), cls: "grey", act: () => { menu = null; removeGame(del.id); } });
+  return out;
+}
+
+// a long press on a tile opens its menu (in a section, not while choosing speech)
+function holdStep(input: any) {
+  if (!section || settings || page) return;
+  const list = gamesIn(section);
+  for (const g of list) rg.box("g-" + g.id);   // asks for the tiles' boxes for the next frame
+  if (holdT < 0 || menu || leaving) return;
+  if (!input.pointer.down || dragged) { holdT = -1; return; }
+  if (t - holdT < HOLD) return;
+  holdT = -1;
+  for (const g of list) {
+    const b = rg.box("g-" + g.id);
+    if (b && holdX >= b.x && holdX <= b.x + b.w && holdY >= b.y && holdY <= b.y + b.h) {
+      if (menuActions(g).length) {
+        menu = { kind: "game", id: g.id };
+        dragged = true; pressed = "";      // letting go is not a tap
+        rg.sound("pop"); rg.vibrate(40);
+      }
+      return;
+    }
+  }
+}
+
+function Menu() {
+  const g = byId(menu.id);
+  if (!g) { menu = null; return null; }
+  let title = nameOf(g), lines: any[] = [], btns: any[] = [];
+  if (menu.kind === "replace") {
+    const b = baseOf(g);
+    if (!b) { menu = null; return null; }
+    const dNew = stamp(g.updated) >= stamp(b.updated);
+    title = rg.t("Korvataanko vanha " + nameOf(b) + "?", "Replace the old " + nameOf(b) + "?", "¿Reemplazar el antiguo " + nameOf(b) + "?");
+    lines = [
+      <div className="mline">{"⬇ " + rg.t("Ladattu", "Downloaded", "Descargado") + ": " + day(g.updated) + (dNew ? rg.t(" (uudempi)", " (newer)", " (más nuevo)") : "")}</div>,
+      <div className="mline">{"📦 " + rg.t("Sovelluksen oma", "The app's own", "El de la app") + ": " + day(b.updated) + (dNew ? "" : rg.t(" (uudempi)", " (newer)", " (más nuevo)"))}</div>,
+      <div className="mhint">{rg.t("Valinnan voi vaihtaa: pidä peliä pohjassa.", "You can change it later: hold the game down.", "Puedes cambiarlo: mantén pulsado el juego.")}</div>
+    ];
+    btns = [
+      { id: "use-store", label: "⬇ " + rg.t("Käytä ladattua", "Use the downloaded one", "Usar el descargado"), cls: "pink", act: () => choose(b.id, "store") },
+      { id: "use-apk", label: "📦 " + rg.t("Pidä vanha", "Keep the old one", "Mantener el antiguo"), cls: "blue", act: () => choose(b.id, "apk") }
+    ];
+  } else {
+    btns = menuActions(g);
+    const b = baseOf(g);
+    lines = [<div className="mline">{g.store ? "⬇ " + rg.t("Ladattu peli", "Downloaded game", "Juego descargado") + " · " + day(g.updated) : "📦 " + rg.t("Sovelluksen oma peli", "The app's own game", "Juego de la app") + " · " + day(g.updated)}</div>];
+    if (b) lines.push(<div className="mhint">{rg.t("Korvaa sovelluksen oman pelin, joka säilyy varalla.", "Replaces the app's own game, which is kept.", "Reemplaza el juego de la app, que se conserva.")}</div>);
+  }
+  btns.push({ id: "menu-close", label: rg.t("Peruuta", "Cancel", "Cancelar"), cls: "grey", act: () => { menu = null; rg.sound("click"); } });
+  return (
+    <div className="mback">
+      <div className="menu" id="menu">
+        <div className="micon">{g.icon || "🎮"}</div>
+        <div className="mtitle">{title}</div>
+        {lines}
+        {btns.map((x) => <div className={"nbtn " + x.cls} id={x.id} onClick={() => x.act()}>{x.label}</div>)}
+      </div>
+    </div>
+  );
+}
 function sectionName(x: Section) { return rg.t(x.fi, x.en, x.es); }
 
 function onPointerDown(x: number, y: number) {
+  holdT = t; holdX = x; holdY = y;
   dragFrom = y; dragScroll = scroll; lastY = y;
   dragging = false; dragged = false; flick = 0;
 }
@@ -145,6 +274,7 @@ function onBack() {
 function init() {
   games = rg.games();
   section = rg.load("section", "");
+  use = rg.load("use", {}) || {};
   if (section && !gamesIn(section).length) section = "";
   for (let i = 0; i < 14; i++) {
     bubbles.push({ x: rg.random() * width, y: rg.random() * height, r: 8 + rg.random() * 26, v: 10 + rg.random() * 30, c: COLORS[i % COLORS.length] });
@@ -154,6 +284,7 @@ function init() {
 function tick(dt: number, input: any) {
   t += dt;
   scrollStep(dt, input);
+  holdStep(input);
   for (const b of bubbles) {
     b.y -= b.v * dt;
     if (b.y < -b.r * 2) { b.y = height + b.r; b.x = rg.random() * width; }
@@ -343,9 +474,13 @@ function onStore(ev: any) {
   } else if (ev.type === "installed") {
     busyId = "";
     storeNote = "✅ " + gameName(ev.id) + rg.t(" on ladattu! Löydät sen pelivalikosta.", " is downloaded! You find it in the game menu.", " ¡descargado! Lo encuentras en el menú.");
+    // it replaces a game the app came with: ask once which one to show
+    const g = installed(ev.id), b = g ? baseOf(g) : null;
+    if (g && b && !use[b.id]) menu = { kind: "replace", id: g.id };
     rg.sound("win"); rg.vibrate([40, 60, 40]);
     rg.celebrate(width / 2, 160, { big: true });
   } else if (ev.type === "removed") {
+    if (menu && menu.id === ev.id) menu = null;
     storeNote = "🗑️ " + gameName(ev.id) + rg.t(" poistettu.", " removed.", " eliminado.");
     rg.sound("pop");
   } else if (ev.type === "error") {
@@ -520,6 +655,12 @@ function scrolled(children: any) {
 }
 
 function view() {
+  if (!menu) return page_();
+  const m = Menu();
+  return m ? <div className="screen">{page_()}{m}</div> : page_();
+}
+
+function page_() {
   const bg = bubbles.map((b) => <div className="bubble" style={{ left: b.x - b.r, top: b.y - b.r, width: b.r * 2, height: b.r * 2, backgroundColor: b.c }} />);
   if (page === "settings") return <div className="screen">{bg}{scrolled(Settings())}</div>;
   if (page === "store") return <div className="screen">{bg}{scrolled(StorePage())}</div>;
@@ -535,7 +676,8 @@ function view() {
             <div className="stitle">{sec.icon + " " + sectionName(sec)}</div>
             {Gear()}
           </div>,
-          settings ? <div className="sub">{rg.t("Napauta peliä: puhe päälle tai pois", "Tap a game: speech on or off", "Toca un juego: voz sí o no")}</div> : null,
+          settings ? <div className="sub">{rg.t("Napauta peliä: puhe päälle tai pois", "Tap a game: speech on or off", "Toca un juego: voz sí o no")}</div>
+            : gamesIn(section).some((g) => menuActions(g).length > 0) ? <div className="sub">{rg.t("Pidä ladattua peliä pohjassa: lisää valintoja", "Hold a downloaded game down for more", "Mantén pulsado un juego descargado para más")}</div> : null,
           <div className="grid">{gamesIn(section).map((g, i) => Tile(g, i))}</div>
         ])}
       </div>

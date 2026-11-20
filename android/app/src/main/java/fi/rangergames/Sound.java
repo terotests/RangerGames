@@ -250,6 +250,7 @@ final class Sound implements Runnable {
         short[] pcm = null;
         try {
             byte[] b = path.startsWith("/games/_voice/") ? voiceAsset(path) : null;
+            if (b == null) b = Store.readLazy(path);   // a downloaded game's sound stays on disk
             if (b == null) b = Engine.read(path);
             if (b != null) pcm = decodeWav(b);
         } catch (Throwable ignored) {

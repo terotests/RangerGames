@@ -75,6 +75,8 @@ for d in "$GAMES"/*/; do
   img=$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).image || "")) } catch (e) {}' "$d/game.json")
   if [[ -n "$img" && -f "$d/$img" ]]; then mkdir -p "$BASE/$id/$(dirname "$img")"; cp "$d/$img" "$BASE/$id/$img"; fi
   printf 'packs/%s.rgpk' "$id" > "$BASE/$id/_pack.url"
+  up=$(git log -1 --format=%cI -- "games/$id" 2>/dev/null || true)
+  if [[ -n "$up" ]]; then printf '{"updated":"%s"}' "$up" > "$BASE/$id/_built.json"; fi
   ./target/release/rg_cli pack "$d" "$OUT/packs/$id.rgpk" >/dev/null
   SIZES="$SIZES, \"packs/$id.rgpk\": $(stat -c %s "$OUT/packs/$id.rgpk")"
 done
