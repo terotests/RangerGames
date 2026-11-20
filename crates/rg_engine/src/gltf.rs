@@ -133,6 +133,8 @@ pub struct Primitive {
     pub tris: Vec<u32>,
     pub emissive: [f32; 3],
     pub double: bool,
+    /// KHR_materials_unlit: the colours are drawn as they are (lighting baked in)
+    pub unlit: bool,
 }
 
 pub struct Skin {
@@ -165,6 +167,9 @@ pub struct Asset {
     pub roots: Vec<usize>,
     /// how many triangles the model has (all meshes)
     pub triangles: usize,
+    /// a sphere around the model at rest (centre, radius): the engine skips a
+    /// model outside the view (skinned ones get a margin for their poses)
+    pub bound: ([f32; 3], f32),
 }
 
 fn le_u32(b: &[u8], at: usize) -> u32 {
@@ -332,14 +337,15 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
     }
     let rd = Reader { doc: &doc, buffers, accessors: doc.get("accessors").items(), views: doc.get("bufferViews").items() };
 
-    // materials: (linear base colour, emissive, double sided)
-    let mats: Vec<([f32; 4], [f32; 3], bool)> = doc.get("materials").items().iter().map(|m| {
+    // materials: (linear base colour, emissive, double sided, unlit)
+    let mats: Vec<([f32; 4], [f32; 3], bool, bool)> = doc.get("materials").items().iter().map(|m| {
         let pbr = f(m, "pbrMetallicRoughness");
         let bc = nums(&pbr.get("baseColorFactor"));
         let base = if bc.len() >= 3 { [bc[0], bc[1], bc[2], bc.get(3).copied().unwrap_or(1.0)] } else { [1.0, 1.0, 1.0, 1.0] };
         let em = nums(&m.get("emissiveFactor"));
         let emissive = if em.len() >= 3 { [em[0], em[1], em[2]] } else { [0.0; 3] };
-        (base, emissive, m.get("doubleSided").as_bool())
+        let unlit = !m.get("extensions").get("KHR_materials_unlit").is_null();
+        (base, emissive, m.get("doubleSided").as_bool(), unlit)
     }).collect();
 
     let mut triangles = 0;
@@ -399,9 +405,9 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
                     *q = [q[0] / l, q[1] / l, q[2] / l];
                 }
             }
-            let (base, emissive, double) = match p.get("material") {
-                Json::Num(i) => mats.get(i as usize).copied().unwrap_or(([1.0; 4], [0.0; 3], false)),
-                _ => ([1.0; 4], [0.0; 3], false),
+            let (base, emissive, double, unlit) = match p.get("material") {
+                Json::Num(i) => mats.get(i as usize).copied().unwrap_or(([1.0; 4], [0.0; 3], false, false)),
+                _ => ([1.0; 4], [0.0; 3], false, false),
             };
             let mut col = vec![[base[0], base[1], base[2]]; count];
             if !at.get("COLOR_0").is_null() {
@@ -432,7 +438,7 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
                 }
             }
             triangles += idx.len() / 3;
-            prims.push(Primitive { pos, nrm, col, joints, weights, tris: idx, emissive, double });
+            prims.push(Primitive { pos, nrm, col, joints, weights, tris: idx, emissive, double, unlit });
         }
         meshes.push(prims);
     }
@@ -534,7 +540,9 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
     if roots.is_empty() {
         roots = (0..count).filter(|&i| nodes[i].parent.is_none()).collect();
     }
-    Ok(Asset { nodes, meshes, skins, clips, roots, triangles })
+    let mut asset = Asset { nodes, meshes, skins, clips, roots, triangles, bound: ([0.0; 3], 0.0) };
+    asset.bound = rest_bound(&asset);
+    Ok(asset)
 }
 
 impl Channel {
@@ -658,4 +666,34 @@ pub fn world_matrices(asset: &Asset, pose: &[([f32; 3], [f32; 4], [f32; 3])]) ->
         }
     }
     out
+}
+
+/// A sphere around the model in its rest pose (the box's centre and the
+/// farthest corner from it); skinned models get half again for their poses.
+fn rest_bound(asset: &Asset) -> ([f32; 3], f32) {
+    let wm = world_matrices(asset, &pose(asset, &[]));
+    let (mut lo, mut hi) = ([f32::MAX; 3], [f32::MIN; 3]);
+    let mut pts: Vec<[f32; 3]> = Vec::new();
+    for (ni, node) in asset.nodes.iter().enumerate() {
+        let mi = match node.mesh { Some(x) => x, None => continue };
+        for p in asset.meshes[mi].iter() {
+            for v in p.pos.iter() {
+                // a skinned mesh's corners are in the model already
+                let q = if node.skin.is_some() { *v } else { transform_point(&wm[ni], *v) };
+                for k in 0..3 { lo[k] = lo[k].min(q[k]); hi[k] = hi[k].max(q[k]); }
+                pts.push(q);
+            }
+        }
+    }
+    if pts.is_empty() {
+        return ([0.0; 3], 0.0);
+    }
+    let c = [(lo[0] + hi[0]) / 2.0, (lo[1] + hi[1]) / 2.0, (lo[2] + hi[2]) / 2.0];
+    let mut r2: f32 = 0.0;
+    for q in pts.iter() {
+        let d = [q[0] - c[0], q[1] - c[1], q[2] - c[2]];
+        r2 = r2.max(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    }
+    let skinned = !asset.skins.is_empty();
+    (c, r2.sqrt() * if skinned { 1.5 } else { 1.0 })
 }

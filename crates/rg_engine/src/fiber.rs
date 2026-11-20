@@ -909,6 +909,25 @@ impl World {
             if let Some((fc, a, b)) = fog { for v in fc.iter() { v.to_bits().hash(&mut hs); } a.to_bits().hash(&mut hs); b.to_bits().hash(&mut hs); }
             hs.finish()
         };
+        // the view's sides as cones around the camera: a sphere (centre and
+        // radius in the model, placed by m) is in view unless it is wholly
+        // behind, beyond `far` or outside a side
+        let (tx, ty) = ((w / 2.0) / focal, (h / 2.0) / focal);
+        let (kx, ky) = ((1.0 + tx * tx).sqrt(), (1.0 + ty * ty).sqrt());
+        let in_view = |b: &([f32; 3], f32), m: &M4| -> bool {
+            if b.1 <= 0.0 {
+                return true;
+            }
+            let c = gltf::transform_point(m, b.0);
+            let sc = (m[0] * m[0] + m[1] * m[1] + m[2] * m[2]).max(m[4] * m[4] + m[5] * m[5] + m[6] * m[6]).max(m[8] * m[8] + m[9] * m[9] + m[10] * m[10]).sqrt();
+            let rad = b.1 * sc;
+            let d = sub(c, eye);
+            let (x, y, z) = (dot(d, r), dot(d, u), dot(d, f));
+            if z + rad < near || z - rad > far {
+                return false;
+            }
+            !(x - rad * kx > tx * z || x + rad * kx < -tx * z || y - rad * ky > ty * z || y + rad * ky < -ty * z)
+        };
         let mut kept = std::mem::take(&mut self.kept);
         let mut kept_now: HashMap<u64, Kept> = HashMap::new();
         let mut pick = std::mem::take(&mut self.pick);
@@ -922,6 +941,10 @@ impl World {
                     continue;
                 }
             };
+            // a model wholly outside the view is not posed or drawn (nor picked)
+            if !in_view(&mi.asset.bound, &mi.m) {
+                continue;
+            }
             if gl {
                 if let Some(k) = kept.remove(&it.key) {
                     if k.frame == frame_key {
@@ -1015,7 +1038,7 @@ fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tin
                 }
             }
             let col = match tint { Some(t) => p.col.iter().map(|c| [c[0] * t[0], c[1] * t[1], c[2] * t[2]]).collect(), None => p.col.clone() };
-            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind: 0, double: p.double, flat: false, owner, order: 0, model: None, key: 0 });
+            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind: if p.unlit { 1 } else { 0 }, double: p.double, flat: false, owner, order: 0, model: None, key: 0 });
         }
     }
 }
