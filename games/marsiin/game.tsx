@@ -18,6 +18,8 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { MODULES, FREE, HATCHES, SPOTS } from "lib/station";
 import { MODULE_TEXT, TASKS, DAYS, SAY, CREW_SAYS, CREW_NAMES } from "lib/texts";
 import { where, angleAt, R_EARTH, R_MARS, R_SUN, TRANSFER_DAYS } from "lib/trip";
+import { OWN_VOICE } from "lib/voice";
+const ownVoice = OWN_VOICE;   // keeps lib/voice run first (see there)
 
 type V = number[];
 const add = (a: V, b: V): V => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
