@@ -24,5 +24,8 @@ mkdir -p dist
 ./target/release/rg_cli pack "$TMP" "$OUT"
 if [[ "${1:-}" != "--no-push" ]]; then
   adb push "$OUT" /sdcard/Android/data/fi.rangergames/files/private.rgpk
-  echo "pushed; restart the app to see the private games"
+  # the pack is read at boot: a running app must start again to see it
+  adb shell am force-stop fi.rangergames
+  adb shell monkey -p fi.rangergames -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
+  echo "pushed and restarted the app"
 fi
