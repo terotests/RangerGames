@@ -35,6 +35,7 @@ type Body = {
   sky: string;
   turn: number;
   vc: number; warp: number; acc: number; reach: number; g0: number;
+  bonus: boolean;    // a bonus find (not a gravity field): BONUS below
 };
 
 // ---- vectors -------------------------------------------------------------------
@@ -67,7 +68,7 @@ const MOON_DIR = norm([0.45, 0.1, 0.89]);
 
 function body(id: string, code: string, name: string, pos: number[], r: number, gm: number, rot: number, tilt: number,
               h: number, soi: number, land: boolean, atm: number, sky: string, turn: number): Body {
-  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0 };
+  return { id, code, name, pos, r, gm, rot, tilt, h, soi, land, atm, sky, turn, vc: 0, warp: 1, acc: 0, reach: 0, g0: 0, bonus: false };
 }
 
 const BODIES: Body[] = [
@@ -80,6 +81,94 @@ const BODIES: Body[] = [
   body("mars", "MAR", "Mars", orbitPos(227.9e6, 60, -0.02), 3390, 42828, 88643, 0.44, 300, 3, true, 60, "#b07a58", 0),
   body("jupiter", "JUP", rg.t("Jupiter", "Jupiter", "Júpiter"), orbitPos(778.5e6, -40, 0.02), 69911, 1.26687e8, 35730, 0.05, 5000, 2, false, 300, "#7d6a52", 0),
 ];
+
+// ---- bonus finds ---------------------------------------------------------------
+// Small bodies at (roughly) their real places in late 2026. They show on the
+// map and as tags only near (`seen`), are found within `find`, and a find is
+// kept (rg.save "found"). Supercruise slows down near them, which is a hint.
+// The regions (belt, Kuiper belt, Oort cloud) are found by flying into them.
+function eclPos(au: number, deg: number, lat: number) {
+  const a = au * AU, t = deg * Math.PI / 180, p = lat * Math.PI / 180;
+  return [a * Math.cos(p) * Math.cos(t), a * Math.sin(p), a * Math.cos(p) * Math.sin(t)];
+}
+type BonusInfo = { find: number; seen: number; color: string; fact: string };
+const BONUS: Body[] = [];
+const BONUS_INFO: { [id: string]: BonusInfo } = {};
+function bonus(id: string, code: string, name: string, p: number[], r: number, find: number, seenAu: number, color: string, fact: string) {
+  const b = body(id, code, name, p, r, 0, 0, 0, 0, 1, false, 0, "", 0);
+  b.bonus = true;
+  b.reach = find * 0.8;
+  BONUS.push(b);
+  BONUS_INFO[id] = { find, seen: seenAu * AU, color, fact };
+}
+bonus("ceres", "CER", "Ceres", eclPos(2.77, 150, 3), 470, 100000, 0.6, "#a59d92",
+  rg.t("Asteroidivyöhykkeen suurin kappale ja kääpiöplaneetta, halkaisija 940 km.", "The largest body of the asteroid belt, a dwarf planet 940 km across.", "El mayor cuerpo del cinturón de asteroides, un planeta enano de 940 km."));
+bonus("vesta", "VES", "Vesta", eclPos(2.36, 250, -4), 263, 80000, 0.6, "#b8ad9c",
+  rg.t("Kirkkain asteroidi. Etelänavalla on 500 km leveä törmäyskraatteri.", "The brightest asteroid. Its south pole has a 500 km wide impact crater.", "El asteroide más brillante. Su polo sur tiene un cráter de 500 km."));
+bonus("apophis", "APO", "Apophis", eclPos(0.92, 25, 1), 0.17, 20000, 0.1, "#8f8579",
+  rg.t("Maan lähelle tuleva asteroidi. 13.4.2029 se ohittaa Maan vain 32 000 km:n päästä.", "A near-Earth asteroid. On 13 April 2029 it passes only 32,000 km from the Earth.", "Un asteroide cercano. El 13-4-2029 pasará a solo 32 000 km de la Tierra."));
+bonus("hektor", "HEK", "Hektor", eclPos(5.2, 20, 5), 100, 50000, 1, "#7d6655",
+  rg.t("Jupiterin troijalainen: 60° Jupiterin edellä (L4). Kiertää Aurinkoa samassa ajassa kuin Jupiter.", "A Jupiter trojan 60° ahead of Jupiter (L4). It goes round the Sun in Jupiter's time.", "Un troyano de Júpiter, 60° por delante (L4). Gira alrededor del Sol al ritmo de Júpiter."));
+bonus("patroclus", "PAT", "Patroklos", eclPos(5.2, -100, -6), 60, 50000, 1, "#806b5c",
+  rg.t("Troijalainen 60° Jupiterin jäljessä (L5). Se on kaksoisasteroidi: kaksi kappaletta kiertää toisiaan.", "A trojan 60° behind Jupiter (L5). It is a double: two bodies circling each other.", "Un troyano 60° por detrás de Júpiter (L5). Es doble: dos cuerpos que giran juntos."));
+bonus("halley", "HAL", rg.t("Halleyn komeetta", "Halley's Comet", "Cometa Halley"), eclPos(35.1, 255, -16), 5.5, 50000, 4, "#5f5a55",
+  rg.t("Nyt radan uloimmassa kohdassa Neptunuksen takana: jäinen ja ilman pyrstöä. Kierros 76 vuotta, kulkee planeettoja vastaan, rata 18° kallellaan. Palaa Maan lähelle 2061.",
+       "Now at the far end of its orbit beyond Neptune: icy, no tail. One round takes 76 years, against the planets, tilted 18°. Back near the Earth in 2061.",
+       "Ahora en el punto más lejano de su órbita, sin cola. Una vuelta dura 76 años, al revés que los planetas, inclinada 18°. Vuelve en 2061."));
+bonus("pluto", "PLU", "Pluto", eclPos(34.8, 300, -2), 1188, 200000, 5, "#c9b49a",
+  rg.t("Kuiperin vyöhykkeen kääpiöplaneetta. Auringon valo tulee tänne 4,8 tunnissa.", "A dwarf planet of the Kuiper belt. Sunlight takes 4.8 hours to get here.", "Planeta enano del cinturón de Kuiper. La luz del Sol tarda 4,8 horas en llegar."));
+bonus("atlas", "3I", "3I/ATLAS", eclPos(12.5, 170, 5), 2.8, 30000, 2, "#9a8f86",
+  rg.t("Tähtienvälinen vierailija, löydetty 2025. Tullut toisen tähden luota 58 km/s ja lähtee pois, eikä palaa koskaan.", "An interstellar visitor found in 2025. It came from another star at 58 km/s and leaves for good.", "Un visitante interestelar descubierto en 2025. Vino de otra estrella a 58 km/s y no volverá."));
+// the regions: [id, name, inner AU, outer AU, fact]
+const REGIONS: any[] = [
+  ["belt", rg.t("Asteroidivyöhyke", "Asteroid belt", "Cinturón de asteroides"), 2.1, 3.3,
+    rg.t("2,1–3,3 AU Marsin ja Jupiterin välissä. Kappaleiden välit ovat miljoonia kilometrejä. Ceres ja Vesta ovat täällä jossain.", "2.1–3.3 AU between Mars and Jupiter. The rocks are millions of km apart. Ceres and Vesta are here somewhere.", "2,1–3,3 UA entre Marte y Júpiter. Las rocas están a millones de km. Ceres y Vesta están por aquí.")],
+  ["kuiper", rg.t("Kuiperin vyöhyke", "Kuiper belt", "Cinturón de Kuiper"), 30, 50,
+    rg.t("30–50 AU Neptunuksen takana: jäisiä kappaleita, kuten Pluto. Monet lyhytjaksoiset komeetat syntyvät täällä.", "30–50 AU beyond Neptune: icy bodies such as Pluto. Many short-period comets come from here.", "30–50 UA tras Neptuno: cuerpos helados como Plutón. De aquí vienen muchos cometas.")],
+  ["oort", rg.t("Oortin pilvi", "Oort cloud", "Nube de Oort"), 2000, 1e9,
+    rg.t("Yli 2000 AU: Aurinko on täältä vain kirkas tähti. Pilvi voi ulottua 100 000 AU:hun asti. Pitkäjaksoisten komeettojen koti.", "Beyond 2000 AU the Sun is only a bright star. The cloud may reach 100,000 AU. Home of the long-period comets.", "Más allá de 2000 UA el Sol es solo una estrella. La nube puede llegar a 100 000 UA.")],
+];
+const FIND_TOTAL = 8 + 3;
+let found: { [id: string]: boolean } = {};
+let findToast: { title: string; fact: string; t: number } | null = null;
+let findQueue: any[] = [];       // finds made at the same time are shown in turn
+function loadFound() {
+  found = {};
+  const s = rg.load("found", "");
+  if (s) for (const id of String(s).split(",")) if (id) found[id] = true;
+}
+function discover(id: string, name: string, fact: string) {
+  if (found[id]) return;
+  found[id] = true;
+  rg.save("found", Object.keys(found).join(","));
+  findQueue.push({ title: name, fact, t: 0, n: Object.keys(found).length });
+  rg.celebrate(width / 2, height * 0.3, { count: 16 });
+  rg.vibrate(40);
+}
+function checkFinds() {
+  for (const b of BONUS) {
+    if (!found[b.id] && len(sub(b.pos, pos)) - b.r < BONUS_INFO[b.id].find) discover(b.id, b.name, BONUS_INFO[b.id].fact);
+  }
+  const au = len(pos) / AU;
+  for (const g of REGIONS) {
+    if (!found[g[0]] && au >= g[2] && au <= g[3]) discover(g[0], g[1], g[4]);
+  }
+}
+function shade(hexColor: string, k: number) {
+  const c = hex(hexColor);
+  return rgb([Math.min(255, c[0] * k), Math.min(255, c[1] * k), Math.min(255, c[2] * k)]);
+}
+function bonusSeen(b: Body) { return len(sub(b.pos, pos)) < BONUS_INFO[b.id].seen; }
+function done(b: Body) { return b.bonus ? !!found[b.id] : !!visited[b.id]; }
+function findToastView() {
+  if (!findToast) return null;
+  const n = (findToast as any).n;
+  return <div className="findToast" style={{ left: midX(12), top: Math.round(height * 0.42) }}>
+    <div className="findHead">{"✦ " + rg.t("LÖYTÖ ", "FIND ", "HALLAZGO ") + n + "/" + FIND_TOTAL}</div>
+    <div className="findTitle">{findToast.title.toUpperCase()}</div>
+    <div className="findFact">{findToast.fact}</div>
+  </div>;
+}
 
 const ORBIT_GAME_S = 90;     // one target orbit takes this many seconds of play
 const BURN_S = 3;            // full throttle reaches the orbital speed in this many seconds
@@ -181,6 +270,7 @@ function say(text: string) {
 
 function init() {
   best = rg.load("best", 0);
+  loadFound();
   build();
   reset();
 }
@@ -195,6 +285,16 @@ function build() {
     const args = surface(b.id);
     args.id = b.id; args.r = b.r; args.tilt = b.tilt; args.spin = b.turn;
     args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
+    rg.three("planet", args);
+  }
+  for (const b of BONUS) {
+    // a cratered ball: the Moon's craters in the body's own colour
+    const args = surface("moon");
+    args.texture = "";
+    const col = BONUS_INFO[b.id].color;
+    args.ocean = col;
+    args.colors = { sea: shade(col, 0.7), rim: shade(col, 1.15), floor: shade(col, 0.9), bright: shade(col, 1.25) };
+    args.id = b.id; args.r = b.r; args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
     rg.three("planet", args);
   }
   // the ship: a grey hull, an amber canopy, a blue ion flame
@@ -250,6 +350,10 @@ function placeBodies() {
     const spin = b.rot ? b.turn + simT * 2 * Math.PI / b.rot : b.turn;
     const p = R(b.pos);
     rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2], spin });
+  }
+  for (const b of BONUS) {
+    const p = R(b.pos);
+    rg.three("planet", { id: b.id, x: p[0], y: p[1], z: p[2] });
   }
   updateDetail();
   const s = R([0, 0, 0]);
@@ -469,17 +573,56 @@ function onMap(px: number, py: number) {
 const MAP_COLORS: { [id: string]: string } = { sun: "#ffcf5a", mercury: "#b9ada0", venus: "#e6c983", earth: "#64b0ff", mars: "#ea8052", jupiter: "#dcb68e" };
 // a point of the ecliptic (x-z plane) on the map: the distance from the Sun
 // as its square root, so the inner planets do not crowd the Sun
+let mapMax = 778.5e6;           // the map's edge: Jupiter, or farther when the ship is
 function mapPoint(p: number[]) {
   const c = mapCentre();
   const d = Math.sqrt(p[0] * p[0] + p[2] * p[2]);
-  const r = (MAP_R - 6) * Math.sqrt(Math.min(1.08, d / 778.5e6));
+  const r = (MAP_R - 6) * Math.sqrt(Math.min(1.08, d / mapMax));
   const a = Math.atan2(p[2], p[0]);
   return { x: c.x + r * Math.cos(a), y: c.y - r * Math.sin(a), r };
+}
+// Halley's orbit (a 17.8 AU, e 0.967, tilted 18°, the far end where the comet is now)
+let halleyOrbit: number[][] = [];
+function makeHalleyOrbit() {
+  const h = BONUS.filter((x) => x.id === "halley")[0];
+  const A = norm(h.pos);
+  let n0 = sub([0, 1, 0], mul(A, A[1]));
+  n0 = norm(n0);
+  const N = norm(rotate(n0, A, 18 * Math.PI / 180));
+  const B = norm(cross(N, A));
+  const a = 17.83 * AU, e = 0.967;
+  halleyOrbit = [];
+  for (let i = 0; i <= 72; i++) {
+    // even steps of the true anomaly: dense where it turns round the Sun
+    const u = i / 72;
+    const nu = Math.PI * (2 * u - 1);
+    const r = a * (1 - e * e) / (1 + e * Math.cos(nu));
+    halleyOrbit.push(add(mul(A, -r * Math.cos(nu)), mul(B, r * Math.sin(nu))));
+  }
+}
+function mapRing(au: number, color: string) {
+  const c = mapCentre();
+  const r = (MAP_R - 6) * Math.sqrt(au * AU / mapMax);
+  if (r > MAP_R - 2 || r < 1.5) return null;
+  return <div className="mapOrbit" style={{ left: c.x - r, top: c.y - r, width: r * 2, height: r * 2, borderRadius: r, borderColor: color }} />;
 }
 function miniMap() {
   const c = mapCentre();
   const out: any[] = [];
+  mapMax = Math.max(778.5e6, Math.sqrt(pos[0] * pos[0] + pos[2] * pos[2]) * 1.12);
   out.push(<div className="mapDisc" style={{ left: c.x - MAP_R, top: c.y - MAP_R, width: MAP_R * 2, height: MAP_R * 2, borderRadius: MAP_R }} />);
+  // the asteroid belt and the Kuiper belt as faint rings
+  out.push(mapRing(2.1, "rgba(214,180,120,0.22)"));
+  out.push(mapRing(3.3, "rgba(214,180,120,0.22)"));
+  out.push(mapRing(30, "rgba(140,190,255,0.22)"));
+  out.push(mapRing(50, "rgba(140,190,255,0.22)"));
+  if (found["halley"]) {
+    if (!halleyOrbit.length) makeHalleyOrbit();
+    for (let i = 1; i < halleyOrbit.length; i += 2) {
+      const seg = orbitSegment(mapPoint(halleyOrbit[i - 1]), mapPoint(halleyOrbit[i]), "rgba(190,220,255,0.45)", 1);
+      if (seg) out.push(seg);
+    }
+  }
   for (const b of BODIES) {
     if (b.id === "sun" || b.id === "moon") continue;
     const q = mapPoint(b.pos);
@@ -499,6 +642,14 @@ function miniMap() {
       out.push(<div className="mapHere" style={{ left: q.x - 5.5, top: q.y - 5.5, width: 11, height: 11, borderRadius: 5.5 }} />);
     }
     out.push(<div className="mapDot" style={{ left: q.x - s / 2, top: q.y - s / 2, width: s, height: s, borderRadius: s / 2, backgroundColor: MAP_COLORS[b.id] }} />);
+  }
+  // bonus bodies: only near (white, blinking) or once found (gold)
+  for (const b of BONUS) {
+    const near = bonusSeen(b);
+    if (!near && !found[b.id]) continue;
+    const q = mapPoint(b.pos);
+    if (near && !found[b.id] && (t * 3) % 1 > 0.6) continue;
+    out.push(<div className="mapDot" style={{ left: q.x - 1.5, top: q.y - 1.5, width: 3, height: 3, borderRadius: 1.5, backgroundColor: found[b.id] ? "#ffcf5a" : "#ffffff" }} />);
   }
   const blink = (t * 2) % 1 < 0.6;
   out.push(<div className={blink ? "mapShip" : "mapShip dim"} style={{ left: ship.x - 2, top: ship.y - 2 }} />);
@@ -650,6 +801,15 @@ function stepAuto(dt: number) {
   if (len(up) < 0.5) up = norm(cross(cross(fwd, [0, 1, 0]), fwd));
   thrusting = u < 0.85 ? 1 : 0;
   simT += dt * 60;
+  if (u >= 1 && a.b.bonus) {
+    auto = null;
+    thrusting = 0;
+    vel = [0, 0, 0];
+    cruise = 0;
+    fwd = want;
+    say(a.b.name + " " + distText(Math.max(0, len(sub(a.b.pos, pos)) - a.b.r)));
+    return;
+  }
   if (u >= 1) {
     auto = null;
     thrusting = 0;
@@ -692,7 +852,13 @@ function cruiseCap() {
     if (e < bestE) { bestE = e; cb = b; }
   }
   const floor = 0.5 * vesc(cb, cb.reach) * cb.warp;
-  return Math.max(floor, bestE * CRUISE_K);
+  let cap = Math.max(floor, bestE * CRUISE_K);
+  // slower near a bonus body (a hint that something is near)
+  for (const b of BONUS) {
+    const e = len(sub(pos, b.pos)) - b.reach;
+    cap = Math.min(cap, Math.max(400, e * CRUISE_K));
+  }
+  return cap;
 }
 
 function enterField(b: Body, v: number[]) {
@@ -995,6 +1161,9 @@ function tick(dt: number) {
     const n = field ? 10 : 2;
     for (let i = 0; i < n; i++) step(h / n, c);
   }
+  checkFinds();
+  if (findToast) { findToast.t += dt; if (findToast.t > 7) findToast = null; }
+  if (!findToast && findQueue.length) findToast = findQueue.shift();
   placeAll();
   camera(auto ? 1 : Math.min(1, dt * 5));
   updateOrbit(h);
@@ -1302,7 +1471,8 @@ function spots() {
   const f = norm(sub(cam.look, cam.pos));
   const rr = norm(cross(f, cam.up));
   const u = cross(rr, f);
-  for (const b of BODIES) {
+  const list = BODIES.concat(BONUS.filter((x) => bonusSeen(x)));
+  for (const b of list) {
     const d = len(sub(b.pos, pos)) - b.r;
     const s = project(b.pos);
     if (s && s.x > 0 && s.x < width && s.y > 0 && s.y < height) {
@@ -1354,11 +1524,11 @@ function markers() {
     if (!s.edge) {
       if (s.rpx > width * 0.6) continue;
       const box = Math.max(16, Math.min(80, s.rpx * 2 + 10));
-      if (s.y > 132 && s.y < height - 40) out.push(<div className={visited[b.id] ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
+      if (s.y > 132 && s.y < height - 40) out.push(<div className={done(b) ? "tbox seen" : "tbox"} style={{ left: s.x - box / 2, top: s.y - box / 2, width: box, height: box }} />);
       const y = s.y - box / 2 - 15;
       if (y < 134 || y > height - 60) continue;
-      out.push(<div className={visited[b.id] ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
-        {(visited[b.id] ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
+      out.push(<div className={done(b) ? "mark seen" : "mark"} style={{ left: Math.max(4, Math.min(width - 164, s.x - 80)), top: y }}>
+        {(done(b) ? "✓ " : "") + b.name.toUpperCase() + " " + distText(Math.max(0, s.d))}</div>);
     } else {
       if (b === field) continue;
       // slide along the edge: 0, +1, -1, +2, -2 … steps from where it points
@@ -1379,7 +1549,7 @@ function markers() {
         row = row + 1;
       }
       px.push(x); py.push(y);
-      out.push(<div className={visited[b.id] ? "edge seen" : "edge"} style={{ left: x - 22, top: y - 11 }}>{b.code}</div>);
+      out.push(<div className={done(b) ? "edge seen" : "edge"} style={{ left: x - 22, top: y - 11 }}>{b.code}</div>);
     }
   }
   return out;
@@ -1436,6 +1606,7 @@ function titleView() {
           <div className="bootDim">{rg.t("VEDÄ = OHJAUS · TYÖNTÖ = MOOTTORI", "DRAG = STEER · THRUST = ENGINE", "ARRASTRA = GIRAR · EMPUJE = MOTOR")}</div>
           <div className="bootDim">{rg.t("NAPAUTA KOHDETTA = MATKA SEN LUO", "TAP A TARGET = CRUISE TO IT", "TOCA UN DESTINO = VIAJA HACIA ÉL")}</div>
           <div className="bootDim">{rg.t("SEURAA VIHREÄÄ TÄHTÄINTÄ", "FOLLOW THE GREEN SIGHT", "SIGUE LA MIRA VERDE")}</div>
+          {Object.keys(found).length > 0 ? <div className="bootDim">{"✦ " + rg.t("LÖYDÖT ", "FINDS ", "HALLAZGOS ") + Object.keys(found).length + "/" + FIND_TOTAL}</div> : null}
           {best > 0 ? <div className="bootDim">{rg.t("PARAS: KAIKKI ", "BEST: ALL WITH ", "MEJOR: TODOS CON ") + best + rg.t(" TÖRMÄYKSELLÄ", " IMPACTS", " IMPACTOS")}</div> : null}
         </div> : null}
       </div>
@@ -1535,6 +1706,7 @@ function view() {
       </div>
       {dazzle > 0.01 ? <div className="dazzle" style={{ opacity: dazzle }} /> : null}
       {warnings()}
+      {findToastView()}
       {heatQ > Q_MAX * 0.15 ? <div className="heatTint" style={{ opacity: Math.min(0.55, heatQ / Q_MAX * 0.5) }} /> : null}
       {dead ? deadView() : null}
       {t - lastBounce < 1.0 ? <div className="alert" style={{ top: height * 0.4 }}><div className="alertt">{bounceText}</div></div> : null}

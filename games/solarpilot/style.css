@@ -142,3 +142,9 @@
 .sightCrossH.danger { background-color: #ff3d2a; }
 .sightCrossV.danger { background-color: #ff3d2a; }
 .dazzle { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #fffdf2; }
+
+/* a bonus find */
+.findToast { position: absolute; width: 312px; background-color: rgba(20, 14, 0, 0.88); border: 2px solid #ffcf5a; border-radius: 14px; padding: 10px; align-items: flex-start; }
+.findHead { font-size: 10px; font-weight: 700; color: #ffcf5a; letter-spacing: 2px; height: 14px; }
+.findTitle { font-size: 16px; font-weight: 700; color: #fff3cf; letter-spacing: 1.5px; height: 22px; margin-top: 2px; }
+.findFact { font-size: 11px; color: #ffe6a8; width: 292px; margin-top: 3px; }
