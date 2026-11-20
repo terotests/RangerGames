@@ -365,7 +365,7 @@ function placeBodies() {
 
 // sharper map pieces under the ship when it is low: NASA LRO WAC, 22.5° a
 // picture (16 × 8 of them), the 2 × 2 nearest the point under the ship
-const DETAIL: { [id: string]: string } = { moon: "img/moon/d5", mars: "img/mars/d5" };
+const DETAIL: { [id: string]: string } = { moon: "img/moon/d5", mars: "img/mars/d5", earth: "img/earth/d5" };
 const DETAIL_ALT = 1500;
 let detailKey = "";
 let detailBody = "";
