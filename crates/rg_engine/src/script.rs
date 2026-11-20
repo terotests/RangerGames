@@ -35,6 +35,23 @@ impl Script {
         Ok(r)
     }
 
+    /// Runs a script compiled ahead (`unit`: cerxes::unit::encode of `src`)
+    /// as `eval` runs `src`; a unit this engine cannot read (another unit
+    /// format) compiles `src` instead.
+    pub fn run_unit(&mut self, unit: &str, src: &str, path: &str) -> Result<String, String> {
+        let u = cerxes::unit::decode(unit, src);
+        if u.entry < 0 {
+            return self.eval(src, path);
+        }
+        let r = self.vm.run(u);
+        if !self.vm.error.is_empty() {
+            let e = self.vm.error.clone();
+            self.vm.error = String::new();
+            return Err(format!("{}: {}", path, e));
+        }
+        Ok(r)
+    }
+
     /// Calls the global function `name` with one string argument and answers
     /// what it returns as a string; a call compiles nothing.
     pub fn call(&mut self, name: &str, arg: String) -> Result<String, String> {

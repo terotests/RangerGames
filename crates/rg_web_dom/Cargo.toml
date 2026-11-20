@@ -30,6 +30,10 @@ rangerevg = { path = "../../.deps/domtree/runtime/rust/rangerevg" }
 rangerdom_json = { path = "../../.deps/domtree/gallery/domjson" }
 rangerdom_view = { path = "../../.deps/domtree/gallery/domview" }
 
+# build.rs compiles webapi.js into a CErXes unit once, at build time
+[build-dependencies]
+cerxes = { path = "../../.deps/ComponentEngine/cerxes" }
+
 [patch."https://github.com/terotests/Ranger.git"]
 ranger = { path = "../../.deps/Ranger/runtime/rust/ranger" }
 
