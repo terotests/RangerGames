@@ -143,6 +143,7 @@ var __rgDom = (function () {
   function update(el, n) {
     var was = el.__rg;
     was.pos = undefined;
+    was.li = undefined;
     var cls = n.cls || "";
     if (was.cls !== cls) { if (cls) el.setAttribute("class", cls); else el.removeAttribute("class"); was.cls = cls; stats.changed++; }
     var id = n.id || "";
@@ -196,12 +197,33 @@ var __rgDom = (function () {
     if ((k === "width" || k === "height") && el.localName === "img") return false;
     if (FAST_ABS[k] && w.pos === "absolute") return true;
     if (k === "border-radius" && w.pos === "absolute") return true;
-    // paint only: a colour that shows to another, an opacity under 1 and
-    // over 0 to another (no stacking context made or lost)
+    // paint only: a colour that shows to another; an opacity to another,
+    // where it makes or loses a stacking context only when no positioned
+    // box is inside (DomView orders those by the boxes around them)
     if (k === "background-color") return shows(a) && shows(b);
-    if (k === "opacity") { var x = +a, y = +b; return x > 0.001 && x < 1 && y > 0.001 && y < 1; }
+    if (k === "opacity") {
+      var x = +a, y = +b;
+      if (!(x >= 0 && x <= 1 && y >= 0 && y <= 1)) return false;
+      return (x > 0.001 && x < 1 && y > 0.001 && y < 1) || !lateInside(el);
+    }
     if (FAST_FLEX[k] && w.pflex && w.pos !== "absolute") return true;
     return false;
+  }
+  // whether a positioned box is inside `el` (or too many to look through)
+  function lateInside(el) {
+    var w = el.__rg;
+    if (w.li === undefined) {
+      var seen = 0, found = false;
+      (function walk(n) {
+        for (var c = n.firstChild; c && !found; c = c.nextSibling) {
+          if (c.nodeType !== 1) continue;
+          if (++seen > 200 || String(getComputedStyle(c).position || "static") !== "static") { found = true; return; }
+          walk(c);
+        }
+      })(el);
+      w.li = found;
+    }
+    return w.li;
   }
   function shows(c) {
     c = String(c).replace(/\s/g, "").toLowerCase();
@@ -311,8 +333,79 @@ var __rgDom = (function () {
     return node.nodeType === 1 && node.__rg && node.__rg.t === n.t;
   }
 
+  // a node and a view entry of the same kind and class (taken for the same)
+  function alike(node, n) {
+    if (typeof n === "number") n = String(n);
+    if (!same(node, n)) return false;
+    return typeof n === "string" || node.__rg.cls === (n.cls || "");
+  }
+  // a view entry's and a node's look as one text (kind, class, inline
+  // style), for finding a node that shows an entry already
+  function sigOf(t, cls, st) {
+    var k = t + "|" + cls + "|";
+    if (st) for (var x in st) k += x + ":" + st[x] + ";";
+    return k;
+  }
+  function entrySig(e) {
+    if (typeof e === "number") e = String(e);
+    if (typeof e === "string") return "#" + e;
+    return sigOf(e.t, e.cls || "", e.s);
+  }
+  function nodeSig(node) {
+    if (node.nodeType === 3) return "#" + node.data;
+    var w = node.__rg;
+    return w ? sigOf(w.t, w.cls || "", w.sraw) : null;
+  }
+  // The changed middle of a child list: the nodes `olds` (in order, before
+  // `end`) become the entries `list`. A node that shows an entry as it is
+  // stays where it is (taken in order, so nothing moves); an entry with
+  // none takes the next node not kept before the next kept one, when it is
+  // of its kind (kids then updates it), or a new node; the nodes left over
+  // go. A run of cells that grew by one keeps the others as they were.
+  function middle(el, olds, list, end) {
+    var bySig = {}, i, k, l;
+    for (i = 0; i < olds.length; i++) {
+      k = nodeSig(olds[i]);
+      if (k !== null) (bySig[k] || (bySig[k] = [])).push(i);
+    }
+    var pick = [], last = -1;
+    for (i = 0; i < list.length; i++) {
+      pick.push(-1);
+      l = bySig[entrySig(list[i])];
+      if (!l) continue;
+      while (l.length && l[0] <= last) l.shift();
+      if (l.length) { pick[i] = l.shift(); last = pick[i]; }
+    }
+    var nextPick = [], np = olds.length;
+    for (i = list.length - 1; i >= 0; i--) { nextPick[i] = np; if (pick[i] >= 0) np = pick[i]; }
+    var oi = 0;
+    for (i = 0; i < list.length; i++) {
+      var e = list[i];
+      if (typeof e === "number") e = String(e);
+      if (pick[i] >= 0) {
+        while (oi < pick[i]) el.removeChild(olds[oi++]);
+        oi = pick[i] + 1;
+        continue;
+      }
+      if (oi < nextPick[i] && same(olds[oi], e)) { oi++; continue; }
+      el.insertBefore(make(e), oi < olds.length ? olds[oi] : end);
+    }
+    while (oi < olds.length) el.removeChild(olds[oi++]);
+  }
   function kids(el, list) {
-    var have = el.childNodes;
+    var have = el.childNodes, ln = list.length, hn = have.length;
+    if (ln !== hn && hn > 0) {
+      // a list that grew or shrank: what is alike at its start and its
+      // end is kept where it is, and in between the nodes that show an
+      // entry already (middle), not every later node set anew
+      var p = 0, s = 0, j;
+      while (p < ln && p < hn && alike(have[p], list[p])) p++;
+      while (s < ln - p && s < hn - p && alike(have[hn - 1 - s], list[ln - 1 - s])) s++;
+      var a = ln - p - s, b = hn - p - s, olds = [];
+      for (j = p; j < p + b; j++) olds.push(have[j]);
+      middle(el, olds, list.slice(p, p + a), have[p + b] || null);
+      have = el.childNodes;
+    }
     for (var i = 0; i < list.length; i++) {
       var n = list[i], cur = have[i];
       if (typeof n === "number") n = String(n);
