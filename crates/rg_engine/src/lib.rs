@@ -43,10 +43,19 @@ use std::rc::Rc;
 /// world answers them (fiber.rs World::sync).
 struct WorldSync {
     world: Rc<RefCell<fiber::World>>,
+    /// the DOM backend's own requests (a request starting with U+0001:
+    /// RangerDOM's style, DomBackend::host_sync)
+    dom: Option<Box<dyn FnMut(&str) -> String>>,
 }
 
 impl cerxes::vm::HostSync for WorldSync {
     fn call(&mut self, request: &str) -> String {
+        if request.starts_with('\u{1}') {
+            return match self.dom.as_mut() {
+                Some(f) => f(request),
+                None => String::new(),
+            };
+        }
         match self.world.try_borrow_mut() {
             Ok(mut w) => w.sync(&json::parse(request)).write(),
             Err(_) => "null".to_string(),
@@ -85,6 +94,12 @@ pub trait DomBackend {
     /// Frames drawn by the fast path and by the full path since the last call.
     fn frames(&mut self) -> (usize, usize) {
         (0, 0)
+    }
+    /// What answers the page's synchronous requests to the backend
+    /// (`__hostSync` with a request starting with U+0001), for every game
+    /// from now on.
+    fn host_sync(&self) -> Option<Box<dyn FnMut(&str) -> String>> {
+        None
     }
 }
 
@@ -616,7 +631,11 @@ impl Engine {
             self.settings = Json::Obj(Vec::new());
         }
         let mut s = Script::new();
-        s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone() }));
+        let dom_sync = match self.dom.as_ref() {
+            Some(d) => d.host_sync(),
+            None => None,
+        };
+        s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone(), dom: dom_sync }));
         self.world.borrow_mut().dir = info.dir.clone();
         self.scene.dir = info.dir.clone();
         self.lend_files(true);

@@ -8,6 +8,7 @@
 //! (`__layout`, for getBoundingClientRect and rg.box) and EVG's display list
 //! is written into the engine's draw stream.
 
+use rangerdom_style::DomStyle;
 use rangerdom_view::{DomPage, DomPaint};
 use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout, EVGRetain, EVGTextEngine};
 use std::collections::HashMap;
@@ -55,6 +56,9 @@ pub struct DomRender {
     pub full_frames: usize,
     /// timings of the last frame (ms): render tree, layout, display list
     pub timing: [f64; 4],
+    /// the page's elements and rule matching for webapi.js (RangerDOM's
+    /// style in Rust, through __hostSync); one for every game
+    style: Rc<std::cell::RefCell<DomStyle>>,
 }
 
 impl DomRender {
@@ -69,6 +73,7 @@ impl DomRender {
             fast_frames: 0,
             full_frames: 0,
             timing: [0.0; 4],
+            style: Rc::new(std::cell::RefCell::new(DomStyle::new())),
         }
     }
 }
@@ -246,6 +251,18 @@ impl DomRender {
     }
 }
 
+/// RangerDOM's style in Rust (DomStyle) on: off with RG_DOM_RSX=0
+fn rsx_on() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::env::var("RG_DOM_RSX").map(|v| v != "0").unwrap_or(true)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        true
+    }
+}
+
 impl DomBackend for DomRender {
     fn boot(&self, w: f64, h: f64) -> Vec<(String, String)> {
         vec![
@@ -258,11 +275,12 @@ impl DomBackend for DomRender {
             (
                 "dom-page.js".to_string(),
                 format!(
-                    "__page({}, {}); __layout({{viewport: [{}, {}]}}); __deltaRender(true); console = __rgConsole; window.console = __rgConsole;",
+                    "__page({}, {}); __layout({{viewport: [{}, {}]}}); __deltaRender(true); {}console = __rgConsole; window.console = __rgConsole;",
                     quote(PAGE),
                     quote(&format!("{}/", ORIGIN)),
                     w,
-                    h
+                    h,
+                    if rsx_on() { "__webdom.rsx(true); " } else { "" }
                 ),
             ),
         ]
@@ -273,7 +291,14 @@ impl DomBackend for DomRender {
     }
 
     fn reset(&mut self) {
+        let style = self.style.clone();
         *self = DomRender::new();
+        self.style = style;
+    }
+
+    fn host_sync(&self) -> Option<Box<dyn FnMut(&str) -> String>> {
+        let s = self.style.clone();
+        Some(Box::new(move |r: &str| if DomStyle::mine(r) { s.borrow_mut().call(r) } else { String::new() }))
     }
 
     fn render(&mut self, eval: &mut dyn FnMut(&str) -> String, image: &dyn Fn(&str) -> Option<(f64, f64)>, w: f64, h: f64, out: &mut DrawStream) {
