@@ -63,8 +63,12 @@ pub struct DomRender {
 
 impl DomRender {
     pub fn new() -> DomRender {
+        let style = Rc::new(std::cell::RefCell::new(DomStyle::new()));
+        let mut page = DomPage::new();
+        // (the render nodes DomStyle builds, RX: the page names them)
+        page.ext = Some(style.borrow().ext.clone());
         DomRender {
-            page: DomPage::new(),
+            page,
             lay: Rc::new(RefCell::new(EVGLayout::new())),
             root: None,
             cmds: Vec::new(),
@@ -73,7 +77,7 @@ impl DomRender {
             fast_frames: 0,
             full_frames: 0,
             timing: [0.0; 4],
-            style: Rc::new(std::cell::RefCell::new(DomStyle::new())),
+            style,
         }
     }
 }
@@ -263,6 +267,22 @@ fn rsx_on() -> bool {
     }
 }
 
+/// computed styles and render nodes in Rust too (RX, DomStyle's DomTree):
+/// on, off with RG_DOM_RX=0; RG_DOM_RXCHECK=1 compares each frame with
+/// webapi.js's own render (`__webdom.rxCheck()` gives what differed)
+fn rx_flags() -> String {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let on = std::env::var("RG_DOM_RX").map(|v| v != "0").unwrap_or(true);
+        let check = std::env::var("RG_DOM_RXCHECK").is_ok();
+        format!("{}{}", if on { "__webdom.rx(true); " } else { "" }, if on && check { "__webdom.rxCheck(true); " } else { "" })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        "__webdom.rx(true); ".to_string()
+    }
+}
+
 impl DomBackend for DomRender {
     fn boot(&self, w: f64, h: f64) -> Vec<(String, String)> {
         vec![
@@ -280,7 +300,7 @@ impl DomBackend for DomRender {
                     quote(&format!("{}/", ORIGIN)),
                     w,
                     h,
-                    if rsx_on() { "__webdom.rsx(true); " } else { "" }
+                    if rsx_on() { format!("__webdom.rsx(true); {}", rx_flags()) } else { String::new() }
                 ),
             ),
         ]
@@ -293,6 +313,7 @@ impl DomBackend for DomRender {
     fn reset(&mut self) {
         let style = self.style.clone();
         *self = DomRender::new();
+        self.page.ext = Some(style.borrow().ext.clone());
         self.style = style;
     }
 
