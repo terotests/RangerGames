@@ -1101,8 +1101,10 @@ impl Globe {
             return;
         }
         let to_eye = [cam.eye[0] - place.centre[0], cam.eye[1] - place.centre[1], cam.eye[2] - place.centre[2]];
+        // inside (or a hair over) the ball: nothing to see of it; only a little
+        // over, so a camera a few metres above the ground still sees the ground
         let dist = dot(to_eye, to_eye).sqrt();
-        if dist <= place.radius * 1.0001 {
+        if dist <= place.radius * 1.000_000_5 {
             return;
         }
         let e = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);

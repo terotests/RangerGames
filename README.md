@@ -140,7 +140,7 @@ Ajonaikainen API (`crates/rg_engine/src/js/runtime.js`):
 | `onClick`, `onPointerDown`, `onPointerUp` JSX-elementeissä | napautukset (EVG:n osumatesti) |
 | `onWheel(dy, {dx, dy, x, y})` | hiiren rulla / kosketuslevyn kahden sormen veto (vain selaimessa), pelin pikseleinä |
 | `rg.box(id)` | elementin asettelun laatikko `{x, y, w, h}` edellisestä framesta (tai `null` ensimmäisellä kerralla), esim. vieritettävän sisällön korkeus |
-| `rg.sound(nimi, {volume, pitch})` | efektit `jump coin click tick pop hit lose win whoosh star wrong note`, tai äänitiedosto pelin kansiosta |
+| `rg.sound(nimi, {volume, pitch, radio, queue, static, lowpass, highpass})` | efektit `jump coin click tick pop hit lose win whoosh star wrong note`, tai äänitiedosto pelin kansiosta; `pitch` < 1 madaltaa ja hidastaa (0.8 = matalampi ääni); `static: 0..1` kohinaa äänen alle; `lowpass`/`highpass` (Hz) suodattavat; `radio: true` soittaa tiedoston radiopuheena (kohinaa alkuun, kapea kaista, rahinaa, klikkaus loppuun; vain verkossa); `queue: true` odottaa, että edelliset jonossa soitetut äänet ovat loppuneet (puhe puheen perään) |
 | `rg.say(id \| [id, …], {queue, volume})`, `rg.stopSay()` | suomenkielinen puhe: valmiit klipit `voice/fi.json`:sta, lista sanotaan peräkkäin (`rg.say(["valitse", "punainen"])`). `rg.sayId.number(7)`, `rg.sayId.letter("Ä")`, `rg.sayId.word("Pöllö")` antavat klipin id:n |
 | `rg.speechOn(id?)`, `rg.setSpeech(id, on)` | puhuuko peli: pelaajan valinta käynnistimen ⚙️-asetuksista, muuten `game.json`:n `"speech"` (oletus `true`; `false` = hiljainen, ellei puhetta laiteta päälle). Kun puhe on pois, `rg.say` ei sano mitään |
 | `rg.music("happy" \| "calm" \| "chase" \| tiedosto)`, `rg.stopMusic()` | taustamusiikki |
