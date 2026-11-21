@@ -8,7 +8,8 @@
 #     lib/evg               EVG at the commit RangerDOM's playground is pinned to
 #                           (newer than the engine's .deps/Ranger/lib/evg)
 #     runtime/rust/rangerevg  that EVG as a crate (a copy of Ranger's)
-#     gallery/domjson, gallery/domview  RangerDOM's json/ and view/
+#     gallery/domjson, gallery/domview, gallery/domstyle  RangerDOM's json/,
+#                           view/ and style/
 #   Every crate names the one `ranger` runtime in .deps/Ranger, so CErXes,
 #   the engine and RangerDOM share it.
 #
@@ -16,7 +17,7 @@
 # name checkouts of your own instead.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-RD_REV=768f595f2d8f157c1aaa5df36018c6d92a400cb4
+RD_REV=f2586929d66b334061258308e167e9a1a4700646
 EVG_REV=ab4635c63af66f610ef5d558a9211cddc056daa3
 [[ -d .deps/Ranger/runtime/rust/ranger ]] || { echo "run scripts/setup.sh first" >&2; exit 1; }
 ROOT="$(pwd)"
@@ -49,4 +50,5 @@ copy_crate() { # from to
 copy_crate .deps/Ranger/runtime/rust/rangerevg "$T/runtime/rust/rangerevg"
 copy_crate .deps/RangerDOM/json "$T/gallery/domjson"
 copy_crate .deps/RangerDOM/view "$T/gallery/domview"
+copy_crate .deps/RangerDOM/style "$T/gallery/domstyle"
 echo "ready: .deps/RangerDOM ($(git -C .deps/RangerDOM rev-parse --short HEAD)), EVG for it ($(git -C .deps/evg-dom rev-parse --short HEAD)) in $T"

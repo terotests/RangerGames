@@ -130,6 +130,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "rangerdom_style"
+version = "0.1.0"
+dependencies = [
+ "ranger",
+ "rangerdom_json",
+]
+
+[[package]]
 name = "rangerdom_view"
 version = "0.1.0"
 dependencies = [
@@ -194,6 +202,7 @@ dependencies = [
  "cerxes",
  "ranger",
  "rangerdom_json",
+ "rangerdom_style",
  "rangerdom_view",
  "rangerevg",
  "rg_core",
