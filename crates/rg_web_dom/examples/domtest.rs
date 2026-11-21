@@ -17,6 +17,8 @@
 //! DOMTEST_SLOW=<ms> lists frames slower than that with the JS collections
 //! run in them, DOMTEST_HEAP=<n> the live JS objects every n frames,
 //! DOMTEST_CENSUS=1 the live JS objects by kind at the end.
+//! DOMTEST_EVAL='__rgDom.why()' counts why frames took the full path
+//! (RG_DOMCHECK=1 compares each patched frame with the full path's).
 
 use rg_core::vfs::Vfs;
 use rg_engine::Engine;

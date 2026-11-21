@@ -220,36 +220,49 @@ var __rgDom = (function () {
     for (k in a) n--;
     return n === 0;
   }
+  // why frames took the full path, counted by reason (`__rgDom.why()`, a
+  // test's; the reasons are names, not values, so the counts stay few)
+  var WHY = {};
+  function no(r) { WHY[r] = (WHY[r] || 0) + 1; return false; }
+  // a path's shape or paint changed (d, fill, stroke...): the <svg> of its
+  // box gets its markup anew, as the render tree would give it, and the
+  // renderer draws that in place (RangerDOM's DomPaint.patchSvg); its
+  // viewBox and its box's style are what they were
+  var SVG_PATCH = typeof __webdom === "object" && typeof __webdom.svgMarkup === "function";
   // whether `n` can be had from `el` by patches alone (pushed to `out`)
   function fastDiff(el, n, out) {
-    if (!same(el, n)) return false;
+    if (!same(el, n)) return no("kind");
     if (typeof n === "string") {
       if (el.data === n) return true;
       // (a text of its own in its element: the text run DomView made of it)
-      if (el.parentNode.childNodes.length !== 1 || !n.length || !el.data.length) return false;
+      if (el.parentNode.childNodes.length !== 1 || !n.length || !el.data.length) return no("text");
       out.push([el, "#text", n]);
       return true;
     }
     var w = el.__rg;
-    if ((n.cls || "") !== w.cls || (n.id || "") !== w.id) return false;
-    var a = n.a || {}, old = w.a || {}, k;
-    for (k in old) if (old[k] !== a[k]) return false;
-    for (k in a) if (!(k in old)) return false;
+    if ((n.cls || "") !== w.cls || (n.id || "") !== w.id) return no("cls");
+    var a = n.a || {}, old = w.a || {}, k, shape = false;
+    for (k in old) {
+      if (old[k] === a[k]) continue;
+      if (w.t !== "path" || !SVG_PATCH || !PATH_ATTRS[k] || a[k] === undefined) return no("attr " + w.t + " " + k);
+      shape = true;
+    }
+    for (k in a) if (!(k in old)) return no("attr+ " + k);
     // (the view's style object as it was last time: most are)
     if (!sameRaw(w.sraw, n.s)) {
       var now = styleMap(n.s), st = w.st || {};
-      for (k in st) if (!(k in now)) return false;
+      for (k in st) if (!(k in now)) return no("style- " + k);
       for (k in now) {
         if (st[k] === now[k]) continue;
-        if (!fastProp(el, k, st[k], now[k])) return false;
+        if (!fastProp(el, k, st[k], now[k])) return no("prop " + k);
         out.push([el, k, now[k]]);
       }
       raws.push(w, n.s);
     }
-    // (a path's box: its shape the same, the <svg> in it is ours)
-    if (w.t === "path") return true;
+    // (a path's box: the <svg> in it is ours)
+    if (w.t === "path") { if (shape) out.push([el, "#svg", a]); return true; }
     var list = n.c || [], have = el.childNodes;
-    if (list.length !== have.length) return false;
+    if (list.length !== have.length) return no("count " + w.t);
     for (var i = 0; i < list.length; i++) {
       var c = list[i];
       if (typeof c === "number") c = String(c);
@@ -261,6 +274,28 @@ var __rgDom = (function () {
   function px3(v) {
     if (String(v).indexOf("px") < 0) return String(v);
     return String(v).replace(/-?\d*\.?\d+(e[-+]?\d+)?/gi, function (n) { return String(Math.round(+n * 1000) / 1000); });
+  }
+  // A path box's new attributes into its <svg>, and the <svg>'s markup.
+  // Only d changed (a moving piece): the markup of the last fast frame
+  // with the new d written in, when no full frame came between (one could
+  // have changed what the path inherits) and d is all there is to it
+  // (a marker drawn at its ends would move with it); else from the DOM.
+  var svgEpoch = 0;
+  function svgPatch(el, a) {
+    var w = el.__rg, old = w.a || {}, mk = w.mk, k, only = mk !== undefined && w.mkAt === svgEpoch;
+    if (only) for (k in a) if (k !== "d" && a[k] !== old[k]) { only = false; break; }
+    pathAttrs(el, a);
+    w.a = a;
+    if (only && /^[^&"\u00a0]*$/.test(a.d) && mk.indexOf("<g") < 0) {
+      var was = ' d="' + old.d + '"', at = mk.indexOf(was);
+      if (at > 0 && mk.indexOf(was, at + 1) < 0) {
+        w.mk = mk.slice(0, at) + ' d="' + a.d + '"' + mk.slice(at + was.length);
+        return w.mk;
+      }
+    }
+    w.mk = __webdom.svgMarkup(el.firstChild);
+    w.mkAt = svgEpoch;
+    return w.mk;
   }
   // the patches of the fast path into the document
   function flush() {
@@ -309,6 +344,10 @@ var __rgDom = (function () {
         for (var i = 0; i < out.length; i++) {
           var p = out[i];
           if (p[1] === "#text") { p[0].data = p[2]; ps.push([String(p[0].__id), p[1], p[2]]); continue; }
+          if (p[1] === "#svg") {
+            ps.push([String(p[0].firstChild.__id), "svg", svgPatch(p[0], p[2])]);
+            continue;
+          }
           p[0].__rg.st[p[1]] = p[2];
           var pk = p[0].__id + "|" + p[1], q = pendingAt[pk];
           if (q) q[2] = p[2];
@@ -320,10 +359,12 @@ var __rgDom = (function () {
         return;
       }
       flush();
+      svgEpoch++;
       kids(document.body, tree ? [tree] : []);
     },
     // the last frame's patches ("[]": nothing changed) or "" for the full path
     fast: function () { return lastFast; },
+    why: function () { var o = JSON.stringify(WHY); WHY = {}; return o; },
     flush: flush,
     // nodes: the page's nodes under the finger, topmost first ("n,n,...");
     // the first element with an id (what EVG's hit test gives), or else

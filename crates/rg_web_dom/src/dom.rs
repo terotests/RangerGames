@@ -8,7 +8,7 @@
 //! (`__layout`, for getBoundingClientRect and rg.box) and EVG's display list
 //! is written into the engine's draw stream.
 
-use rangerdom_view::DomPage;
+use rangerdom_view::{DomPage, DomPaint};
 use rangerevg::{EVGDisplayList, EVGDrawCmd, EVGElement, EVGHitTest, EVGLayout, EVGRetain, EVGTextEngine};
 use std::collections::HashMap;
 use ranger::cell::RefCell;
@@ -150,8 +150,10 @@ impl DomRender {
             None => return false,
         };
         let mut els = Vec::new();
-        for (n, _, _) in ps.iter() {
+        for (n, name, _) in ps.iter() {
             match self.nodes.get(n) {
+                // (an <svg>'s markup goes only on the picture DomView drew)
+                Some(el) if name == "svg" && el.borrow().tag_name != "svg" => return false,
                 Some(el) => els.push(el.clone()),
                 None => return false,
             }
@@ -164,6 +166,9 @@ impl DomRender {
             if name == "#text" {
                 EVGRetain::patch_text(&els[i], value.clone());
                 layout = true;
+            } else if name == "svg" {
+                // (paint only: the <svg> fills its path's box)
+                DomPaint::patchSvg(&els[i], value);
             } else if EVGRetain::paint_only(name) {
                 EVGRetain::patch(&els[i], name, value);
             } else {
@@ -178,7 +183,7 @@ impl DomRender {
             let mut deep = Vec::new();
             let mut shallow = Vec::new();
             for (i, (_, name, _)) in ps.iter().enumerate() {
-                if EVGRetain::paint_only(name) {
+                if EVGRetain::paint_only(name) || name == "svg" {
                     continue;
                 }
                 if moves_only(name) {
@@ -280,6 +285,8 @@ impl DomBackend for DomRender {
                     self.fast_frames += 1;
                     let t1 = now();
                     self.timing = [0.0, 0.0, t1 - t0, 0.0];
+                    #[cfg(not(target_arch = "wasm32"))]
+                    if std::env::var("RG_DOM_TIMING").is_ok() { eprintln!("dom: fast {} patches, {} bytes, {:.2} ms", ps.len(), fast.len(), t1 - t0); }
                     #[cfg(not(target_arch = "wasm32"))]
                     if !ps.is_empty() && std::env::var("RG_DOMCHECK").is_ok() {
                         let a = self.stream();
