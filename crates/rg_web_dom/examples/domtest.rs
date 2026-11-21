@@ -129,6 +129,13 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
         }
         e.log.clear();
     }
+    // DOMTEST_EVAL=js: its value after the frames (the page's engine only),
+    // e.g. __webdom.rxCheck() with RG_DOM_RX=1 RG_DOM_RXCHECK=1
+    if let Ok(src) = std::env::var("DOMTEST_EVAL") {
+        if dom {
+            println!("{}", e.eval(&src).unwrap_or_default());
+        }
+    }
     if std::env::var("DOMTEST_CENSUS").is_ok() {
         for (n, k) in e.js_census(25) {
             println!("    {} {:>7} {}", if dom { "dom" } else { "evg" }, n, k);
