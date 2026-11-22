@@ -93,11 +93,16 @@
     "  float k = rr / f; float b = dd < 1.0 ? 0.4 * (dd * dd - 1.0) + 0.08 * smoothstep(0.6, 1.0, dd) : 0.08 * (1.0 - smoothstep(1.0, 1.4, dd));" +
     "  return b * k; }" +
     // the made-up bumps: five octaves of value noise and craters of three sizes (draw.rs `sphere`); n > 5: finer ones too (only for the shading)
-    "float bumps(vec3 p, int n) { if (hamp <= 0.0) return 0.0; float s = 0.0, a = 1.0, f = hfreq;" +
-    "  for (int k = 0; k < 9; k++) { if (k >= n) break; s += a * (2.0 * vnoise(p * f) - 1.0); a *= 0.48; f *= 2.03; }" +
-    "  float cr = 0.0; if (crat > 0.0) { float cf = hfreq * 0.9; int nc = n >= 5 ? n - 2 : max(n - 2, 1);" +
-    "    for (int k = 0; k < 7; k++) { if (k >= nc) break; cr += crater(p, cf, 2 * k) + crater(p, cf, 2 * k + 1); cf *= 2.7; } }" +
+    // (n may be fractional: the last octave then counts by its fraction, so that the finer ones fade in by the pixel's
+    // size instead of turning on at a distance, a line that swept over the ground as the ship moved)
+    "float bumpsF(vec3 p, float n) { if (hamp <= 0.0) return 0.0; float s = 0.0, a = 1.0, f = hfreq;" +
+    "  for (int k = 0; k < 9; k++) { float w = clamp(n - float(k), 0.0, 1.0); if (w <= 0.0) break; s += w * a * (2.0 * vnoise(p * f) - 1.0); a *= 0.48; f *= 2.03; }" +
+    "  float cr = 0.0; if (crat > 0.0) { float cf = hfreq * 0.9; float nc = n >= 5.0 ? n - 2.0 : max(n - 2.0, 1.0);" +
+    "    for (int k = 0; k < 7; k++) { float w = clamp(nc - float(k), 0.0, 1.0); if (w <= 0.0) break; cr += w * (crater(p, cf, 2 * k) + crater(p, cf, 2 * k + 1)); cf *= 2.7; } }" +
     "  return s * hamp + cr * crat; }" +
+    "float bumps(vec3 p, int n) { return bumpsF(p, float(n)); }" +
+    // how many octaves of bumps are at least sz (radii) long, from 5 up to 8, fractional
+    "float octsF(float sz) { return 5.0 + clamp(log2(1.0 / (hfreq * pow(2.03, 5.0) * sz)) / log2(2.03) + 1.0, 0.0, 3.0); }" +
     "float dec(vec4 c) { return (c.r * 65280.0 + c.g * 255.0) / 65535.0; }" +
     // the ground's radius at unit direction p: the coarse shape picture plus n octaves of bumps
     // the shape read bilinearly by hand, like the game reads it: GPUs' own filtering weighs the texels in 1/256 steps,
@@ -111,6 +116,9 @@
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
     "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
+    "float groundF(vec3 p, float n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumpsF(p, n); }" +
+    // octs, fractional (the phone's mesh: its corners' heights change smoothly as they slide over the ground)
+    "float octsAF(float sz) { if (hamp <= 0.0) return 0.0; return clamp(log(hamp * 1.5 / max(sz, 1e-9)) / log(1.0 / 0.48) + 1.0, 0.0, lite > 0.5 ? 3.0 : 5.0); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
     "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
     // casts the ray against the ground's shape; t: where it meets it
@@ -164,6 +172,11 @@
     "    float mg = mesh ? 0.0 : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
     "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg && dot(pw, normalize(eye)) > 0.995004) discard; }" +
     "  if (mesh) th = length(wpos - eye);" +
+    // the mesh's corners slide over the ground as the eye moves and its flat triangles miss the true ground a little:
+    // seen at a slant the picture slid to and fro on rough ground ("flowed"); two steps along the ray to the true ground
+    // (only at a slant, where it shows, and one step with the three largest octaves: two full ones cost 4-5 ms on a tablet)
+    "  if (mesh && terr) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);" +
+    "    if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }" +
     "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
@@ -186,7 +199,7 @@
     // (the picture by the whole stretch, up to 8 times; its slopes by its square root, up to 2.5: a wider reach turns the
     // picture's broad light and dark into false slopes)
     "  float fp = max(th * pix, 1e-7), fpa = fp; float ci = max(dot(-d, p), 0.0);" +
-    "  if (terr) { fpa = fp / max(ci, 0.125); fp = mix(fpa, fp / max(sqrt(ci), 0.4), smoothstep(0.08, 0.35, ci)); }" +
+    "  float fpt = fp; if (terr) { fpt = fp / max(ci, 0.03); fpa = fp / max(ci, 0.125); fp = mix(fpa, fp / max(sqrt(ci), 0.4), smoothstep(0.08, 0.35, ci)); }" +
     "  if (terr) { float k = fpa / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fpa / 3.1415927); }" +
     // a detail picture: only inside its window, the window stretched over the picture
     "  if (useWin > 0.5) {" +
@@ -202,38 +215,37 @@
     "  if (useH > 0.5 && terr) { float wr = 1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0);" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
-    "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
+    "    float lod = max(0.0, log2(max(eps, fpt * 0.7) / ta)); float nb = 0.0;" +
     // close by also the finer bumps, down to about three pixels across
-    "    if (terr && lite < 0.5) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
+    "    if (terr && lite < 0.5) nb = octsF(max(fp * 3.0, fpt * 1.5));" +
     "    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);" +
     "    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);" +
     "    vec3 tl = hrel * (gx * east + gy * north);" +
     // the bumps at the pixel's own size, at their true slope
-    "    if (nb > 0) { float eb = max(fp, 1e-7); float b0 = bumps(p, nb);" +
-    "      tl += (bumps(normalize(p + east * eb), nb) - b0) / eb * east + (bumps(normalize(p + north * eb), nb) - b0) / eb * north; }" +
+    "    if (nb > 0.0) { float eb = max(fp, 1e-7); float b0 = bumpsF(p, nb);" +
+    "      tl += (bumpsF(normalize(p + east * eb), nb) - b0) / eb * east + (bumpsF(normalize(p + north * eb), nb) - b0) / eb * north; }" +
     // close by, a sharper picture's own small slopes: its brightness against its blur is the slope towards its own sun
     // (draw.rs `sphere` 31, 39); its baked light is taken out of the colour, the game's sun lights the slopes
     "    float hf = 0.0;" +
     // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
     // faded in as its pixels grow larger than the screen's
-    "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fp);" +
+    "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fpt);" +
     // (both, and the picture's own slopes below, fade out near the piece's edges: the next piece's pattern and
     // blur differ, and its edge showed as a line in the fine detail)
     "      float ew = smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v)));" +
     "      float w8 = 0.5 * smoothstep(0.0, 1.0, z) * ew, w64 = 0.5 * smoothstep(3.0, 4.0, z) * ew;" +
-    "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
-    "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
-    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
+    "      if (w8 > 0.0) hf += w8 * (lumAt(p, fpt, 0.0, 8.0) - lumAt(p, fpt, 3.0, 8.0));" +
+    "      if (w64 > 0.0) hf += w64 * (lumAt(p, fpt, 0.0, 64.0) - lumAt(p, fpt, 3.0, 64.0)); }" +
+    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
     "      float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }" +
     "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
     // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
     // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
     // Shadertoy height shader), not a whole normal (three); without it the lite ground close by was flat
-    "    if (terr && lite > 0.5 && lite < 1.5 && wr > 0.0) { int nl = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0));" +
-    "      for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nl++; wl /= 2.03; }" +
+    "    if (terr && lite > 0.5 && lite < 1.5 && wr > 0.0) { float nl = octsF(max(fp * 3.0, fpt * 1.5));" +
     "      vec3 st = sun - p * dot(sun, p); float sl = length(st);" +
-    "      if (sl > 1e-4) { st /= sl; float e = max(fp, 1e-8); tl += (bumps(normalize(p + st * e), nl) - bumps(p, nl)) / e * st; } }" +
+    "      if (sl > 1e-4) { st /= sl; float e = max(fp, 1e-8); tl += (bumpsF(normalize(p + st * e), nl) - bumpsF(p, nl)) / e * st; } }" +
     "    n = normalize(p - tl * wr);" +
     "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
