@@ -29,3 +29,4 @@ fn new_engine() -> Engine {
 }
 
 include!("abi.rs");
+include!("glabi.rs");

@@ -31,7 +31,11 @@
     this.three = new RgThree(this.canvas3d, function (p) { return self.texture(p); });
     // the engine's own 3D scene, depth-tested with WebGL (gl3d.js); without
     // WebGL the engine paints it into the draw stream as before
-    this.gl3d = global.RgGl3D && opts.canvasGl ? new RgGl3D(opts.canvasGl) : null;
+    // ?gl=1: the whole frame (2D, globes, 3D) painted by the engine with
+    // WebGL2 (crates/rg_gl, glhost.js) into one canvas
+    this.glhost = params.get("gl") === "1" && global.RgGlHost && opts.canvasGl ? new RgGlHost(opts.canvasGl, this) : null;
+    if (this.glhost && !this.glhost.ok) this.glhost = null;
+    this.gl3d = !this.glhost && global.RgGl3D && opts.canvasGl ? new RgGl3D(opts.canvasGl) : null;
     this.net = global.RgNet ? new RgNet(function (ev) { self.sendSensor("net", ev); }) : null;
   }
 
@@ -47,9 +51,21 @@
       self.sizes = sz || {};
       return Promise.all([get(wasmUrl, sz[wasmUrl]), get(packUrl, sz[packUrl])]);
     }).then(function (both) {
-      return WebAssembly.instantiate(both[0], { wasi_snapshot_preview1: wasi.imports }).then(function (res) {
+      // the GL imports (crates/rg_gl): answered by glhost.js with ?gl=1, else nothing is called
+      var none = new Proxy({}, { get: function () { return function () { return 0; }; } });
+      var gh = self.glhost;
+      return WebAssembly.instantiate(both[0], { wasi_snapshot_preview1: wasi.imports, gl: gh ? gh.glImports() : none, rghost: gh ? gh.hostImports() : none }).then(function (res) {
         self.x = res.instance.exports;
         wasi.setMemory(self.x.memory);
+        if (gh) {
+          gh.memory = self.x.memory;
+          if (self.x.rg_gl_all) {
+            self.x.rg_gl_all(1);
+            gh.canvas.style.visibility = "visible";
+          } else {
+            self.glhost = null;
+          }
+        }
         if (self.x._initialize) self.x._initialize();
         var n = self.mountPack("/games", new Uint8Array(both[1]));
         if (n < 0) throw new Error("the games pack is not a pack");
@@ -211,6 +227,13 @@
     this.canvas.style.width = w + "px";
     this.canvas.style.height = h + "px";
     if (this.gl3d && this.gl3d.canvas) { this.gl3d.canvas.style.width = w + "px"; this.gl3d.canvas.style.height = h + "px"; }
+    if (this.glhost) {
+      var gc = this.glhost.canvas;
+      gc.width = Math.round(w * dpr);
+      gc.height = Math.round(h * dpr);
+      gc.style.width = w + "px";
+      gc.style.height = h + "px";
+    }
     this.x.rg_resize(w, h);
     this.readView();
     this.three.size = "";
@@ -622,7 +645,7 @@
     var bytes = src.charAt(0) === "/" ? this.readFile(src) : null;
     var img = new Image();
     img.onload = function () { self.images.set(src, img); };
-    img.onerror = function () { console.warn("image " + src + " did not load"); };
+    img.onerror = function () { self.imageState[src] = "error"; console.warn("image " + src + " did not load"); };
     if (bytes) {
       var type = /\.svg$/i.test(src) ? "image/svg+xml" : /\.jpe?g$/i.test(src) ? "image/jpeg" : /\.webp$/i.test(src) ? "image/webp" : "image/png";
       img.src = URL.createObjectURL(new Blob([bytes], { type: type }));
@@ -669,10 +692,23 @@
       i += 23 + (nums[i + 22] | 0);
     }
     this.three.render(this.view, this.dpr);
+    if (this.glhost) {
+      this.frameStrings = strings;
+      this.frameDraw = [x.rg_draw_ptr() >>> 0, x.rg_draw_len()];
+      var bg = this.background, br = parseInt(bg.slice(1, 3), 16) / 255, bgn = parseInt(bg.slice(3, 5), 16) / 255, bb = parseInt(bg.slice(5, 7), 16) / 255;
+      if (!(br >= 0)) { br = 0; bgn = 0; bb = 0; }
+      x.rg_gl_frame(this.glhost.canvas.width, this.glhost.canvas.height, this.dpr, br, bgn, bb);
+      this.frameTime(t0, nums);
+      return;
+    }
     var gl = false;
     if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background);
     if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
     this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
+    this.frameTime(t0, nums);
+  };
+
+  Host.prototype.frameTime = function (t0, nums) {
     var ms = performance.now() - t0;
     this.frameMs = this.frameMs * 0.95 + ms * 0.05;
     if (DEBUG && (this.frames++ % 15 === 0)) {

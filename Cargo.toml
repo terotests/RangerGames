@@ -17,7 +17,7 @@
 
 [workspace]
 resolver = "2"
-members = ["crates/rg_core", "crates/rg_evg", "crates/rg_engine", "crates/rg_three", "crates/rg_web", "crates/rg_cli", "crates/rg_android", "crates/chimera", "crates/rg_voice"]
+members = ["crates/rg_core", "crates/rg_gl", "crates/rg_evg", "crates/rg_engine", "crates/rg_three", "crates/rg_web", "crates/rg_cli", "crates/rg_android", "crates/chimera", "crates/rg_voice"]
 exclude = [".deps", "crates/rg_web_dom"]
 
 [workspace.package]

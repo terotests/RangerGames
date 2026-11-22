@@ -306,6 +306,9 @@ pub struct Engine {
     /// the host draws the 3D scene itself with a depth buffer (WebGL / GLES):
     /// then the scene's triangles are in `scene.tris`, not in the draw stream
     pub gl3d: bool,
+    /// the host paints the whole stream with GL (crates/rg_gl): 3D always as
+    /// triangles, placed in the stream by layer commands (kind 9)
+    pub gl_all: bool,
     /// the host draws textured globes (draw kind 8): planets with a
     /// `texture` are sent as one sphere command instead of their regions
     pub textures: bool,
@@ -347,6 +350,7 @@ impl Engine {
             draw: DrawStream::new(),
             scene: scene3d::Scene::new(),
             gl3d: false,
+            gl_all: false,
             textures: false,
             store: false,
             detail: false,
@@ -905,11 +909,16 @@ impl Engine {
                 let tree = reply.get("tree");
                 self.fluid.step(dt);
                 self.scene.gl = self.gl3d;
+                self.scene.unified = self.gl3d && self.gl_all;
                 self.scene.textures = self.textures;
                 self.scene.detail = self.detail;
                 self.scene.terrain = self.terrain;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
+                let t0 = self.scene.tris.len();
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
+                if self.gl3d && self.gl_all {
+                    self.draw.layer3d(t0, self.scene.tris.len());
+                }
                 self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);
                 let ids = std::mem::take(&mut self.measure);
