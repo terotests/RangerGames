@@ -219,6 +219,22 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
 
     private static byte[] asset(Context c, String name) throws Exception {
         try (InputStream in = c.getAssets().open(name)) {
+            // straight into an array of its own size: a growing buffer doubles (a 134 MB pack asked
+            // for 268 MB and the app died at start with OutOfMemoryError); an asset's stream knows its length
+            int len = in.available();
+            if (len > 0) {
+                byte[] all = new byte[len];
+                int off = 0, n;
+                while (off < len && (n = in.read(all, off, len - off)) > 0) off += n;
+                int more = off == len ? in.read() : 0;
+                if (more < 0) return all;
+                ByteArrayOutputStream rest = new ByteArrayOutputStream();
+                rest.write(all, 0, off);
+                if (off == len) rest.write(more);
+                byte[] b = new byte[65536];
+                while ((n = in.read(b)) > 0) rest.write(b, 0, n);
+                return rest.toByteArray();
+            }
             ByteArrayOutputStream out = new ByteArrayOutputStream();
             byte[] b = new byte[65536];
             int n;
