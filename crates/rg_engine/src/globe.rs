@@ -24,6 +24,12 @@
 //!   peakSize, peakSnow,          // a peak's base radius in degrees (default 1.2); the colour of
 //!                                // its snowy top (size >= 2 always has one, smaller ones in snow bands)
 //!   outline: [idOrGroup, colour, width] | false,   // one region's border drawn over the others
+//!   air, airColor,               // with a texture: glowing air this many radii high (0.02 is
+//!                                // ~130 km on the Earth), lit by the sun, brightest looking
+//!                                // towards it past the rim (a sunrise); replaces `glow`'s layers
+//!   lights, lightsGain,          // with a texture: a picture of city lights read on the night side
+//!   relief,                      // with a texture: its brightness read as height tilts the
+//!                                // ground for the sun, so hills and craters get shadows
 //!   visible })
 //! ```
 //!
@@ -239,6 +245,14 @@ pub struct Globe {
     detail: Vec<(String, [f64; 4])>,
     /// the host can draw `detail` (a sphere command with a window)
     pub detail_ok: bool,
+    /// glowing air round a textured ball: its height in radii and colour
+    air: f64,
+    air_color: V3,
+    /// city lights on the night side of a textured ball, and how bright
+    lights: String,
+    lights_gain: f64,
+    /// how much the texture's brightness tilts the ground (bump shading)
+    relief: f64,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -292,6 +306,11 @@ impl Globe {
             detail: Vec::new(),
             detail_ok: false,
             drawn: 0,
+            air: 0.0,
+            air_color: [0.35, 0.6, 1.0],
+            lights: String::new(),
+            lights_gain: 1.0,
+            relief: 0.0,
         }
     }
 
@@ -344,6 +363,15 @@ impl Globe {
         if let Json::Str(t) = a.get("texture") {
             self.texture = t;
         }
+        self.air = a.get("air").as_num(self.air).clamp(0.0, 0.5);
+        if !a.get("airColor").is_null() {
+            self.air_color = color(&a.get("airColor"), self.air_color);
+        }
+        if let Json::Str(t) = a.get("lights") {
+            self.lights = t;
+        }
+        self.lights_gain = a.get("lightsGain").as_num(self.lights_gain);
+        self.relief = a.get("relief").as_num(self.relief);
         if let Json::Arr(v) = a.get("detail") {
             self.detail = v.iter().take(8).filter_map(|d| {
                 let src = d.get("src").as_str();
@@ -933,7 +961,27 @@ impl Globe {
         }
         let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
         let mut whole = false;
-        for p in cap.horizon(48).iter() {
+        // the air round the ball is drawn in the same box: the horizon of the
+        // bigger ball (or the ball's own when the eye is inside the air)
+        let ka = 1.0 + self.air;
+        let dist = dot(to_eye, to_eye).sqrt();
+        let air_cap = if self.air > 0.0 && dist > place.radius * ka * 1.001 {
+            let e1 = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);
+            Some(Cap::new(e1, place.radius * ka / dist))
+        } else {
+            None
+        };
+        if self.air > 0.0 && air_cap.is_none() {
+            whole = true;
+        }
+        let rim: Vec<V3> = match &air_cap {
+            Some(c) => c.horizon(48).iter().map(|p| [p[0] * ka, p[1] * ka, p[2] * ka]).collect(),
+            None => cap.horizon(48),
+        };
+        for p in rim.iter() {
+            if whole {
+                break;
+            }
             let v = cam.view(place.world(p));
             if v[2] < cam.near {
                 whole = true;
@@ -976,8 +1024,20 @@ impl Globe {
             e[0], e[1], e[2], r[0], r[1], r[2], u[0], u[1], u[2], f[0], f[1], f[2], s[0], s[1], s[2],
             cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
         ];
-        let params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
-        out.sphere(x0, y0, x1 - x0, y1 - y0, &self.texture, &params);
+        let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0;
+        // the 32-number form: [20..24] the window (here the whole map), then the air,
+        // the city lights and the relief (draw.rs `sphere`)
+        let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
+            let c = self.air_color;
+            [win[0], win[1], win[2], win[3], use_win, air, c[0], c[1], c[2], self.lights_gain, self.relief, 0.0]
+                .iter().map(|v| *v as f32).collect()
+        };
+        if extra {
+            params.extend(more([0.0, 0.0, 1.0, 1.0], 0.0, self.air));
+        }
+        out.sphere_air(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &params);
+        params.truncate(20);
         self.drawn = 1;
         if !self.detail_ok {
             return;
@@ -1026,8 +1086,13 @@ impl Globe {
                 continue;
             }
             let mut p = params.clone();
-            p.extend(win.iter().map(|v| *v as f32));
-            out.sphere(px0, py0, px1 - px0, py1 - py0, src, &p);
+            if extra {
+                // the air is drawn once, with the whole ball
+                p.extend(more(*win, 1.0, 0.0));
+            } else {
+                p.extend(win.iter().map(|v| *v as f32));
+            }
+            out.sphere_air(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &p);
         }
     }
 }
@@ -1086,6 +1151,9 @@ impl Globe {
         if !self.texture.is_empty() && !self.texture.starts_with('/') && !dir.is_empty() {
             self.texture = rg_core::vfs::join(dir, &self.texture);
         }
+        if !self.lights.is_empty() && !self.lights.starts_with('/') && !dir.is_empty() {
+            self.lights = rg_core::vfs::join(dir, &self.lights);
+        }
         if !dir.is_empty() {
             for d in self.detail.iter_mut() {
                 if !d.0.starts_with('/') {
@@ -1132,7 +1200,8 @@ impl Globe {
         };
 
         // the air round it: horizons of a slightly bigger ball
-        if let Some(g) = self.glow {
+        let own_air = textures && !self.texture.is_empty() && self.air > 0.0 && !glowing;
+        if let (Some(g), false) = (self.glow, own_air) {
             let layers: &[(f64, f64)] = if glowing { &[(1.5, 0.08), (1.22, 0.14), (1.08, 0.3)] } else { &[(1.07, 0.18), (1.035, 0.3)] };
             for &(k, a) in layers.iter() {
                 let rr = place.radius * k;
@@ -1523,6 +1592,30 @@ mod tests {
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, true);
         assert_eq!(out.count, 0);
+    }
+
+    #[test]
+    fn a_textured_planet_with_air_and_lights() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r##"{{"regions":[["A","x",{}]],"texture":"img/earth.jpg","grid":false,"border":false,
+            "air":0.1,"airColor":"#4f8fff","lights":"img/night.jpg","lightsGain":1.5,"relief":0.2}}"##, square(0.0, 0.0)));
+        g.command(&a);
+        g.texture_in("/games/x");
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        // one sphere command (the air is in it, not glow rings): 32 numbers, the lights as string 2
+        assert_eq!(out.count, 1);
+        let n = &out.nums;
+        assert_eq!(n[0], 8.0);
+        assert_eq!(out.strings[n[19] as usize], "/games/x/img/night.jpg");
+        assert_eq!(n[22], 32.0);
+        let p = &n[23..55];
+        assert_eq!(&p[20..25], &[0.0, 0.0, 1.0, 1.0, 0.0]);
+        assert!((p[25] - 0.1).abs() < 1e-6 && (p[29] - 1.5).abs() < 1e-6 && (p[30] - 0.2).abs() < 1e-6);
+        // the box takes in the air: wider than the disc alone
+        let half = 300.0 * (2.0f64 / 6.0).asin().tan();
+        assert!((n[3] as f64) > 2.0 * half + 10.0, "{:?}", &n[1..5]);
     }
 
     #[test]

@@ -654,6 +654,11 @@
       if ((nums[i] === 2 || nums[i] === 8) && nums[i + 18] >= 0) {
         var src = strings[nums[i + 18]];
         if (!this.images.has(src)) this.image(src);
+        // a globe's second picture (city lights)
+        if (nums[i] === 8 && nums[i + 19] >= 0) {
+          var src2 = strings[nums[i + 19]];
+          if (!this.images.has(src2)) this.image(src2);
+        }
       }
       i += 23 + (nums[i + 22] | 0);
     }

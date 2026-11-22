@@ -43,12 +43,36 @@
   // 2D canvas, so the globe keeps its place in the painter's order.
   var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
   var SPHERE_FS = "#version 300 es\nprecision highp float; in vec2 uv; out vec4 o;" +
-    "uniform sampler2D tex; uniform vec3 eye, rgt, upv, fwd, sun; uniform vec4 box, win; uniform vec2 view; uniform float focal, night, lit, useWin;" +
+    "uniform sampler2D tex, ltex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
+    "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
+    // the glowing air seen along the ray: a = how much, col = its light. lo: the
+    // ray's lowest point (on the ground for a ray that hits); len: its path in the air
+    "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
+    "  float up = dot(normalize(lo), sun);" +
+    "  float day = smoothstep(-0.28, 0.12, up);" +
+    // looking towards the sun past the rim: forward scattering, a white burst at sunrise
+    "  float fw = pow(max(dot(d, sun), 0.0), 10.0) * smoothstep(-0.45, 0.02, up);" +
+    "  float dusk = smoothstep(-0.3, -0.02, up) * (1.0 - smoothstep(0.0, 0.25, up));" +
+    "  float dens = exp(-alt * 4.5) * (1.0 - alt);" +
+    "  float depth = dens * len / (air * 2.0);" +
+    "  float a = clamp(depth * (0.55 * day + 2.6 * fw + 0.25 * dusk), 0.0, 1.0);" +
+    "  vec3 col = airc * (0.7 + 0.6 * day) + vec3(1.0, 0.96, 0.9) * fw * 3.0 + vec3(1.0, 0.55, 0.3) * dusk * 0.8;" +
+    "  return vec4(col, a);" +
+    "}" +
+    "float lum(vec2 t) { vec3 c = texture(tex, t).rgb; return dot(c, vec3(0.3, 0.5, 0.2)); }" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
     "  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
-    "  float b = dot(eye, d); vec3 q = eye - b * d; float disc = 1.0 - dot(q, q);" +
-    "  if (disc < 0.0 || -b < sqrt(disc)) discard;" +
+    "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
+    "  bool hit = disc >= 0.0 && -b >= sqrt(max(disc, 0.0));" +
+    "  if (!hit) {" +
+    "    float R = 1.0 + air;" +
+    "    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;" +
+    "    float hq = sqrt(q2);" +
+    "    vec4 g = airGlow(d, q, (hq - 1.0) / air, 2.0 * sqrt(R * R - q2), false);" +
+    "    if (g.a < 0.003) discard;" +
+    "    o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;" +
+    "  }" +
     "  vec3 p = normalize(q - sqrt(disc) * d);" +
     "  float u = atan(p.y, p.x) / 6.2831853 + 0.5; float v = 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927;" +
     // the seam at longitude 180: take the derivatives of the u that does not jump there
@@ -62,8 +86,30 @@
     "    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;" +
     "  }" +
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
-    "  if (lit > 0.5) { float s = dot(p, sun); c *= mix(1.0 - night, 1.0, smoothstep(-0.06, 0.3, s)) * (0.8 + 0.2 * max(s, 0.0)); }" +
-    "  o = vec4(c, 1.0);" +
+    // relief: the picture's brightness as height tilts the normal for the sun
+    "  vec3 n = p;" +
+    "  if (relief != 0.0) {" +
+    "    vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));" +
+    "    float hx = (lum(vec2(u + ts.x, v)) - lum(vec2(u - ts.x, v))) / (2.0 * ts.x * 6.2831853 * clat);" +
+    "    float hy = (lum(vec2(u, v - ts.y)) - lum(vec2(u, v + ts.y))) / (2.0 * ts.y * 3.1415927);" +
+    "    vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
+    "    n = normalize(p - relief * (hx * east + hy * north));" +
+    "  }" +
+    "  float s = dot(p, sun);" +
+    "  if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
+    "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
+    // city lights on the night side (the map read at the point itself, also under a detail window)
+    "  if (useL > 0.5 && lit > 0.5) {" +
+    "    vec2 g = vec2(atan(p.y, p.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927);" +
+    "    vec3 L = texture(ltex, g).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
+    "  }" +
+    // the air in front of the ground: thicker towards the rim
+    "  if (air > 0.0 && useWin < 0.5) {" +
+    "    float R = 1.0 + air; float t0 = -b - sqrt(max(R * R - q2, 0.0)); float t1 = -b - sqrt(disc);" +
+    "    vec4 g = airGlow(d, p, 0.0, max(t1 - max(t0, 0.0), 0.0), true);" +
+    "    c = mix(c, g.rgb, g.a * 0.85);" +
+    "  }" +
+    "  o = vec4(min(c, vec3(1.0)), 1.0);" +
     "}";
 
   function Spheres() {
@@ -88,7 +134,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "eye", "rgt", "upv", "fwd", "sun", "box", "view", "focal", "night", "lit", "win", "useWin"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -117,7 +163,7 @@
 
   // draws one sphere command into ctx (which has the game's transform);
   // p: the 20 extra numbers (24 with a detail window); px: device pixels per game unit
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px) {
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc) {
     var gl = this.gl, c = this.canvas;
     var cw = Math.max(1, Math.min(4096, Math.round(w * px))), ch = Math.max(1, Math.min(4096, Math.round(h * px)));
     if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
@@ -126,10 +172,20 @@
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(this.prog);
     gl.activeTexture(gl.TEXTURE0);
-    var w4 = p.length >= 24;
+    var w32 = p.length >= 32;
+    var w4 = w32 ? p[24] > 0.5 : p.length >= 24;
     gl.bindTexture(gl.TEXTURE_2D, this.texture(src, img, w4));
     var u = this.u;
     gl.uniform1i(u.tex, 0);
+    gl.activeTexture(gl.TEXTURE1);
+    if (limg) gl.bindTexture(gl.TEXTURE_2D, this.texture(lsrc, limg, false));
+    gl.uniform1i(u.ltex, 1);
+    gl.uniform1f(u.useL, limg ? 1 : 0);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(u.air, w32 ? p[25] : 0);
+    gl.uniform3f(u.airc, w32 ? p[26] : 0, w32 ? p[27] : 0, w32 ? p[28] : 0);
+    gl.uniform1f(u.lgain, w32 ? p[29] : 0);
+    gl.uniform1f(u.relief, w32 ? p[30] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
@@ -209,7 +265,8 @@
       if (k === KIND.SPHERE) {
         var simg = s0 >= 0 ? this.images.get(strings[s0]) : null;
         if (simg && nx >= 20 && w > 0 && h > 0 && canDrawSpheres()) {
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 24 ? 24 : 20)), scale);
+          var limg = s1 >= 0 ? this.images.get(strings[s1]) : null;
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 32 ? 32 : nx >= 24 ? 24 : 20)), scale, limg, s1 >= 0 ? strings[s1] : "");
         }
         continue;
       }

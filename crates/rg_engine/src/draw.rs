@@ -238,12 +238,32 @@ impl DrawStream {
     /// read at the point's longitude and latitude, and lit by
     /// 1 - night × (1 - max(0, normal · sun)). Pixels that miss the ball stay
     /// as they were. A host that does not know kind 8 skips it.
+    ///
+    /// With 32 numbers (`sphere_air`) there is more, and a host that knows only
+    /// 20 or 24 reads the first 24 (the window then is the whole map):
+    ///
+    /// ```text
+    /// 20-23 window u0 v0 u1 v1   24 use the window (1) or not (0)
+    /// 25 air: the height of the glowing air, in radii (0: none); drawn round
+    ///    the ball too, so the box takes it in
+    /// 26-28 the air's colour (0…1)   29 city lights' strength (the second
+    ///    picture, string 2, read on the night side)
+    /// 30 relief: how much the picture's brightness, read as height, tilts
+    ///    the ground for the sun (0: none)   31 unused
+    /// ```
     pub fn sphere(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, params: &[f32]) {
+        self.sphere_air(x, y, w, h, src, "", params);
+    }
+
+    /// `sphere` with the second picture (city lights on the night side).
+    #[allow(clippy::too_many_arguments)]
+    pub fn sphere_air(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, params: &[f32]) {
         let s = self.string(src);
+        let l = if lights.is_empty() { -1.0 } else { self.string(lights) };
         self.nums.extend_from_slice(&[
             8.0, x as f32, y as f32, w as f32, h as f32,
             255.0, 255.0, 255.0, 1.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, -1.0, -1.0, 0.0, params.len() as f32,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, -1.0, 0.0, params.len() as f32,
         ]);
         self.nums.extend_from_slice(params);
         self.count += 1;
