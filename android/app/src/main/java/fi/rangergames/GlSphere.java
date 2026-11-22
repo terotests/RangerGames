@@ -121,7 +121,10 @@ final class GlSphere {
     private static final class Tex {
         int id;
         long bytes;
+        // the frame that last drew with it: never dropped in that frame or the one before
+        long used;
     }
+    private long frameNo;
 
     private long texBytes;
     private final LinkedHashMap<String, Tex> textures = new LinkedHashMap<>(32, 0.75f, true);
@@ -132,6 +135,7 @@ final class GlSphere {
     /** the end of a frame (for the pictures-a-frame count in the log) */
     void frameDone() {
         stFrames++;
+        frameNo++;
     }
     private long stPx, stDraw, stRead, stCopy;
     // the read pictures go round a ring, as in Painter: the hardware canvas
@@ -329,7 +333,10 @@ final class GlSphere {
     private Tex texture(String src, boolean clamp, boolean flat, boolean height) {
         String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "") + (height ? "|h" : "");
         Tex t = textures.get(key);
-        if (t != null) return t;
+        if (t != null) {
+            t.used = frameNo;
+            return t;
+        }
         // a detail picture (clamped) is decoded on another thread: until it is ready the ball's own picture shows
         // (decoding one on this thread stopped the frame for ~22 ms on the test tablet)
         if (clamp) {
@@ -434,16 +441,23 @@ final class GlSphere {
         t = new Tex();
         t.id = ids[0];
         t.bytes = (long) w * h * (flat ? 4 : 5);
+        t.used = frameNo;
         texBytes += t.bytes;
         textures.put(key, t);
         return t;
     }
 
-    /** between pictures: drops the least recently used textures past the budget */
+    /**
+     * between pictures: drops the least recently used textures past the budget,
+     * but never one drawn this frame or the last: the Moon's eight detail
+     * pictures with its own maps can pass the budget, and dropping one in use
+     * decoded it again and again (the ground under the ship stayed blurry)
+     */
     private void evict() {
         Iterator<Map.Entry<String, Tex>> it = textures.entrySet().iterator();
         while (texBytes > TEXTURE_BUDGET && it.hasNext()) {
             Map.Entry<String, Tex> e = it.next();
+            if (e.getValue().used >= frameNo - 1) continue;
             GLES30.glDeleteTextures(1, new int[] {e.getValue().id}, 0);
             texBytes -= e.getValue().bytes;
             it.remove();
