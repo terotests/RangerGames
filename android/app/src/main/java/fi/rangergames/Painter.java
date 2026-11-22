@@ -279,8 +279,12 @@ final class Painter {
             float tol = 0.5f / Math.max(8, Math.max(b.pw, b.ph));
             float dx = ex / el - b.eye[0], dy = ey / el - b.eye[1], dz = ez / el - b.eye[2];
             float sx = nums[at + 12] - b.sun[0], sy = nums[at + 13] - b.sun[1], sz = nums[at + 14] - b.sun[2];
-            same = Math.sqrt(dx * dx + dy * dy + dz * dz) < tol
-                    && Math.abs(el / b.el - 1) < tol
+            // close to the globe a small turn of the eye round it moves the ground under the eye a lot
+            // (by 1 / height): the eye's tolerance shrinks with the height (at 400 km over the Moon the
+            // picture used to jump by several pixels, step by step)
+            float m = Math.max(0.01f, (el - 1) / el);
+            same = Math.sqrt(dx * dx + dy * dy + dz * dz) < tol * m
+                    && Math.abs(el / b.el - 1) < tol * m
                     && Math.sqrt(sx * sx + sy * sy + sz * sz) < tol * 4
                     && Math.abs(w / b.w - 1) < tol * 2 && Math.abs(h / b.h - 1) < tol * 2;
             // cut by the screen's edge: a turn of the camera changes what shows, not only where
