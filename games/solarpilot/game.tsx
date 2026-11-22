@@ -20,7 +20,6 @@
 // system).
 
 import { surface } from "lib/surfaces";
-import { MODEL as SHIP } from "lib/keha";
 
 type Body = {
   id: string; code: string; name: string;
@@ -298,9 +297,13 @@ function build() {
     args.id = b.id; args.r = b.r; args.x = b.pos[0]; args.y = b.pos[1]; args.z = b.pos[2];
     rg.three("planet", args);
   }
-  // the ship: Kehä, a ring ship from RangerSpaceshipBuilder (lib/keha.ts,
-  // `ship scene ships/keha.ship.json`), a blue ion flame behind it
-  rg.three("add", { id: "hull", shape: "mesh", verts: SHIP.verts, tris: SHIP.tris, colors: SHIP.colors, glow: SHIP.glow });
+  // the ship: a grey hull, an amber canopy, a blue ion flame
+  rg.three("add", { id: "body", shape: "cone", size: [0.5, 2.2], detail: 10, color: "#c3c7cc" });
+  rg.three("add", { id: "band", shape: "cylinder", size: [0.42, 0.48, 0.4], detail: 10, color: "#4a5058" });
+  rg.three("add", { id: "window", shape: "sphere", size: [0.18], detail: 8, color: "#ffb347", emissive: true });
+  rg.three("add", { id: "wingL", shape: "box", size: [1.1, 0.07, 0.6], color: "#6b727c" });
+  rg.three("add", { id: "wingR", shape: "box", size: [1.1, 0.07, 0.6], color: "#6b727c" });
+  rg.three("add", { id: "fin", shape: "box", size: [0.07, 0.7, 0.6], color: "#6b727c" });
   rg.three("add", { id: "flame", shape: "cone", size: [0.3, 1.2], detail: 8, color: "#58c7ff", emissive: true, visible: false });
   rg.three("add", { id: "flame2", shape: "cone", size: [0.17, 0.8], detail: 8, color: "#e6fbff", emissive: true, visible: false });
   // the entry's plasma: a glowing shock in front, a trail behind
@@ -415,13 +418,19 @@ function part(id: string, off: number[], a: number[], b: number[], c: number[], 
   rg.three("set", args);
 }
 
-const PARTS = ["hull", "flame", "flame2", "shock", "trail", "canopy"];
+const PARTS = ["body", "band", "window", "wingL", "wingR", "fin", "flame", "flame2", "shock", "trail", "canopy"];
 function hideShip() { for (const id of PARTS) rg.three("set", { id, visible: false }); }
 
 function placeShip() {
+  const nose = [[1, 0, 0], [0, 0, -1], [0, 1, 0]];
   const tail = [[1, 0, 0], [0, 0, 1], [0, -1, 0]];
   const flat = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
-  part("hull", [0, 0, 0], flat[0], flat[1], flat[2]);
+  part("body", [0, 0, -0.3], nose[0], nose[1], nose[2]);
+  part("band", [0, 0, 0.62], nose[0], nose[1], nose[2]);
+  part("window", [0, 0.26, -0.45], flat[0], flat[1], flat[2]);
+  part("wingL", [-0.65, -0.07, 0.55], flat[0], flat[1], flat[2]);
+  part("wingR", [0.65, -0.07, 0.55], flat[0], flat[1], flat[2]);
+  part("fin", [0, 0.4, 0.58], flat[0], flat[1], flat[2]);
   const f = thrusting > 0 ? 0.8 + 0.25 * Math.sin(t * 47) : 0;
   const k = SHIP_SCALE;
   part("flame", [0, 0, 0.98 + 0.6 * f], tail[0], tail[1], tail[2], { visible: f > 0, sy: Math.max(0.01, f) * k });
