@@ -88,8 +88,8 @@ final class GlSphere {
     private int fbW, fbH, depth;
     // drawn 4 samples a pixel (msFbo), then resolved into fbo: the mesh's edge at the horizon smooth
     private int msFbo, msColor, msDepth, samples, maxSamples, msW, msH;
-    /** samples a pixel wanted: adb shell setprop debug.rg.glmsaa 0, 2 or 4 (2 by default: most of the smoothing for half the cost) */
-    int msaa = 2;
+    /** samples a pixel wanted: adb shell setprop debug.rg.glmsaa 0, 2 or 4 (0 by default: the shader fades the horizon band to black instead, 2 costs ~4 ms) */
+    int msaa = 0;
     private final int[] u = new int[NAMES.length];
     // the mesh program (its own uniform locations), its grid and triangles; 0 when it did not build
     private int progMesh, meshVbo, meshIbo, meshCount;
