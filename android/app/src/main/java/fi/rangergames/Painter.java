@@ -99,6 +99,8 @@ final class Painter {
                 if (gl != null) gl.meshOn = !"0".equals(m);
                 Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "1");
                 glBake = !"0".equals(bp);
+                Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "1");
+                if (gl != null) gl.msaa = !"0".equals(ma);
             } catch (Throwable ignored) {
                 glTune = 1;
             }

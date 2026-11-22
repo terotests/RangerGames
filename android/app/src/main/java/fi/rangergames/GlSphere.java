@@ -86,6 +86,10 @@ final class GlSphere {
     private EGLSurface surface = EGL14.EGL_NO_SURFACE;
     private int prog, vbo, fbo, target, maxTex = 2048;
     private int fbW, fbH, depth;
+    // drawn 4 samples a pixel (msFbo), then resolved into fbo: the mesh's edge at the horizon smooth
+    private int msFbo, msColor, msDepth, samples, msW, msH;
+    /** adb shell setprop debug.rg.glmsaa 0: one sample a pixel (for comparing) */
+    boolean msaa = true;
     private final int[] u = new int[NAMES.length];
     // the mesh program (its own uniform locations), its grid and triangles; 0 when it did not build
     private int progMesh, meshVbo, meshIbo, meshCount;
@@ -156,6 +160,16 @@ final class GlSphere {
             fbo = ids[0];
             GLES30.glGenRenderbuffers(1, ids, 0);
             depth = ids[0];
+            GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, ids, 0);
+            samples = Math.min(4, ids[0]);
+            if (samples > 1) {
+                int[] m = new int[3];
+                GLES30.glGenFramebuffers(1, m, 0);
+                GLES30.glGenRenderbuffers(2, m, 1);
+                msFbo = m[0];
+                msColor = m[1];
+                msDepth = m[2];
+            }
             GLES30.glGenTextures(1, ids, 0);
             target = ids[0];
             GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, ids, 0);
@@ -413,6 +427,26 @@ final class GlSphere {
         GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depth);
     }
 
+    /** the multisampled target at least w × h (when the phone has it) */
+    private void msTarget(int w, int h) {
+        if (w <= msW && h <= msH) return;
+        msW = Math.max(w, msW);
+        msH = Math.max(h, msH);
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, msFbo);
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, msColor);
+        GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_RGBA8, msW, msH);
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_RENDERBUFFER, msColor);
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, msDepth);
+        GLES30.glRenderbufferStorageMultisample(GLES30.GL_RENDERBUFFER, samples, GLES30.GL_DEPTH_COMPONENT24, msW, msH);
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, msDepth);
+        if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+            Log.w(TAG, "GL globes: no multisampling");
+            samples = 0;
+        }
+    }
+
+    private boolean ms;
+
     // the batch being drawn: its box in game units and pixels per unit
     private float bx, by, bw, bh, bk;
     private int bpw, bph;
@@ -430,7 +464,10 @@ final class GlSphere {
         EGL14.eglMakeCurrent(display, surface, surface, context);
         // one row and column more, left clear: the smoothed bitmap reads past its edge
         target(bpw + 1, bph + 1);
-        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
+        ms = msaa && samples > 1;
+        if (ms) msTarget(bpw + 1, bph + 1);
+        ms = ms && samples > 1;
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, ms ? msFbo : fbo);
         GLES30.glViewport(0, 0, bpw, bph);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
         GLES30.glClearColor(0, 0, 0, 0);
@@ -600,6 +637,14 @@ final class GlSphere {
         GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 4);
         GLES30.glPixelStorei(GLES30.GL_PACK_ROW_LENGTH, bm.getRowBytes() / 4);
         long t0 = System.nanoTime();
+        if (ms) {
+            // the samples into one pixel each
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, msFbo);
+            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, fbo);
+            GLES30.glBlitFramebuffer(0, 0, bpw + 1, bph + 1, 0, 0, bpw + 1, bph + 1, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST);
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
+        }
         GLES30.glFinish();
         long t1 = System.nanoTime();
         GLES30.glReadPixels(0, 0, bpw + 1, bph + 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixels);
