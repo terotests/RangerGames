@@ -223,6 +223,13 @@
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
     "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
+    // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
+    // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
+    // Shadertoy height shader), not a whole normal (three); without it the lite ground close by was flat
+    "    if (terr && lite > 0.5 && lite < 1.5 && wr > 0.0) { int nl = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0));" +
+    "      for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nl++; wl /= 2.03; }" +
+    "      vec3 st = sun - p * dot(sun, p); float sl = length(st);" +
+    "      if (sl > 1e-4) { st /= sl; float e = max(fp, 1e-8); tl += (bumps(normalize(p + st * e), nl) - bumps(p, nl)) / e * st; } }" +
     "    n = normalize(p - tl * wr);" +
     "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun

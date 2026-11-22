@@ -106,7 +106,7 @@ final class GlSphere {
     int msaa = 0;
     /** the edge pass on (adb shell setprop debug.rg.gledge 0: off, for comparing) */
     boolean edge = true;
-    /** the shader's cheaper ground (adb shell setprop debug.rg.gllite 0: all bumps, bump normals and steps, for comparing) */
+    /** the shader's cheaper ground: 1 (default) with the bumps' slope towards the sun only, 0 everything (full normals, steps), 2 without the fine bumps (as before), adb shell setprop debug.rg.gllite */
     float lite = 1;
     // the edge pass: its program, and the picture it writes (read back instead of fbo's)
     private int progEdge, fbo2, target2, f2W, f2H;
