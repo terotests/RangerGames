@@ -22,6 +22,11 @@ if [[ "${RG_VOICE_FETCH:-1}" != "0" && -z "$(ls -A games/_voice/ 2>/dev/null)" ]
   mkdir -p games/_voice
   curl -fsSL "$url" | tar -xz -C games/_voice/ || echo "build-voice: no clips from CI, rendering them"
 fi
+# a local build never renders with Piper (slow): a clip missing from the cache gets CHIMERA's quick
+# voice; RG_VOICE_RENDER=1 renders the missing ones with Piper (CI always does)
+if [[ -z "${CI:-}" && "${RG_VOICE_RENDER:-0}" != "1" && -z "${RG_PIPER:-}" ]]; then
+  export RG_PIPER=/nonexistent
+fi
 cargo build -q --release -p rg_voice
 # a list with "engine": "piper" needs Piper (rg_voice falls back to CHIMERA without it)
 # (voice/fi.json says "engine": "piper"; English and Spanish use it by default)
