@@ -62,7 +62,9 @@ final class GlSphere {
     // a = (ring, spoke); mgrid = (rings, spokes, first ring's angle, growth);
     // mspoke = (azimuth of the middle spoke, half the fan); mclip = (nearest
     // depth, 1 / log(farthest / nearest)); mcullM 1: keep only round the
-    // window mcull, 2: leave out the inside of the hole mcull
+    // window mcull (and within 0.18 rad of the point under the eye, where the
+    // windows fade out), 2: leave out the inside of the hole mcull (only
+    // within 0.10 rad, where the windows are whole)
     private static final String MESH_MAIN = "uniform vec4 mgrid, mcull; uniform vec2 mspoke, mclip; uniform float mcullM;\n" +
             "void main() {\n" +
             "  vec3 e = normalize(eye); vec3 E = normalize(vec3(-e.y, e.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 N = cross(e, E);\n" +
@@ -75,9 +77,9 @@ final class GlSphere {
             "    vec2 w = lonlat(dir); float mu = cell / 6.2831853 / max(0.02, sqrt(1.0 - dir.z * dir.z)), mv = cell / 3.1415927;\n" +
             "    float uw = w.x;\n" +
             "    if (mcullM < 1.5) { if (uw < mcull.x - mu) uw += 1.0; else if (uw > mcull.z + mu) uw -= 1.0;\n" +
-            "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv; }\n" +
+            "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv || ang - cell > 0.18; }\n" +
             "    else { if (uw < mcull.x) uw += 1.0; else if (uw > mcull.z) uw -= 1.0;\n" +
-            "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv; } }\n" +
+            "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv && ang + cell < 0.10; } }\n" +
             "  float h = ground(dir, octs(length(dir - eye) / focal));\n" +
             "  wpos = dir * h; uv = vec2(0.0);\n" +
             "  vec3 rel = wpos - eye; vec3 v = vec3(dot(rel, rgt), dot(rel, upv), dot(rel, fwd));\n" +

@@ -162,7 +162,7 @@
     // (the mesh: exactly the hole, it has the true point)
     "  if (terr && useHole > 0.5 && meshM < 1.5) { vec3 pw = mesh ? normalize(wpos) : normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
     "    float mg = mesh ? 0.0 : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
-    "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg) discard; }" +
+    "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg && dot(pw, normalize(eye)) > 0.995004) discard; }" +
     "  if (mesh) th = length(wpos - eye);" +
     "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
@@ -262,9 +262,10 @@
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
     // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
-    // the ball's own picture when the game changes the pictures; and round the point under the eye (0.10 to 0.18
-    // radians): the game's pieces reach at least that far, so their outer edge never shows against the blurry ball
-    "  float fa = useWin > 0.5 && !terr ? (1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
+    // the ball's own picture when the game changes the pictures; and, close by too, round the point under the eye
+    // (0.10 to 0.18 radians): the game's pieces reach at least that far, so their outer edge (and their finer
+    // slopes) never show against the ball's own picture; the ball's hole is only inside 0.10 radians
+    "  float fa = useWin > 0.5 ? (terr ? 1.0 : 1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
     "  if (fa <= 0.0) discard;" +
     "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
