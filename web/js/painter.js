@@ -46,7 +46,7 @@
     "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole; uniform vec4 hole;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite; uniform vec4 hole;" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -106,7 +106,7 @@
     "  float bot = mix(dec(texelFetch(gtex, ivec2(i0, j1), 0)), dec(texelFetch(gtex, ivec2(i1, j1), 0)), a.x);" +
     "  return mix(top, bot, a.y); }" +
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
-    "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz) break; n++; a *= 0.48; } return n; }" +
+    "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
     "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
@@ -119,7 +119,9 @@
     "  float di = bq * bq - ee + Ri * Ri; if (di > 0.0 && -bq - sqrt(di) > 0.0) t1 = min(t1, -bq - sqrt(di));" +
     "  if (t1 <= t0) return false;" +
     "  float tp = t0; t = t0; bool hit = false;" +
+    // lite (a phone's GPU): at most 56 steps, then where the ray is (only far off, at the horizon)
     "  for (int i = 0; i < 160; i++) {" +
+    "    if (lite > 0.5 && i >= 56) { hit = true; tp = t; break; }" +
     "    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, octs(t * pix));" +
     "    if (f < 0.0) { hit = true; break; }" +
     "    if (f < t * pix * 0.3) { hit = true; tp = t; break; }" +
@@ -129,7 +131,7 @@
     "  if (!hit) return false;" +
     // between the last point above and the first below, with all the bumps
     "  float a = tp, b = t;" +
-    "  for (int i = 0; i < 7; i++) { float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
+    "  for (int i = 0; i < 7; i++) { if (lite > 0.5 && i >= 4) break; float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
     "    if (r - ground(x / r, octs(m * pix * 0.5)) < 0.0) b = m; else a = m; }" +
     "  t = b; return true;" +
     "}" +
@@ -137,7 +139,7 @@
     // soft at the edges
     "float sunRay(vec3 x, float sz) {" +
     "  float k = 1.0, t = max(sz * 4.0, 2e-6);" +
-    "  for (int i = 0; i < 24; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
+    "  for (int i = 0; i < 24; i++) { if (lite > 0.5 && i >= 10) break; vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
     "    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
@@ -189,7 +191,7 @@
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
     // close by also the finer bumps, down to about three pixels across
-    "    if (terr) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
+    "    if (terr && lite < 0.5) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
     "    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);" +
     "    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);" +
     "    vec3 tl = hrel * (gx * east + gy * north);" +

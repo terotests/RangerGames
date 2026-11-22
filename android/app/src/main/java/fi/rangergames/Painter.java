@@ -70,8 +70,8 @@ final class Painter {
     private float[] meshTex = new float[0];
     /** the globes on the GPU (GlSphere), when the phone has GLES 3.0; else Sphere and Terrain in software */
     private GlSphere gl;
-    /** pixels per device pixel of the GPU globes, far and close by the ground (as painter.js: 1 and 0.6) */
-    private static final float GL_RES = 0.75f, GL_RES_NEAR = 0.6f;
+    /** pixels per device pixel of the GPU globes, far and close by the ground (painter.js: 1 and 0.6; a phone's GPU is slower) */
+    private static final float GL_RES = 0.5f, GL_RES_NEAR = 0.4f;
     /** at most this many pixels in one globe picture (it is read back every frame) */
     private static final int GL_MAX_PIXELS = 1600 * 1000;
 
@@ -511,5 +511,6 @@ final class Painter {
             if (rotated) c.restore();
         }
         c.restoreToCount(base);
+        if (gl != null) gl.frameDone();
     }
 }

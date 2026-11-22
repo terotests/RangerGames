@@ -39,8 +39,8 @@ final class GlSphere {
     // uv 0..1 over the box, y down as on the Canvas; drawn upside down so the
     // rows read back come top row first, as a Bitmap wants them
     private static final String VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, a.y * 2.0 - 1.0, 0.0, 1.0); }";
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -61,7 +61,12 @@ final class GlSphere {
     private final LinkedHashMap<String, Tex> textures = new LinkedHashMap<>(32, 0.75f, true);
 
     private ByteBuffer pixels = ByteBuffer.allocateDirect(4);
-    private int stN;
+    private int stN, stFrames;
+
+    /** the end of a frame (for the pictures-a-frame count in the log) */
+    void frameDone() {
+        stFrames++;
+    }
     private long stPx, stDraw, stRead, stCopy;
     // the read pictures go round a ring, as in Painter: the hardware canvas
     // reads a bitmap later, on its own thread
@@ -114,6 +119,8 @@ final class GlSphere {
             GLES30.glUniform1i(u[LTEX], 1);
             GLES30.glUniform1i(u[HTEX], 2);
             GLES30.glUniform1i(u[GTEX], 3);
+            // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
+            GLES30.glUniform1f(u[LITE], 1);
             ok = GLES30.glGetError() == GLES30.GL_NO_ERROR;
             Log.i(TAG, "GL globes: " + (ok ? "on" : "GL error") + ", " + GLES30.glGetString(GLES30.GL_RENDERER) + ", max texture " + maxTex);
         } catch (Throwable t) {
@@ -349,9 +356,10 @@ final class GlSphere {
         stCopy += t3 - t2;
         stPx += (long) bpw * bph;
         if (++stN == 60) {
-            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL globes: %d px, gpu %.1f ms, read %.1f ms, copy %.1f ms",
-                    stPx / stN, stDraw / 1e6 / stN, stRead / 1e6 / stN, stCopy / 1e6 / stN));
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL globes: %d px, gpu %.1f ms, read %.1f ms, copy %.1f ms, %.1f pictures a frame",
+                    stPx / stN, stDraw / 1e6 / stN, stRead / 1e6 / stN, stCopy / 1e6 / stN, stN / (float) Math.max(1, stFrames)));
             stN = 0;
+            stFrames = 0;
             stPx = stDraw = stRead = stCopy = 0;
         }
         evict();
