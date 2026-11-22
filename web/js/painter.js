@@ -240,6 +240,10 @@
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
     "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
+    // close by, a band about 10 pixels on each side of the smooth ball's horizon line fades to black (the edge
+    // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
+    "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
+    "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
