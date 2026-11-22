@@ -14,6 +14,7 @@ games/*/places.local.js
 games/tampere/
 __pycache__/
 games/_voice/
+games/_voice
 tools/luut/raw/
 /build
 /crates/rg_web_dom/target

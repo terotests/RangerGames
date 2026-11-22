@@ -148,6 +148,9 @@ jobs:
             gh release create phone-latest --prerelease --title "Phone build (latest main)" \
               --notes "Built by CI from the newest main. Install: adb install -r RangerGames.apk"
           gh release upload phone-latest RangerGames.apk --clobber
+          # the clips as a cache for local builds (scripts/build-voice.sh fetches it when its cache is empty)
+          tar -czf voice-clips.tar.gz -C games/_voice .
+          gh release upload phone-latest voice-clips.tar.gz --clobber
           gh release edit phone-latest --notes "Built by CI from main ${GITHUB_SHA::7}. Install: adb install -r RangerGames.apk"
 
   pages:
