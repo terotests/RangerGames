@@ -64,11 +64,13 @@
     "float lum(vec2 t) { vec3 c = texture(tex, t).rgb; return dot(c, vec3(0.3, 0.5, 0.2)); }" +
     // the map's brightness at the unit direction q, read at the level for the size eps (radians); under a detail window
     // the window's picture
-    "float lumAt(vec3 q, float eps, float more) { vec2 t = vec2(atan(q.y, q.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(q.z, -1.0, 1.0)) / 3.1415927);" +
+    // s > 1: the picture itself s times smaller, turned and mirrored (no seams), for the detail finer than its pixels
+    "float lumAt(vec3 q, float eps, float more, float s) { vec2 t = vec2(atan(q.y, q.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(q.z, -1.0, 1.0)) / 3.1415927);" +
     "  float span = 1.0;" +
     "  if (useWin > 0.5) { if (t.x < win.x) t.x += 1.0; else if (t.x > win.z) t.x -= 1.0; span = win.z - win.x; t = (t - win.xy) / (win.zw - win.xy); }" +
+    "  if (s > 1.0) { t = abs(fract((mat2(0.8, 0.6, -0.6, 0.8) * t * s + vec2(0.37, 0.71)) * 0.5) * 2.0 - 1.0); }" +
     "  float ta = 6.2831853 * span / float(textureSize(tex, 0).x);" +
-    "  return dot(textureLod(tex, t, max(0.0, log2(eps / ta)) + more).rgb, vec3(0.3, 0.5, 0.2)); }" +
+    "  return dot(textureLod(tex, t, max(0.0, log2(eps * s / ta)) + more).rgb, vec3(0.3, 0.5, 0.2)); }" +
     "vec2 lonlat(vec3 p) { return vec2(atan(p.y, p.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927); }" +
     // the made-up bumps: value noise on the integer lattice, the hash of 32-bit integers (the same in every host and the game)
     "uint hsh(ivec3 c) { uint h = (uint(c.x) * 0x8da6b343u) ^ (uint(c.y) * 0xd8163841u) ^ (uint(c.z) * 0xcb1ab31fu);" +
@@ -189,8 +191,16 @@
     "      tl += (bumps(normalize(p + east * eb), nb) - b0) / eb * east + (bumps(normalize(p + north * eb), nb) - b0) / eb * north; }" +
     // close by, a sharper picture's own small slopes: its brightness against its blur is the slope towards its own sun
     // (draw.rs `sphere` 31, 39); its baked light is taken out of the colour, the game's sun lights the slopes
-    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0), lb = lumAt(p, fp, 3.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);" +
+    "    float hf = 0.0;" +
+    // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
+    // faded in as its pixels grow larger than the screen's
+    "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fp);" +
+    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z), w64 = 0.5 * smoothstep(3.0, 4.0, z);" +
+    "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
+    "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
+    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= clamp(lb / max(l0, 0.02), 0.5, 2.0); }" +
+    "    else c *= clamp(1.0 + 1.2 * hf, 0.6, 1.4);" +
     "    n = normalize(p - tl);" +
     "  } else if (relief != 0.0) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
