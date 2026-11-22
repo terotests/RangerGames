@@ -217,11 +217,15 @@
     // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
     // faded in as its pixels grow larger than the screen's
     "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fp);" +
-    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z), w64 = 0.5 * smoothstep(3.0, 4.0, z);" +
+    // (both, and the picture's own slopes below, fade out near the piece's edges: the next piece's pattern and
+    // blur differ, and its edge showed as a line in the fine detail)
+    "      float ew = smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v)));" +
+    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z) * ew, w64 = 0.5 * smoothstep(3.0, 4.0, z) * ew;" +
     "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
     "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
-    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
+    "      float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;" +
+    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }" +
     "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
     // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
     // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
