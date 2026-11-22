@@ -249,7 +249,8 @@ impl DrawStream {
     /// 26-28 the air's colour (0…1)   29 city lights' strength (the second
     ///    picture, string 2, read on the night side)
     /// 30 relief: how much the picture's brightness, read as height, tilts
-    ///    the ground for the sun (0: none)   31 unused
+    ///    the ground for the sun (0: none)   31 unused, except with 40 numbers
+    ///    and a window: the picture's own sun (see 39)
     /// ```
     ///
     /// With 40 numbers the ball has real heights (`sphere_terrain`): string 3
@@ -268,7 +269,12 @@ impl DrawStream {
     /// 36 how much the shading picture tilts the ground (1: true slopes)
     /// 37 the bumps' scale: lattice cells per radius of the coarsest of them
     /// 38 craters: how deep the made-up craters are (0: none, 1: as deep as a
-    ///    fifth of their width)   39 unused
+    ///    fifth of their width)
+    /// 39 with a window (a sharper picture): how much brighter the picture is
+    ///    per unit of slope towards the direction 31 (radians from east towards
+    ///    north; 0: don't read slopes from it). Close by, the host may read the
+    ///    ground's small slopes from the picture's brightness: slope along 31 =
+    ///    (brightness - its blur) / this, and light them by the game's own sun
     /// ```
     ///
     /// The bumps (the same in every host and in the game's own physics,

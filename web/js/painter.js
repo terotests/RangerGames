@@ -46,7 +46,7 @@
     "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK;" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -62,6 +62,13 @@
     "  return vec4(col, a);" +
     "}" +
     "float lum(vec2 t) { vec3 c = texture(tex, t).rgb; return dot(c, vec3(0.3, 0.5, 0.2)); }" +
+    // the map's brightness at the unit direction q, read at the level for the size eps (radians); under a detail window
+    // the window's picture
+    "float lumAt(vec3 q, float eps, float more) { vec2 t = vec2(atan(q.y, q.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(q.z, -1.0, 1.0)) / 3.1415927);" +
+    "  float span = 1.0;" +
+    "  if (useWin > 0.5) { if (t.x < win.x) t.x += 1.0; else if (t.x > win.z) t.x -= 1.0; span = win.z - win.x; t = (t - win.xy) / (win.zw - win.xy); }" +
+    "  float ta = 6.2831853 * span / float(textureSize(tex, 0).x);" +
+    "  return dot(textureLod(tex, t, max(0.0, log2(eps / ta)) + more).rgb, vec3(0.3, 0.5, 0.2)); }" +
     "vec2 lonlat(vec3 p) { return vec2(atan(p.y, p.x) / 6.2831853 + 0.5, 0.5 - asin(clamp(p.z, -1.0, 1.0)) / 3.1415927); }" +
     // the made-up bumps: value noise on the integer lattice, the hash of 32-bit integers (the same in every host and the game)
     "uint hsh(ivec3 c) { uint h = (uint(c.x) * 0x8da6b343u) ^ (uint(c.y) * 0xd8163841u) ^ (uint(c.z) * 0xcb1ab31fu);" +
@@ -126,8 +133,8 @@
     // soft at the edges
     "float sunRay(vec3 x, float sz) {" +
     "  float k = 1.0, t = max(sz * 4.0, 2e-6);" +
-    "  for (int i = 0; i < 28; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
-    "    float h = r - ground(y / r, 4); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.3; }" +
+    "  for (int i = 0; i < 24; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
+    "    float h = r - ground(y / r, 3); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
     "void main() {" +
@@ -135,6 +142,11 @@
     "  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
     "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
     "  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;" +
+    // a detail window close by: test the window on the smooth ball first (with a margin for mountains), so that only
+    // the pixels it may cover cast the long ray
+    "  if (terr && useWin > 0.5) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
+    "    float mg = 0.004 + 0.5 * max(hhi - hlo, 0.0); float uw = w0.x; if (uw < win.x - mg) uw += 1.0; else if (uw > win.z + mg) uw -= 1.0;" +
+    "    if (uw < win.x - mg || uw > win.z + mg || w0.y < win.y - mg || w0.y > win.w + mg) discard; }" +
     "  bool hit = terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
@@ -168,14 +180,17 @@
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
     // close by also the finer bumps, down to about three pixels across
-    "    if (terr) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 4; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
+    "    if (terr) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
     "    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);" +
     "    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);" +
     "    vec3 tl = hrel * (gx * east + gy * north);" +
     // the bumps at the pixel's own size, at their true slope
-    "    if (nb > 0) { float eb = max(fp, 1e-7);" +
-    "      tl += (bumps(normalize(p + east * eb), nb) - bumps(normalize(p - east * eb), nb)) / (2.0 * eb) * east" +
-    "        + (bumps(normalize(p + north * eb), nb) - bumps(normalize(p - north * eb), nb)) / (2.0 * eb) * north; }" +
+    "    if (nb > 0) { float eb = max(fp, 1e-7); float b0 = bumps(p, nb);" +
+    "      tl += (bumps(normalize(p + east * eb), nb) - b0) / eb * east + (bumps(normalize(p + north * eb), nb) - b0) / eb * north; }" +
+    // close by, a sharper picture's own small slopes: its brightness against its blur is the slope towards its own sun
+    // (draw.rs `sphere` 31, 39); its baked light is taken out of the colour, the game's sun lights the slopes
+    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0), lb = lumAt(p, fp, 3.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);" +
+    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= clamp(lb / max(l0, 0.02), 0.5, 2.0); }" +
     "    n = normalize(p - tl);" +
     "  } else if (relief != 0.0) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
@@ -227,7 +242,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -299,6 +314,8 @@
     gl.uniform1f(u.hrel, w40 ? p[36] : 0);
     gl.uniform1f(u.hfreq, w40 ? p[37] : 1);
     gl.uniform1f(u.crat, w40 ? p[38] : 0);
+    gl.uniform1f(u.mapAz, w40 && w4 ? p[31] : 0);
+    gl.uniform1f(u.mapK, w40 && w4 ? p[39] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
