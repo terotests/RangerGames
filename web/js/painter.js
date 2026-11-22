@@ -174,8 +174,9 @@
     "  if (mesh) th = length(wpos - eye);" +
     // the mesh's corners slide over the ground as the eye moves and its flat triangles miss the true ground a little:
     // seen at a slant the picture slid to and fro on rough ground ("flowed"); two steps along the ray to the true ground
-    "  if (mesh && terr) { for (int i = 0; i < 2; i++) { vec3 x = eye + d * th; float r = length(x); float ci0 = max(-dot(d, x / r), 0.05);" +
-    "      th += clamp((r - groundF(x / r, octsAF(th * pix))) / ci0, -0.05 * th, 0.05 * th); } }" +
+    // (only at a slant, where it shows, and one step with the three largest octaves: two full ones cost 4-5 ms on a tablet)
+    "  if (mesh && terr) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);" +
+    "    if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }" +
     "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
