@@ -68,12 +68,242 @@ final class Painter {
     private final HashMap<String, Bitmap> mapBitmaps = new HashMap<>();
     private final Paint meshPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private float[] meshTex = new float[0];
+    /** the globes on the GPU (GlSphere), when the phone has GLES 3.0; else Sphere and Terrain in software */
+    private GlSphere gl;
+    /** pixels per device pixel of the GPU globes, far and close by the ground (painter.js: 1 and 0.6; a phone's GPU is slower) */
+    private static final float GL_RES = 0.5f, GL_RES_NEAR = 0.4f;
+    /** at most this many pixels in one globe picture (it is read back every frame) */
+    private static final int GL_MAX_PIXELS = 1600 * 1000;
 
     Painter(AssetManager assets) {
         this.assets = assets;
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeJoin(Paint.Join.ROUND);
         stroke.setStrokeCap(Paint.Cap.ROUND);
+    }
+
+    /** Starts the GPU globes on this (the game's) thread; true when they work. */
+    // adb shell setprop debug.rg.glres 0.5: the GPU globes' resolution times
+    // this, read every two seconds (for measuring on a device)
+    private float glTune = 1;
+    private long glTuneAt;
+
+    private float glTune() {
+        long now = System.currentTimeMillis();
+        if (now - glTuneAt > 2000) {
+            glTuneAt = now;
+            try {
+                Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glres", "1");
+                glTune = Math.max(0.1f, Math.min(2f, Float.parseFloat((String) v)));
+                Object m = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmesh", "1");
+                if (gl != null) gl.meshOn = !"0".equals(m);
+                Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "1");
+                glBake = !"0".equals(bp);
+                Object ed = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gledge", "1");
+                if (gl != null) gl.edge = !"0".equals(ed);
+                Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "0");
+                if (gl != null) {
+                    try {
+                        gl.msaa = Math.max(0, Math.min(4, Integer.parseInt((String) ma)));
+                    } catch (NumberFormatException e) {
+                        gl.msaa = 0;
+                    }
+                }
+            } catch (Throwable ignored) {
+                glTune = 1;
+            }
+        }
+        return glTune;
+    }
+
+    boolean startGl() {
+        GlSphere g = new GlSphere();
+        if (g.init(assets)) gl = g;
+        return gl != null;
+    }
+
+    /** where a command's extra numbers after the optional parts begin */
+    private static int extras(float[] nums, int i) {
+        int flags = (int) nums[i + 17];
+        int e = i + HEADER;
+        if ((flags & 1) != 0) e += 4;
+        if ((flags & 4) != 0) e += 7;
+        if ((flags & 64) != 0) e += 4;
+        if ((flags & 1024) != 0) e += 4;
+        return e;
+    }
+
+    /**
+     * The globes from command i on that follow one another (a planet's ball
+     * and its detail pictures) drawn on the GPU into one picture; returns the
+     * index after the last one, or -1 when the GPU failed (nothing drawn).
+     */
+    private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale) {
+        int n = nums.length, j = i;
+        float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+        boolean near = false;
+        while (j + HEADER <= n && (int) nums[j] == SPHERE) {
+            float x = nums[j + 1], y = nums[j + 2], w = nums[j + 3], h = nums[j + 4];
+            int s0 = (int) nums[j + 18], s2 = (int) nums[j + 20], nx = (int) nums[j + 22];
+            if (nx >= 20 && w > 0 && h > 0 && s0 >= 0 && s0 < strings.length && !strings[s0].isEmpty()) {
+                x0 = Math.min(x0, x);
+                y0 = Math.min(y0, y);
+                x1 = Math.max(x1, x + w);
+                y1 = Math.max(y1, y + h);
+                if (nx >= 40 && s2 >= 0 && s2 < strings.length && strings[s2].indexOf('|') > 0 && nums[extras(nums, j) + 35] > 0.5f) near = true;
+            }
+            j = j + HEADER + (int) nums[j + 22];
+        }
+        if (x1 <= x0 || y1 <= y0) return j;
+        // far off: the last picture again, moved and scaled, while the globe looks the same from here
+        Baked bk = !near && glBake ? baked(nums, strings, i, j, x0, y0, x1, y1) : null;
+        if (bk != null && bk.bm != null) {
+            src.set(0, 0, bk.pw, bk.ph);
+            rf.set(x0, y0, x1, y1);
+            c.drawBitmap(bk.bm, src, rf, image);
+            if (++bakedReused == 300) {
+                android.util.Log.i("RangerGames", "GL globes: 300 kept pictures reused");
+                bakedReused = 0;
+            }
+            return j;
+        }
+        float k = scale * (near ? GL_RES_NEAR : GL_RES);
+        // a small globe (far off) is cheap: at the screen's own pixels, sharp and steady
+        if (!near && (x1 - x0) * (y1 - y0) * scale * scale < 250000) k = scale;
+        float px = (x1 - x0) * (y1 - y0) * k * k;
+        if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
+        k *= glTune();
+        // detail pictures still decoding (another thread): the ball covers their place meanwhile
+        boolean allReady = true;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            int s0 = (int) nums[q + 18], nx = (int) nums[q + 22];
+            if (nx >= 32 && nums[extras(nums, q) + 24] > 0.5f && s0 >= 0 && s0 < strings.length && !strings[s0].isEmpty() && !gl.ready(strings[s0])) allReady = false;
+        }
+        gl.noHole = !allReady;
+        gl.begin(x0, y0, x1 - x0, y1 - y0, k);
+        boolean any = false;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            float x = nums[q + 1], y = nums[q + 2], w = nums[q + 3], h = nums[q + 4];
+            int s0 = (int) nums[q + 18], s1 = (int) nums[q + 19], s2 = (int) nums[q + 20], nx = (int) nums[q + 22];
+            if (nx < 20 || w <= 0 || h <= 0 || s0 < 0 || s0 >= strings.length || strings[s0].isEmpty()) continue;
+            String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
+            String hs = null, gs = null;
+            if (nx >= 40 && s2 >= 0 && s2 < strings.length) {
+                int bar = strings[s2].indexOf('|');
+                if (bar > 0) {
+                    hs = strings[s2].substring(0, bar);
+                    gs = strings[s2].substring(bar + 1);
+                }
+            }
+            int at = extras(nums, q);
+            // close by: the ground's height under the eye, for the mesh's first ring
+            float gnd = 1;
+            if (gs != null && nums[at + 35] > 0.5f) {
+                int[] gm = map(gs);
+                int[] gsz = mapSizes.get(gs);
+                if (gm != null && gsz != null) {
+                    terrain.set(nums, at, gm, gsz[0], gsz[1]);
+                    double ex = nums[at], ey = nums[at + 1], ez = nums[at + 2], el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+                    gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
+                }
+            }
+            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
+        }
+        Bitmap bm = gl.end();
+        if (bm == null) return -1;
+        if (any) {
+            src.set(0, 0, gl.width(), gl.height());
+            rf.set(x0, y0, x0 + gl.width() / gl.scale(), y0 + gl.height() / gl.scale());
+            c.drawBitmap(bm, src, rf, image);
+            if (bk != null) {
+                // kept for the next frames: a copy (the ring's bitmap is written again soon); the box the picture covers
+                bk.bm = Bitmap.createBitmap(bm, 0, 0, gl.width(), gl.height());
+                bk.pw = gl.width();
+                bk.ph = gl.height();
+                bk.at = System.currentTimeMillis();
+                bk.bw = gl.width() / gl.scale();
+                bk.bh = gl.height() / gl.scale();
+            }
+        } else if (bk != null) {
+            bk.bm = null;
+        }
+        return j;
+    }
+
+    // ---- far globes kept as pictures (Tero's idea: compute once, then a texture) ----
+    // adb shell setprop debug.rg.glbake 0: every frame drawn again (for comparing)
+    private boolean glBake = true;
+    private int bakedReused;
+
+    private static final class Baked {
+        String key;
+        float[] eye = new float[3], sun = new float[3], cam = new float[9];
+        float el, w, h, bw, bh;
+        int count, pw, ph;
+        long at;
+        Bitmap bm;
+    }
+
+    private final HashMap<String, Baked> bakes = new HashMap<>();
+
+    /**
+     * The kept picture of these globes (from command i to j) when it still
+     * shows them right: the eye's direction and distance from the globe and
+     * the sun moved less than about half a pixel of the picture, the same
+     * pictures, at most a second old. Otherwise the entry to fill (its
+     * picture null). The camera's turn only moves the picture on the screen.
+     */
+    private Baked baked(float[] nums, String[] strings, int i, int j, float x0, float y0, float x1, float y1) {
+        int at = extras(nums, i);
+        int s0 = (int) nums[i + 18];
+        StringBuilder key = new StringBuilder();
+        int count = 0;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            int sq = (int) nums[q + 18];
+            if (sq >= 0 && sq < strings.length) key.append(strings[sq]).append('|');
+            count++;
+        }
+        String k = key.toString();
+        String slot = s0 >= 0 && s0 < strings.length ? strings[s0] : "";
+        Baked b = bakes.get(slot);
+        if (b == null) {
+            b = new Baked();
+            bakes.put(slot, b);
+        }
+        float ex = nums[at], ey = nums[at + 1], ez = nums[at + 2];
+        float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
+        float w = x1 - x0, h = y1 - y0;
+        boolean same = b.bm != null && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
+        if (same) {
+            // half a pixel of the picture, as an angle seen from the globe and as a share of its size
+            float tol = 0.5f / Math.max(8, Math.max(b.pw, b.ph));
+            float dx = ex / el - b.eye[0], dy = ey / el - b.eye[1], dz = ez / el - b.eye[2];
+            float sx = nums[at + 12] - b.sun[0], sy = nums[at + 13] - b.sun[1], sz = nums[at + 14] - b.sun[2];
+            same = Math.sqrt(dx * dx + dy * dy + dz * dz) < tol
+                    && Math.abs(el / b.el - 1) < tol
+                    && Math.sqrt(sx * sx + sy * sy + sz * sz) < tol * 4
+                    && Math.abs(w / b.w - 1) < tol * 2 && Math.abs(h / b.h - 1) < tol * 2;
+            // cut by the screen's edge: a turn of the camera changes what shows, not only where
+            float vw = nums[at + 16], vh = nums[at + 17];
+            if (same && (x0 <= 0.5f || y0 <= 0.5f || x1 >= vw - 0.5f || y1 >= vh - 0.5f)) {
+                for (int a = 3; a < 12 && same; a++) same = Math.abs(nums[at + a] - b.cam[a - 3]) < tol;
+            }
+        }
+        if (same) return b;
+        b.key = k;
+        b.count = count;
+        b.eye[0] = ex / el;
+        b.eye[1] = ey / el;
+        b.eye[2] = ez / el;
+        b.el = el;
+        b.sun[0] = nums[at + 12];
+        b.sun[1] = nums[at + 13];
+        b.sun[2] = nums[at + 14];
+        b.w = w;
+        b.h = h;
+        for (int a = 3; a < 12; a++) b.cam[a - 3] = nums[at + a];
+        b.bm = null;
+        return b;
     }
 
     private static int argb(float r, float g, float b, float a) {
@@ -247,6 +477,13 @@ final class Painter {
         int i = 0, n = nums.length;
         while (i + HEADER <= n) {
             int k = (int) nums[i];
+            if (k == SPHERE && gl != null && gl.ok) {
+                int next = glSpheres(c, nums, strings, i, scale);
+                if (next >= 0) {
+                    i = next;
+                    continue;
+                }
+            }
             float x = nums[i + 1], y = nums[i + 2], w = nums[i + 3], h = nums[i + 4];
             float r = nums[i + 5], g = nums[i + 6], b = nums[i + 7], a = nums[i + 8];
             float tl = nums[i + 9], tr = nums[i + 10], br = nums[i + 11], bl = nums[i + 12];
@@ -408,5 +645,6 @@ final class Painter {
             if (rotated) c.restore();
         }
         c.restoreToCount(base);
+        if (gl != null) gl.frameDone();
     }
 }

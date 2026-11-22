@@ -41,12 +41,15 @@
   // WebGL2 canvas off the page casts a ray through every pixel of the box,
   // reads the map picture where it meets the ball and is then drawn into the
   // 2D canvas, so the globe keeps its place in the painter's order.
-  var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
-  var SPHERE_FS = "#version 300 es\nprecision highp float; precision highp int; in vec2 uv; out vec4 o;" +
+  var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; out vec3 wpos; void main() { uv = a; wpos = vec3(0.0); gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
+  var SPHERE_FS = "#version 300 es\nprecision highp float; precision highp int; in vec2 uv; in vec3 wpos; out vec4 o;" +
     "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole; uniform vec4 hole;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite; uniform vec4 hole;" +
+    // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
+    // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
+    "uniform float meshM;" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -106,7 +109,7 @@
     "  float bot = mix(dec(texelFetch(gtex, ivec2(i0, j1), 0)), dec(texelFetch(gtex, ivec2(i1, j1), 0)), a.x);" +
     "  return mix(top, bot, a.y); }" +
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
-    "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz) break; n++; a *= 0.48; } return n; }" +
+    "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
     "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
@@ -119,7 +122,9 @@
     "  float di = bq * bq - ee + Ri * Ri; if (di > 0.0 && -bq - sqrt(di) > 0.0) t1 = min(t1, -bq - sqrt(di));" +
     "  if (t1 <= t0) return false;" +
     "  float tp = t0; t = t0; bool hit = false;" +
+    // lite (a phone's GPU): at most 56 steps, then where the ray is (only far off, at the horizon)
     "  for (int i = 0; i < 160; i++) {" +
+    "    if (lite > 0.5 && i >= 56) { hit = true; tp = t; break; }" +
     "    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, octs(t * pix));" +
     "    if (f < 0.0) { hit = true; break; }" +
     "    if (f < t * pix * 0.3) { hit = true; tp = t; break; }" +
@@ -129,7 +134,7 @@
     "  if (!hit) return false;" +
     // between the last point above and the first below, with all the bumps
     "  float a = tp, b = t;" +
-    "  for (int i = 0; i < 7; i++) { float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
+    "  for (int i = 0; i < 7; i++) { if (lite > 0.5 && i >= 4) break; float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
     "    if (r - ground(x / r, octs(m * pix * 0.5)) < 0.0) b = m; else a = m; }" +
     "  t = b; return true;" +
     "}" +
@@ -137,26 +142,29 @@
     // soft at the edges
     "float sunRay(vec3 x, float sz) {" +
     "  float k = 1.0, t = max(sz * 4.0, 2e-6);" +
-    "  for (int i = 0; i < 24; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
+    "  for (int i = 0; i < 24; i++) { if (lite > 0.5 && i >= 10) break; vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
     "    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
-    "  vec3 d = normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
+    "  bool mesh = meshM > 0.5 && meshM < 1.5;" +
+    "  vec3 d = mesh ? normalize(wpos - eye) : normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
     "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
     "  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;" +
     // a detail window close by: test the window on the smooth ball first (with a margin for mountains), so that only
     // the pixels it may cover cast the long ray
-    "  if (terr && useWin > 0.5) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
+    "  if (terr && useWin > 0.5 && !mesh) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
     "    float mg = 0.004 + 0.5 * max(hhi - hlo, 0.0); float uw = w0.x; if (uw < win.x - mg) uw += 1.0; else if (uw > win.z + mg) uw -= 1.0;" +
     "    if (uw < win.x - mg || uw > win.z + mg || w0.y < win.y - mg || w0.y > win.w + mg) discard; }" +
     // the whole ball close by: the windows drawn after it cover the hole, so only around it (a wide margin for
     // mountains seen from the side) the long ray is cast
-    "  if (terr && useHole > 0.5) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
-    "    float mg = 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
+    // (the mesh: exactly the hole, it has the true point)
+    "  if (terr && useHole > 0.5 && meshM < 1.5) { vec3 pw = mesh ? normalize(wpos) : normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
+    "    float mg = mesh ? 0.0 : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
     "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg) discard; }" +
-    "  bool hit = terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
+    "  if (mesh) th = length(wpos - eye);" +
+    "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
     "    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;" +
@@ -173,8 +181,13 @@
     "  if (dot(du2, du2) < dot(du, du)) du = du2;" +
     "  vec2 dv = vec2(dFdx(v), dFdy(v));" +
     // over real ground a pixel's size on it, in radians (its derivatives jump at the mountains' edges)
-    "  float fp = max(th * pix, 1e-7);" +
-    "  if (terr) { float k = fp / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fp / 3.1415927); }" +
+    // close by, a pixel seen at a slant (towards the horizon) covers more ground along the ray: its size grows by
+    // 1 / cos of the angle, so the pictures and slopes are read at that size and do not turn into noise there
+    // (the picture by the whole stretch, up to 8 times; its slopes by its square root, up to 2.5: a wider reach turns the
+    // picture's broad light and dark into false slopes)
+    "  float fp = max(th * pix, 1e-7), fpa = fp; float ci = max(dot(-d, p), 0.0);" +
+    "  if (terr) { fpa = fp / max(ci, 0.125); fp /= max(sqrt(ci), 0.4); }" +
+    "  if (terr) { float k = fpa / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fpa / 3.1415927); }" +
     // a detail picture: only inside its window, the window stretched over the picture
     "  if (useWin > 0.5) {" +
     "    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
@@ -184,12 +197,14 @@
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
-    "  if (useH > 0.5) {" +
+    // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
+    // wr: the slopes fade in from 0.06 to 0.03 radii up (with them the picture's own baked light is taken out)
+    "  if (useH > 0.5 && terr) { float wr = 1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0);" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
     // close by also the finer bumps, down to about three pixels across
-    "    if (terr) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
+    "    if (terr && lite < 0.5) { nb = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0)); for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nb++; wl /= 2.03; } }" +
     "    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);" +
     "    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);" +
     "    vec3 tl = hrel * (gx * east + gy * north);" +
@@ -206,10 +221,10 @@
     "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
     "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
-    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= clamp(lb / max(l0, 0.02), 0.5, 2.0); }" +
-    "    else c *= clamp(1.0 + 1.2 * hf, 0.6, 1.4);" +
-    "    n = normalize(p - tl);" +
-    "  } else if (relief != 0.0) {" +
+    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
+    "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
+    "    n = normalize(p - tl * wr);" +
+    "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
     "    vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));" +
     "    float hx = (lum(vec2(u + ts.x, v)) - lum(vec2(u - ts.x, v))) / (2.0 * ts.x * 6.2831853 * clat);" +
@@ -220,10 +235,15 @@
     "  if (lit > 0.5 && useH > 0.5) {" +
     // real heights: the slope against the ground's own (flat) light, and close by the shadows of the hills
     "    float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);" +
-    "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(eye + d * th, fp);" +
+    // (the mesh's point lies on its flat triangles: the sun's ray starts from the true ground there)
+    "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + d * th, fp);" +
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
     "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
+    // close by, a band about 10 pixels on each side of the smooth ball's horizon line fades to black (the edge
+    // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
+    "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
+    "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
@@ -234,7 +254,11 @@
     "    vec4 g = airGlow(d, p, 0.0, max(th - max(t0, 0.0), 0.0), true);" +
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
-    "  o = vec4(min(c, vec3(1.0)), 1.0);" +
+    // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
+    // the ball's own picture when the game changes the pictures
+    "  float fa = useWin > 0.5 && !terr ? 1.0 - smoothstep(0.55, 0.85, th) : 1.0;" +
+    "  if (fa <= 0.0) discard;" +
+    "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
 
   function Spheres() {

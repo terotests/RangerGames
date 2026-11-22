@@ -192,6 +192,12 @@ pub extern "system" fn Java_fi_rangergames_Engine_terrain(_env: JNIEnv, _c: JCla
     with(|e| e.terrain = on != 0);
 }
 
+/// on: the app draws a planet's detail pictures (GlSphere.java, the GPU globes)
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_detail(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| e.detail = on != 0);
+}
+
 /// on: the app installs games from the download list (Store.java)
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_store(_env: JNIEnv, _c: JClass, on: jboolean) {

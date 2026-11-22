@@ -291,6 +291,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         Engine.seed(System.currentTimeMillis() % 2147483647L);
         Engine.textures(true);
         Engine.terrain(true);
+        // the globes on the GPU, with the detail pictures; else in software without them
+        Engine.detail(painter.startGl());
         Engine.start("");
         afterCall();
     }
