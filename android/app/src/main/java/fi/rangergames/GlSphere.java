@@ -80,7 +80,12 @@ final class GlSphere {
             "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv || ang - cell > 0.18; }\n" +
             "    else { if (uw < mcull.x) uw += 1.0; else if (uw > mcull.z) uw -= 1.0;\n" +
             "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv && ang + cell < 0.10; } }\n" +
-            "  float h = ground(dir, octs(length(dir - eye) / focal));\n" +
+            // the corners slide over the ground as the eye moves: bumps shorter than two cells would jump from frame to
+            // frame (the ground "flowed" on rough ground towards the horizon), so they fade out by the cell's size
+            // (the shading still has them all)
+            "  float cs = max(ang, mgrid.z) * max(mgrid.w - 1.0, 2.0 * mspoke.y / mgrid.y);\n" +
+            "  float nw = clamp(log2(1.0 / (hfreq * 4.0 * cs)) / log2(2.03) + 1.0, 1.0, 9.0);\n" +
+            "  float h = groundF(dir, min(octsAF(length(dir - eye) / focal), nw));\n" +
             "  wpos = dir * h; uv = vec2(0.0);\n" +
             "  vec3 rel = wpos - eye; vec3 v = vec3(dot(rel, rgt), dot(rel, upv), dot(rel, fwd));\n" +
             "  float cx = ((view.x * 0.5 - box.x) * v.z + focal * v.x) / box.z * 2.0 - v.z;\n" +
