@@ -255,8 +255,9 @@
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
     // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
-    // the ball's own picture when the game changes the pictures
-    "  float fa = useWin > 0.5 && !terr ? 1.0 - smoothstep(0.55, 0.85, th) : 1.0;" +
+    // the ball's own picture when the game changes the pictures; and round the point under the eye (0.10 to 0.18
+    // radians): the game's pieces reach at least that far, so their outer edge never shows against the blurry ball
+    "  float fa = useWin > 0.5 && !terr ? (1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
     "  if (fa <= 0.0) discard;" +
     "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
