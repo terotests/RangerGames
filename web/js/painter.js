@@ -181,7 +181,9 @@
     "  if (dot(du2, du2) < dot(du, du)) du = du2;" +
     "  vec2 dv = vec2(dFdx(v), dFdy(v));" +
     // over real ground a pixel's size on it, in radians (its derivatives jump at the mountains' edges)
-    "  float fp = max(th * pix, 1e-7);" +
+    // close by, a pixel seen at a slant (towards the horizon) covers more ground along the ray: its size grows by
+    // 1 / cos of the angle, so the pictures and slopes are read at that size and do not turn into noise there
+    "  float fp = max(th * pix, 1e-7); if (terr) fp /= max(dot(-d, p), 0.125);" +
     "  if (terr) { float k = fp / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fp / 3.1415927); }" +
     // a detail picture: only inside its window, the window stretched over the picture
     "  if (useWin > 0.5) {" +
@@ -192,7 +194,8 @@
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
-    "  if (useH > 0.5) {" +
+    // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
+    "  if (useH > 0.5 && terr) {" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
@@ -216,8 +219,8 @@
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= clamp(lb / max(l0, 0.02), 0.5, 2.0); }" +
     "    else c *= clamp(1.0 + 1.2 * hf, 0.6, 1.4);" +
-    "    n = normalize(p - tl);" +
-    "  } else if (relief != 0.0) {" +
+    "    n = normalize(p - tl * (1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0)));" +
+    "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
     "    vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));" +
     "    float hx = (lum(vec2(u + ts.x, v)) - lum(vec2(u - ts.x, v))) / (2.0 * ts.x * 6.2831853 * clat);" +
