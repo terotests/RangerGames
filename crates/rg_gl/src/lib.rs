@@ -30,6 +30,28 @@ const SPHERE: i32 = 8;
 /// the 3D scene's triangles go here: x = first float, y = end (of `tris`)
 const LAYER3D: i32 = 9;
 
+/// A text's pieces for the atlas: each digit alone, the runs between digits whole.
+fn pieces_of(text: &str) -> Vec<&str> {
+    if !text.bytes().any(|b| b.is_ascii_digit()) {
+        return vec![text];
+    }
+    let mut out = Vec::new();
+    let mut start = 0;
+    for (i, ch) in text.char_indices() {
+        if ch.is_ascii_digit() {
+            if i > start {
+                out.push(&text[start..i]);
+            }
+            out.push(&text[i..i + 1]);
+            start = i + 1;
+        }
+    }
+    if start < text.len() {
+        out.push(&text[start..]);
+    }
+    out
+}
+
 /// The text atlas: one RGBA texture this big.
 const ATLAS: i32 = 2048;
 /// pictures kept on the GPU, the least recently drawn dropped past this many bytes
@@ -681,27 +703,48 @@ impl Renderer {
                     let size = size_step(want);
                     let pad = (2.0 + size * 0.12).ceil() as i32;
                     let c = rgba(r, g, b, 1.0);
-                    let run = TextRun { text, family: string(s1), weight: string(s2), italic: flags & 256 != 0, size, spacing: ls * s * (size / want), rgb: [c[0], c[1], c[2]], pad };
-                    let Some((ax, ay, aw, ah, adv)) = self.text_run(host, &run) else { continue };
+                    // digits one by one (counters, clocks, heights change every
+                    // frame: ten glyphs kept instead of a new run each frame), the
+                    // rest as runs between them
+                    let mut pieces: Vec<(i32, i32, i32, i32, f32)> = Vec::new();
+                    let mut total = 0.0f32;
+                    let mut ok = true;
+                    for piece in pieces_of(text) {
+                        let run = TextRun { text: piece, family: string(s1), weight: string(s2), italic: flags & 256 != 0, size, spacing: ls * s * (size / want), rgb: [c[0], c[1], c[2]], pad };
+                        match self.text_run(host, &run) {
+                            Some(p) => {
+                                total += p.4;
+                                pieces.push(p);
+                            }
+                            None => {
+                                ok = false;
+                                break;
+                            }
+                        }
+                    }
+                    if !ok || pieces.is_empty() {
+                        continue;
+                    }
                     let f = want / size / s; // atlas pixels to game units
-                    let tw = adv * f;
+                    let tw = total * f;
                     // EVG placed the run by its own font's width: fit the run to
                     // that width (left-aligned lines start where EVG put them), as
                     // painter.js does; a big difference keeps the run's centre
                     let sx = if w > 0.0 && tw > 0.0 { w / tw } else { 1.0 };
-                    let (sx, left) = if (0.8..=1.25).contains(&sx) {
-                        (sx, x - pad as f32 * f * sx)
-                    } else {
-                        (1.0, if w > 0.0 { x + (w - tw) / 2.0 } else { x } - pad as f32 * f)
-                    };
-                    let (qw, qh) = (aw as f32 * f * sx, ah as f32 * f);
-                    let top = y + h / 2.0 - qh / 2.0;
+                    let (sx, origin) = if (0.8..=1.25).contains(&sx) { (sx, x) } else { (1.0, if w > 0.0 { x + (w - tw) / 2.0 } else { x }) };
                     let inv = 1.0 / ATLAS as f32;
-                    // half a texel in: smoothing never reaches the neighbours' texels
-                    let (u0, v0, u1, v1) = ((ax as f32 + 0.5) * inv, (ay as f32 + 0.5) * inv, (ax + aw) as f32 * inv - 0.5 * inv, (ay + ah) as f32 * inv - 0.5 * inv);
                     let ca = rgba(255.0, 255.0, 255.0, a);
-                    self.shape_quad(left, top, qw, qh, 0.0, [qw / 2.0, qh / 2.0], [left + qw / 2.0, top + qh / 2.0], [0.0; 4], [4.0, 0.0], [ca; 4],
-                        [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], rotp);
+                    let mut cum = 0.0f32;
+                    for (ax, ay, aw, ah, adv) in pieces {
+                        let left = origin + (cum - pad as f32) * f * sx;
+                        cum += adv;
+                        let (qw, qh) = (aw as f32 * f * sx, ah as f32 * f);
+                        let top = y + h / 2.0 - qh / 2.0;
+                        // half a texel in: smoothing never reaches the neighbours' texels
+                        let (u0, v0, u1, v1) = ((ax as f32 + 0.5) * inv, (ay as f32 + 0.5) * inv, (ax + aw) as f32 * inv - 0.5 * inv, (ay + ah) as f32 * inv - 0.5 * inv);
+                        self.shape_quad(left, top, qw, qh, 0.0, [qw / 2.0, qh / 2.0], [left + qw / 2.0, top + qh / 2.0], [0.0; 4], [4.0, 0.0], [ca; 4],
+                            [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], rotp);
+                    }
                     let atlas = self.atlas;
                     self.push_step(atlas, first, clip);
                 }
@@ -1095,6 +1138,13 @@ mod tests {
         assert!(matches!(r.steps[1], Step::Draw { .. }));
         assert!(matches!(r.steps[2], Step::Fill { even_odd: false, .. }));
         assert!(matches!(r.steps[3], Step::Tris { first: 0, count: 3, .. }));
+    }
+
+    #[test]
+    fn digits_are_pieces_of_their_own() {
+        assert_eq!(pieces_of("Lennä"), vec!["Lennä"]);
+        assert_eq!(pieces_of("Korkeus 12.5 km"), vec!["Korkeus ", "1", "2", ".", "5", " km"]);
+        assert_eq!(pieces_of("90"), vec!["9", "0"]);
     }
 
     #[test]
