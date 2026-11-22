@@ -183,8 +183,11 @@
     // over real ground a pixel's size on it, in radians (its derivatives jump at the mountains' edges)
     // close by, a pixel seen at a slant (towards the horizon) covers more ground along the ray: its size grows by
     // 1 / cos of the angle, so the pictures and slopes are read at that size and do not turn into noise there
-    "  float fp = max(th * pix, 1e-7); if (terr) fp /= max(dot(-d, p), 0.125);" +
-    "  if (terr) { float k = fp / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fp / 3.1415927); }" +
+    // (the picture by the whole stretch, up to 8 times; its slopes by its square root, up to 2.5: a wider reach turns the
+    // picture's broad light and dark into false slopes)
+    "  float fp = max(th * pix, 1e-7), fpa = fp; float ci = max(dot(-d, p), 0.0);" +
+    "  if (terr) { fpa = fp / max(ci, 0.125); fp /= max(sqrt(ci), 0.4); }" +
+    "  if (terr) { float k = fpa / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fpa / 3.1415927); }" +
     // a detail picture: only inside its window, the window stretched over the picture
     "  if (useWin > 0.5) {" +
     "    float uw = u; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
@@ -195,7 +198,8 @@
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
     // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
-    "  if (useH > 0.5 && terr) {" +
+    // wr: the slopes fade in from 0.06 to 0.03 radii up (with them the picture's own baked light is taken out)
+    "  if (useH > 0.5 && terr) { float wr = 1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0);" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
     "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(eps / ta)); int nb = 0;" +
@@ -217,9 +221,9 @@
     "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
     "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
-    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= clamp(lb / max(l0, 0.02), 0.5, 2.0); }" +
-    "    else c *= clamp(1.0 + 1.2 * hf, 0.6, 1.4);" +
-    "    n = normalize(p - tl * (1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0)));" +
+    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
+    "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
+    "    n = normalize(p - tl * wr);" +
     "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
     "    vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));" +
