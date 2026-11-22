@@ -31,6 +31,19 @@ final class Sphere {
      */
     static void cast(int[] out, int ow, int oh, float x, float y, float w, float h,
                      int[] tex, int tw, int th, float[] p, int at, boolean more, int[] lt, int ltw, int lth) {
+        cast(out, ow, oh, x, y, w, h, tex, tw, th, p, at, more, lt, ltw, lth, null, 0, 0, -2);
+    }
+
+    /**
+     * With hm the command has 40 numbers (real heights, draw.rs {@code sphere}):
+     * hm is the sharp height picture (ARGB, the height as red × 256 + green),
+     * its true slopes shade the ground. meshCos > -2: the ground within the
+     * angle whose cosine it is from the point under the eye is left empty
+     * (Terrain's mesh is drawn there).
+     */
+    static void cast(int[] out, int ow, int oh, float x, float y, float w, float h,
+                     int[] tex, int tw, int th, float[] p, int at, boolean more, int[] lt, int ltw, int lth,
+                     int[] hm, int hw, int hh, double meshCos) {
         float ex = p[at], ey = p[at + 1], ez = p[at + 2];
         float rx = p[at + 3], ry = p[at + 4], rz = p[at + 5];
         float ux = p[at + 6], uy = p[at + 7], uz = p[at + 8];
@@ -45,6 +58,10 @@ final class Sphere {
         float lgain = more ? p[at + 29] : 0, relief = more ? p[at + 30] : 0;
         float R = 1 + air;
         float stepX = w / ow, stepY = h / oh;
+        // real heights: the picture's range and how much its slopes tilt the ground
+        float hspan = hm != null ? p[at + 33] - p[at + 32] : 0, hrel = hm != null ? p[at + 36] : 0;
+        float eyeL = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
+        float cex = ex / eyeL, cey = ey / eyeL, cez = ez / eyeL;
         for (int j = 0; j < oh; j++) {
             float py = y + (j + 0.5f) * stepY - vh * 0.5f;
             // the ray for the row's first pixel, then step along `right`
@@ -80,6 +97,10 @@ final class Sphere {
                 }
                 float sq = (float) Math.sqrt(disc);
                 float nx = qx - sq * dx, ny = qy - sq * dy, nz = qz - sq * dz;
+                if (meshCos > -2 && nx * cex + ny * cey + nz * cez > meshCos) {
+                    out[row + i] = 0;
+                    continue;
+                }
                 float u = atan2(ny, nx) * 0.15915494f + 0.5f;
                 float v = 0.5f - asin(Math.max(-1f, Math.min(1f, nz))) * 0.31830988f;
                 int ti = (int) (u * tw);
@@ -93,7 +114,21 @@ final class Sphere {
                     float s = nx * sx + ny * sy + nz * sz;
                     float sn = s;
                     float k = smooth(-0.06f, 0.3f, s);
-                    if (relief != 0) {
+                    if (hm != null) {
+                        // real heights: the sharp picture's slope east and north tilts the normal
+                        int hi = (int) (u * hw), hj = (int) (v * hh);
+                        float clat = Math.max(0.05f, (float) Math.sqrt(1 - nz * nz));
+                        float hx = hspan * (height(hm, hw, hh, hi + 1, hj) - height(hm, hw, hh, hi - 1, hj)) / (2f / hw * 6.2831853f * clat);
+                        float hy = hspan * (height(hm, hw, hh, hi, hj - 1) - height(hm, hw, hh, hi, hj + 1)) / (2f / hh * 3.1415927f);
+                        float el2 = (float) Math.sqrt(nx * nx + ny * ny) + 1e-6f;
+                        float ex2 = -ny / el2, ey2 = nx / el2;
+                        float nox = -nz * ey2, noy = nz * ex2, noz = nx * ey2 - ny * ex2;
+                        float mx = nx - hrel * (hx * ex2 + hy * nox), my = ny - hrel * (hx * ey2 + hy * noy), mz = nz - hrel * hy * noz;
+                        float ml = (float) Math.sqrt(mx * mx + my * my + mz * mz);
+                        sn = (mx * sx + my * sy + mz * sz) / ml;
+                        k = smooth(-0.04f, 0.3f, s) * Math.max(0, Math.min(1.6f, sn / Math.max(s, 0.06f)));
+                        k = Math.min(k, 1.25f);
+                    } else if (relief != 0) {
                         // the map's brightness as height: its slope east and north tilts the normal
                         float clat = Math.max(0.05f, (float) Math.sqrt(1 - nz * nz));
                         float hx = (lum(tex, tw, th, ti + 1, tj) - lum(tex, tw, th, ti - 1, tj)) / (2f / tw * 6.2831853f * clat);
@@ -106,7 +141,7 @@ final class Sphere {
                         sn = (mx * sx + my * sy + mz * sz) / ml;
                         k *= smooth(-0.25f, 0.2f, sn) * (0.55f + 0.45f * smooth(0f, 0.6f, sn / Math.max(s, 0.05f)));
                     }
-                    float l = (day + (1 - day) * k) * (0.8f + 0.2f * Math.max(sn, 0));
+                    float l = hm != null ? day + (1 - day) * k : (day + (1 - day) * k) * (0.8f + 0.2f * Math.max(sn, 0));
                     float cr = ((c >> 16) & 255) * l, cg = ((c >> 8) & 255) * l, cb = (c & 255) * l;
                     if (lt != null) {
                         // city lights on the night side
@@ -154,6 +189,14 @@ final class Sphere {
         gR = cr * k + fw * 3f + dusk * 0.8f;
         gG = cg * k + 0.96f * fw * 3f + 0.55f * dusk * 0.8f;
         gB = cb * k + 0.9f * fw * 3f + 0.3f * dusk * 0.8f;
+    }
+
+    /** A height picture's value (0…1) at texel i, j (red × 256 + green). */
+    private static float height(int[] hm, int hw, int hh, int i, int j) {
+        i = ((i % hw) + hw) % hw;
+        j = Math.max(0, Math.min(hh - 1, j));
+        int c = hm[j * hw + i];
+        return (((c >> 16) & 255) * 256 + ((c >> 8) & 255)) / 65535f;
     }
 
     private static float lum(int[] tex, int tw, int th, int i, int j) {
