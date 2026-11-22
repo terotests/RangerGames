@@ -256,7 +256,10 @@ pub struct Globe {
     /// sharper pictures over parts of the map: (path, [u0, v0, u1, v1]) in
     /// the map's own 0…1 coordinates (u east from longitude -180, v south
     /// from the north pole), drawn over `texture` where the host can
-    detail: Vec<(String, [f64; 4])>,
+    /// the sharper pictures: their path, window u0 v0 u1 v1 and their own sun
+    /// [azimuth (radians, from east towards north), brightness per unit of slope
+    /// towards it (0: none)] for reading slopes from the picture close by
+    detail: Vec<(String, [f64; 4], [f64; 2])>,
     /// the host can draw `detail` (a sphere command with a window)
     pub detail_ok: bool,
     /// the host can draw `height` (a sphere command with 40 numbers)
@@ -424,7 +427,8 @@ impl Globe {
             self.detail = v.iter().take(8).filter_map(|d| {
                 let src = d.get("src").as_str();
                 let w = [d.get("u0").as_num(0.0), d.get("v0").as_num(0.0), d.get("u1").as_num(1.0), d.get("v1").as_num(1.0)];
-                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w)) }
+                let sun = [d.get("sun").as_num(0.0).to_radians(), d.get("shade").as_num(0.0).max(0.0)];
+                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w, sun)) }
             }).collect();
         }
         let cell = a.get("cell");
@@ -1112,7 +1116,7 @@ impl Globe {
         // the host only inside its window, in the box its part of the
         // surface takes on the screen
         let near_c0 = (cap.c0.clamp(-1.0, 1.0).acos() + (2.0 * (self.terrain_high() / rr).max(0.0)).sqrt() + 0.02).min(std::f64::consts::PI).cos();
-        for (src, win) in self.detail.iter() {
+        for (src, win, wsun) in self.detail.iter() {
             let n = 8;
             let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
             let mut seen = false;
@@ -1159,6 +1163,9 @@ impl Globe {
                 p.extend(more(*win, 1.0, 0.0));
                 if terrain {
                     p.extend_from_slice(&hparams);
+                    // the picture's own sun, for reading slopes from it close by
+                    p[31] = wsun[0] as f32;
+                    p[39] = wsun[1] as f32;
                 }
             } else {
                 p.extend(win.iter().map(|v| *v as f32));
