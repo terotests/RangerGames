@@ -21,6 +21,13 @@
 
 import { surface } from "lib/surfaces";
 import { MODEL as SHIP } from "lib/keha";
+// Kehä's own colours a little darker (0.62): the light grey hull looked white in the sun
+// (the glowing triangles keep theirs)
+const GLOWING = new Set<number>(SHIP.glow);
+function darker(c: number) {
+  const k = 0.62;
+  return (Math.round(((c >> 16) & 255) * k) << 16) | (Math.round(((c >> 8) & 255) * k) << 8) | Math.round((c & 255) * k);
+}
 
 type Body = {
   id: string; code: string; name: string;
@@ -300,7 +307,7 @@ function build() {
   }
   // the ship: Kehä, a ring ship from RangerSpaceshipBuilder (lib/keha.ts,
   // `ship scene ships/keha.ship.json`), a blue ion flame behind it
-  rg.three("add", { id: "hull", shape: "mesh", verts: SHIP.verts, tris: SHIP.tris, colors: SHIP.colors, glow: SHIP.glow });
+  rg.three("add", { id: "hull", shape: "mesh", verts: SHIP.verts, tris: SHIP.tris, colors: SHIP.colors.map((c: number, i: number) => GLOWING.has(i) ? c : darker(c)), glow: SHIP.glow });
   rg.three("add", { id: "flame", shape: "cone", size: [0.3, 1.2], detail: 8, color: "#58c7ff", emissive: true, visible: false });
   rg.three("add", { id: "flame2", shape: "cone", size: [0.17, 0.8], detail: 8, color: "#e6fbff", emissive: true, visible: false });
   // the entry's plasma: a glowing shock in front, a trail behind

@@ -186,7 +186,7 @@
     // (the picture by the whole stretch, up to 8 times; its slopes by its square root, up to 2.5: a wider reach turns the
     // picture's broad light and dark into false slopes)
     "  float fp = max(th * pix, 1e-7), fpa = fp; float ci = max(dot(-d, p), 0.0);" +
-    "  if (terr) { fpa = fp / max(ci, 0.125); fp /= max(sqrt(ci), 0.4); }" +
+    "  if (terr) { fpa = fp / max(ci, 0.125); fp = mix(fpa, fp / max(sqrt(ci), 0.4), smoothstep(0.08, 0.35, ci)); }" +
     "  if (terr) { float k = fpa / 6.2831853 / max(0.05, sqrt(1.0 - p.z * p.z)); du = vec2(k, 0.0); dv = vec2(0.0, fpa / 3.1415927); }" +
     // a detail picture: only inside its window, the window stretched over the picture
     "  if (useWin > 0.5) {" +
@@ -255,8 +255,9 @@
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
     // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
-    // the ball's own picture when the game changes the pictures
-    "  float fa = useWin > 0.5 && !terr ? 1.0 - smoothstep(0.55, 0.85, th) : 1.0;" +
+    // the ball's own picture when the game changes the pictures; and round the point under the eye (0.10 to 0.18
+    // radians): the game's pieces reach at least that far, so their outer edge never shows against the blurry ball
+    "  float fa = useWin > 0.5 && !terr ? (1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
     "  if (fa <= 0.0) discard;" +
     "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
