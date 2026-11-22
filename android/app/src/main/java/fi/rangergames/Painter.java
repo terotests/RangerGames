@@ -4,6 +4,7 @@ package fi.rangergames;
 import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
@@ -62,6 +63,11 @@ final class Painter {
     private int sphereNext;
     /** pixels of the cast globe per game unit (the bitmap is drawn smoothed) */
     private static final float SPHERE_RES = 0.5f;
+    /** real heights close by: the ground's mesh (Terrain), its map as a texture */
+    private final Terrain terrain = new Terrain();
+    private final HashMap<String, Bitmap> mapBitmaps = new HashMap<>();
+    private final Paint meshPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+    private float[] meshTex = new float[0];
 
     Painter(AssetManager assets) {
         this.assets = assets;
@@ -144,17 +150,37 @@ final class Painter {
         return px;
     }
 
-    private void sphere(Canvas c, String s, String ls, float x, float y, float w, float h, float[] nums, int at, int nx) {
+    private void sphere(Canvas c, String s, String ls, String hs, float x, float y, float w, float h, float[] nums, int at, int nx) {
         int[] tex = map(s);
         if (tex == null) return;
         int[] size = mapSizes.get(s);
         // the 32-number form: the air, the city lights (second picture) and the relief
         int[] lt = nx >= 32 && !ls.isEmpty() ? map(ls) : null;
         int[] lsize = lt != null ? mapSizes.get(ls) : null;
+        // the 40-number form: real heights, "shading|shape" (Terrain)
+        int[] hm = null, gm = null;
+        int bar = hs.indexOf('|');
+        if (nx >= 40 && bar > 0) {
+            hm = map(hs.substring(0, bar));
+            gm = map(hs.substring(bar + 1));
+            if (hm == null || gm == null) hm = gm = null;
+        }
+        boolean window = nx >= 32 && nums[at + 24] > 0.5f;
+        boolean near = hm != null && nums[at + 35] > 0.5f;
+        // close by the ground is a mesh; a detail picture (a ball of radius 1) would cover it
+        if (near && window) return;
+        boolean mesh = false;
+        if (near) {
+            int[] gsize = mapSizes.get(hs.substring(bar + 1));
+            terrain.set(nums, at, gm, gsize[0], gsize[1]);
+            mesh = terrain.mesh(nums, at);
+        }
+        int[] hsize = hm != null ? mapSizes.get(hs.substring(0, bar)) : null;
         int ow = Math.max(1, Math.round(w * SPHERE_RES)), oh = Math.max(1, Math.round(h * SPHERE_RES));
         if (sphereOut.length < ow * oh) sphereOut = new int[ow * oh];
         Sphere.cast(sphereOut, ow, oh, x, y, w, h, tex, size[0], size[1], nums, at, nx >= 32,
-                lt, lsize != null ? lsize[0] : 0, lsize != null ? lsize[1] : 0);
+                lt, lsize != null ? lsize[0] : 0, lsize != null ? lsize[1] : 0,
+                hm, hsize != null ? hsize[0] : 0, hsize != null ? hsize[1] : 0, mesh ? Math.cos(terrain.reach) : -2);
         int slot = sphereNext;
         sphereNext = (sphereNext + 1) % sphereBitmaps.length;
         Bitmap bm = sphereBitmaps[slot];
@@ -164,6 +190,27 @@ final class Painter {
             sphereBitmaps[slot] = bm;
         }
         bm.setPixels(sphereOut, 0, ow, 0, 0, ow, oh);
+        if (mesh && terrain.count > 0) {
+            // the ground close by: its mesh over the cast ball, into the same
+            // bitmap with a software canvas (drawVertices needs one before Android 10)
+            Bitmap tb = mapBitmaps.get(s);
+            if (tb == null) {
+                tb = Bitmap.createBitmap(tex, size[0], size[1], Bitmap.Config.ARGB_8888);
+                mapBitmaps.put(s, tb);
+            }
+            int nv = terrain.count * 2;
+            if (meshTex.length < nv) meshTex = new float[nv];
+            for (int k = 0; k < nv; k += 2) {
+                meshTex[k] = terrain.texs[k] * size[0];
+                meshTex[k + 1] = terrain.texs[k + 1] * size[1];
+            }
+            meshPaint.setShader(new BitmapShader(tb, Shader.TileMode.REPEAT, Shader.TileMode.CLAMP));
+            Canvas sc = new Canvas(bm);
+            sc.clipRect(0, 0, ow, oh);
+            sc.scale(ow / w, oh / h);
+            sc.translate(-x, -y);
+            sc.drawVertices(Canvas.VertexMode.TRIANGLES, nv, terrain.verts, 0, meshTex, 0, terrain.colors, 0, null, 0, 0, meshPaint);
+        }
         src.set(0, 0, ow, oh);
         rf.set(x, y, x + w, y + h);
         c.drawBitmap(bm, src, rf, image);
@@ -219,8 +266,9 @@ final class Painter {
 
             if (k == SPHERE) {
                 String s = s0 >= 0 && s0 < strings.length ? strings[s0] : "";
-                String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
-                if (!s.isEmpty() && nx >= 20 && w > 0 && h > 0) sphere(c, s, ls, x, y, w, h, nums, e, nx);
+                String lsrc = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
+                String hs = s2 >= 0 && s2 < strings.length ? strings[s2] : "";
+                if (!s.isEmpty() && nx >= 20 && w > 0 && h > 0) sphere(c, s, lsrc, hs, x, y, w, h, nums, e, nx);
                 continue;
             }
             if (k == PUSH_CLIP) {

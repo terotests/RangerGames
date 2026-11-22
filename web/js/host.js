@@ -59,6 +59,7 @@
         if (self.x.rg_textures && global.RgPainter && global.RgPainter.canDrawSpheres && !params.has("notex") && global.RgPainter.canDrawSpheres()) {
           self.x.rg_textures(1);
           if (self.x.rg_detail && global.RgPainter.canDrawDetail && !params.has("nodetail")) self.x.rg_detail(1);
+          if (self.x.rg_terrain && global.RgPainter.canDrawTerrain && !params.has("noterrain")) self.x.rg_terrain(1);
         }
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
@@ -658,6 +659,11 @@
         if (nums[i] === 8 && nums[i + 19] >= 0) {
           var src2 = strings[nums[i + 19]];
           if (!this.images.has(src2)) this.image(src2);
+        }
+        // its height pictures "shading|shape"
+        if (nums[i] === 8 && nums[i + 20] >= 0) {
+          var hn = strings[nums[i + 20]].split("|");
+          for (var hk = 0; hk < hn.length; hk++) if (hn[hk] && !this.images.has(hn[hk])) this.image(hn[hk]);
         }
       }
       i += 23 + (nums[i + 22] | 0);

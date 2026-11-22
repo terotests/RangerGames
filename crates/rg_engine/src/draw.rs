@@ -251,19 +251,57 @@ impl DrawStream {
     /// 30 relief: how much the picture's brightness, read as height, tilts
     ///    the ground for the sun (0: none)   31 unused
     /// ```
+    ///
+    /// With 40 numbers the ball has real heights (`sphere_terrain`): string 3
+    /// names two pictures, "shading|shape", both equirectangular with the
+    /// height coded as (red × 256 + green) / 65535 between a low and a high:
+    /// the sharp one only tilts the ground for the sun, the coarse one (read
+    /// bilinearly, texel centres at (i + ½) / width) gives the ground its shape.
+    ///
+    /// ```text
+    /// 32 low  33 high: the heights of 0 and 1 in the pictures, in radii (so the
+    ///    ground at unit direction p is at 1 + low + (high - low) × shape(p)
+    ///    + detail(p))
+    /// 34 detail: the amplitude of the made-up bumps added on top, in radii
+    /// 35 near (1): the eye is close, cast the rays against the ground's
+    ///    shape (mountains on the horizon); 0: a smooth ball, only shaded
+    /// 36 how much the shading picture tilts the ground (1: true slopes)
+    /// 37 the bumps' scale: lattice cells per radius of the coarsest of them
+    /// 38 craters: how deep the made-up craters are (0: none, 1: as deep as a
+    ///    fifth of their width)   39 unused
+    /// ```
+    ///
+    /// The bumps (the same in every host and in the game's own physics,
+    /// web/js/painter.js `bumps` is the reference): with f = scale,
+    /// detail(p) = amplitude × Σ(o = 0…4) 0.48^o × (2 × noise(p × f × 2.03^o)
+    /// - 1) + craters × Σ(o = 0…2) (crater(p, 0.9 f × 2.7^o, 2o) +
+    /// crater(p, 0.9 f × 2.7^o, 2o + 1)). noise is a value noise on the
+    /// integer lattice, smoothstep between the corners, each corner
+    /// hash(x, y, z) of 32-bit integers: h = x·0x8da6b343 ^ y·0xd8163841 ^
+    /// z·0xcb1ab31f; h ^= h >> 16; h ·= 0x7feb352d; h ^= h >> 15;
+    /// h ·= 0x846ca68b; h ^= h >> 16; value (h >> 8) / 16777215. A crater
+    /// lies inside one lattice cell (of the lattice shifted by (0.37, 0.61,
+    /// 0.19) for odd layers); hosts may add finer octaves to the shading only.
     pub fn sphere(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, params: &[f32]) {
-        self.sphere_air(x, y, w, h, src, "", params);
+        self.sphere_terrain(x, y, w, h, src, "", "", params);
     }
 
     /// `sphere` with the second picture (city lights on the night side).
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_air(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, params: &[f32]) {
+        self.sphere_terrain(x, y, w, h, src, lights, "", params);
+    }
+
+    /// `sphere_air` with the height pictures ("shading|shape", string 3).
+    #[allow(clippy::too_many_arguments)]
+    pub fn sphere_terrain(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, params: &[f32]) {
         let s = self.string(src);
         let l = if lights.is_empty() { -1.0 } else { self.string(lights) };
+        let hs = if heights.is_empty() { -1.0 } else { self.string(heights) };
         self.nums.extend_from_slice(&[
             8.0, x as f32, y as f32, w as f32, h as f32,
             255.0, 255.0, 255.0, 1.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, -1.0, 0.0, params.len() as f32,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, hs, 0.0, params.len() as f32,
         ]);
         self.nums.extend_from_slice(params);
         self.count += 1;

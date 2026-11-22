@@ -195,6 +195,9 @@ var rg = {
   // the 3D layer (three.js on the web): rg.three("add", { id, shape, … })
   sim: function (op, args) { __cmds.push(["sim", String(op), args === undefined ? null : args]); },
   simState: null,
+  // whether the host draws real heights on rg.three("planet") (`height`): the
+  // ground's shape close by; a game stands on that ground only when true
+  terrain: false,
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
   // a path in the game's folder, for <img src>
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
@@ -625,6 +628,7 @@ function __start(arg) {
   rg.renderers = a.renderers || ["evg"];
   rg.store.available = !!a.store;
   rg.renderer = a.renderer || "evg";
+  rg.terrain = !!a.terrain;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

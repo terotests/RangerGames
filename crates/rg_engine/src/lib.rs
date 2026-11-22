@@ -315,6 +315,9 @@ pub struct Engine {
     /// the host draws a planet's `detail` pictures (a sphere command with a
     /// window, 24 numbers)
     pub detail: bool,
+    /// the host draws real heights on a globe (a sphere command with 40
+    /// numbers: the ground's shape close by); the game sees it as rg.terrain
+    pub terrain: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -347,6 +350,7 @@ impl Engine {
             textures: false,
             store: false,
             detail: false,
+            terrain: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -735,6 +739,7 @@ impl Engine {
             // alone from a link): no close button, exit stays in the game
             member("menu", Json::Bool(self.has_launcher())),
             member("store", Json::Bool(self.store)),
+            member("terrain", Json::Bool(self.terrain)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());
@@ -902,6 +907,7 @@ impl Engine {
                 self.scene.gl = self.gl3d;
                 self.scene.textures = self.textures;
                 self.scene.detail = self.detail;
+                self.scene.terrain = self.terrain;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
                 self.lend_files(false);
