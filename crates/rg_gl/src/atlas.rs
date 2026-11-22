@@ -18,9 +18,9 @@ impl Shelves {
         self.bottom = 0;
     }
 
-    /// A free place for w × h (with a pixel between neighbours), or None when full.
+    /// A free place for w × h (with two pixels between neighbours), or None when full.
     pub fn place(&mut self, w: i32, h: i32) -> Option<(i32, i32)> {
-        let (w, h) = (w + 1, h + 1);
+        let (w, h) = (w + 2, h + 2);
         if w > self.w || h > self.h {
             return None;
         }
@@ -55,11 +55,11 @@ mod tests {
     fn places_side_by_side_then_below_then_full() {
         let mut s = Shelves::new(100, 30);
         assert_eq!(s.place(40, 9), Some((0, 0)));
-        assert_eq!(s.place(40, 9), Some((41, 0)));
-        assert_eq!(s.place(40, 9), Some((0, 10)));
+        assert_eq!(s.place(40, 9), Some((42, 0)));
+        assert_eq!(s.place(40, 9), Some((0, 11)));
         assert_eq!(s.place(40, 19), None);
-        assert_eq!(s.place(10, 9), Some((82, 0)));
+        assert_eq!(s.place(10, 9), Some((84, 0)));
         s.clear();
-        assert_eq!(s.place(99, 29), Some((0, 0)));
+        assert_eq!(s.place(98, 28), Some((0, 0)));
     }
 }

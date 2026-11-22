@@ -325,7 +325,9 @@ impl Renderer {
         Self::tex_params();
         self.atlas = gl::create_texture();
         gl::bind_texture(gl::TEXTURE_2D, self.atlas);
-        gl::tex_image(ATLAS, ATLAS, None);
+        // cleared: the gutters between runs are sampled at their edges (Mali
+        // leaves a new texture's memory as it was: black blocks and old text)
+        gl::tex_image(ATLAS, ATLAS, Some(&vec![0u8; (ATLAS * ATLAS * 4) as usize]));
         Self::tex_params();
         self.ok = true;
         true
@@ -695,7 +697,8 @@ impl Renderer {
                     let (qw, qh) = (aw as f32 * f * sx, ah as f32 * f);
                     let top = y + h / 2.0 - qh / 2.0;
                     let inv = 1.0 / ATLAS as f32;
-                    let (u0, v0, u1, v1) = (ax as f32 * inv, ay as f32 * inv, (ax + aw) as f32 * inv, (ay + ah) as f32 * inv);
+                    // half a texel in: smoothing never reaches the neighbours' texels
+                    let (u0, v0, u1, v1) = ((ax as f32 + 0.5) * inv, (ay as f32 + 0.5) * inv, (ax + aw) as f32 * inv - 0.5 * inv, (ay + ah) as f32 * inv - 0.5 * inv);
                     let ca = rgba(255.0, 255.0, 255.0, a);
                     self.shape_quad(left, top, qw, qh, 0.0, [qw / 2.0, qh / 2.0], [left + qw / 2.0, top + qh / 2.0], [0.0; 4], [4.0, 0.0], [ca; 4],
                         [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], rotp);
