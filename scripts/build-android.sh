@@ -67,6 +67,8 @@ for d in "$STAGE"/games/_voice/*/; do
   find "$d" -maxdepth 1 -name '*.wav' -exec mv {} "$ASSETS/voice/$lang/" \;
 done
 ./target/release/rg_cli pack "$STAGE/games" "$ASSETS/games.rgpk"
+# the globe shader of web/js/painter.js for the GPU globes (GlSphere.java)
+node scripts/sphere-shader.mjs "$ASSETS/shaders/sphere.fs"
 ls -la "$ASSETS/games.rgpk"
 if [[ ! -f "$ASSETS/fonts/Fredoka.ttf" ]]; then
   curl -sSfL -o "$ASSETS/fonts/Fredoka.ttf" "https://github.com/google/fonts/raw/main/ofl/fredoka/Fredoka%5Bwdth,wght%5D.ttf" \

@@ -68,12 +68,88 @@ final class Painter {
     private final HashMap<String, Bitmap> mapBitmaps = new HashMap<>();
     private final Paint meshPaint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private float[] meshTex = new float[0];
+    /** the globes on the GPU (GlSphere), when the phone has GLES 3.0; else Sphere and Terrain in software */
+    private GlSphere gl;
+    /** pixels per device pixel of the GPU globes, far and close by the ground (as painter.js: 1 and 0.6) */
+    private static final float GL_RES = 0.75f, GL_RES_NEAR = 0.6f;
+    /** at most this many pixels in one globe picture (it is read back every frame) */
+    private static final int GL_MAX_PIXELS = 1600 * 1000;
 
     Painter(AssetManager assets) {
         this.assets = assets;
         stroke.setStyle(Paint.Style.STROKE);
         stroke.setStrokeJoin(Paint.Join.ROUND);
         stroke.setStrokeCap(Paint.Cap.ROUND);
+    }
+
+    /** Starts the GPU globes on this (the game's) thread; true when they work. */
+    boolean startGl() {
+        GlSphere g = new GlSphere();
+        if (g.init(assets)) gl = g;
+        return gl != null;
+    }
+
+    /** where a command's extra numbers after the optional parts begin */
+    private static int extras(float[] nums, int i) {
+        int flags = (int) nums[i + 17];
+        int e = i + HEADER;
+        if ((flags & 1) != 0) e += 4;
+        if ((flags & 4) != 0) e += 7;
+        if ((flags & 64) != 0) e += 4;
+        if ((flags & 1024) != 0) e += 4;
+        return e;
+    }
+
+    /**
+     * The globes from command i on that follow one another (a planet's ball
+     * and its detail pictures) drawn on the GPU into one picture; returns the
+     * index after the last one, or -1 when the GPU failed (nothing drawn).
+     */
+    private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale) {
+        int n = nums.length, j = i;
+        float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
+        boolean near = false;
+        while (j + HEADER <= n && (int) nums[j] == SPHERE) {
+            float x = nums[j + 1], y = nums[j + 2], w = nums[j + 3], h = nums[j + 4];
+            int s0 = (int) nums[j + 18], s2 = (int) nums[j + 20], nx = (int) nums[j + 22];
+            if (nx >= 20 && w > 0 && h > 0 && s0 >= 0 && s0 < strings.length && !strings[s0].isEmpty()) {
+                x0 = Math.min(x0, x);
+                y0 = Math.min(y0, y);
+                x1 = Math.max(x1, x + w);
+                y1 = Math.max(y1, y + h);
+                if (nx >= 40 && s2 >= 0 && s2 < strings.length && strings[s2].indexOf('|') > 0 && nums[extras(nums, j) + 35] > 0.5f) near = true;
+            }
+            j = j + HEADER + (int) nums[j + 22];
+        }
+        if (x1 <= x0 || y1 <= y0) return j;
+        float k = scale * (near ? GL_RES_NEAR : GL_RES);
+        float px = (x1 - x0) * (y1 - y0) * k * k;
+        if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
+        gl.begin(x0, y0, x1 - x0, y1 - y0, k);
+        boolean any = false;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            float x = nums[q + 1], y = nums[q + 2], w = nums[q + 3], h = nums[q + 4];
+            int s0 = (int) nums[q + 18], s1 = (int) nums[q + 19], s2 = (int) nums[q + 20], nx = (int) nums[q + 22];
+            if (nx < 20 || w <= 0 || h <= 0 || s0 < 0 || s0 >= strings.length || strings[s0].isEmpty()) continue;
+            String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
+            String hs = null, gs = null;
+            if (nx >= 40 && s2 >= 0 && s2 < strings.length) {
+                int bar = strings[s2].indexOf('|');
+                if (bar > 0) {
+                    hs = strings[s2].substring(0, bar);
+                    gs = strings[s2].substring(bar + 1);
+                }
+            }
+            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, extras(nums, q), nx);
+        }
+        Bitmap bm = gl.end();
+        if (bm == null) return -1;
+        if (any) {
+            src.set(0, 0, gl.width(), gl.height());
+            rf.set(x0, y0, x1, y1);
+            c.drawBitmap(bm, src, rf, image);
+        }
+        return j;
     }
 
     private static int argb(float r, float g, float b, float a) {
@@ -247,6 +323,13 @@ final class Painter {
         int i = 0, n = nums.length;
         while (i + HEADER <= n) {
             int k = (int) nums[i];
+            if (k == SPHERE && gl != null && gl.ok) {
+                int next = glSpheres(c, nums, strings, i, scale);
+                if (next >= 0) {
+                    i = next;
+                    continue;
+                }
+            }
             float x = nums[i + 1], y = nums[i + 2], w = nums[i + 3], h = nums[i + 4];
             float r = nums[i + 5], g = nums[i + 6], b = nums[i + 7], a = nums[i + 8];
             float tl = nums[i + 9], tr = nums[i + 10], br = nums[i + 11], bl = nums[i + 12];
