@@ -122,6 +122,19 @@ final class Painter {
         return gl != null;
     }
 
+    /** The GPU globes in the context the app paints everything with (GlCtx, current now). */
+    boolean startGlShared() {
+        GlSphere g = new GlSphere();
+        if (g.initShared(assets)) gl = g;
+        return gl != null;
+    }
+
+    /** the end of a GL-painted frame (the globes' log) */
+    void glFrameDone() {
+        if (gl != null) gl.frameDone();
+        glTune();
+    }
+
     /** where a command's extra numbers after the optional parts begin */
     private static int extras(float[] nums, int i) {
         int flags = (int) nums[i + 17];
@@ -139,6 +152,23 @@ final class Painter {
      * index after the last one, or -1 when the GPU failed (nothing drawn).
      */
     private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale) {
+        return glSpheres(c, nums, strings, i, scale, null);
+    }
+
+    /**
+     * For GL painting (GlHost.globes, the shared context): the globes of
+     * nums (one run of them) into a texture; out: texture, x, y, w, h (game
+     * units), the texture's part across and down, 0 (its first row is the
+     * top). False when nothing is to be shown.
+     */
+    boolean glGlobes(float[] nums, String[] strings, float px, float[] out) {
+        if (gl == null || !gl.ok) return false;
+        out[0] = 0;
+        int r = glSpheres(null, nums, strings, 0, px, out);
+        return r >= 0 && out[0] != 0;
+    }
+
+    private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale, float[] out) {
         int n = nums.length, j = i;
         float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
         boolean near = false;
@@ -157,7 +187,11 @@ final class Painter {
         if (x1 <= x0 || y1 <= y0) return j;
         // far off: the last picture again, moved and scaled, while the globe looks the same from here
         Baked bk = !near && glBake ? baked(nums, strings, i, j, x0, y0, x1, y1) : null;
-        if (bk != null && bk.bm != null) {
+        if (bk != null && c == null && bk.tex != 0 && bk.kept) {
+            put(out, bk.tex, x0, y0, x1 - x0, y1 - y0, bk.pw / (float) bk.tw, bk.ph / (float) bk.th);
+            return j;
+        }
+        if (bk != null && c != null && bk.bm != null) {
             src.set(0, 0, bk.pw, bk.ph);
             rf.set(x0, y0, x1, y1);
             c.drawBitmap(bk.bm, src, rf, image);
@@ -209,6 +243,28 @@ final class Painter {
             }
             any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
         }
+        if (c == null) {
+            int tex = gl.endTexture();
+            if (tex == 0) return -1;
+            if (any) {
+                put(out, tex, x0, y0, gl.width() / gl.scale(), gl.height() / gl.scale(), gl.width() / (float) gl.texWidth(), gl.height() / (float) gl.texHeight());
+                if (bk != null) {
+                    // kept in a texture of its own for the next frames
+                    bk.tex = gl.keep(bk.tex);
+                    bk.tw = gl.width() + 1;
+                    bk.th = gl.height() + 1;
+                    bk.pw = gl.width();
+                    bk.ph = gl.height();
+                    bk.at = System.currentTimeMillis();
+                    bk.bw = gl.width() / gl.scale();
+                    bk.bh = gl.height() / gl.scale();
+                    bk.kept = true;
+                }
+            } else if (bk != null) {
+                bk.kept = false;
+            }
+            return j;
+        }
         Bitmap bm = gl.end();
         if (bm == null) return -1;
         if (any) {
@@ -235,8 +291,22 @@ final class Painter {
     private boolean glBake = true;
     private int bakedReused;
 
+    private static void put(float[] out, int tex, float x, float y, float w, float h, float u1, float v1) {
+        out[0] = tex;
+        out[1] = x;
+        out[2] = y;
+        out[3] = w;
+        out[4] = h;
+        out[5] = u1;
+        out[6] = v1;
+        out[7] = 0;
+    }
+
     private static final class Baked {
         String key;
+        // GL painting: the kept picture's texture (w × h), and whether it holds the entry's picture
+        int tex, tw, th;
+        boolean kept;
         float[] eye = new float[3], sun = new float[3], cam = new float[9];
         float el, w, h, bw, bh;
         int count, pw, ph;
@@ -273,7 +343,7 @@ final class Painter {
         float ex = nums[at], ey = nums[at + 1], ez = nums[at + 2];
         float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
         float w = x1 - x0, h = y1 - y0;
-        boolean same = b.bm != null && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
+        boolean same = (b.bm != null || b.kept) && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
         if (same) {
             // a third of a pixel of the picture (about half a screen pixel), as an angle seen from the globe and as a share of its size
             float tol = 0.3f / Math.max(8, Math.max(b.pw, b.ph));
@@ -307,6 +377,7 @@ final class Painter {
         b.h = h;
         for (int a = 3; a < 12; a++) b.cam[a - 3] = nums[at + a];
         b.bm = null;
+        b.kept = false;
         return b;
     }
 
@@ -320,7 +391,7 @@ final class Painter {
     }
 
     /** Fredoka (assets/fonts) at the weight asked for, else the system's sans. */
-    private Typeface font(String weight, boolean italic) {
+    Typeface font(String weight, boolean italic) {
         String key = weight + (italic ? "i" : "");
         Typeface t = fonts.get(key);
         if (t != null) return t;

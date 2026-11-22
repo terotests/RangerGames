@@ -157,6 +157,7 @@ dependencies = [
  "jni",
  "rg_core",
  "rg_engine",
+ "rg_gl",
 ]
 
 [[package]]

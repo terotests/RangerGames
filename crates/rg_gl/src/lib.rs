@@ -957,6 +957,8 @@ impl Renderer {
                     bound = 0;
                 }
                 Step::Globes { from, to, clip } => {
+                    // the host sets its own attributes: on the default array, not ours
+                    gl::bind_vertex_array(0);
                     let out = host.globes(nums, strings, *from, *to, s);
                     // the host drew into its own framebuffer: back to ours
                     gl::viewport(0, 0, v.width, v.height);

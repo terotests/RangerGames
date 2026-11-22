@@ -26,6 +26,16 @@ fn with<R>(f: impl FnOnce(&mut Engine) -> R) -> R {
     })
 }
 
+/// The engine read only (made first if there is none yet, as `with`).
+fn with_ref<R>(f: impl FnOnce(&Engine) -> R) -> R {
+    ENGINE.with(|e| {
+        if e.borrow().is_none() {
+            *e.borrow_mut() = Some(new_engine());
+        }
+        f(e.borrow().as_ref().unwrap())
+    })
+}
+
 fn text(env: &mut JNIEnv, s: &JString) -> String {
     if s.is_null() {
         return String::new();
@@ -272,7 +282,9 @@ pub extern "system" fn Java_fi_rangergames_Engine_read<'a>(
     path: JString,
 ) -> jni::sys::jbyteArray {
     let path = text(&mut env, &path);
-    let found = with(|e| {
+    // a shared borrow: GL painting (Engine.glRender) holds one while the
+    // app's pictures and globes read their files
+    let found = with_ref(|e| {
         if e.vfs.size(&path) < 0 {
             None
         } else {
@@ -286,4 +298,214 @@ pub extern "system" fn Java_fi_rangergames_Engine_read<'a>(
             .unwrap_or(std::ptr::null_mut()),
         None => std::ptr::null_mut(),
     }
+}
+
+// ---- painting everything with GLES 3 (crates/rg_gl) ----
+// The app's game thread holds an EGL context with the window surface current
+// (GlCtx.java); Engine.glRender paints the last frame's stream into it, and
+// GlHost.java answers for pictures, text runs and globes.
+
+thread_local! {
+    static GL: RefCell<rg_gl::Renderer> = RefCell::new(rg_gl::Renderer::new());
+}
+
+const GLHOST: &str = "fi/rangergames/GlHost";
+
+/// Calls GlHost.java's static methods; its strings once a frame, when a globe asks.
+struct JniGlHost<'a, 'b> {
+    env: &'b mut JNIEnv<'a>,
+    strings: Option<jni::objects::GlobalRef>,
+}
+
+impl JniGlHost<'_, '_> {
+    fn clear_exception(&mut self) {
+        if self.env.exception_check().unwrap_or(false) {
+            let _ = self.env.exception_describe();
+            let _ = self.env.exception_clear();
+        }
+    }
+}
+
+impl rg_gl::Host for JniGlHost<'_, '_> {
+    fn image(&mut self, path: &str) -> rg_gl::Img {
+        let r = self
+            .env
+            .with_local_frame(4, |env| -> jni::errors::Result<i32> {
+                let p = env.new_string(path)?;
+                env.call_static_method(GLHOST, "image", "(Ljava/lang/String;)I", &[jni::objects::JValue::Object(&p)])?.i()
+            })
+            .unwrap_or(-2);
+        self.clear_exception();
+        match r {
+            -1 => rg_gl::Img::Pending,
+            r if r < 0 => rg_gl::Img::Failed,
+            r => rg_gl::Img::Ready((r as u32) >> 16, (r as u32) & 0xffff),
+        }
+    }
+
+    fn text_measure(&mut self, run: &rg_gl::TextRun) -> Option<(f32, f32, f32)> {
+        let mut out = [0f32; 3];
+        let ok = self
+            .env
+            .with_local_frame(8, |env| -> jni::errors::Result<bool> {
+                use jni::objects::JValue;
+                let t = env.new_string(run.text)?;
+                let w = env.new_string(run.weight)?;
+                let a = env.new_float_array(3)?;
+                let ok = env
+                    .call_static_method(
+                        GLHOST,
+                        "textMeasure",
+                        "(Ljava/lang/String;Ljava/lang/String;ZFF[F)Z",
+                        &[JValue::Object(&t), JValue::Object(&w), JValue::Bool(run.italic as u8), JValue::Float(run.size), JValue::Float(run.spacing), JValue::Object(&a)],
+                    )?
+                    .z()?;
+                if ok {
+                    env.get_float_array_region(&a, 0, &mut out)?;
+                }
+                Ok(ok)
+            })
+            .unwrap_or(false);
+        self.clear_exception();
+        if ok { Some((out[0], out[1], out[2])) } else { None }
+    }
+
+    fn text_draw(&mut self, run: &rg_gl::TextRun, x: i32, y: i32, w: i32, h: i32) -> bool {
+        let rgb = ((run.rgb[0] as i32) << 16) | ((run.rgb[1] as i32) << 8) | run.rgb[2] as i32;
+        let ok = self
+            .env
+            .with_local_frame(8, |env| -> jni::errors::Result<bool> {
+                use jni::objects::JValue;
+                let t = env.new_string(run.text)?;
+                let wt = env.new_string(run.weight)?;
+                env.call_static_method(
+                    GLHOST,
+                    "textDraw",
+                    "(Ljava/lang/String;Ljava/lang/String;ZFFIIIIII)Z",
+                    &[
+                        JValue::Object(&t),
+                        JValue::Object(&wt),
+                        JValue::Bool(run.italic as u8),
+                        JValue::Float(run.size),
+                        JValue::Float(run.spacing),
+                        JValue::Int(rgb),
+                        JValue::Int(run.pad),
+                        JValue::Int(x),
+                        JValue::Int(y),
+                        JValue::Int(w),
+                        JValue::Int(h),
+                    ],
+                )?
+                .z()
+            })
+            .unwrap_or(false);
+        self.clear_exception();
+        ok
+    }
+
+    fn globes(&mut self, nums: &[f32], strings: &[String], from: usize, to: usize, px: f32) -> Option<rg_gl::Globes> {
+        if self.strings.is_none() {
+            let made = self.env.with_local_frame(8, |env| -> jni::errors::Result<jni::objects::GlobalRef> {
+                let arr = env.new_object_array(strings.len() as i32, "java/lang/String", jni::objects::JObject::null())?;
+                for (i, s) in strings.iter().enumerate() {
+                    let js = env.new_string(s)?;
+                    env.set_object_array_element(&arr, i as i32, &js)?;
+                    env.delete_local_ref(js)?;
+                }
+                env.new_global_ref(arr)
+            });
+            self.clear_exception();
+            self.strings = made.ok();
+        }
+        let strs = self.strings.clone()?;
+        let mut out = [0f32; 8];
+        let ok = self
+            .env
+            .with_local_frame(8, |env| -> jni::errors::Result<bool> {
+                use jni::objects::JValue;
+                let sub = &nums[from..to.min(nums.len())];
+                let a = env.new_float_array(sub.len() as i32)?;
+                env.set_float_array_region(&a, 0, sub)?;
+                let o = env.new_float_array(8)?;
+                let ok = env
+                    .call_static_method(
+                        GLHOST,
+                        "globes",
+                        "([F[Ljava/lang/String;F[F)Z",
+                        &[JValue::Object(&a), JValue::Object(strs.as_obj()), JValue::Float(px), JValue::Object(&o)],
+                    )?
+                    .z()?;
+                if ok {
+                    env.get_float_array_region(&o, 0, &mut out)?;
+                }
+                Ok(ok)
+            })
+            .unwrap_or(false);
+        self.clear_exception();
+        if !ok {
+            return None;
+        }
+        Some(rg_gl::Globes { tex: out[0] as u32, x: out[1], y: out[2], w: out[3], h: out[4], u1: out[5], v1: out[6], flip: out[7] > 0.5 })
+    }
+}
+
+/// on: the app paints everything with GL (Engine.glRender), 3D as triangles in the stream
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_glAll(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| {
+        e.gl_all = on != 0;
+        if on != 0 {
+            e.gl3d = true;
+        }
+    });
+}
+
+/// on: the app can paint either way (the menu's ⚙ shows the choice, rg.paints)
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_paints(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| e.paints = on != 0);
+}
+
+/// Paints the last frame into the current GL surface (w × h pixels, density
+/// pixels a dp, the background colour); false when GL failed.
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_glRender(
+    mut env: JNIEnv,
+    _c: JClass,
+    w: jint,
+    h: jint,
+    density: jni::sys::jfloat,
+    r: jni::sys::jfloat,
+    g: jni::sys::jfloat,
+    b: jni::sys::jfloat,
+) -> jboolean {
+    let mut host = JniGlHost { env: &mut env, strings: None };
+    // read only: the host's calls back (Engine.read) borrow it too
+    with_ref(|e| {
+        GL.with(|gl| {
+            let mut gl = gl.borrow_mut();
+            let v = rg_gl::View {
+                scale: e.scale as f32,
+                x: e.off_x as f32,
+                y: e.off_y as f32,
+                w: e.ui.width as f32,
+                h: e.ui.height as f32,
+                density,
+                width: w,
+                height: h,
+            };
+            gl.render(&mut host, &e.draw.nums, &e.draw.strings, &e.scene.tris, &v, [r, g, b, 1.0]);
+            gl.ok() as jboolean
+        })
+    })
+}
+
+/// The GL renderer's numbers (draw calls, vertices, kept pictures) and its last error.
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_glStats(mut env: JNIEnv, _c: JClass) -> jstring {
+    let s = GL.with(|gl| {
+        let gl = gl.borrow();
+        if gl.error.is_empty() { gl.stats() } else { format!("{} | error: {}", gl.stats(), gl.error) }
+    });
+    jtext(&mut env, &s)
 }

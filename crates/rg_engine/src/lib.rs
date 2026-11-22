@@ -309,6 +309,9 @@ pub struct Engine {
     /// the host paints the whole stream with GL (crates/rg_gl): 3D always as
     /// triangles, placed in the stream by layer commands (kind 9)
     pub gl_all: bool,
+    /// the host can paint either way, GL or Canvas (rg.paints; the phone):
+    /// the choice is setting "paint", read by the host
+    pub paints: bool,
     /// the host draws textured globes (draw kind 8): planets with a
     /// `texture` are sent as one sphere command instead of their regions
     pub textures: bool,
@@ -351,6 +354,7 @@ impl Engine {
             scene: scene3d::Scene::new(),
             gl3d: false,
             gl_all: false,
+            paints: false,
             textures: false,
             store: false,
             detail: false,
@@ -739,6 +743,9 @@ impl Engine {
             // the renderers this host has, and the one drawing (rg.renderer)
             member("renderers", Json::Arr(if self.dom.is_some() { vec![Json::Str("evg".into()), Json::Str("dom".into())] } else { vec![Json::Str("evg".into())] })),
             member("renderer", Json::Str(if self.dom_on { "dom".into() } else { "evg".into() })),
+            // how the host paints (rg.paint) and whether it can do both
+            member("paints", Json::Arr(if self.paints { vec![Json::Str("gl".into()), Json::Str("canvas".into())] } else { vec![] })),
+            member("paint", Json::Str(if self.gl_all { "gl".into() } else { "canvas".into() })),
             // false when there is no launcher to go back to (a game played
             // alone from a link): no close button, exit stays in the game
             member("menu", Json::Bool(self.has_launcher())),

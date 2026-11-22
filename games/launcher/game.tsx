@@ -414,6 +414,7 @@ function Settings() {
     NetPanel(),
     StorePanel(),
     RendererPanel(),
+    PaintPanel(),
     <div className="phint">{rg.t("Pelien puhe: avaa peliryhmä ja paina ⚙️.", "Speech per game: open a group and tap ⚙️.", "Voz de cada juego: abre un grupo y toca ⚙️.")}</div>
   ];
 }
@@ -588,6 +589,21 @@ function RendererPanel() {
     <div className="panel">
       <div className="ptitle">{rg.t("Pelimoottori", "Game engine", "Motor de juego")}</div>
       <div className="flags">{opt("evg", "EVG")}{opt("dom", "RangerDOM")}</div>
+    </div>
+  );
+}
+
+// How the phone paints (rg.paint): everything with GL in one surface, or
+// Android's 2D canvas (the old way, for a device where GL goes wrong).
+function PaintPanel() {
+  if (!rg.paints || rg.paints.length < 2) return null;
+  const opt = (p: string, label: string) => (
+    <div className={rg.paint === p ? "rbtn on" : "rbtn"} id={"paint-" + p} onClick={tap(() => { rg.sound("click"); rg.setPaint(p); })}>{label}</div>
+  );
+  return (
+    <div className="panel">
+      <div className="ptitle">{rg.t("Piirto", "Drawing", "Dibujo")}</div>
+      <div className="flags">{opt("gl", "GL")}{opt("canvas", "Canvas")}</div>
     </div>
   );
 }

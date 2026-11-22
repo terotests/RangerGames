@@ -116,6 +116,16 @@ var rg = {
     if (rg.renderers.indexOf(r) < 0 || r === rg.renderer) return;
     __cmds.push(["setting", "renderer", r]);
   },
+  // How the phone paints: "gl" (everything with GLES 3, one surface) or
+  // "canvas" (Android's 2D canvas, the old way), where it can do both
+  // (rg.paints). rg.setPaint(p) keeps the choice; the app starts again with it.
+  paint: "canvas",
+  paints: [],
+  setPaint: function (p) {
+    p = String(p);
+    if (rg.paints.indexOf(p) < 0 || p === rg.paint) return;
+    __cmds.push(["setting", "paint", p]);
+  },
   // Whether game `id` (this game when left out) talks: the player's choice in
   // the launcher's settings, else the game's default (game.json "speech",
   // true when missing). rg.setSpeech(id, on) keeps the choice for that game.
@@ -628,6 +638,8 @@ function __start(arg) {
   rg.renderers = a.renderers || ["evg"];
   rg.store.available = !!a.store;
   rg.renderer = a.renderer || "evg";
+  rg.paints = a.paints || [];
+  rg.paint = a.paint || "canvas";
   rg.terrain = !!a.terrain;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
