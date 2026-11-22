@@ -106,6 +106,8 @@ final class GlSphere {
     int msaa = 0;
     /** the edge pass on (adb shell setprop debug.rg.gledge 0: off, for comparing) */
     boolean edge = true;
+    /** the shader's cheaper ground (adb shell setprop debug.rg.gllite 0: all bumps, bump normals and steps, for comparing) */
+    float lite = 1;
     // the edge pass: its program, and the picture it writes (read back instead of fbo's)
     private int progEdge, fbo2, target2, f2W, f2H;
     private final int[] u = new int[NAMES.length];
@@ -616,6 +618,7 @@ final class GlSphere {
 
     private void uniforms(int[] L, float[] p, int at, boolean w32, boolean w4, boolean w40, boolean useL, boolean ho, float x, float y, float w, float h) {
         GLES30.glUniform1f(L[USEL], useL ? 1 : 0);
+        GLES30.glUniform1f(L[LITE], lite);
         GLES30.glUniform1f(L[AIR], w32 ? p[at + 25] : 0);
         GLES30.glUniform3f(L[AIRC], w32 ? p[at + 26] : 0, w32 ? p[at + 27] : 0, w32 ? p[at + 28] : 0);
         GLES30.glUniform1f(L[LGAIN], w32 ? p[at + 29] : 0);

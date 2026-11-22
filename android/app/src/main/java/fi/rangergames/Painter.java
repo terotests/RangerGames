@@ -99,6 +99,8 @@ final class Painter {
                 if (gl != null) gl.meshOn = !"0".equals(m);
                 Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "1");
                 glBake = !"0".equals(bp);
+                Object li = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gllite", "1");
+                if (gl != null) gl.lite = "0".equals(li) ? 0 : 1;
                 Object ed = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gledge", "1");
                 if (gl != null) gl.edge = !"0".equals(ed);
                 Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "0");
