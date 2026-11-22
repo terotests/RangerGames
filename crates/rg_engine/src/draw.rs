@@ -277,6 +277,11 @@ impl DrawStream {
     ///    (brightness - its blur) / this, and light them by the game's own sun
     /// ```
     ///
+    /// With 40 numbers, near (35) and no window (24 = 0), 20-23 that are not
+    /// 0 0 1 1 are a hole: the windows drawn after this ball cover it (u may
+    /// run below 0 or past 1), so the host may skip the ground there, and
+    /// cast rays only around it (a margin for the parallax of mountains).
+    ///
     /// The bumps (the same in every host and in the game's own physics,
     /// web/js/painter.js `bumps` is the reference): with f = scale,
     /// detail(p) = amplitude × Σ(o = 0…4) 0.48^o × (2 × noise(p × f × 2.03^o)

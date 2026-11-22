@@ -46,7 +46,7 @@
     "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole; uniform vec4 hole;" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -105,6 +105,8 @@
     "  float top = mix(dec(texelFetch(gtex, ivec2(i0, j0), 0)), dec(texelFetch(gtex, ivec2(i1, j0), 0)), a.x);" +
     "  float bot = mix(dec(texelFetch(gtex, ivec2(i0, j1), 0)), dec(texelFetch(gtex, ivec2(i1, j1), 0)), a.x);" +
     "  return mix(top, bot, a.y); }" +
+    // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
+    "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz) break; n++; a *= 0.48; } return n; }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
     "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
@@ -118,17 +120,17 @@
     "  if (t1 <= t0) return false;" +
     "  float tp = t0; t = t0; bool hit = false;" +
     "  for (int i = 0; i < 160; i++) {" +
-    "    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, 3);" +
+    "    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, octs(t * pix));" +
     "    if (f < 0.0) { hit = true; break; }" +
     "    if (f < t * pix * 0.3) { hit = true; tp = t; break; }" +
-    "    tp = t; t += max(f * 0.55, t * pix * 0.4);" +
+    "    tp = t; t += max(f * 0.7, t * pix * 0.8);" +
     "    if (t > t1) return false;" +
     "  }" +
     "  if (!hit) return false;" +
     // between the last point above and the first below, with all the bumps
     "  float a = tp, b = t;" +
     "  for (int i = 0; i < 7; i++) { float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
-    "    if (r - ground(x / r, 5) < 0.0) b = m; else a = m; }" +
+    "    if (r - ground(x / r, octs(m * pix * 0.5)) < 0.0) b = m; else a = m; }" +
     "  t = b; return true;" +
     "}" +
     // how much sun reaches the ground point x (radii from the centre): a ray towards the sun against the ground's shape,
@@ -136,7 +138,7 @@
     "float sunRay(vec3 x, float sz) {" +
     "  float k = 1.0, t = max(sz * 4.0, 2e-6);" +
     "  for (int i = 0; i < 24; i++) { vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;" +
-    "    float h = r - ground(y / r, 3); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
+    "    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
     "void main() {" +
@@ -149,6 +151,11 @@
     "  if (terr && useWin > 0.5) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
     "    float mg = 0.004 + 0.5 * max(hhi - hlo, 0.0); float uw = w0.x; if (uw < win.x - mg) uw += 1.0; else if (uw > win.z + mg) uw -= 1.0;" +
     "    if (uw < win.x - mg || uw > win.z + mg || w0.y < win.y - mg || w0.y > win.w + mg) discard; }" +
+    // the whole ball close by: the windows drawn after it cover the hole, so only around it (a wide margin for
+    // mountains seen from the side) the long ray is cast
+    "  if (terr && useHole > 0.5) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
+    "    float mg = 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
+    "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg) discard; }" +
     "  bool hit = terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
@@ -252,7 +259,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -326,6 +333,9 @@
     gl.uniform1f(u.crat, w40 ? p[38] : 0);
     gl.uniform1f(u.mapAz, w40 && w4 ? p[31] : 0);
     gl.uniform1f(u.mapK, w40 && w4 ? p[39] : 0);
+    var ho = w40 && !w4 && p[35] > 0.5 && (p[20] !== 0 || p[21] !== 0 || p[22] !== 1 || p[23] !== 1);
+    gl.uniform1f(u.useHole, ho ? 1 : 0);
+    gl.uniform4f(u.hole, ho ? p[20] : 0, ho ? p[21] : 0, ho ? p[22] : 0, ho ? p[23] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);

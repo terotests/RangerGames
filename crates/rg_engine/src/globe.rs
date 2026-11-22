@@ -1101,7 +1101,10 @@ impl Globe {
             self.height_relief, rr / scale, self.height_craters, 0.0,
         ].iter().map(|v| *v as f32).collect();
         if extra {
-            params.extend(more([0.0, 0.0, 1.0, 1.0], 0.0, self.air));
+            // close over real ground, the sharper pictures' windows together (when they make one rectangle) are a
+            // hole the whole ball leaves to them: its long rays are cast only around and outside it
+            let hole = if terrain && near && self.detail_ok { detail_union(&self.detail) } else { None };
+            params.extend(more(hole.unwrap_or([0.0, 0.0, 1.0, 1.0]), 0.0, self.air));
             if terrain {
                 params.extend_from_slice(&hparams);
             }
@@ -1173,6 +1176,31 @@ impl Globe {
             out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &heights, &p);
         }
     }
+}
+
+/// The detail windows together, when they cover one rectangle of the map (u may run past 0 or 1 across the date line).
+fn detail_union(detail: &[(String, [f64; 4], [f64; 2])]) -> Option<[f64; 4]> {
+    let first = detail.first()?.1;
+    let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    let mut area = 0.0;
+    for (_, w, _) in detail.iter() {
+        let mut sh = 0.0;
+        if w[0] - first[0] > 0.5 {
+            sh = -1.0;
+        } else if w[0] - first[0] < -0.5 {
+            sh = 1.0;
+        }
+        a0 = a0.min(w[0] + sh);
+        a1 = a1.max(w[2] + sh);
+        b0 = b0.min(w[1]);
+        b1 = b1.max(w[3]);
+        area += (w[2] - w[0]) * (w[3] - w[1]);
+    }
+    let whole = (a1 - a0) * (b1 - b0);
+    if whole <= 0.0 || (area - whole).abs() > whole * 1e-6 || a1 - a0 >= 1.0 {
+        return None;
+    }
+    Some([a0, b0, a1, b1])
 }
 
 /// A ring of world points on the screen: cut at the camera's near plane,
