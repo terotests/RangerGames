@@ -88,7 +88,15 @@
     "  return s * hamp + cr * crat; }" +
     "float dec(vec4 c) { return (c.r * 65280.0 + c.g * 255.0) / 65535.0; }" +
     // the ground's radius at unit direction p: the coarse shape picture plus n octaves of bumps
-    "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * dec(textureLod(gtex, lonlat(p), 0.0)) + bumps(p, n); }" +
+    // the shape read bilinearly by hand, like the game reads it: GPUs' own filtering weighs the texels in 1/256 steps,
+    // and those small terraces cast false shadows when the sun is low
+    "float shape(vec2 t) { ivec2 sz = textureSize(gtex, 0); vec2 x = t * vec2(sz) - 0.5; vec2 f = floor(x); vec2 a = x - f;" +
+    "  int i0 = int(f.x) % sz.x; if (i0 < 0) i0 += sz.x; int i1 = (i0 + 1) % sz.x;" +
+    "  int j0 = clamp(int(f.y), 0, sz.y - 1), j1 = clamp(int(f.y) + 1, 0, sz.y - 1);" +
+    "  float top = mix(dec(texelFetch(gtex, ivec2(i0, j0), 0)), dec(texelFetch(gtex, ivec2(i1, j0), 0)), a.x);" +
+    "  float bot = mix(dec(texelFetch(gtex, ivec2(i0, j1), 0)), dec(texelFetch(gtex, ivec2(i1, j1), 0)), a.x);" +
+    "  return mix(top, bot, a.y); }" +
+    "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
     "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
     // casts the ray against the ground's shape; t: where it meets it
