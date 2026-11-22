@@ -1,6 +1,11 @@
-# Tests the engine and the games, builds the web version and the Android
-# APK, and publishes the web version (and the playground, playground.html)
-# on GitHub Pages from the default branch.
+# Tests the engine and the games, builds the web version and publishes it
+# (and the playground, playground.html) on GitHub Pages from main.
+# The Android APK (release "phone-latest") is built only when started by
+# hand: Actions -> CI -> Run workflow (on main).
+#
+# The voice clips (games/_voice, ~7400 Piper clips, ~700 MB) are kept in the
+# Actions cache: rendering them all again took ~55 min of every run. With the
+# cache, rg_voice renders only the clips whose text changed (stamp.json).
 name: CI
 
 # pushes to main, and pull requests (a branch with a PR got two identical
@@ -44,6 +49,12 @@ jobs:
           key: ${{ runner.os }}-rg-${{ hashFiles('scripts/setup.sh', 'Cargo.lock') }}
       - name: Dependencies (Ranger with EVG, ComponentEngine)
         run: bash scripts/setup.sh
+      - name: Voice clips from the cache (only changed clips are rendered again)
+        uses: actions/cache@v4
+        with:
+          path: games/_voice
+          key: voice-${{ hashFiles('voice/**', 'crates/rg_voice/**', 'scripts/build-voice.sh', 'scripts/setup-piper.sh') }}
+          restore-keys: voice-
       - name: Unit tests
         run: cargo test -p rg_core -p rg_engine -p rg_voice
       - name: rg_core stays in Ranger's Rust subset (JavaScript, C++, Go, Python)
@@ -62,13 +73,18 @@ jobs:
         run: sudo apt-get install -y binaryen
       - name: Web build (public games only, for GitHub Pages)
         run: RG_PUBLIC=1 bash scripts/build-web.sh
-      - uses: actions/upload-artifact@v4
+      # only main publishes: a PR's ~700 MB upload would take time for nothing
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: web
           path: dist/web
 
   android:
-    # natively: the engine with the NDK (no WebView), the Java host with gradle
+    # natively: the engine with the NDK (no WebView), the Java host with gradle.
+    # Only when started by hand (Run workflow): it takes ~30 min and the phone
+    # is installed rarely now (games go to Sliqtly Games).
+    if: github.event_name == 'workflow_dispatch'
     needs: engine
     runs-on: ubuntu-latest
     permissions:
@@ -93,6 +109,12 @@ jobs:
           key: ${{ runner.os }}-rg-android-${{ hashFiles('scripts/setup.sh', 'Cargo.lock') }}
       - name: Dependencies (Ranger with EVG, ComponentEngine)
         run: bash scripts/setup.sh
+      - name: Voice clips from the cache (only changed clips are rendered again)
+        uses: actions/cache@v4
+        with:
+          path: games/_voice
+          key: voice-${{ hashFiles('voice/**', 'crates/rg_voice/**', 'scripts/build-voice.sh', 'scripts/setup-piper.sh') }}
+          restore-keys: voice-
       - name: RangerDOM (a choice in the phone's settings)
         run: bash scripts/setup-dom.sh
       - uses: actions/setup-java@v4
