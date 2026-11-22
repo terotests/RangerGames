@@ -12,6 +12,10 @@
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star"
 //!                             | "prism" | "roof" | "dome"     // prism: size [length (x), height, width (z)], base at y 0;
+//!                             | "mesh"         // verts: [x, y, z, ...], tris: [a, b, c, ...] (counter-
+//!                                               // clockwise seen from outside), colors: a 0xrrggbb a
+//!                                               // triangle (else `color`), glow: the triangles drawn
+//!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
@@ -94,6 +98,43 @@ pub fn color(v: &Json, fallback: V3) -> V3 {
 struct Mesh {
     verts: Vec<V3>,
     faces: Vec<Vec<usize>>,
+    /// a colour a face ("mesh"); empty: the object's colour
+    cols: Vec<V3>,
+    /// the faces drawn unlit ("mesh"); empty: the object's `emissive`
+    glow: Vec<bool>,
+}
+
+impl Mesh {
+    fn plain(verts: Vec<V3>, faces: Vec<Vec<usize>>) -> Mesh {
+        Mesh { verts, faces, cols: Vec::new(), glow: Vec::new() }
+    }
+    /// face `f`'s colour and whether it is unlit, given the object's
+    fn face_paint(&self, f: usize, color: V3, emissive: bool) -> (V3, bool) {
+        (*self.cols.get(f).unwrap_or(&color), emissive || *self.glow.get(f).unwrap_or(&false))
+    }
+}
+
+/// A triangle mesh from flat lists (`rg.three("add", { shape: "mesh" })`);
+/// triangles that point past the corners are left out.
+fn tri_mesh(a: &Json) -> Mesh {
+    let v: Vec<f64> = a.get("verts").items().iter().map(|x| x.as_num(0.0)).collect();
+    let verts: Vec<V3> = v.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+    let t: Vec<usize> = a.get("tris").items().iter().map(|x| x.as_num(0.0).max(0.0) as usize).collect();
+    let cols_in = a.get("colors").items();
+    let glow_in: Vec<usize> = a.get("glow").items().iter().map(|x| x.as_num(-1.0)).filter(|x| *x >= 0.0).map(|x| x as usize).collect();
+    let fallback = color(&a.get("color"), [0.8, 0.8, 0.8]);
+    let mut m = Mesh::plain(verts, Vec::new());
+    for (i, c) in t.chunks_exact(3).enumerate() {
+        if c.iter().any(|&k| k >= m.verts.len()) {
+            continue;
+        }
+        m.faces.push(c.to_vec());
+        if !cols_in.is_empty() {
+            m.cols.push(cols_in.get(i).map(|x| color(x, fallback)).unwrap_or(fallback));
+        }
+        m.glow.push(glow_in.binary_search(&i).is_ok());
+    }
+    m
 }
 
 fn ring(r: f64, y: f64, n: usize, phase: f64) -> Vec<V3> {
@@ -246,7 +287,7 @@ fn mesh(shape: &str, size: &[f64], detail: usize) -> Mesh {
             ];
         }
     }
-    Mesh { verts, faces }
+    Mesh::plain(verts, faces)
 }
 
 /// A grid of (nx+1)*(nz+1) heights over w × d, centred on the origin: two
@@ -281,7 +322,7 @@ fn heightfield(size: &[f64], heights: &[f64]) -> Mesh {
             }
         }
     }
-    Mesh { verts, faces }
+    Mesh::plain(verts, faces)
 }
 
 struct Obj {
@@ -514,6 +555,8 @@ impl Scene {
                     mesh: if hf {
                         let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
                         heightfield(&size, &hs)
+                    } else if shape == "mesh" {
+                        tri_mesh(a)
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
                     },
@@ -796,7 +839,7 @@ impl Scene {
                 let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
                 add(p, o.pos)
             }).collect();
-            for face in o.mesh.faces.iter() {
+            for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
                 let c = world[face[face.len() - 1]];
@@ -830,7 +873,8 @@ impl Scene {
                 if x1 < 0.0 || y1 < 0.0 || x0 > w as f32 || y0 > h as f32 {
                     continue;
                 }
-                let lit = if o.emissive { o.color } else { self.shade(n, centre, o.color) };
+                let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
+                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
@@ -951,7 +995,7 @@ impl Scene {
             // decoration stays in front of its wall there too)
             let bias = o.layer.max(0) as f64 * 1.2e-5;
             let d = |z: f64| (depth(z) - bias).max(0.0);
-            for face in o.mesh.faces.iter() {
+            for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
                 let c = world[face[face.len() - 1]];
@@ -984,7 +1028,8 @@ impl Scene {
                 if x1 < 0.0 || y1 < 0.0 || x0 > w || y0 > h {
                     continue;
                 }
-                let lit = if o.emissive { o.color } else { self.shade(n, centre, o.color) };
+                let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
+                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
                 let dist = dot(towards, towards).sqrt();
                 fan(&mut tris, &pts, &d, self.fogged(lit, dist));
                 drawn += 1;
@@ -1024,4 +1069,26 @@ pub(crate) fn grow(pts: Vec<f32>) -> Vec<f32> {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod mesh_tests {
+    use super::*;
+
+    #[test]
+    fn a_mesh_keeps_a_colour_and_glow_a_face() {
+        let a = rg_core::json::parse(r##"{ "shape": "mesh", "color": "#808080",
+            "verts": [0,0,0, 1,0,0, 0,1,0, 0,0,1],
+            "tris": [0,1,2, 0,2,3, 0,1,9],
+            "colors": [16711680, "#00ff00"], "glow": [1] }"##);
+        let m = tri_mesh(&a);
+        // the third triangle points past the corners
+        assert_eq!(m.faces.len(), 2);
+        let grey = [0.5, 0.5, 0.5];
+        assert_eq!(m.face_paint(0, grey, false), ([1.0, 0.0, 0.0], false));
+        assert_eq!(m.face_paint(1, grey, false), ([0.0, 1.0, 0.0], true));
+        // plain shapes take the object's paint
+        let b = mesh("box", &[1.0], 1);
+        assert_eq!(b.face_paint(0, grey, true), (grey, true));
+    }
 }

@@ -144,13 +144,13 @@
   // text or bytes into the module's memory: [ptr, len] (freed by the caller)
   Host.prototype.put = function (data) {
     var bytes = typeof data === "string" ? enc.encode(data) : data;
-    var p = this.x.rg_alloc(bytes.length);
+    var p = this.x.rg_alloc(bytes.length) >>> 0;   // wasm pointers past 2 GB come out negative
     new Uint8Array(this.x.memory.buffer, p, bytes.length).set(bytes);
     return [p, bytes.length];
   };
   Host.prototype.free = function (pl) { this.x.rg_free(pl[0], pl[1]); };
   Host.prototype.text = function (ptr, len) {
-    return len ? dec.decode(new Uint8Array(this.x.memory.buffer, ptr, len)) : "";
+    return len ? dec.decode(new Uint8Array(this.x.memory.buffer, ptr >>> 0, len)) : "";
   };
 
   Host.prototype.mountPack = function (prefix, bytes) {
@@ -165,7 +165,7 @@
     var n = this.x.rg_read(a[0], a[1]);
     this.free(a);
     if (n < 0) return null;
-    return new Uint8Array(this.x.memory.buffer, this.x.rg_result_ptr(), this.x.rg_result_len()).slice();
+    return new Uint8Array(this.x.memory.buffer, this.x.rg_result_ptr() >>> 0, this.x.rg_result_len()).slice();
   };
 
   Host.prototype.restoreSaves = function () {
@@ -648,7 +648,7 @@
     x.rg_frame(dt);
     this.afterCall();
     this.readView();
-    var nums = new Float32Array(x.memory.buffer, x.rg_draw_ptr(), x.rg_draw_len());
+    var nums = new Float32Array(x.memory.buffer, x.rg_draw_ptr() >>> 0, x.rg_draw_len());
     var strings = this.text(x.rg_strings_ptr(), x.rg_strings_len()).split("\u0000");
     // images the frame names that are not loaded yet
     for (var i = 0; i < nums.length;) {
@@ -670,7 +670,7 @@
     }
     this.three.render(this.view, this.dpr);
     var gl = false;
-    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr(), x.rg_tris_len()), this.view, this.dpr, this.background);
+    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background);
     if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
     this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
     var ms = performance.now() - t0;
