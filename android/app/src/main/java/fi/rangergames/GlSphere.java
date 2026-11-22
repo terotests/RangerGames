@@ -260,7 +260,18 @@ final class GlSphere {
 
     /** A picture of the virtual directory as a texture, decoded and sent once (null when it does not decode). */
     private Tex texture(String src, boolean clamp, boolean flat) {
-        String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "");
+        return texture(src, clamp, flat, false);
+    }
+
+    /**
+     * height: a height picture (16 bits as red * 256 + green), sent as one
+     * float channel so that the GPU blends and shrinks the heights, not their
+     * bytes: blending the bytes with the GPU's 8-bit weights made the
+     * relief's slopes shimmer as the camera moved. The shader's dec() reads
+     * red * 65280 / 65535 + green * 255 / 65535, so red holds h * 65535 / 65280.
+     */
+    private Tex texture(String src, boolean clamp, boolean flat, boolean height) {
+        String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "") + (height ? "|h" : "");
         Tex t = textures.get(key);
         if (t != null) return t;
         byte[] bytes = src.startsWith("/") ? Engine.read(src) : null;
@@ -291,9 +302,34 @@ final class GlSphere {
         GLES30.glGenTextures(1, ids, 0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ids[0]);
         GLES30.glPixelStorei(GLES30.GL_UNPACK_ALIGNMENT, 1);
-        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, w, h, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, px);
+        if (height) {
+            float[] lv = new float[w * h];
+            for (int i = 0; i < w * h; i++) lv[i] = ((px.get(i * 4) & 255) * 256 + (px.get(i * 4 + 1) & 255)) / 65280f;
+            // the smaller levels by hand (glGenerateMipmap may refuse a half-float texture)
+            int lw = w, lh = h;
+            for (int level = 0; ; level++) {
+                FloatBuffer hf = ByteBuffer.allocateDirect(lw * lh * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+                hf.put(lv, 0, lw * lh).position(0);
+                GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, level, GLES30.GL_R16F, lw, lh, 0, GLES30.GL_RED, GLES30.GL_FLOAT, hf);
+                if (lw == 1 && lh == 1) break;
+                int nw = Math.max(1, lw / 2), nh = Math.max(1, lh / 2);
+                float[] nv = new float[nw * nh];
+                for (int y = 0; y < nh; y++) {
+                    for (int x = 0; x < nw; x++) {
+                        int x0 = Math.min(lw - 1, x * 2), x1 = Math.min(lw - 1, x * 2 + 1), y0 = Math.min(lh - 1, y * 2), y1 = Math.min(lh - 1, y * 2 + 1);
+                        nv[y * nw + x] = (lv[y0 * lw + x0] + lv[y0 * lw + x1] + lv[y1 * lw + x0] + lv[y1 * lw + x1]) * 0.25f;
+                    }
+                }
+                lv = nv;
+                lw = nw;
+                lh = nh;
+            }
+            flat = false;
+        } else {
+            GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, w, h, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, px);
+        }
         // flat: no smaller levels (the ground's shape is read bilinearly, as the game reads it)
-        if (!flat) GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D);
+        if (!flat && !height) GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, flat ? GLES30.GL_LINEAR : GLES30.GL_LINEAR_MIPMAP_LINEAR);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, clamp ? GLES30.GL_CLAMP_TO_EDGE : GLES30.GL_REPEAT);
@@ -381,7 +417,7 @@ final class GlSphere {
         Tex lt = w32 && lsrc != null && !lsrc.isEmpty() ? texture(lsrc, false, false) : null;
         Tex ht = null, gt = null;
         if (nx >= 40 && hs != null && gs != null) {
-            ht = texture(hs, false, false);
+            ht = texture(hs, false, false, true);
             gt = texture(gs, false, true);
             if (ht == null || gt == null) ht = gt = null;
         }
