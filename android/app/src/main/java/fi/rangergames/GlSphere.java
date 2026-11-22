@@ -62,7 +62,9 @@ final class GlSphere {
     // a = (ring, spoke); mgrid = (rings, spokes, first ring's angle, growth);
     // mspoke = (azimuth of the middle spoke, half the fan); mclip = (nearest
     // depth, 1 / log(farthest / nearest)); mcullM 1: keep only round the
-    // window mcull, 2: leave out the inside of the hole mcull
+    // window mcull (and within 0.18 rad of the point under the eye, where the
+    // windows fade out), 2: leave out the inside of the hole mcull (only
+    // within 0.10 rad, where the windows are whole)
     private static final String MESH_MAIN = "uniform vec4 mgrid, mcull; uniform vec2 mspoke, mclip; uniform float mcullM;\n" +
             "void main() {\n" +
             "  vec3 e = normalize(eye); vec3 E = normalize(vec3(-e.y, e.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 N = cross(e, E);\n" +
@@ -75,9 +77,9 @@ final class GlSphere {
             "    vec2 w = lonlat(dir); float mu = cell / 6.2831853 / max(0.02, sqrt(1.0 - dir.z * dir.z)), mv = cell / 3.1415927;\n" +
             "    float uw = w.x;\n" +
             "    if (mcullM < 1.5) { if (uw < mcull.x - mu) uw += 1.0; else if (uw > mcull.z + mu) uw -= 1.0;\n" +
-            "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv; }\n" +
+            "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv || ang - cell > 0.18; }\n" +
             "    else { if (uw < mcull.x) uw += 1.0; else if (uw > mcull.z) uw -= 1.0;\n" +
-            "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv; } }\n" +
+            "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv && ang + cell < 0.10; } }\n" +
             "  float h = ground(dir, octs(length(dir - eye) / focal));\n" +
             "  wpos = dir * h; uv = vec2(0.0);\n" +
             "  vec3 rel = wpos - eye; vec3 v = vec3(dot(rel, rgt), dot(rel, upv), dot(rel, fwd));\n" +
@@ -106,6 +108,8 @@ final class GlSphere {
     int msaa = 0;
     /** the edge pass on (adb shell setprop debug.rg.gledge 0: off, for comparing) */
     boolean edge = true;
+    /** the shader's cheaper ground: 2 (default) without the fine bumps, 1 with their slope towards the sun only (+10 ms at 5 km on the test tablet), 0 everything, adb shell setprop debug.rg.gllite */
+    float lite = 2;
     // the edge pass: its program, and the picture it writes (read back instead of fbo's)
     private int progEdge, fbo2, target2, f2W, f2H;
     private final int[] u = new int[NAMES.length];
@@ -121,7 +125,10 @@ final class GlSphere {
     private static final class Tex {
         int id;
         long bytes;
+        // the frame that last drew with it: never dropped in that frame or the one before
+        long used;
     }
+    private long frameNo;
 
     private long texBytes;
     private final LinkedHashMap<String, Tex> textures = new LinkedHashMap<>(32, 0.75f, true);
@@ -132,6 +139,7 @@ final class GlSphere {
     /** the end of a frame (for the pictures-a-frame count in the log) */
     void frameDone() {
         stFrames++;
+        frameNo++;
     }
     private long stPx, stDraw, stRead, stCopy;
     // the read pictures go round a ring, as in Painter: the hardware canvas
@@ -343,7 +351,10 @@ final class GlSphere {
     private Tex texture(String src, boolean clamp, boolean flat, boolean height) {
         String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "") + (height ? "|h" : "");
         Tex t = textures.get(key);
-        if (t != null) return t;
+        if (t != null) {
+            t.used = frameNo;
+            return t;
+        }
         // a detail picture (clamped) is decoded on another thread: until it is ready the ball's own picture shows
         // (decoding one on this thread stopped the frame for ~22 ms on the test tablet)
         if (clamp) {
@@ -448,16 +459,23 @@ final class GlSphere {
         t = new Tex();
         t.id = ids[0];
         t.bytes = (long) w * h * (flat ? 4 : 5);
+        t.used = frameNo;
         texBytes += t.bytes;
         textures.put(key, t);
         return t;
     }
 
-    /** between pictures: drops the least recently used textures past the budget */
+    /**
+     * between pictures: drops the least recently used textures past the budget,
+     * but never one drawn this frame or the last: the Moon's eight detail
+     * pictures with its own maps can pass the budget, and dropping one in use
+     * decoded it again and again (the ground under the ship stayed blurry)
+     */
     private void evict() {
         Iterator<Map.Entry<String, Tex>> it = textures.entrySet().iterator();
         while (texBytes > TEXTURE_BUDGET && it.hasNext()) {
             Map.Entry<String, Tex> e = it.next();
+            if (e.getValue().used >= frameNo - 1) continue;
             GLES30.glDeleteTextures(1, new int[] {e.getValue().id}, 0);
             texBytes -= e.getValue().bytes;
             it.remove();
@@ -620,6 +638,7 @@ final class GlSphere {
 
     private void uniforms(int[] L, float[] p, int at, boolean w32, boolean w4, boolean w40, boolean useL, boolean ho, float x, float y, float w, float h) {
         GLES30.glUniform1f(L[USEL], useL ? 1 : 0);
+        GLES30.glUniform1f(L[LITE], lite);
         GLES30.glUniform1f(L[AIR], w32 ? p[at + 25] : 0);
         GLES30.glUniform3f(L[AIRC], w32 ? p[at + 26] : 0, w32 ? p[at + 27] : 0, w32 ? p[at + 28] : 0);
         GLES30.glUniform1f(L[LGAIN], w32 ? p[at + 29] : 0);
