@@ -246,7 +246,11 @@
     "    vec4 g = airGlow(d, p, 0.0, max(th - max(t0, 0.0), 0.0), true);" +
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
-    "  o = vec4(min(c, vec3(1.0)), 1.0);" +
+    // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
+    // the ball's own picture when the game changes the pictures
+    "  float fa = useWin > 0.5 && !terr ? 1.0 - smoothstep(0.55, 0.85, th) : 1.0;" +
+    "  if (fa <= 0.0) discard;" +
+    "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
 
   function Spheres() {
