@@ -83,6 +83,25 @@ final class Painter {
     }
 
     /** Starts the GPU globes on this (the game's) thread; true when they work. */
+    // adb shell setprop debug.rg.glres 0.5: the GPU globes' resolution times
+    // this, read every two seconds (for measuring on a device)
+    private float glTune = 1;
+    private long glTuneAt;
+
+    private float glTune() {
+        long now = System.currentTimeMillis();
+        if (now - glTuneAt > 2000) {
+            glTuneAt = now;
+            try {
+                Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glres", "1");
+                glTune = Math.max(0.1f, Math.min(2f, Float.parseFloat((String) v)));
+            } catch (Throwable ignored) {
+                glTune = 1;
+            }
+        }
+        return glTune;
+    }
+
     boolean startGl() {
         GlSphere g = new GlSphere();
         if (g.init(assets)) gl = g;
@@ -125,6 +144,7 @@ final class Painter {
         float k = scale * (near ? GL_RES_NEAR : GL_RES);
         float px = (x1 - x0) * (y1 - y0) * k * k;
         if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
+        k *= glTune();
         gl.begin(x0, y0, x1 - x0, y1 - y0, k);
         boolean any = false;
         for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {

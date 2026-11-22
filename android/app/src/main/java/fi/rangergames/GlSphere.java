@@ -61,6 +61,8 @@ final class GlSphere {
     private final LinkedHashMap<String, Tex> textures = new LinkedHashMap<>(32, 0.75f, true);
 
     private ByteBuffer pixels = ByteBuffer.allocateDirect(4);
+    private int stN;
+    private long stPx, stDraw, stRead, stCopy;
     // the read pictures go round a ring, as in Painter: the hardware canvas
     // reads a bitmap later, on its own thread
     private final Bitmap[] ring = new Bitmap[4];
@@ -227,7 +229,8 @@ final class GlSphere {
         bpw = Math.max(1, Math.round(w * k));
         bph = Math.max(1, Math.round(h * k));
         EGL14.eglMakeCurrent(display, surface, surface, context);
-        target(bpw, bph);
+        // one row and column more, left clear: the smoothed bitmap reads past its edge
+        target(bpw + 1, bph + 1);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
         GLES30.glViewport(0, 0, bpw, bph);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
@@ -313,7 +316,7 @@ final class GlSphere {
         int slot = ringNext;
         ringNext = (ringNext + 1) % ring.length;
         Bitmap bm = ring[slot];
-        if (bm == null || bm.getWidth() < bpw || bm.getHeight() < bph || bm.getWidth() > bpw * 5 / 4 + 64) {
+        if (bm == null || bm.getWidth() < bpw + 1 || bm.getHeight() < bph + 1 || bm.getWidth() > bpw * 5 / 4 + 64) {
             // no recycle(): an earlier frame may still be drawing the old one
             bm = Bitmap.createBitmap(bpw + bpw / 8 + 16, bph + bph / 8 + 16, Bitmap.Config.ARGB_8888);
             ring[slot] = bm;
@@ -323,7 +326,11 @@ final class GlSphere {
         pixels.position(0);
         GLES30.glPixelStorei(GLES30.GL_PACK_ALIGNMENT, 4);
         GLES30.glPixelStorei(GLES30.GL_PACK_ROW_LENGTH, bm.getRowBytes() / 4);
-        GLES30.glReadPixels(0, 0, bpw, bph, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixels);
+        long t0 = System.nanoTime();
+        GLES30.glFinish();
+        long t1 = System.nanoTime();
+        GLES30.glReadPixels(0, 0, bpw + 1, bph + 1, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, pixels);
+        long t2 = System.nanoTime();
         GLES30.glPixelStorei(GLES30.GL_PACK_ROW_LENGTH, 0);
         int err = GLES30.glGetError();
         if (err != GLES30.GL_NO_ERROR) {
@@ -335,6 +342,18 @@ final class GlSphere {
         pixels.limit(bytes);
         bm.copyPixelsFromBuffer(pixels);
         pixels.limit(pixels.capacity());
+        long t3 = System.nanoTime();
+        // where the time goes, every 60 pictures (logcat RangerGames)
+        stDraw += t1 - t0;
+        stRead += t2 - t1;
+        stCopy += t3 - t2;
+        stPx += (long) bpw * bph;
+        if (++stN == 60) {
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL globes: %d px, gpu %.1f ms, read %.1f ms, copy %.1f ms",
+                    stPx / stN, stDraw / 1e6 / stN, stRead / 1e6 / stN, stCopy / 1e6 / stN));
+            stN = 0;
+            stPx = stDraw = stRead = stCopy = 0;
+        }
         evict();
         return bm;
     }
