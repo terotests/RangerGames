@@ -336,6 +336,8 @@ pub struct Scene {
     /// the host draws a sphere command only inside a window (a planet's
     /// `detail` pictures)
     pub detail: bool,
+    /// the host draws real heights (globe.rs `height`)
+    pub terrain: bool,
     /// the game's folder (textures are given in it)
     pub dir: String,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
@@ -409,6 +411,7 @@ impl Scene {
             gl: false,
             textures: false,
             detail: false,
+            terrain: false,
             dir: String::new(),
             tris: Vec::new(),
             globe: None,
@@ -712,6 +715,7 @@ impl Scene {
                 let p = &mut self.planets[i];
                 let place = crate::globe::Place3 { centre: p.pos, radius: p.r, axes: p.axes() };
                 p.globe.detail_ok = self.detail;
+                p.globe.terrain_ok = self.terrain;
                 p.globe.render_3d(out, &cam3, &place, sun, p.glowing, self.textures);
             }
         }

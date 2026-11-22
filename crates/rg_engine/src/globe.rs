@@ -30,6 +30,16 @@
 //!   lights, lightsGain,          // with a texture: a picture of city lights read on the night side
 //!   relief,                      // with a texture: its brightness read as height tilts the
 //!                                // ground for the sun, so hills and craters get shadows
+//!   height, heightShape,         // with a texture: real heights, two equirectangular pictures with
+//!                                // the height as (red × 256 + green) / 65535: a sharp one for the
+//!                                // shading, a coarse one (e.g. 256 × 128) for the ground's shape
+//!   heightMin, heightMax,        // the heights of 0 and 1 in them, in the same units as the
+//!                                // planet's r (rg.three("planet")); kilometres in Solar Pilot
+//!   heightDetail,                // made-up bumps on top, this high (same units; draw.rs `sphere`
+//!                                // gives the formula, so a game can stand on them too)
+//!   heightScale,                 // the bumps' coarsest size (same units, default r / 60)
+//!   heightRelief,                // how much the sharp picture tilts the ground (default 1: true)
+//!   heightCraters,               // made-up craters in the bumps: 0 none, 1 deep (a fifth of their width)
 //!   visible })
 //! ```
 //!
@@ -44,6 +54,10 @@ use rg_core::json::Json;
 use std::collections::HashMap;
 
 type V3 = [f64; 3];
+
+/// With real heights, an eye closer than this (in radii above the ball) sees
+/// the ground's shape: rays cast against it, mountains on the horizon.
+const TERRAIN_NEAR: f64 = 0.06;
 
 fn unit(lon: f64, lat: f64) -> V3 {
     let (slo, clo) = lon.to_radians().sin_cos();
@@ -245,6 +259,8 @@ pub struct Globe {
     detail: Vec<(String, [f64; 4])>,
     /// the host can draw `detail` (a sphere command with a window)
     pub detail_ok: bool,
+    /// the host can draw `height` (a sphere command with 40 numbers)
+    pub terrain_ok: bool,
     /// glowing air round a textured ball: its height in radii and colour
     air: f64,
     air_color: V3,
@@ -253,6 +269,17 @@ pub struct Globe {
     lights_gain: f64,
     /// how much the texture's brightness tilts the ground (bump shading)
     relief: f64,
+    /// real heights: the sharp picture for the shading, the coarse one for the shape
+    height: String,
+    height_shape: String,
+    /// heights of 0 and 1 in the pictures, the bumps' height and coarsest size
+    /// (the planet's units), how much the sharp picture tilts the ground
+    height_min: f64,
+    height_max: f64,
+    height_detail: f64,
+    height_scale: f64,
+    height_relief: f64,
+    height_craters: f64,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -305,12 +332,21 @@ impl Globe {
             texture: String::new(),
             detail: Vec::new(),
             detail_ok: false,
+            terrain_ok: false,
             drawn: 0,
             air: 0.0,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
             lights_gain: 1.0,
             relief: 0.0,
+            height: String::new(),
+            height_shape: String::new(),
+            height_min: 0.0,
+            height_max: 0.0,
+            height_detail: 0.0,
+            height_scale: 0.0,
+            height_relief: 1.0,
+            height_craters: 0.0,
         }
     }
 
@@ -372,6 +408,18 @@ impl Globe {
         }
         self.lights_gain = a.get("lightsGain").as_num(self.lights_gain);
         self.relief = a.get("relief").as_num(self.relief);
+        if let Json::Str(t) = a.get("height") {
+            self.height = t;
+        }
+        if let Json::Str(t) = a.get("heightShape") {
+            self.height_shape = t;
+        }
+        self.height_min = a.get("heightMin").as_num(self.height_min);
+        self.height_max = a.get("heightMax").as_num(self.height_max);
+        self.height_detail = a.get("heightDetail").as_num(self.height_detail).max(0.0);
+        self.height_scale = a.get("heightScale").as_num(self.height_scale).max(0.0);
+        self.height_relief = a.get("heightRelief").as_num(self.height_relief);
+        self.height_craters = a.get("heightCraters").as_num(self.height_craters).max(0.0);
         if let Json::Arr(v) = a.get("detail") {
             self.detail = v.iter().take(8).filter_map(|d| {
                 let src = d.get("src").as_str();
@@ -974,6 +1022,13 @@ impl Globe {
         if self.air > 0.0 && air_cap.is_none() {
             whole = true;
         }
+        // close over real ground: mountains can stand above the smooth ball's
+        // horizon, and the rays are cast against the ground's shape
+        let terrain = self.has_terrain();
+        let near = terrain && dist < place.radius * (1.0 + TERRAIN_NEAR);
+        if near {
+            whole = true;
+        }
         let rim: Vec<V3> = match &air_cap {
             Some(c) => c.horizon(48).iter().map(|p| [p[0] * ka, p[1] * ka, p[2] * ka]).collect(),
             None => cap.horizon(48),
@@ -1025,7 +1080,7 @@ impl Globe {
             cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
         ];
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0;
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain;
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1033,10 +1088,21 @@ impl Globe {
             [win[0], win[1], win[2], win[3], use_win, air, c[0], c[1], c[2], self.lights_gain, self.relief, 0.0]
                 .iter().map(|v| *v as f32).collect()
         };
+        // the 40-number form: the heights (draw.rs `sphere`)
+        let heights = if terrain { format!("{}|{}", self.height, self.height_shape) } else { String::new() };
+        let rr = place.radius.max(1e-9);
+        let scale = if self.height_scale > 0.0 { self.height_scale } else { rr / 60.0 };
+        let hparams: Vec<f32> = [
+            self.height_min / rr, self.height_max / rr, self.height_detail / rr, if near { 1.0 } else { 0.0 },
+            self.height_relief, rr / scale, self.height_craters, 0.0,
+        ].iter().map(|v| *v as f32).collect();
         if extra {
             params.extend(more([0.0, 0.0, 1.0, 1.0], 0.0, self.air));
+            if terrain {
+                params.extend_from_slice(&hparams);
+            }
         }
-        out.sphere_air(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &params);
+        out.sphere_terrain(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, &params);
         params.truncate(20);
         self.drawn = 1;
         if !self.detail_ok {
@@ -1045,6 +1111,7 @@ impl Globe {
         // the sharper pictures: the same ball once more for each, drawn by
         // the host only inside its window, in the box its part of the
         // surface takes on the screen
+        let near_c0 = (cap.c0.clamp(-1.0, 1.0).acos() + (2.0 * (self.terrain_high() / rr).max(0.0)).sqrt() + 0.02).min(std::f64::consts::PI).cos();
         for (src, win) in self.detail.iter() {
             let n = 8;
             let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
@@ -1057,7 +1124,8 @@ impl Globe {
                     let lon = (u - 0.5) * std::f64::consts::TAU;
                     let lat = (0.5 - v) * std::f64::consts::PI;
                     let p = [lat.cos() * lon.cos(), lat.cos() * lon.sin(), lat.sin()];
-                    if dot(p, cap.e) >= cap.c0 {
+                    // close over real ground, mountains past the smooth horizon too
+                    if dot(p, cap.e) >= cap.c0 || (near && dot(p, cap.e) >= near_c0) {
                         seen = true;
                     }
                     let q = cam.view(place.world(&p));
@@ -1089,10 +1157,13 @@ impl Globe {
             if extra {
                 // the air is drawn once, with the whole ball
                 p.extend(more(*win, 1.0, 0.0));
+                if terrain {
+                    p.extend_from_slice(&hparams);
+                }
             } else {
                 p.extend(win.iter().map(|v| *v as f32));
             }
-            out.sphere_air(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &p);
+            out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &heights, &p);
         }
     }
 }
@@ -1146,6 +1217,18 @@ impl Globe {
     /// globe's own `sun`), and `glowing` makes it a light itself (a star:
     /// no shading, no night). The rest (regions, bands, peaks, colours) is
     /// the same as for the flat globe.
+    /// Real heights to draw: a map, both height pictures and a range.
+    fn has_terrain(&self) -> bool {
+        self.terrain_ok && !self.texture.is_empty() && !self.height.is_empty() && !self.height_shape.is_empty() && self.height_max > self.height_min
+    }
+    /// The lowest and highest the ground can be over the ball's radius (planet units).
+    fn terrain_low(&self) -> f64 {
+        let scale = if self.height_scale > 0.0 { self.height_scale } else { 1.0 };
+        self.height_min - 2.0 * self.height_detail - 0.25 * self.height_craters * scale
+    }
+    fn terrain_high(&self) -> f64 {
+        self.height_max + 2.0 * self.height_detail
+    }
     /// Makes a texture path given in the game's folder absolute.
     pub fn texture_in(&mut self, dir: &str) {
         if !self.texture.is_empty() && !self.texture.starts_with('/') && !dir.is_empty() {
@@ -1153,6 +1236,12 @@ impl Globe {
         }
         if !self.lights.is_empty() && !self.lights.starts_with('/') && !dir.is_empty() {
             self.lights = rg_core::vfs::join(dir, &self.lights);
+        }
+        if !self.height.is_empty() && !self.height.starts_with('/') && !dir.is_empty() {
+            self.height = rg_core::vfs::join(dir, &self.height);
+        }
+        if !self.height_shape.is_empty() && !self.height_shape.starts_with('/') && !dir.is_empty() {
+            self.height_shape = rg_core::vfs::join(dir, &self.height_shape);
         }
         if !dir.is_empty() {
             for d in self.detail.iter_mut() {
@@ -1172,11 +1261,14 @@ impl Globe {
         // inside (or a hair over) the ball: nothing to see of it; only a little
         // over, so a camera a few metres above the ground still sees the ground
         let dist = dot(to_eye, to_eye).sqrt();
-        if dist <= place.radius * 1.000_000_5 {
+        // with real heights the ground can be below the ball's radius (a deep crater)
+        let terrain = textures && !glowing && self.has_terrain();
+        let floor = if terrain { (1.0 + self.terrain_low() / place.radius).min(1.000_000_5) } else { 1.000_000_5 };
+        if dist <= place.radius * floor {
             return;
         }
         let e = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);
-        let cap = Cap::new(e, place.radius / dist);
+        let cap = Cap::new(e, (place.radius / dist).min(0.999_999_9));
         let (w, h) = (cam.w, cam.h);
         // the light in the globe's own frame
         let sun_local = if glowing {
@@ -1592,6 +1684,39 @@ mod tests {
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, true);
         assert_eq!(out.count, 0);
+    }
+
+    #[test]
+    fn real_heights_are_40_numbers_and_the_pictures_as_string_3() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r##"{{"regions":[["A","x",{}]],"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-0.1,"heightMax":0.2,
+            "heightDetail":0.004,"heightScale":0.05,"heightCraters":1}}"##, square(0.0, 0.0)));
+        g.command(&a);
+        g.texture_in("/games/x");
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        // a host that cannot draw them: the 20-number form as before
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.nums[22], 20.0);
+        g.terrain_ok = true;
+        // far: the heights only shade (near = 0)
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        let n = &out.nums;
+        assert_eq!(n[22], 40.0);
+        assert_eq!(out.strings[n[20] as usize], "/games/x/img/moon-height.png|/games/x/img/moon-shape.png");
+        let p = &n[23..63];
+        assert!((p[32] + 0.05).abs() < 1e-6 && (p[33] - 0.1).abs() < 1e-6 && (p[34] - 0.002).abs() < 1e-6, "{:?}", &p[32..40]);
+        assert_eq!(p[35], 0.0);
+        assert!((p[37] - 40.0).abs() < 1e-4 && p[38] == 1.0);
+        // close by, below the ball's radius (a deep crater): still drawn, near, the whole view
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([1.995, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.count, 1);
+        let n = &out.nums;
+        assert_eq!(n[23 + 35], 1.0);
+        assert_eq!((n[1], n[2]), (0.0, 0.0));
     }
 
     #[test]

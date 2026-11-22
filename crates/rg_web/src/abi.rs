@@ -188,6 +188,12 @@ pub extern "C" fn rg_detail(on: i32) {
     with(|e| e.detail = on != 0)
 }
 
+/// The host draws real heights on a globe (a sphere command with 40 numbers).
+#[no_mangle]
+pub extern "C" fn rg_terrain(on: i32) {
+    with(|e| e.terrain = on != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())
