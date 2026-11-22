@@ -475,6 +475,15 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                     }
                 }
             }
+            // frames a second, as the GL path logs them (comparing the two)
+            glFrames++;
+            long now = System.nanoTime();
+            if (glStatsAt == 0) glStatsAt = now;
+            if (now - glStatsAt > 5_000_000_000L) {
+                Log.i(TAG, String.format(java.util.Locale.ROOT, "Canvas paint: %.1f fps", glFrames * 1e9 / (now - glStatsAt)));
+                glFrames = 0;
+                glStatsAt = now;
+            }
             // the hardware canvas waits for the display's frame; keep to about 60 fps otherwise
             long spent = (System.nanoTime() - t) / 1000000;
             if (spent < 15) sleep(15 - spent);
