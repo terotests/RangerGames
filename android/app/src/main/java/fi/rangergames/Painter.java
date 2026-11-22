@@ -144,13 +144,17 @@ final class Painter {
         return px;
     }
 
-    private void sphere(Canvas c, String s, float x, float y, float w, float h, float[] nums, int at) {
+    private void sphere(Canvas c, String s, String ls, float x, float y, float w, float h, float[] nums, int at, int nx) {
         int[] tex = map(s);
         if (tex == null) return;
         int[] size = mapSizes.get(s);
+        // the 32-number form: the air, the city lights (second picture) and the relief
+        int[] lt = nx >= 32 && !ls.isEmpty() ? map(ls) : null;
+        int[] lsize = lt != null ? mapSizes.get(ls) : null;
         int ow = Math.max(1, Math.round(w * SPHERE_RES)), oh = Math.max(1, Math.round(h * SPHERE_RES));
         if (sphereOut.length < ow * oh) sphereOut = new int[ow * oh];
-        Sphere.cast(sphereOut, ow, oh, x, y, w, h, tex, size[0], size[1], nums, at);
+        Sphere.cast(sphereOut, ow, oh, x, y, w, h, tex, size[0], size[1], nums, at, nx >= 32,
+                lt, lsize != null ? lsize[0] : 0, lsize != null ? lsize[1] : 0);
         int slot = sphereNext;
         sphereNext = (sphereNext + 1) % sphereBitmaps.length;
         Bitmap bm = sphereBitmaps[slot];
@@ -215,7 +219,8 @@ final class Painter {
 
             if (k == SPHERE) {
                 String s = s0 >= 0 && s0 < strings.length ? strings[s0] : "";
-                if (!s.isEmpty() && nx >= 20 && w > 0 && h > 0) sphere(c, s, x, y, w, h, nums, e);
+                String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
+                if (!s.isEmpty() && nx >= 20 && w > 0 && h > 0) sphere(c, s, ls, x, y, w, h, nums, e, nx);
                 continue;
             }
             if (k == PUSH_CLIP) {
