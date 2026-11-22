@@ -244,6 +244,9 @@
     "    float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);" +
     // (the mesh's point lies on its flat triangles: the sun's ray starts from the true ground there)
     "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + d * th, fp);" +
+    // close by on the day side the shadows are not black: the sunlit ground round them lights them a little
+    // (about a fifth), and the slopes still show in it (the shadows of the coarse heights were blurry black patches)
+    "    if (terr) k = max(k, 0.2 * smoothstep(-0.04, 0.22, s) * clamp(1.0 + 3.0 * (dot(n, p) - 1.0) + 0.6 * dot(n - p * dot(n, p), sun), 0.3, 1.3));" +
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
     "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
