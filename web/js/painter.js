@@ -217,11 +217,15 @@
     // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
     // faded in as its pixels grow larger than the screen's
     "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fp);" +
-    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z), w64 = 0.5 * smoothstep(3.0, 4.0, z);" +
+    // (both, and the picture's own slopes below, fade out near the piece's edges: the next piece's pattern and
+    // blur differ, and its edge showed as a line in the fine detail)
+    "      float ew = smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v)));" +
+    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z) * ew, w64 = 0.5 * smoothstep(3.0, 4.0, z) * ew;" +
     "      if (w8 > 0.0) hf += w8 * (lumAt(p, fp, 0.0, 8.0) - lumAt(p, fp, 3.0, 8.0));" +
     "      if (w64 > 0.0) hf += w64 * (lumAt(p, fp, 0.0, 64.0) - lumAt(p, fp, 3.0, 64.0)); }" +
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
-    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
+    "      float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;" +
+    "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }" +
     "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
     // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
     // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
@@ -244,6 +248,9 @@
     "    float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);" +
     // (the mesh's point lies on its flat triangles: the sun's ray starts from the true ground there)
     "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + d * th, fp);" +
+    // close by on the day side the shadows are not black: the sunlit ground round them lights them a little
+    // (about a fifth), and the slopes still show in it (the shadows of the coarse heights were blurry black patches)
+    "    if (terr) k = max(k, 0.2 * smoothstep(-0.04, 0.22, s) * clamp(1.0 + 3.0 * (dot(n, p) - 1.0) + 0.6 * dot(n - p * dot(n, p), sun), 0.3, 1.3));" +
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
     "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
