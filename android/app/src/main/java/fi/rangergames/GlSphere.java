@@ -18,6 +18,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -92,6 +93,8 @@ final class GlSphere {
     boolean ok;
     /** the mesh close by in use (adb shell setprop debug.rg.glmesh 0: rays instead, for comparing) */
     boolean meshOn = true;
+    /** set by Painter while a detail picture of the batch is still decoding: the ball leaves no hole for it */
+    boolean noHole;
 
     private static final class Tex {
         int id;
@@ -274,8 +277,44 @@ final class GlSphere {
         String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "") + (height ? "|h" : "");
         Tex t = textures.get(key);
         if (t != null) return t;
+        // a detail picture (clamped) is decoded on another thread: until it is ready the ball's own picture shows
+        // (decoding one on this thread stopped the frame for ~22 ms on the test tablet)
+        if (clamp) {
+            java.util.concurrent.Future<Object[]> f = pending.get(key);
+            if (f == null) {
+                byte[] bytes = src.startsWith("/") ? Engine.read(src) : null;
+                if (bytes == null) return null;
+                pending.put(key, decoder.submit(() -> decode(bytes)));
+                return null;
+            }
+            if (!f.isDone()) return null;
+            pending.remove(key);
+            Object[] d;
+            try {
+                d = f.get();
+            } catch (Exception e) {
+                d = null;
+            }
+            if (d == null) return null;
+            return upload(key, (Integer) d[0], (Integer) d[1], (ByteBuffer) d[2], clamp, flat, height);
+        }
         byte[] bytes = src.startsWith("/") ? Engine.read(src) : null;
         if (bytes == null) return null;
+        Object[] d = decode(bytes);
+        if (d == null) return null;
+        return upload(key, (Integer) d[0], (Integer) d[1], (ByteBuffer) d[2], clamp, flat, height);
+    }
+
+    /** whether the picture is on the GPU (a detail picture may still be decoding); starts it if not */
+    boolean ready(String src) {
+        return texture(src, true, false) != null;
+    }
+
+    private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final HashMap<String, java.util.concurrent.Future<Object[]>> pending = new HashMap<>();
+
+    /** A picture's bytes to RGBA pixels: {width, height, pixels}, or null. Any thread. */
+    private Object[] decode(byte[] bytes) {
         BitmapFactory.Options o = new BitmapFactory.Options();
         // heights are numbers in the colours: not multiplied by alpha
         o.inPremultiplied = false;
@@ -298,6 +337,11 @@ final class GlSphere {
         b.copyPixelsToBuffer(px);
         b.recycle();
         px.position(0);
+        return new Object[] {w, h, px};
+    }
+
+    private Tex upload(String key, int w, int h, ByteBuffer px, boolean clamp, boolean flat, boolean height) {
+        Tex t;
         int[] ids = new int[1];
         GLES30.glGenTextures(1, ids, 0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ids[0]);
@@ -431,7 +475,7 @@ final class GlSphere {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE3);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, w40 ? gt.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
-        boolean ho = w40 && !w4 && p[at + 35] > 0.5f && (p[at + 20] != 0 || p[at + 21] != 0 || p[at + 22] != 1 || p[at + 23] != 1);
+        boolean ho = !noHole && w40 && !w4 && p[at + 35] > 0.5f && (p[at + 20] != 0 || p[at + 21] != 0 || p[at + 22] != 1 || p[at + 23] != 1);
         // this globe's box inside the picture (pixels, y up in GL)
         int vx = Math.round((x - bx) * bk), vy = Math.round((y - by) * bk);
         int vw = Math.max(1, Math.round(w * bk)), vh = Math.max(1, Math.round(h * bk));

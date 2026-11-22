@@ -149,6 +149,13 @@ final class Painter {
         float px = (x1 - x0) * (y1 - y0) * k * k;
         if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
         k *= glTune();
+        // detail pictures still decoding (another thread): the ball covers their place meanwhile
+        boolean allReady = true;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            int s0 = (int) nums[q + 18], nx = (int) nums[q + 22];
+            if (nx >= 32 && nums[extras(nums, q) + 24] > 0.5f && s0 >= 0 && s0 < strings.length && !strings[s0].isEmpty() && !gl.ready(strings[s0])) allReady = false;
+        }
+        gl.noHole = !allReady;
         gl.begin(x0, y0, x1 - x0, y1 - y0, k);
         boolean any = false;
         for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
