@@ -38,9 +38,45 @@ final class GlSphere {
     private static final String TAG = "RangerGames";
     // uv 0..1 over the box, y down as on the Canvas; drawn upside down so the
     // rows read back come top row first, as a Bitmap wants them
-    private static final String VS = "#version 300 es\nin vec2 a; out vec2 uv; void main() { uv = a; gl_Position = vec4(a.x * 2.0 - 1.0, a.y * 2.0 - 1.0, 0.0, 1.0); }";
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33;
+    private static final String VS = "#version 300 es\nin vec2 a; out vec2 uv; out vec3 wpos; void main() { uv = a; wpos = vec3(0.0); gl_Position = vec4(a.x * 2.0 - 1.0, a.y * 2.0 - 1.0, 0.0, 1.0); }";
+    // The ground close by as a mesh (meshM 1 in the shader): rings round the
+    // point under the eye at angles growing by a constant factor, spokes over
+    // the side the camera looks to, each corner lifted to the ground's height
+    // with the shader's own ground(). Prepended: the fragment shader's
+    // functions (shape, bumps, lonlat...), see meshVs().
+    // a = (ring, spoke); mgrid = (rings, spokes, first ring's angle, growth);
+    // mspoke = (azimuth of the middle spoke, half the fan); mclip = (nearest
+    // depth, 1 / log(farthest / nearest)); mcullM 1: keep only round the
+    // window mcull, 2: leave out the inside of the hole mcull
+    private static final String MESH_MAIN = "uniform vec4 mgrid, mcull; uniform vec2 mspoke, mclip; uniform float mcullM;\n" +
+            "void main() {\n" +
+            "  vec3 e = normalize(eye); vec3 E = normalize(vec3(-e.y, e.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 N = cross(e, E);\n" +
+            "  float ang = a.x < 0.5 ? 0.0 : mgrid.z * pow(mgrid.w, a.x - 1.0);\n" +
+            "  float ph = mspoke.x - mspoke.y + 2.0 * mspoke.y * a.y / mgrid.y;\n" +
+            "  vec3 dir = cos(ang) * e + sin(ang) * (cos(ph) * E + sin(ph) * N);\n" +
+            // a corner farther than a cell from the window (or inside the hole by more) is left out: its triangles lie wholly outside
+            "  bool cut = false;\n" +
+            "  if (mcullM > 0.5) { float cell = 1.5 * max(ang, mgrid.z) * max(mgrid.w - 1.0, 2.0 * mspoke.y / mgrid.y) + 1e-5;\n" +
+            "    vec2 w = lonlat(dir); float mu = cell / 6.2831853 / max(0.02, sqrt(1.0 - dir.z * dir.z)), mv = cell / 3.1415927;\n" +
+            "    float uw = w.x;\n" +
+            "    if (mcullM < 1.5) { if (uw < mcull.x - mu) uw += 1.0; else if (uw > mcull.z + mu) uw -= 1.0;\n" +
+            "      cut = uw < mcull.x - mu || uw > mcull.z + mu || w.y < mcull.y - mv || w.y > mcull.w + mv; }\n" +
+            "    else { if (uw < mcull.x) uw += 1.0; else if (uw > mcull.z) uw -= 1.0;\n" +
+            "      cut = uw > mcull.x + mu && uw < mcull.z - mu && w.y > mcull.y + mv && w.y < mcull.w - mv; } }\n" +
+            "  float h = ground(dir, octs(length(dir - eye) / focal));\n" +
+            "  wpos = dir * h; uv = vec2(0.0);\n" +
+            "  vec3 rel = wpos - eye; vec3 v = vec3(dot(rel, rgt), dot(rel, upv), dot(rel, fwd));\n" +
+            "  float cx = ((view.x * 0.5 - box.x) * v.z + focal * v.x) / box.z * 2.0 - v.z;\n" +
+            "  float cy = ((view.y * 0.5 - box.y) * v.z - focal * v.y) / box.w * 2.0 - v.z;\n" +
+            // depth by the log of the distance: from metres to the horizon in 24 bits
+            "  float zl = log(max(v.z, mclip.x) / mclip.x) * mclip.y;\n" +
+            "  gl_Position = cut ? vec4(0.0, 0.0, 2.0, 1.0) : vec4(cx, cy, (zl * 2.0 - 1.0) * v.z, v.z);\n" +
+            "}\n";
+    private static final int RINGS = 96, SPOKES = 160;
+    private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
+    private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -48,9 +84,14 @@ final class GlSphere {
     private EGLContext context = EGL14.EGL_NO_CONTEXT;
     private EGLSurface surface = EGL14.EGL_NO_SURFACE;
     private int prog, vbo, fbo, target, maxTex = 2048;
-    private int fbW, fbH;
+    private int fbW, fbH, depth;
     private final int[] u = new int[NAMES.length];
+    // the mesh program (its own uniform locations), its grid and triangles; 0 when it did not build
+    private int progMesh, meshVbo, meshIbo, meshCount;
+    private final int[] um = new int[NAMES.length], mu = new int[MNAMES.length];
     boolean ok;
+    /** the mesh close by in use (adb shell setprop debug.rg.glmesh 0: rays instead, for comparing) */
+    boolean meshOn = true;
 
     private static final class Tex {
         int id;
@@ -110,6 +151,8 @@ final class GlSphere {
             GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
             GLES30.glGenFramebuffers(1, ids, 0);
             fbo = ids[0];
+            GLES30.glGenRenderbuffers(1, ids, 0);
+            depth = ids[0];
             GLES30.glGenTextures(1, ids, 0);
             target = ids[0];
             GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, ids, 0);
@@ -121,13 +164,78 @@ final class GlSphere {
             GLES30.glUniform1i(u[GTEX], 3);
             // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
             GLES30.glUniform1f(u[LITE], 1);
+            try {
+                buildMesh(fs);
+            } catch (Throwable t) {
+                Log.w(TAG, "GL globes: no mesh close by (rays instead): " + t.getMessage());
+                progMesh = 0;
+            }
             ok = GLES30.glGetError() == GLES30.GL_NO_ERROR;
-            Log.i(TAG, "GL globes: " + (ok ? "on" : "GL error") + ", " + GLES30.glGetString(GLES30.GL_RENDERER) + ", max texture " + maxTex);
+            Log.i(TAG, "GL globes: " + (ok ? "on" : "GL error") + ", " + GLES30.glGetString(GLES30.GL_RENDERER) + ", max texture " + maxTex + (progMesh != 0 ? ", mesh close by" : ""));
         } catch (Throwable t) {
             Log.w(TAG, "GL globes off (software globes): " + t.getMessage());
             ok = false;
         }
         return ok;
+    }
+
+    /** The mesh's vertex shader: the fragment shader's declarations and functions, then MESH_MAIN. */
+    static String meshVs(String fs) {
+        String pre = fs.substring(0, fs.indexOf("void main()"));
+        pre = pre.replace("in vec2 uv;", "in vec2 a; out vec2 uv;").replace("in vec3 wpos;", "out vec3 wpos;").replace("out vec4 o;", "");
+        return pre + "\n" + MESH_MAIN;
+    }
+
+    private void buildMesh(String fs) {
+        progMesh = GLES30.glCreateProgram();
+        GLES30.glAttachShader(progMesh, shader(GLES30.GL_VERTEX_SHADER, meshVs(fs)));
+        GLES30.glAttachShader(progMesh, shader(GLES30.GL_FRAGMENT_SHADER, fs));
+        GLES30.glBindAttribLocation(progMesh, 0, "a");
+        GLES30.glLinkProgram(progMesh);
+        int[] st = new int[1];
+        GLES30.glGetProgramiv(progMesh, GLES30.GL_LINK_STATUS, st, 0);
+        if (st[0] == 0) throw new IllegalStateException("mesh link: " + GLES30.glGetProgramInfoLog(progMesh));
+        for (int k = 0; k < NAMES.length; k++) um[k] = GLES30.glGetUniformLocation(progMesh, NAMES[k]);
+        for (int k = 0; k < MNAMES.length; k++) mu[k] = GLES30.glGetUniformLocation(progMesh, MNAMES[k]);
+        GLES30.glUseProgram(progMesh);
+        GLES30.glUniform1i(um[TEX], 0);
+        GLES30.glUniform1i(um[LTEX], 1);
+        GLES30.glUniform1i(um[HTEX], 2);
+        GLES30.glUniform1i(um[GTEX], 3);
+        GLES30.glUniform1f(um[LITE], 1);
+        GLES30.glUniform1f(um[MESHM], 1);
+        int cols = SPOKES + 1;
+        float[] grid = new float[RINGS * cols * 2];
+        for (int i = 0, k = 0; i < RINGS; i++) {
+            for (int j = 0; j < cols; j++) {
+                grid[k++] = i;
+                grid[k++] = j;
+            }
+        }
+        short[] idx = new short[(RINGS - 1) * SPOKES * 6];
+        int n = 0;
+        for (int i = 0; i < RINGS - 1; i++) {
+            for (int j = 0; j < SPOKES; j++) {
+                int a = i * cols + j, b = a + 1, c = a + cols, d = c + 1;
+                idx[n++] = (short) a; idx[n++] = (short) c; idx[n++] = (short) b;
+                idx[n++] = (short) b; idx[n++] = (short) c; idx[n++] = (short) d;
+            }
+        }
+        meshCount = n;
+        int[] ids = new int[2];
+        GLES30.glGenBuffers(2, ids, 0);
+        meshVbo = ids[0];
+        meshIbo = ids[1];
+        FloatBuffer gb = ByteBuffer.allocateDirect(grid.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
+        gb.put(grid).position(0);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, meshVbo);
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, grid.length * 4, gb, GLES30.GL_STATIC_DRAW);
+        java.nio.ShortBuffer ib = ByteBuffer.allocateDirect(idx.length * 2).order(ByteOrder.nativeOrder()).asShortBuffer();
+        ib.put(idx).position(0);
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, meshIbo);
+        GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, idx.length * 2, ib, GLES30.GL_STATIC_DRAW);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+        GLES30.glUseProgram(prog);
     }
 
     private static String readAsset(AssetManager assets, String name) throws Exception {
@@ -219,6 +327,10 @@ final class GlSphere {
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target, 0);
+        // depth for the mesh close by (its hills cover each other)
+        GLES30.glBindRenderbuffer(GLES30.GL_RENDERBUFFER, depth);
+        GLES30.glRenderbufferStorage(GLES30.GL_RENDERBUFFER, GLES30.GL_DEPTH_COMPONENT24, fbW, fbH);
+        GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depth);
     }
 
     // the batch being drawn: its box in game units and pixels per unit
@@ -242,7 +354,10 @@ final class GlSphere {
         GLES30.glViewport(0, 0, bpw, bph);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
         GLES30.glClearColor(0, 0, 0, 0);
-        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
+        GLES30.glClearDepthf(1);
+        GLES30.glDepthMask(true);
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT | GLES30.GL_DEPTH_BUFFER_BIT);
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST);
         GLES30.glEnable(GLES30.GL_SCISSOR_TEST);
         GLES30.glScissor(0, 0, bpw, bph);
         GLES30.glEnable(GLES30.GL_BLEND);
@@ -258,7 +373,7 @@ final class GlSphere {
      * extra numbers (nx of them); hs, gs: the heights' shading and shape
      * pictures or null. False when its main picture does not load.
      */
-    boolean draw(String src, String lsrc, String hs, String gs, float x, float y, float w, float h, float[] p, int at, int nx) {
+    boolean draw(String src, String lsrc, String hs, String gs, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
@@ -280,42 +395,107 @@ final class GlSphere {
         GLES30.glActiveTexture(GLES30.GL_TEXTURE3);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, w40 ? gt.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
-        GLES30.glUniform1f(u[USEL], lt != null ? 1 : 0);
-        GLES30.glUniform1f(u[AIR], w32 ? p[at + 25] : 0);
-        GLES30.glUniform3f(u[AIRC], w32 ? p[at + 26] : 0, w32 ? p[at + 27] : 0, w32 ? p[at + 28] : 0);
-        GLES30.glUniform1f(u[LGAIN], w32 ? p[at + 29] : 0);
-        GLES30.glUniform1f(u[RELIEF], w32 ? p[at + 30] : 0);
-        GLES30.glUniform1f(u[USEH], w40 ? 1 : 0);
-        GLES30.glUniform1f(u[HLO], w40 ? p[at + 32] : 0);
-        GLES30.glUniform1f(u[HHI], w40 ? p[at + 33] : 0);
-        GLES30.glUniform1f(u[HAMP], w40 ? p[at + 34] : 0);
-        GLES30.glUniform1f(u[NEARM], w40 ? p[at + 35] : 0);
-        GLES30.glUniform1f(u[HREL], w40 ? p[at + 36] : 0);
-        GLES30.glUniform1f(u[HFREQ], w40 ? p[at + 37] : 1);
-        GLES30.glUniform1f(u[CRAT], w40 ? p[at + 38] : 0);
-        GLES30.glUniform1f(u[MAPAZ], w40 && w4 ? p[at + 31] : 0);
-        GLES30.glUniform1f(u[MAPK], w40 && w4 ? p[at + 39] : 0);
         boolean ho = w40 && !w4 && p[at + 35] > 0.5f && (p[at + 20] != 0 || p[at + 21] != 0 || p[at + 22] != 1 || p[at + 23] != 1);
-        GLES30.glUniform1f(u[USEHOLE], ho ? 1 : 0);
-        GLES30.glUniform4f(u[HOLE], ho ? p[at + 20] : 0, ho ? p[at + 21] : 0, ho ? p[at + 22] : 0, ho ? p[at + 23] : 0);
-        GLES30.glUniform3f(u[EYE], p[at], p[at + 1], p[at + 2]);
-        GLES30.glUniform3f(u[RGT], p[at + 3], p[at + 4], p[at + 5]);
-        GLES30.glUniform3f(u[UPV], p[at + 6], p[at + 7], p[at + 8]);
-        GLES30.glUniform3f(u[FWD], p[at + 9], p[at + 10], p[at + 11]);
-        GLES30.glUniform3f(u[SUN], p[at + 12], p[at + 13], p[at + 14]);
-        GLES30.glUniform1f(u[FOCAL], p[at + 15]);
-        GLES30.glUniform2f(u[VIEW], p[at + 16], p[at + 17]);
-        GLES30.glUniform1f(u[NIGHT], p[at + 18]);
-        GLES30.glUniform1f(u[LIT], p[at + 19]);
-        GLES30.glUniform1f(u[USEWIN], w4 ? 1 : 0);
-        GLES30.glUniform4f(u[WIN], w4 ? p[at + 20] : 0, w4 ? p[at + 21] : 0, w4 ? p[at + 22] : 1, w4 ? p[at + 23] : 1);
-        GLES30.glUniform4f(u[BOX], x, y, w, h);
         // this globe's box inside the picture (pixels, y up in GL)
         int vx = Math.round((x - bx) * bk), vy = Math.round((y - by) * bk);
         int vw = Math.max(1, Math.round(w * bk)), vh = Math.max(1, Math.round(h * bk));
         GLES30.glViewport(vx, vy, vw, vh);
-        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+        boolean mesh = w40 && p[at + 35] > 0.5f && progMesh != 0 && meshOn;
+        if (!mesh || !w4) {
+            // the ball with a ray for each pixel, or close by only the air round the mesh
+            GLES30.glUseProgram(prog);
+            uniforms(u, p, at, w32, w4, w40, lt != null, ho, x, y, w, h);
+            GLES30.glUniform1f(u[MESHM], mesh ? 2 : 0);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+        }
+        if (mesh) meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
         return true;
+    }
+
+    private void uniforms(int[] L, float[] p, int at, boolean w32, boolean w4, boolean w40, boolean useL, boolean ho, float x, float y, float w, float h) {
+        GLES30.glUniform1f(L[USEL], useL ? 1 : 0);
+        GLES30.glUniform1f(L[AIR], w32 ? p[at + 25] : 0);
+        GLES30.glUniform3f(L[AIRC], w32 ? p[at + 26] : 0, w32 ? p[at + 27] : 0, w32 ? p[at + 28] : 0);
+        GLES30.glUniform1f(L[LGAIN], w32 ? p[at + 29] : 0);
+        GLES30.glUniform1f(L[RELIEF], w32 ? p[at + 30] : 0);
+        GLES30.glUniform1f(L[USEH], w40 ? 1 : 0);
+        GLES30.glUniform1f(L[HLO], w40 ? p[at + 32] : 0);
+        GLES30.glUniform1f(L[HHI], w40 ? p[at + 33] : 0);
+        GLES30.glUniform1f(L[HAMP], w40 ? p[at + 34] : 0);
+        GLES30.glUniform1f(L[NEARM], w40 ? p[at + 35] : 0);
+        GLES30.glUniform1f(L[HREL], w40 ? p[at + 36] : 0);
+        GLES30.glUniform1f(L[HFREQ], w40 ? p[at + 37] : 1);
+        GLES30.glUniform1f(L[CRAT], w40 ? p[at + 38] : 0);
+        GLES30.glUniform1f(L[MAPAZ], w40 && w4 ? p[at + 31] : 0);
+        GLES30.glUniform1f(L[MAPK], w40 && w4 ? p[at + 39] : 0);
+        GLES30.glUniform1f(L[USEHOLE], ho ? 1 : 0);
+        GLES30.glUniform4f(L[HOLE], ho ? p[at + 20] : 0, ho ? p[at + 21] : 0, ho ? p[at + 22] : 0, ho ? p[at + 23] : 0);
+        GLES30.glUniform3f(L[EYE], p[at], p[at + 1], p[at + 2]);
+        GLES30.glUniform3f(L[RGT], p[at + 3], p[at + 4], p[at + 5]);
+        GLES30.glUniform3f(L[UPV], p[at + 6], p[at + 7], p[at + 8]);
+        GLES30.glUniform3f(L[FWD], p[at + 9], p[at + 10], p[at + 11]);
+        GLES30.glUniform3f(L[SUN], p[at + 12], p[at + 13], p[at + 14]);
+        GLES30.glUniform1f(L[FOCAL], p[at + 15]);
+        GLES30.glUniform2f(L[VIEW], p[at + 16], p[at + 17]);
+        GLES30.glUniform1f(L[NIGHT], p[at + 18]);
+        GLES30.glUniform1f(L[LIT], p[at + 19]);
+        GLES30.glUniform1f(L[USEWIN], w4 ? 1 : 0);
+        GLES30.glUniform4f(L[WIN], w4 ? p[at + 20] : 0, w4 ? p[at + 21] : 0, w4 ? p[at + 22] : 1, w4 ? p[at + 23] : 1);
+        GLES30.glUniform4f(L[BOX], x, y, w, h);
+    }
+
+    /**
+     * The ground close by as a mesh, as Terrain.java lays it out: gnd is the
+     * ground's distance from the centre under the eye (radii).
+     */
+    private void meshDraw(float[] p, int at, boolean w4, boolean ho, boolean w32, boolean w40, boolean useL, float x, float y, float w, float h, float gnd) {
+        double ex = p[at], ey = p[at + 1], ez = p[at + 2];
+        double el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+        double cx = ex / el, cy = ey / el, cz = ez / el;
+        double ax0 = -cy, ay0 = cx, al = Math.sqrt(ax0 * ax0 + ay0 * ay0);
+        if (al < 1e-6) { ax0 = 1; ay0 = 0; al = 1; }
+        ax0 /= al;
+        ay0 /= al;
+        double bx0 = -cz * ay0, by0 = cz * ax0, bz0 = cx * ay0 - cy * ax0;
+        double hhi = p[at + 33], amp = p[at + 34], freq = Math.max(p[at + 37], 1e-9), crat = p[at + 38];
+        double top = 1 + hhi + 2 * amp + 0.05 * crat / freq;
+        double alt = Math.max(el - gnd, 1e-7);
+        double reach = Math.min(0.6, Math.acos(Math.min(1, 1 / Math.max(el, 1))) + Math.acos(Math.min(1, 1 / top)) + 0.002);
+        double a0 = Math.max(alt * 0.15, 2e-7);
+        if (reach <= a0 * 2) reach = a0 * 2;
+        double g = Math.pow(reach / a0, 1.0 / (RINGS - 2));
+        // the spokes: the side the camera looks to (all round when it looks down)
+        double fx = p[at + 9], fy = p[at + 10], fz = p[at + 11];
+        double fd = fx * cx + fy * cy + fz * cz;
+        double ffx = fx - cx * fd, ffy = fy - cy * fd, ffz = fz - cz * fd;
+        double fl = Math.sqrt(ffx * ffx + ffy * ffy + ffz * ffz);
+        double az = Math.atan2(ffx * bx0 + ffy * by0 + ffz * bz0, ffx * ax0 + ffy * ay0);
+        double half = fl < 0.3 || -fd > 0.85 ? Math.PI : Math.min(Math.PI, Math.atan(p[at + 16] * 0.5 / p[at + 15]) + 1.0);
+        double near = Math.max(alt * 0.2, 1e-8), far = 2.5 * reach + alt;
+        GLES30.glUseProgram(progMesh);
+        uniforms(um, p, at, w32, w4, w40, useL, ho, x, y, w, h);
+        GLES30.glUniform4f(mu[MGRID], RINGS, SPOKES, (float) a0, (float) g);
+        GLES30.glUniform2f(mu[MSPOKE], (float) az, (float) half);
+        GLES30.glUniform2f(mu[MCLIP], (float) near, (float) (1 / Math.log(far / near)));
+        if (w4) {
+            GLES30.glUniform1f(mu[MCULLM], 1);
+            GLES30.glUniform4f(mu[MCULL], p[at + 20], p[at + 21], p[at + 22], p[at + 23]);
+        } else if (ho) {
+            GLES30.glUniform1f(mu[MCULLM], 2);
+            GLES30.glUniform4f(mu[MCULL], p[at + 20], p[at + 21], p[at + 22], p[at + 23]);
+        } else {
+            GLES30.glUniform1f(mu[MCULLM], 0);
+        }
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST);
+        GLES30.glDepthFunc(GLES30.GL_LEQUAL);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, meshVbo);
+        GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
+        GLES30.glBindBuffer(GLES30.GL_ELEMENT_ARRAY_BUFFER, meshIbo);
+        GLES30.glDrawElements(GLES30.GL_TRIANGLES, meshCount, GLES30.GL_UNSIGNED_SHORT, 0);
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
     }
 
     /** Reads the picture back; null on a GL error (then the globes are left to the software path). */

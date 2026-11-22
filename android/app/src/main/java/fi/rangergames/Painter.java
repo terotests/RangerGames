@@ -95,6 +95,8 @@ final class Painter {
             try {
                 Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glres", "1");
                 glTune = Math.max(0.1f, Math.min(2f, Float.parseFloat((String) v)));
+                Object m = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmesh", "1");
+                if (gl != null) gl.meshOn = !"0".equals(m);
             } catch (Throwable ignored) {
                 glTune = 1;
             }
@@ -160,7 +162,19 @@ final class Painter {
                     gs = strings[s2].substring(bar + 1);
                 }
             }
-            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, extras(nums, q), nx);
+            int at = extras(nums, q);
+            // close by: the ground's height under the eye, for the mesh's first ring
+            float gnd = 1;
+            if (gs != null && nums[at + 35] > 0.5f) {
+                int[] gm = map(gs);
+                int[] gsz = mapSizes.get(gs);
+                if (gm != null && gsz != null) {
+                    terrain.set(nums, at, gm, gsz[0], gsz[1]);
+                    double ex = nums[at], ey = nums[at + 1], ez = nums[at + 2], el = Math.sqrt(ex * ex + ey * ey + ez * ez);
+                    gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
+                }
+            }
+            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
         }
         Bitmap bm = gl.end();
         if (bm == null) return -1;
