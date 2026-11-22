@@ -144,6 +144,8 @@ final class Painter {
         }
         if (x1 <= x0 || y1 <= y0) return j;
         float k = scale * (near ? GL_RES_NEAR : GL_RES);
+        // a small globe (far off) is cheap: at the screen's own pixels, sharp and steady
+        if (!near && (x1 - x0) * (y1 - y0) * scale * scale < 250000) k = scale;
         float px = (x1 - x0) * (y1 - y0) * k * k;
         if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
         k *= glTune();
@@ -180,7 +182,7 @@ final class Painter {
         if (bm == null) return -1;
         if (any) {
             src.set(0, 0, gl.width(), gl.height());
-            rf.set(x0, y0, x1, y1);
+            rf.set(x0, y0, x0 + gl.width() / gl.scale(), y0 + gl.height() / gl.scale());
             c.drawBitmap(bm, src, rf, image);
         }
         return j;

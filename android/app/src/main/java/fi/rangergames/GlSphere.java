@@ -436,6 +436,12 @@ final class GlSphere {
         int vx = Math.round((x - bx) * bk), vy = Math.round((y - by) * bk);
         int vw = Math.max(1, Math.round(w * bk)), vh = Math.max(1, Math.round(h * bk));
         GLES30.glViewport(vx, vy, vw, vh);
+        // the shader gets the box the whole pixels cover, so each pixel's ray is where the pixel is shown
+        // (rounding it to the picture's pixels moved a small far globe by up to a pixel, frame by frame)
+        x = bx + vx / bk;
+        y = by + vy / bk;
+        w = vw / bk;
+        h = vh / bk;
         boolean mesh = w40 && p[at + 35] > 0.5f && progMesh != 0 && meshOn;
         if (!mesh || !w4) {
             // the ball with a ray for each pixel, or close by only the air round the mesh
@@ -580,6 +586,11 @@ final class GlSphere {
         }
         evict();
         return bm;
+    }
+
+    /** pixels per game unit of the last picture: it covers width() / scale() units from its corner */
+    float scale() {
+        return bk;
     }
 
     /** the size of the last picture in pixels */
