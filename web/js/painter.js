@@ -162,7 +162,7 @@
     // (the mesh: exactly the hole, it has the true point)
     "  if (terr && useHole > 0.5 && meshM < 1.5) { vec3 pw = mesh ? normalize(wpos) : normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
     "    float mg = mesh ? 0.0 : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;" +
-    "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg) discard; }" +
+    "    if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg && dot(pw, normalize(eye)) > 0.995004) discard; }" +
     "  if (mesh) th = length(wpos - eye);" +
     "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
@@ -223,6 +223,13 @@
     "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fp, 0.0, 1.0), lb = lumAt(p, fp, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr); }" +
     "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
+    // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
+    // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
+    // Shadertoy height shader), not a whole normal (three); without it the lite ground close by was flat
+    "    if (terr && lite > 0.5 && lite < 1.5 && wr > 0.0) { int nl = 5; float wl = 1.0 / (hfreq * pow(2.03, 5.0));" +
+    "      for (int k = 0; k < 3; k++) { if (wl < fp * 3.0) break; nl++; wl /= 2.03; }" +
+    "      vec3 st = sun - p * dot(sun, p); float sl = length(st);" +
+    "      if (sl > 1e-4) { st /= sl; float e = max(fp, 1e-8); tl += (bumps(normalize(p + st * e), nl) - bumps(p, nl)) / e * st; } }" +
     "    n = normalize(p - tl * wr);" +
     "  } else if (relief != 0.0 && useH < 0.5) {" +
     // relief: the picture's brightness as height tilts the normal for the sun
@@ -255,9 +262,10 @@
     "    c = mix(c, g.rgb, g.a * 0.85);" +
     "  }" +
     // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
-    // the ball's own picture when the game changes the pictures; and round the point under the eye (0.10 to 0.18
-    // radians): the game's pieces reach at least that far, so their outer edge never shows against the blurry ball
-    "  float fa = useWin > 0.5 && !terr ? (1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
+    // the ball's own picture when the game changes the pictures; and, close by too, round the point under the eye
+    // (0.10 to 0.18 radians): the game's pieces reach at least that far, so their outer edge (and their finer
+    // slopes) never show against the ball's own picture; the ball's hole is only inside 0.10 radians
+    "  float fa = useWin > 0.5 ? (terr ? 1.0 : 1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
     "  if (fa <= 0.0) discard;" +
     "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
