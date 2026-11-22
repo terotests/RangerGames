@@ -40,6 +40,20 @@ final class GlSphere {
     // uv 0..1 over the box, y down as on the Canvas; drawn upside down so the
     // rows read back come top row first, as a Bitmap wants them
     private static final String VS = "#version 300 es\nin vec2 a; out vec2 uv; out vec3 wpos; void main() { uv = a; wpos = vec3(0.0); gl_Position = vec4(a.x * 2.0 - 1.0, a.y * 2.0 - 1.0, 0.0, 1.0); }";
+    // The edge pass before the readback: where the picture's coverage (alpha)
+    // steps, between ground and sky, the pixel is blurred along the edge
+    // (9 pixels, weights 1..5..1), so a step of a few pixels becomes a ramp;
+    // elsewhere the pixel as it is. Cheaper than multisampling (one pass of
+    // five reads a pixel), and it also smooths the steps the upscaled picture
+    // would show.
+    static final String EDGE_FS = "#version 300 es\nprecision mediump float; uniform sampler2D t; out vec4 o;" +
+            "vec4 at(ivec2 q) { return texelFetch(t, q, 0); }" +
+            "void main() { ivec2 p = ivec2(gl_FragCoord.xy); vec4 c = at(p);" +
+            "  vec2 g = vec2(at(p + ivec2(1, 0)).a - at(p - ivec2(1, 0)).a, at(p + ivec2(0, 1)).a - at(p - ivec2(0, 1)).a);" +
+            "  if (max(abs(g.x), abs(g.y)) < 0.25) { o = c; return; }" +
+            "  vec2 tg = normalize(vec2(-g.y, g.x)); vec4 s = c * 5.0; float w = 5.0;" +
+            "  for (int i = 1; i <= 4; i++) { float k = float(5 - i); ivec2 d = ivec2(round(tg * float(i))); s += k * (at(p + d) + at(p - d)); w += 2.0 * k; }" +
+            "  o = s / w; }";
     // The ground close by as a mesh (meshM 1 in the shader): rings round the
     // point under the eye at angles growing by a constant factor, spokes over
     // the side the camera looks to, each corner lifted to the ground's height
@@ -90,6 +104,10 @@ final class GlSphere {
     private int msFbo, msColor, msDepth, samples, maxSamples, msW, msH;
     /** samples a pixel wanted: adb shell setprop debug.rg.glmsaa 0, 2 or 4 (0 by default: the shader fades the horizon band to black instead, 2 costs ~4 ms) */
     int msaa = 0;
+    /** the edge pass on (adb shell setprop debug.rg.gledge 0: off, for comparing) */
+    boolean edge = true;
+    // the edge pass: its program, and the picture it writes (read back instead of fbo's)
+    private int progEdge, fbo2, target2, f2W, f2H;
     private final int[] u = new int[NAMES.length];
     // the mesh program (its own uniform locations), its grid and triangles; 0 when it did not build
     private int progMesh, meshVbo, meshIbo, meshCount;
@@ -182,6 +200,26 @@ final class GlSphere {
             GLES30.glUniform1i(u[GTEX], 3);
             // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
             GLES30.glUniform1f(u[LITE], 1);
+            try {
+                progEdge = GLES30.glCreateProgram();
+                GLES30.glAttachShader(progEdge, shader(GLES30.GL_VERTEX_SHADER, VS));
+                GLES30.glAttachShader(progEdge, shader(GLES30.GL_FRAGMENT_SHADER, EDGE_FS));
+                GLES30.glBindAttribLocation(progEdge, 0, "a");
+                GLES30.glLinkProgram(progEdge);
+                GLES30.glGetProgramiv(progEdge, GLES30.GL_LINK_STATUS, st, 0);
+                if (st[0] == 0) throw new IllegalStateException(GLES30.glGetProgramInfoLog(progEdge));
+                GLES30.glUseProgram(progEdge);
+                GLES30.glUniform1i(GLES30.glGetUniformLocation(progEdge, "t"), 4);
+                int[] e2 = new int[2];
+                GLES30.glGenFramebuffers(1, e2, 0);
+                GLES30.glGenTextures(1, e2, 1);
+                fbo2 = e2[0];
+                target2 = e2[1];
+                GLES30.glUseProgram(prog);
+            } catch (Throwable t) {
+                Log.w(TAG, "GL globes: no edge pass: " + t.getMessage());
+                progEdge = 0;
+            }
             try {
                 buildMesh(fs);
             } catch (Throwable t) {
@@ -428,6 +466,23 @@ final class GlSphere {
         GLES30.glFramebufferRenderbuffer(GLES30.GL_FRAMEBUFFER, GLES30.GL_DEPTH_ATTACHMENT, GLES30.GL_RENDERBUFFER, depth);
     }
 
+    /** the edge pass's picture at least w × h */
+    private void target2(int w, int h) {
+        if (w <= f2W && h <= f2H) return;
+        f2W = Math.max(w, f2W);
+        f2H = Math.max(h, f2H);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target2);
+        GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, f2W, f2H, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
+        GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target2, 0);
+        if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
+            Log.w(TAG, "GL globes: no edge pass (framebuffer)");
+            progEdge = 0;
+        }
+    }
+
     /** the multisampled target at least w × h (when the phone has it) */
     private void msTarget(int w, int h) {
         if (w <= msW && h <= msH) return;
@@ -652,6 +707,25 @@ final class GlSphere {
             GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, fbo);
             GLES30.glBlitFramebuffer(0, 0, bpw + 1, bph + 1, 0, 0, bpw + 1, bph + 1, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST);
             GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
+        }
+        if (edge && progEdge != 0) {
+            // the edge pass: fbo's picture (unit 4) into fbo2, which is read back
+            target2(bpw + 1, bph + 1);
+        }
+        if (edge && progEdge != 0) {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
+            GLES30.glViewport(0, 0, bpw + 1, bph + 1);
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glDisable(GLES30.GL_BLEND);
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+            GLES30.glUseProgram(progEdge);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE4);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+            GLES30.glEnableVertexAttribArray(0);
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
         }
         GLES30.glFinish();
         long t1 = System.nanoTime();
