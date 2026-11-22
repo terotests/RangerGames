@@ -87,9 +87,9 @@ final class GlSphere {
     private int prog, vbo, fbo, target, maxTex = 2048;
     private int fbW, fbH, depth;
     // drawn 4 samples a pixel (msFbo), then resolved into fbo: the mesh's edge at the horizon smooth
-    private int msFbo, msColor, msDepth, samples, msW, msH;
-    /** adb shell setprop debug.rg.glmsaa 0: one sample a pixel (for comparing) */
-    boolean msaa = true;
+    private int msFbo, msColor, msDepth, samples, maxSamples, msW, msH;
+    /** samples a pixel wanted: adb shell setprop debug.rg.glmsaa 0, 2 or 4 (2 by default: most of the smoothing for half the cost) */
+    int msaa = 2;
     private final int[] u = new int[NAMES.length];
     // the mesh program (its own uniform locations), its grid and triangles; 0 when it did not build
     private int progMesh, meshVbo, meshIbo, meshCount;
@@ -161,8 +161,9 @@ final class GlSphere {
             GLES30.glGenRenderbuffers(1, ids, 0);
             depth = ids[0];
             GLES30.glGetIntegerv(GLES30.GL_MAX_SAMPLES, ids, 0);
-            samples = Math.min(4, ids[0]);
-            if (samples > 1) {
+            maxSamples = ids[0];
+            samples = Math.min(msaa, maxSamples);
+            if (maxSamples > 1) {
                 int[] m = new int[3];
                 GLES30.glGenFramebuffers(1, m, 0);
                 GLES30.glGenRenderbuffers(2, m, 1);
@@ -442,6 +443,7 @@ final class GlSphere {
         if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
             Log.w(TAG, "GL globes: no multisampling");
             samples = 0;
+            maxSamples = 0;
         }
     }
 
@@ -464,7 +466,13 @@ final class GlSphere {
         EGL14.eglMakeCurrent(display, surface, surface, context);
         // one row and column more, left clear: the smoothed bitmap reads past its edge
         target(bpw + 1, bph + 1);
-        ms = msaa && samples > 1;
+        int want = Math.min(msaa, maxSamples);
+        if (want != samples && msFbo != 0) {
+            // another number of samples: the target again
+            samples = want;
+            msW = msH = 0;
+        }
+        ms = samples > 1 && msFbo != 0;
         if (ms) msTarget(bpw + 1, bph + 1);
         ms = ms && samples > 1;
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, ms ? msFbo : fbo);

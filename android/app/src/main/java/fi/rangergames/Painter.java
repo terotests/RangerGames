@@ -99,8 +99,14 @@ final class Painter {
                 if (gl != null) gl.meshOn = !"0".equals(m);
                 Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "1");
                 glBake = !"0".equals(bp);
-                Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "1");
-                if (gl != null) gl.msaa = !"0".equals(ma);
+                Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "2");
+                if (gl != null) {
+                    try {
+                        gl.msaa = Math.max(0, Math.min(4, Integer.parseInt((String) ma)));
+                    } catch (NumberFormatException e) {
+                        gl.msaa = 2;
+                    }
+                }
             } catch (Throwable ignored) {
                 glTune = 1;
             }
