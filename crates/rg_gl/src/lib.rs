@@ -373,8 +373,14 @@ impl Renderer {
         if count == 0 {
             return;
         }
+        // plain shapes (white) sample no texture: they join a draw of any
+        // texture, so boxes and text between them stay one draw call
+        let white = self.white;
         if let Some(Step::Draw { tex: t, first: f, count: c, clip: k }) = self.steps.last_mut() {
-            if *t == tex && *k == clip && *f + *c == first {
+            if (*t == tex || tex == white || *t == white) && *k == clip && *f + *c == first {
+                if *t == white {
+                    *t = tex;
+                }
                 *c += count;
                 return;
             }
@@ -1115,9 +1121,9 @@ mod tests {
         nums.extend(cmd(0.0, 0.0, 30.0, 10.0, 10.0, 1.0, &[], 0.0));
         let strings = vec!["Hei".to_string()];
         r.render(&mut NoHost, &nums, &strings, &[], &view(), [0.0, 0.0, 0.0, 1.0]);
-        // 50 boxes, then the text (atlas), then a box: three draws
-        assert_eq!(r.steps.len(), 3);
-        assert_eq!(r.calls, 3);
+        // 50 boxes, the text (atlas) and a box: the boxes sample no texture, one draw
+        assert_eq!(r.steps.len(), 1);
+        assert_eq!(r.calls, 1);
         assert_eq!(r.runs.len(), 1);
     }
 
