@@ -23,9 +23,11 @@ import javax.microedition.khronos.opengles.GL10;
  */
 final class Gl3D implements GLSurfaceView.Renderer {
     private static final String TAG = "RangerGames";
-    private static final String VS = "attribute vec2 p; attribute float d; attribute vec3 c; uniform vec4 xf; varying vec3 v;"
-            + "void main() { v = c; gl_Position = vec4(p.x * xf.x + xf.z, p.y * xf.y + xf.w, d * 2.0 - 1.0, 1.0); }";
-    private static final String FS = "precision mediump float; varying vec3 v; void main() { gl_FragColor = vec4(v, 1.0); }";
+    // depth 2…3: a see-through face (a flame), its colour added over what is behind (alpha 0 under premultiplied
+    // blending; the engine sends them last, far ones first; scene3d.rs `tris`)
+    private static final String VS = "attribute vec2 p; attribute float d; attribute vec3 c; uniform vec4 xf; varying vec4 v;"
+            + "void main() { float g = step(1.5, d); v = vec4(c, 1.0 - g); gl_Position = vec4(p.x * xf.x + xf.z, p.y * xf.y + xf.w, (d - 2.0 * g) * 2.0 - 1.0, 1.0); }";
+    private static final String FS = "precision mediump float; varying vec4 v; void main() { gl_FragColor = v; }";
 
     /** true once the GL context and the shaders work (the game thread then asks the engine for triangles) */
     volatile boolean ready;
@@ -113,6 +115,8 @@ final class Gl3D implements GLSurfaceView.Renderer {
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
         GLES20.glDepthFunc(GLES20.GL_LEQUAL);
         GLES20.glDisable(GLES20.GL_CULL_FACE);
+        GLES20.glEnable(GLES20.GL_BLEND);
+        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA);
         GLES20.glUseProgram(prog);
         GLES20.glUniform4f(uXf, (float) (2 * s / width), (float) (-2 * s / height), (float) (2 * x / width - 1), (float) (1 - 2 * y / height));
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0);

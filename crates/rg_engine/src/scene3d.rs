@@ -24,11 +24,12 @@
 //!                      layer,                            // -1: flat on the floor, drawn first
 //!                      shiny,                            // 0..1: a glint of each light off the faces
 //!                                                        // that turn it towards the camera
+//!                      opacity,                          // 0..1 (1): below 1 a see-through light, a flame
 //!                      wy,                               // a turn round world y after rx, ry, rz
 //!                      group })                          // objects of one group (a house) are sorted
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
-//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible, shiny,
+//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible, shiny, opacity,
 //!                      heights })                        // a heightfield's new heights
 //! rg.three("remove", { id })
 //! rg.three("clear")
@@ -341,6 +342,9 @@ struct Obj {
     double: bool,
     /// 0..1: how strongly the lights glint off it (a polished hull)
     shiny: f64,
+    /// 1: solid; below 1 a see-through light (a flame, a glow): the painter
+    /// blends it over what is behind, GL adds its colour times this
+    opacity: f64,
     /// drawn before the higher layers whatever the depth: flat things on the
     /// floor (a road, a shadow) use -1 so that nothing standing on them sinks in
     layer: i32,
@@ -387,6 +391,10 @@ pub struct Scene {
     pub dir: String,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
     /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
+    /// See-through faces (`opacity` below 1) come last, far ones first, with
+    /// depth + 2 (2…3) and their colour already times the opacity: the host
+    /// draws them at depth - 2, adding their colour (alpha 0 under premultiplied
+    /// blending); a host that does not know this clips them away.
     /// Empty when the scene is off or drawn with the painter.
     pub tris: Vec<f32>,
     /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
@@ -432,6 +440,8 @@ struct Poly {
     depth: f64,
     pts: Vec<f32>,
     rgb: V3,
+    /// 1 solid, less: see-through (Obj `opacity`)
+    alpha: f64,
 }
 
 fn get3(a: &Json, keys: [&str; 3], d: V3) -> V3 {
@@ -573,6 +583,7 @@ impl Scene {
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
                     shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
+                    opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
                     group: a.get("group").as_num(0.0) as i32,
@@ -595,6 +606,9 @@ impl Scene {
                     }
                     if !a.get("shiny").is_null() {
                         o.shiny = a.get("shiny").as_num(0.0).clamp(0.0, 1.0);
+                    }
+                    if !a.get("opacity").is_null() {
+                        o.opacity = a.get("opacity").as_num(1.0).clamp(0.0, 1.0);
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -862,6 +876,9 @@ impl Scene {
                 let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
                 add(p, o.pos)
             }).collect();
+            if o.opacity <= 0.0 {
+                continue;
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -901,7 +918,7 @@ impl Scene {
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
-                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist) });
+                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist), alpha: o.opacity });
             }
         }
         let far = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
@@ -911,15 +928,20 @@ impl Scene {
         let mut i = 0;
         while i < polys.len() {
             let rgb = q(polys[i].rgb);
+            let alpha = polys[i].alpha;
             let mut j = i;
             let mut pts: Vec<f32> = Vec::new();
             let mut ends: Vec<f32> = Vec::new();
-            while j < polys.len() && q(polys[j].rgb) == rgb && j - i < 24 {
+            while j < polys.len() && q(polys[j].rgb) == rgb && polys[j].alpha == alpha && j - i < 24 {
                 pts.extend_from_slice(&polys[j].pts);
                 ends.push(pts.len() as f32);
                 j += 1;
             }
-            out.raw_rings(rgb_f(rgb), &pts, &ends);
+            if alpha < 1.0 {
+                out.rings(6, rgb_f(rgb), alpha, 0.0, &pts, &ends);
+            } else {
+                out.raw_rings(rgb_f(rgb), &pts, &ends);
+            }
             self.drawn += j - i;
             i = j;
         }
@@ -998,6 +1020,7 @@ impl Scene {
             }
         }
         let mut drawn = 0;
+        let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
         for o in self.objs.iter() {
             if !o.visible {
                 continue;
@@ -1018,6 +1041,9 @@ impl Scene {
             // decoration stays in front of its wall there too)
             let bias = o.layer.max(0) as f64 * 1.2e-5;
             let d = |z: f64| (depth(z) - bias).max(0.0);
+            if o.opacity <= 0.0 {
+                continue;
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1054,9 +1080,23 @@ impl Scene {
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
                 let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
-                fan(&mut tris, &pts, &d, self.fogged(lit, dist));
+                let c = self.fogged(lit, dist);
+                if o.opacity < 1.0 {
+                    // see-through: added over what is behind, after the solid
+                    // faces and far ones first (see `tris`)
+                    let z = pts.iter().map(|p| p[2]).sum::<f64>() / pts.len() as f64;
+                    let k = o.opacity;
+                    let dd: Vec<V3> = pts.iter().map(|p| [p[0], p[1], d(p[2]) + 2.0]).collect();
+                    glow.push((z, dd, [c[0] * k, c[1] * k, c[2] * k]));
+                } else {
+                    fan(&mut tris, &pts, &d, c);
+                }
                 drawn += 1;
             }
+        }
+        glow.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (_, pts, c) in glow.iter() {
+            fan(&mut tris, pts, &|z| z, *c);
         }
         self.drawn = drawn;
         self.tris = tris;
@@ -1130,5 +1170,29 @@ mod mesh_tests {
         assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
         assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
         assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
+    }
+
+    #[test]
+    fn a_see_through_object_is_added_last_in_gl_and_blended_by_the_painter() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "flame", "shape": "box", "size": [1], "z": 1, "color": "#4060ff", "emissive": true, "opacity": 0.5 }"##));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "hull", "shape": "box", "size": [2], "color": "#ffffff", "emissive": true }"##));
+        sc.render_gl(400.0, 400.0);
+        let t = &sc.tris;
+        assert!(t.len() > 36);
+        // the solid hull first (depth 0..1), then the flame (2..3) at half its colour
+        let first_glow = (0..t.len() / 6).find(|i| t[i * 6 + 2] >= 2.0).unwrap();
+        assert!((first_glow..t.len() / 6).all(|i| t[i * 6 + 2] >= 2.0 && t[i * 6 + 2] <= 3.0));
+        assert!((0..first_glow).all(|i| t[i * 6 + 2] <= 1.0 && t[i * 6 + 3] > 0.99));
+        assert!((t[first_glow * 6 + 5] - 0.5).abs() < 0.01, "{}", t[first_glow * 6 + 5]);
+        // the painter: the flame as a path with opacity 0.5
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(out.nums.windows(9).any(|w| w[0] == 6.0 && w[8] == 0.5), "no see-through path");
+        // opacity 0: not drawn
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "flame", "opacity": 0 }"#));
+        sc.render_gl(400.0, 400.0);
+        assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
     }
 }

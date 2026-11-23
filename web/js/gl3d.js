@@ -7,9 +7,11 @@
 // the 2D one, so parts of the scene never show through each other.
 (function (global) {
   "use strict";
-  var VS = "attribute vec2 p; attribute float d; attribute vec3 c; uniform vec4 xf; varying vec3 v;" +
-    "void main() { v = c; gl_Position = vec4(p.x * xf.x + xf.z, p.y * xf.y + xf.w, d * 2.0 - 1.0, 1.0); }";
-  var FS = "precision mediump float; varying vec3 v; void main() { gl_FragColor = vec4(v, 1.0); }";
+  // depth 2…3: a see-through face (a flame), its colour added over what is behind (alpha 0 under premultiplied
+  // blending; the engine sends them last, far ones first)
+  var VS = "attribute vec2 p; attribute float d; attribute vec3 c; uniform vec4 xf; varying vec4 v;" +
+    "void main() { float g = step(1.5, d); v = vec4(c, 1.0 - g); gl_Position = vec4(p.x * xf.x + xf.z, p.y * xf.y + xf.w, (d - 2.0 * g) * 2.0 - 1.0, 1.0); }";
+  var FS = "precision mediump float; varying vec4 v; void main() { gl_FragColor = v; }";
 
   function Gl3D(canvas) {
     this.canvas = canvas;
@@ -62,6 +64,8 @@
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(this.prog);
     gl.uniform4f(this.uXf, 2 * s / w, -2 * s / h, 2 * view.x * dpr / w - 1, 1 - 2 * view.y * dpr / h);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.buf);
