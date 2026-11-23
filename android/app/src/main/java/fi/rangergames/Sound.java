@@ -37,6 +37,44 @@ final class Sound implements Runnable {
         double x1, x2, y1, y2;
         /** a sound file's samples at RATE, or null for a synthesized voice */
         short[] pcm;
+        // a sound file's handle (rg.stopSound …), its place, looping, pause
+        int h;
+        /** the order it was asked in, against the controls' (Ctl.upTo) */
+        long serial;
+        boolean loop, held;
+        long pos;
+        // its own level (rg.soundVolume, fades): moves by step a sample to
+        // target; gone when it reaches 0 with stopAtZero
+        double base = 1, gain = 1, target = 1, step;
+        boolean stopAtZero;
+
+        void fadeTo(double to, double secs) {
+            target = to;
+            if (secs <= 0) {
+                gain = to;
+                step = 0;
+            } else {
+                step = (to - gain) / (secs * RATE);
+                if (step == 0) gain = to;
+            }
+        }
+    }
+
+    /** rg.stopSound / soundVolume / pauseSound / resumeSound for the mixer thread. */
+    private static final class Ctl {
+        final String op;
+        final int h;
+        final double volume, fade;
+        /** applies to the sounds asked for before it, not to later ones in the same buffer */
+        final long upTo;
+
+        Ctl(String op, int h, double volume, double fade, long upTo) {
+            this.upTo = upTo;
+            this.op = op;
+            this.h = h;
+            this.volume = volume;
+            this.fade = fade;
+        }
     }
 
     /** A voice clip on the speech channel. */
@@ -70,6 +108,7 @@ final class Sound implements Runnable {
     private static final Tune CHASE = new Tune(160, SQUARE, 0.04, 64, 1, 64, 1, 67, 1, 64, 1, 62, 1, 60, 1, 62, 2, 64, 1, 67, 1, 69, 1, 67, 1, 64, 2, 0, 2);
 
     private final ConcurrentLinkedQueue<Voice> incoming = new ConcurrentLinkedQueue<>();
+    private final ConcurrentLinkedQueue<Ctl> ctls = new ConcurrentLinkedQueue<>();
     private final ArrayList<Voice> voices = new ArrayList<>();
     private final java.util.Random random = new java.util.Random();
     /** decoded sound files by path (the game thread's) */
@@ -86,6 +125,12 @@ final class Sound implements Runnable {
     // the music: read by the mixer thread
     private volatile Tune tune;
     private volatile double tuneVol = 1;
+    private volatile boolean tunePaused, tuneOnce;
+    /** the music's handle (a tune's or a file's) */
+    private volatile int musicH;
+    /** counts sounds, tunes and controls as the game thread asks for them */
+    private long serial;
+    private volatile long tuneSerial;
     private long tuneNext;
     private int tuneStep;
 
@@ -188,16 +233,64 @@ final class Sound implements Runnable {
                 tone(wave(o != null ? o.optString("wave", "triangle") : "triangle"), f * p, f * p, o != null ? o.optDouble("len", 0.3) : 0.3, 0.25 * vol, 0);
                 break;
             }
-            default: {
-                short[] pcm = file(name);
-                if (pcm == null) break;
-                Voice v = new Voice();
-                v.pcm = pcm;
-                v.vol = vol;
-                v.at = now;
-                v.len = pcm.length;
-                incoming.add(v);
+            default:
+                playFile(name, vol, o != null ? o.optInt("h", 0) : 0, o != null && o.optBoolean("loop", false), o != null ? o.optDouble("fade", 0) : 0, vol);
                 break;
+        }
+    }
+
+    private void playFile(String name, double vol, int h, boolean loop, double fade, double base) {
+        short[] pcm = file(name);
+        if (pcm == null || pcm.length == 0) return;
+        Voice v = new Voice();
+        v.pcm = pcm;
+        v.vol = vol;
+        v.at = now;
+        v.len = pcm.length;
+        v.h = h;
+        v.loop = loop;
+        v.base = base;
+        v.serial = ++serial;
+        if (fade > 0) {
+            v.gain = 0;
+            v.fadeTo(1, fade);
+        }
+        incoming.add(v);
+    }
+
+    /** rg.stopSound and the rest: op "stop", "volume", "pause", "resume"; o { h (0: all), volume, fade }. */
+    void control(String op, JSONObject o) {
+        ctls.add(new Ctl(op, o != null ? o.optInt("h", 0) : 0, o != null ? o.optDouble("volume", 1) : 1, o != null ? o.optDouble("fade", 0) : 0, serial));
+    }
+
+    /** On the mixer thread: the controls asked for since the last buffer. */
+    private void applyControls() {
+        Ctl c;
+        while ((c = ctls.poll()) != null) {
+            boolean tuneHit = tune != null && tuneSerial <= c.upTo && (c.h == 0 || c.h == musicH);
+            if (tuneHit) {
+                if (c.op.equals("stop")) tune = null;
+                else if (c.op.equals("volume")) tuneVol = c.volume;
+                else if (c.op.equals("pause")) tunePaused = true;
+                else if (c.op.equals("resume")) tunePaused = false;
+            }
+            for (int i = voices.size() - 1; i >= 0; i--) {
+                Voice v = voices.get(i);
+                if (v.pcm == null || v.serial > c.upTo || (c.h != 0 && v.h != c.h)) continue;
+                switch (c.op) {
+                    case "stop":
+                        if (c.fade > 0 && !v.held) {
+                            v.stopAtZero = true;
+                            v.fadeTo(0, c.fade);
+                        } else voices.remove(i);
+                        break;
+                    case "volume":
+                        if (!v.stopAtZero) v.fadeTo(v.base > 0 ? c.volume / v.base : 1, c.fade);
+                        break;
+                    case "pause": v.held = true; break;
+                    case "resume": v.held = false; break;
+                    default: break;
+                }
             }
         }
     }
@@ -314,16 +407,32 @@ final class Sound implements Runnable {
         return null;
     }
 
+    /** rg.music: a built-in tune or a sound file, looping unless loop is false; o { h, volume, fade, loop }. */
     void music(String name, JSONObject o) {
+        stopMusic(null);
         Tune t = "happy".equals(name) ? HAPPY : "calm".equals(name) ? CALM : "chase".equals(name) ? CHASE : null;
-        tuneVol = o != null ? o.optDouble("volume", 1) : 1;
+        double vol = o != null ? o.optDouble("volume", 1) : 1;
+        int h = o != null ? o.optInt("h", 0) : 0;
+        boolean loop = o == null || o.optBoolean("loop", true);
+        musicH = h;
+        if (t == null) {
+            playFile(name, vol * 0.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
+            return;
+        }
+        tuneVol = vol;
+        tunePaused = false;
+        tuneOnce = !loop;
         tuneStep = 0;
         tuneNext = now + RATE / 20;
+        tuneSerial = ++serial;
         tune = t;
     }
 
-    void stopMusic() {
+    /** o { fade }: seconds down to silence first (a file; a tune stops at once) */
+    void stopMusic(JSONObject o) {
         tune = null;
+        if (musicH != 0) ctls.add(new Ctl("stop", musicH, 0, o != null ? o.optDouble("fade", 0) : 0, serial));
+        musicH = 0;
     }
 
     private static double osc(int wave, double ph) {
@@ -346,8 +455,16 @@ final class Sound implements Runnable {
     private void sequence(long end) {
         Tune t = tune;
         if (t == null) return;
+        if (tunePaused) {
+            tuneNext = Math.max(tuneNext, end);
+            return;
+        }
         double beat = 60.0 / t.bpm;
         while (tuneNext < end + RATE / 4) {
+            if (tuneOnce && tuneStep >= t.notes.length / 2) {
+                tune = null;
+                return;
+            }
             int at = (tuneStep % (t.notes.length / 2)) * 2;
             int note = t.notes[at], beats = t.notes[at + 1];
             if (note != 0) {
@@ -377,9 +494,11 @@ final class Sound implements Runnable {
         while (running) {
             Voice add;
             while ((add = incoming.poll()) != null) voices.add(add);
+            applyControls();
             long start = now;
             if (paused) {
-                voices.clear();
+                // a looping sound (music) waits; the rest is let go
+                for (int vi = voices.size() - 1; vi >= 0; vi--) if (!voices.get(vi).loop) voices.remove(vi);
                 synchronized (speech) {
                     speech.clear();
                 }
@@ -387,18 +506,44 @@ final class Sound implements Runnable {
             } else {
                 sequence(start + frames);
                 java.util.Arrays.fill(mix, 0);
-                if (!voices.isEmpty()) loudAt = System.currentTimeMillis();
                 for (int vi = voices.size() - 1; vi >= 0; vi--) {
                     Voice v = voices.get(vi);
                     if (v.at >= start + frames) continue;
+                    if (v.pcm != null) {
+                        // a sound file: from its own place, so it can pause and loop
+                        if (v.held) continue;
+                        loudAt = System.currentTimeMillis();
+                        boolean done = false;
+                        for (int s = 0; s < frames; s++) {
+                            if (start + s < v.at) continue;
+                            if (v.pos >= v.pcm.length) {
+                                if (!v.loop) {
+                                    done = true;
+                                    break;
+                                }
+                                v.pos = 0;
+                            }
+                            if (v.step != 0) {
+                                v.gain += v.step;
+                                if (v.step > 0 ? v.gain >= v.target : v.gain <= v.target) {
+                                    v.gain = v.target;
+                                    v.step = 0;
+                                }
+                            }
+                            if (v.stopAtZero && v.step == 0 && v.gain <= 0) {
+                                done = true;
+                                break;
+                            }
+                            mix[s] += v.pcm[(int) v.pos++] / 32768.0 * v.vol * v.gain;
+                        }
+                        if (done) voices.remove(vi);
+                        continue;
+                    }
+                    loudAt = System.currentTimeMillis();
                     for (int s = 0; s < frames; s++) {
                         long i = start + s - v.at;
                         if (i < 0) continue;
                         if (i >= v.len) break;
-                        if (v.pcm != null) {
-                            mix[s] += v.pcm[(int) i] / 32768.0 * v.vol;
-                            continue;
-                        }
                         double f = v.f0 == v.f1 ? v.f0 : v.f0 * Math.pow(v.f1 / v.f0, (double) i / v.len);
                         double out;
                         if (v.noise) {

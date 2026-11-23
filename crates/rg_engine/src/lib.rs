@@ -595,6 +595,8 @@ impl Engine {
         // the last game's sensors off (GPS uses the battery)
         self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
+        // and its sounds (rg.sound's long files, loops)
+        self.commands.push(HostCommand { kind: "soundctl".into(), name: "stop".into(), args: Json::Obj(vec![member("h", Json::Num(0.0))]) });
         // rg.net: the links to other phones stay up from game to game; the
         // host tells the new game what it can do and which links are up
         // ({type: "info"}), and the game says to them where it is
