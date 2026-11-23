@@ -45,6 +45,8 @@ let t = 0;
 let pressed = "";
 let leaving = "";
 let leaveClock = 0;
+// seconds of the fade to black before a game starts
+const LEAVE = 0.3;
 let settings = false;          // ⚙️: tiles turn speech on and off instead of starting the game
 let section = "";              // the open section, "" the front page
 let page = "";                 // "settings": the settings page
@@ -291,7 +293,8 @@ function tick(dt: number, input: any) {
   }
   if (leaving) {
     leaveClock += dt;
-    if (leaveClock > 0.18) { const id = leaving; leaving = ""; rg.launch(id); }
+    // the screen fades to black, a frame stays black, then the game starts
+    if (leaveClock > LEAVE + 0.05) { const id = leaving; leaving = ""; rg.launch(id); }
   }
 }
 
@@ -671,6 +674,11 @@ function scrolled(children: any) {
 }
 
 function view() {
+  if (leaving) {
+    // a game was chosen: fade to black over the menu (no jump to the game's first frame)
+    const o = Math.min(1, leaveClock / LEAVE);
+    return <div className="screen">{page_()}<div className="fade" style={{ opacity: o * o * (3 - 2 * o) }} /></div>;
+  }
   if (!menu) return page_();
   const m = Menu();
   return m ? <div className="screen">{page_()}{m}</div> : page_();

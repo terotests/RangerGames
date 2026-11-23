@@ -156,6 +156,8 @@ pub fn image_size(b: &[u8]) -> Option<(f64, f64)> {
 
 /// Where the settings every game shares are kept (the language).
 const SETTINGS: &str = "/save/_settings.json";
+/// seconds of the fade in from black when a game starts
+const FADE_IN: f64 = 0.35;
 
 /// The least height (game units) a fixed-width game gets by default: the
 /// smallest phone screen the games are made for, 360 × 640.
@@ -312,6 +314,9 @@ pub struct Engine {
     /// the host can paint either way, GL or Canvas (rg.paints; the phone):
     /// the choice is setting "paint", read by the host
     pub paints: bool,
+    /// seconds left of the fade in from black after a game starts (the
+    /// launcher fades to black before it, so the change shows no jump)
+    pub fade_in: f64,
     /// the host draws textured globes (draw kind 8): planets with a
     /// `texture` are sent as one sphere command instead of their regions
     pub textures: bool,
@@ -355,6 +360,7 @@ impl Engine {
             gl3d: false,
             gl_all: false,
             paints: false,
+            fade_in: 0.0,
             textures: false,
             store: false,
             detail: false,
@@ -951,6 +957,13 @@ impl Engine {
                     parts[3] = pb - pl;
                     parts[5] = now_ms() - pb;
                 }
+                // a game just started: black over it, fading out
+                if self.fade_in > 0.0 {
+                    let o = (self.fade_in / FADE_IN).clamp(0.0, 1.0);
+                    let (w, h) = (self.ui.width as f32, self.ui.height as f32);
+                    self.draw.rings(6, [0.0; 3], o * o * (3.0 - 2.0 * o), 0.0, &[0.0, 0.0, w, 0.0, w, h, 0.0, h], &[8.0]);
+                    self.fade_in -= dt;
+                }
                 parts[6] = now_ms() - p0;
                 self.perf_frame(parts);
                 self.launch_pending();
@@ -1012,6 +1025,7 @@ impl Engine {
     fn launch_pending(&mut self) {
         if let Some(id) = self.pending.take() {
             let _ = self.start(&id);
+            self.fade_in = FADE_IN;
         }
     }
 
