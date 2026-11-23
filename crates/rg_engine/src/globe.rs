@@ -1339,9 +1339,12 @@ impl Globe {
             }
         };
 
-        // the air round it: horizons of a slightly bigger ball
-        let own_air = textures && !self.texture.is_empty() && self.air > 0.0 && !glowing;
-        if let (Some(g), false) = (self.glow, own_air) {
+        // the air round it: horizons of a slightly bigger ball, only for a ball
+        // drawn from its regions (or a star): a textured ball has its air in
+        // the sphere's own smooth glow (`air`), or none (the flat rings showed
+        // as hard steps round the Moon and Mars)
+        let textured = textures && !self.texture.is_empty() && !glowing;
+        if let (Some(g), false) = (self.glow, textured) {
             let layers: &[(f64, f64)] = if glowing { &[(1.5, 0.08), (1.22, 0.14), (1.08, 0.3)] } else { &[(1.07, 0.18), (1.035, 0.3)] };
             for &(k, a) in layers.iter() {
                 let rr = place.radius * k;

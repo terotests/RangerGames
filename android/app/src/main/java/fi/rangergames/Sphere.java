@@ -182,9 +182,9 @@ final class Sphere {
         float d2 = ds * ds, d4 = d2 * d2, d8 = d4 * d4;
         float fw = d8 * d2 * smooth(-0.45f, 0.02f, up);
         float dusk = smooth(-0.3f, -0.02f, up) * (1 - smooth(0f, 0.25f, up));
-        float dens = (float) Math.exp(-alt * 4.5f) * (1 - alt);
+        float dens = (float) Math.exp(-alt * 3.5f) * (1 - alt) * (1 - alt);
         float depth = dens * len / (air * 2);
-        gA = Math.max(0, Math.min(1, depth * (0.55f * day + 2.6f * fw + 0.25f * dusk)));
+        gA = 1 - (float) Math.exp(-depth * (0.38f * day + 2.6f * fw + 0.25f * dusk));
         float k = 0.7f + 0.6f * day;
         gR = cr * k + fw * 3f + dusk * 0.8f;
         gG = cg * k + 0.96f * fw * 3f + 0.55f * dusk * 0.8f;

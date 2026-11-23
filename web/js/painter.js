@@ -61,9 +61,11 @@
     // looking towards the sun past the rim: forward scattering, a white burst at sunrise
     "  float fw = pow(max(dot(d, sun), 0.0), 10.0) * smoothstep(-0.45, 0.02, up);" +
     "  float dusk = smoothstep(-0.3, -0.02, up) * (1.0 - smoothstep(0.0, 0.25, up));" +
-    "  float dens = exp(-alt * 4.5) * (1.0 - alt);" +
+    // thinning smoothly to nothing at the top, and a soft (not clipped) build-up
+    // towards the rim: a gradient, no hard ring
+    "  float dens = exp(-alt * 3.5) * (1.0 - alt) * (1.0 - alt);" +
     "  float depth = dens * len / (air * 2.0);" +
-    "  float a = clamp(depth * (0.55 * day + 2.6 * fw + 0.25 * dusk), 0.0, 1.0);" +
+    "  float a = 1.0 - exp(-depth * (0.38 * day + 2.6 * fw + 0.25 * dusk));" +
     "  vec3 col = airc * (0.7 + 0.6 * day) + vec3(1.0, 0.96, 0.9) * fw * 3.0 + vec3(1.0, 0.55, 0.3) * dusk * 0.8;" +
     "  return vec4(col, a);" +
     "}" +
