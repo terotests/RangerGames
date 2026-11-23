@@ -190,6 +190,11 @@
     "  vec3 d = mesh ? normalize(wpos - eye) : normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
     "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
     "  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;" +
+    // the smooth ball's edge covers a pixel in part: how much (0..1) from how far past the rim the ray passes, in
+    // pixels. Without it the rim moved in whole (picture) pixels: a far planet's edge crept and jumped back as it
+    // came nearer, a wobble the eye sees
+    "  float qd = sqrt(q2) - 1.0; float cover = clamp(0.5 - qd / max(fwidth(qd), 1e-7), 0.0, 1.0);" +
+    "  bool soft = !terr && !mesh && meshM < 0.5 && useWin < 0.5;" +
     // a detail window close by: test the window on the smooth ball first (with a margin for mountains), so that only
     // the pixels it may cover cast the long ray
     "  if (terr && useWin > 0.5 && !mesh) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
@@ -207,7 +212,7 @@
     // (only at a slant, where it shows, and one step with the three largest octaves: two full ones cost 4-5 ms on a tablet)
     "  if (mesh && terr) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);" +
     "    if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }" +
-    "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
+    "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : soft ? (cover > 0.0 && -b > 0.0) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
     "    float R = 1.0 + air;" +
     "    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;" +
@@ -315,8 +320,12 @@
     // (0.10 to 0.18 radians): the game's pieces reach at least that far, so their outer edge (and their finer
     // slopes) never show against the ball's own picture; the ball's hole is only inside 0.10 radians
     "  float fa = useWin > 0.5 ? (terr ? 1.0 : 1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
+    "  if (soft) fa *= cover;" +
     "  if (fa <= 0.0) discard;" +
     "  DEPTH(th); o = vec4(min(c, vec3(1.0)) * fa, fa);" +
+    // the part of an edge pixel the ball leaves: the air behind it
+    "  if (soft && cover < 1.0 && air > 0.0) { float R = 1.0 + air; vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(max(R * R - q2, 0.0)), false);" +
+    "    o += vec4(min(g.rgb, vec3(1.0)) * g.a, g.a) * (1.0 - cover); }" +
     "}";
 
   function Spheres() {
