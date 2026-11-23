@@ -16,6 +16,10 @@
 //!                                               // clockwise seen from outside), colors: a 0xrrggbb a
 //!                                               // triangle (else `color`), glow: the triangles drawn
 //!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
+//!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
+//!                                               // set { puffs: [x, y, z, r, alpha, bright, …] }, six
+//!                                               // numbers a puff, x y z from the object's place; each
+//!                                               // is a few rings, fainter outwards; `color` × bright
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
@@ -30,7 +34,8 @@
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
 //! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible, shiny, opacity,
-//!                      heights })                        // a heightfield's new heights
+//!                      heights,                          // a heightfield's new heights
+//!                      puffs })                          // a "puffs" object's puffs (one call for all)
 //! rg.three("remove", { id })
 //! rg.three("clear")
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
@@ -352,6 +357,37 @@ struct Obj {
     wy: f64,
     /// 0: none; objects of one group sort against others as one thing
     group: i32,
+    /// a "puffs" object: x, y, z (from `pos`), radius, alpha, brightness a puff
+    puffs: Vec<f64>,
+}
+
+/// The rings of one puff: (radius share, alpha share). Inner rings over outer
+/// ones make it soft at the edge; the shares differ a little so that the rings
+/// never merge into one path (the painter joins faces of one colour and alpha).
+const PUFF_RINGS: [(f64, f64); 4] = [(1.0, 0.22), (0.78, 0.26), (0.56, 0.3), (0.34, 0.34)];
+
+/// A puff's rings on the screen: (corners, alpha share), outer first; empty when
+/// it is behind the eye, too small or off the screen. v: the centre in view space.
+fn puff_rings(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<f64>, f64)> {
+    if v[2] < near + r * 0.5 {
+        return Vec::new();
+    }
+    let pr = r / v[2] * focal;
+    let (cx, cy) = (w / 2.0 + v[0] / v[2] * focal, h / 2.0 - v[1] / v[2] * focal);
+    if pr < 0.4 || cx + pr < 0.0 || cy + pr < 0.0 || cx - pr > w || cy - pr > h {
+        return Vec::new();
+    }
+    let rings: &[(f64, f64)] = if pr < 3.0 { &PUFF_RINGS[1..2] } else { &PUFF_RINGS };
+    let sides = (8.0 + pr / 5.0).clamp(8.0, 20.0) as usize;
+    rings.iter().map(|&(k, a)| {
+        let mut pts = Vec::with_capacity(sides * 2);
+        for i in 0..sides {
+            let t = i as f64 / sides as f64 * std::f64::consts::TAU;
+            pts.push(cx + t.cos() * pr * k);
+            pts.push(cy + t.sin() * pr * k);
+        }
+        (pts, if pr < 3.0 { 0.8 } else { a })
+    }).collect()
 }
 
 struct Light {
@@ -571,6 +607,8 @@ impl Scene {
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
                         tri_mesh(a)
+                    } else if shape == "puffs" {
+                        Mesh::plain(Vec::new(), Vec::new())
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
                     },
@@ -587,6 +625,7 @@ impl Scene {
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
                     group: a.get("group").as_num(0.0) as i32,
+                    puffs: a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect(),
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -609,6 +648,9 @@ impl Scene {
                     }
                     if !a.get("opacity").is_null() {
                         o.opacity = a.get("opacity").as_num(1.0).clamp(0.0, 1.0);
+                    }
+                    if !a.get("puffs").is_null() {
+                        o.puffs = a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect();
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -879,6 +921,20 @@ impl Scene {
             if o.opacity <= 0.0 {
                 continue;
             }
+            for pf in o.puffs.chunks_exact(6) {
+                let c = add(o.pos, [pf[0], pf[1], pf[2]]);
+                let v = to_view(c);
+                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                for (pts, k) in puff_rings(v, pf[3], focal, w, h, near) {
+                    let alpha = (pf[4] * k * o.opacity).clamp(0.0, 0.999);
+                    if alpha < 0.004 {
+                        continue;
+                    }
+                    let pts: Vec<f32> = pts.iter().map(|x| *x as f32).collect();
+                    let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, v[2], 0) };
+                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: v[2], pts, rgb, alpha });
+                }
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1062,6 +1118,18 @@ impl Scene {
             if o.opacity <= 0.0 {
                 continue;
             }
+            // puffs: see-through rings, added like the other see-through faces
+            for pf in o.puffs.chunks_exact(6) {
+                let c = add(o.pos, [pf[0], pf[1], pf[2]]);
+                let v = to_view(c);
+                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                for (pts, k) in puff_rings(v, pf[3], focal, w, h, near) {
+                    let a = (pf[4] * k * o.opacity).clamp(0.0, 1.0);
+                    let dz = d(v[2]) + 2.0;
+                    let corners: Vec<V3> = pts.chunks_exact(2).map(|p| [p[0], p[1], dz]).collect();
+                    glow.push((v[2], corners, mul(rgb, a)));
+                }
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1216,6 +1284,29 @@ mod mesh_tests {
         sc.gl = true;
         sc.render(&mut DrawStream::new(), 400.0, 400.0);
         assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
+    }
+
+    #[test]
+    fn puffs_are_soft_rings_facing_the_eye_set_in_one_call() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "smoke", "shape": "puffs", "color": "#ffffff" }"##));
+        // two puffs: a big one in the middle, a tiny far one; one behind the eye
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "smoke", "puffs": [0, 0, 0, 1, 0.8, 1, 0, 0, -400, 0.5, 0.8, 1, 0, 0, 20, 1, 0.8, 1] }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // the painter: see-through paths, the big puff as four rings of
+        // different alpha (never merged), the tiny one as one ring
+        let alphas: Vec<f32> = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).map(|w| w[8]).collect();
+        assert_eq!(alphas.len(), 5, "{:?}", alphas);
+        // GL: see-through triangles only (depth 2..3)
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(!sc.tris.is_empty() && sc.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // an empty list hides them
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "smoke", "puffs": [] }"#));
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(sc.tris.is_empty());
     }
 
     #[test]
