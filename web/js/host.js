@@ -592,7 +592,8 @@
       case "sound": this.audio.play(name, args); break;
       case "say": this.audio.say(args); break;
       case "music": this.audio.startMusic(name, args); break;
-      case "stop": this.audio.stopMusic(); break;
+      case "stop": this.audio.stopMusic(args); break;
+      case "soundctl": this.audio.control(name, args); break;
       case "vibrate": this.vibrate(args); break;
       case "copy": this.copy(String(args)); break;
       case "open": if (/^\/[^\/\\]/.test(String(args))) global.location.href = String(args); break;
