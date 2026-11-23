@@ -79,6 +79,13 @@
     "uint hsh(ivec3 c) { uint h = (uint(c.x) * 0x8da6b343u) ^ (uint(c.y) * 0xd8163841u) ^ (uint(c.z) * 0xcb1ab31fu);" +
     "  h ^= h >> 16u; h *= 0x7feb352du; h ^= h >> 15u; h *= 0x846ca68bu; h ^= h >> 16u; return h; }" +
     "float hv(ivec3 c) { return float(hsh(c) >> 8u) / 16777215.0; }" +
+    // value noise with its gradient (x: 0..1, yzw: d/dx), for the made-up rocks close by
+    "vec4 vnd(vec3 x) { ivec3 i = ivec3(floor(x)); vec3 f = x - floor(x); vec3 u = f * f * f * (f * (6.0 * f - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);" +
+    "  float a = hv(i), b = hv(i + ivec3(1, 0, 0)), c = hv(i + ivec3(0, 1, 0)), d = hv(i + ivec3(1, 1, 0));" +
+    "  float e = hv(i + ivec3(0, 0, 1)), g = hv(i + ivec3(1, 0, 1)), h = hv(i + ivec3(0, 1, 1)), k = hv(i + ivec3(1, 1, 1));" +
+    "  float k1 = b - a, k2 = c - a, k3 = e - a, k4 = a - b - c + d, k5 = a - c - e + h, k6 = a - b - e + g, k7 = -a + b + c - d + e - g - h + k;" +
+    "  return vec4(a + k1 * u.x + k2 * u.y + k3 * u.z + k4 * u.x * u.y + k5 * u.y * u.z + k6 * u.z * u.x + k7 * u.x * u.y * u.z," +
+    "    du * vec3(k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z, k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x, k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y)); }" +
     "float vnoise(vec3 x) { vec3 f = floor(x); ivec3 c = ivec3(f); vec3 t = x - f; t = t * t * (3.0 - 2.0 * t);" +
     "  float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);" +
     "  float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);" +
@@ -226,20 +233,19 @@
     "      tl += (bumpsF(normalize(p + east * eb), nb) - b0) / eb * east + (bumpsF(normalize(p + north * eb), nb) - b0) / eb * north; }" +
     // close by, a sharper picture's own small slopes: its brightness against its blur is the slope towards its own sun
     // (draw.rs `sphere` 31, 39); its baked light is taken out of the colour, the game's sun lights the slopes
-    "    float hf = 0.0;" +
-    // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
-    // faded in as its pixels grow larger than the screen's
-    "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fpt);" +
-    // (both, and the picture's own slopes below, fade out near the piece's edges: the next piece's pattern and
-    // blur differ, and its edge showed as a line in the fine detail)
-    "      float ew = smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v)));" +
-    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z) * ew, w64 = 0.5 * smoothstep(3.0, 4.0, z) * ew;" +
-    "      if (w8 > 0.0) hf += w8 * (lumAt(p, fpt, 0.0, 8.0) - lumAt(p, fpt, 3.0, 8.0));" +
-    "      if (w64 > 0.0) hf += w64 * (lumAt(p, fpt, 0.0, 64.0) - lumAt(p, fpt, 3.0, 64.0)); }" +
-    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
+    // finer than the detail pictures' pixels (2 pi / 16384 radians): made-up rocks and crags, seeded by the place
+    // itself (value noise of the point, three sizes, the finest ridged), the same wherever the eye comes from and
+    // without seams; each size fades in once it is a few screen pixels long (and out towards the horizon)
+    "    if (terr && wr > 0.0) { vec3 g = vec3(0.0); float lw = 7.67e-4; mat3 rk = mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6);" +
+    "      for (int k = 0; k < 3; k++) { float w = smoothstep(1.0, 2.0, log2(lw / max(fpt, 1e-9)));" +
+    "        if (w > 0.0) { vec4 q = vnd(rk * (p / lw) + vec3(17.3 * float(k), 5.1, 0.0)); vec3 dq = 2.0 * (q.yzw * rk);" +
+    "          if (k == 2) { float m = 2.0 * q.x - 1.0; dq *= -m * inversesqrt(m * m + 0.03); }" +
+    "          g += w * (0.025 + 0.015 * float(k)) * dq; }" +
+    "        lw /= 3.0; rk = rk * mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6); }" +
+    "      tl += g - p * dot(g, p); }" +
+    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);" +
     "      float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }" +
-    "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
     // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
     // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
     // Shadertoy height shader), not a whole normal (three); without it the lite ground close by was flat
