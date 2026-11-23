@@ -22,11 +22,13 @@
 //!                                                   // dome: a half sphere, size [r], its flat bottom at y 0
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
 //!                      layer,                            // -1: flat on the floor, drawn first
+//!                      shiny,                            // 0..1: a glint of each light off the faces
+//!                                                        // that turn it towards the camera
 //!                      wy,                               // a turn round world y after rx, ry, rz
 //!                      group })                          // objects of one group (a house) are sorted
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
-//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible,
+//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible, shiny,
 //!                      heights })                        // a heightfield's new heights
 //! rg.three("remove", { id })
 //! rg.three("clear")
@@ -337,6 +339,8 @@ struct Obj {
     visible: bool,
     emissive: bool,
     double: bool,
+    /// 0..1: how strongly the lights glint off it (a polished hull)
+    shiny: f64,
     /// drawn before the higher layers whatever the depth: flat things on the
     /// floor (a road, a shadow) use -1 so that nothing standing on them sinks in
     layer: i32,
@@ -568,6 +572,7 @@ impl Scene {
                     visible: !matches!(a.get("visible"), Json::Bool(false)),
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
+                    shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
                     group: a.get("group").as_num(0.0) as i32,
@@ -587,6 +592,9 @@ impl Scene {
                     }
                     if let Json::Bool(v) = a.get("visible") {
                         o.visible = v;
+                    }
+                    if !a.get("shiny").is_null() {
+                        o.shiny = a.get("shiny").as_num(0.0).clamp(0.0, 1.0);
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -664,7 +672,16 @@ impl Scene {
     }
 
     fn shade(&self, n: V3, centre: V3, base: V3) -> V3 {
+        self.shade_shiny(n, centre, base, 0.0, centre)
+    }
+
+    /// `shade` with a glint: each directional or point light adds white of
+    /// its colour where the face's normal is near the half-way direction
+    /// between the light and the camera (Blinn-Phong, one value per face)
+    fn shade_shiny(&self, n: V3, centre: V3, base: V3, shiny: f64, cam: V3) -> V3 {
         let mut light = [0.0, 0.0, 0.0];
+        let mut glint = [0.0, 0.0, 0.0];
+        let eye = norm(sub(cam, centre));
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
@@ -677,8 +694,14 @@ impl Scene {
                 }
             };
             light = add(light, mul(l.color, k));
+            if shiny > 0.0 && l.kind != "ambient" && k > 0.0 {
+                let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
+                let h = norm(add(to, eye));
+                let s = dot(n, h).max(0.0).powi(24) * shiny * l.intensity.min(1.5);
+                glint = add(glint, mul(l.color, s));
+            }
         }
-        [base[0] * light[0], base[1] * light[1], base[2] * light[2]]
+        [base[0] * light[0] + glint[0], base[1] * light[1] + glint[1], base[2] * light[2] + glint[2]]
     }
 
     fn fogged(&self, c: V3, dist: f64) -> V3 {
@@ -874,7 +897,7 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
@@ -1029,7 +1052,7 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
                 fan(&mut tris, &pts, &d, self.fogged(lit, dist));
                 drawn += 1;
@@ -1090,5 +1113,22 @@ mod mesh_tests {
         // plain shapes take the object's paint
         let b = mesh("box", &[1.0], 1);
         assert_eq!(b.face_paint(0, grey, true), (grey, true));
+    }
+
+    #[test]
+    fn a_shiny_face_glints_where_it_mirrors_the_light_to_the_camera() {
+        let mut sc = Scene::new();
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "a", "type": "ambient", "intensity": 0 }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "s", "type": "directional", "x": 0, "y": 1, "z": 1, "intensity": 1 }"#));
+        let grey = [0.5, 0.5, 0.5];
+        let up = [0.0, 1.0, 0.0];
+        let dull = sc.shade_shiny(up, [0.0; 3], grey, 0.0, [0.0, 10.0, -10.0]);
+        // the camera opposite the light: the face mirrors the light into it
+        let lit = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, -10.0]);
+        // the camera beside the light: no glint
+        let off = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, 10.0]);
+        assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
+        assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
+        assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
     }
 }
