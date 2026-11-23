@@ -16,6 +16,8 @@
 //!                                               // clockwise seen from outside), colors: a 0xrrggbb a
 //!                                               // triangle (else `color`), glow: the triangles drawn
 //!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
+//!                             | "dust"         // as puffs with two numbers more a puff (seed, age 0…1):
+//!                                               // a few lumps turning round it and drifting apart with age
 //!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
 //!                                               // set { puffs: [x, y, z, r, alpha, bright, …] }, six
 //!                                               // numbers a puff, x y z from the object's place; each
@@ -359,6 +361,9 @@ struct Obj {
     group: i32,
     /// a "puffs" object: x, y, z (from `pos`), radius, alpha, brightness a puff
     puffs: Vec<f64>,
+    /// a "dust" object: its puffs have two numbers more, seed and age (0…1):
+    /// each is a few lumps that turn round its centre and drift apart with age
+    dust: bool,
 }
 
 /// The rings of one puff: (radius share, alpha share). Inner rings over outer
@@ -369,6 +374,36 @@ const PUFF_RINGS: [(f64, f64); 4] = [(1.0, 0.22), (0.78, 0.26), (0.56, 0.3), (0.
 /// A puff's rings on the screen: (corners, alpha share), outer first; empty when
 /// it is behind the eye, too small or off the screen. v: the centre in view space.
 fn puff_rings(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<f64>, f64)> {
+    puff_rings_of(v, r, focal, w, h, near, &PUFF_RINGS)
+}
+
+/// A dust lump's two rings (alpha shares a little apart from PUFF_RINGS').
+const DUST_RINGS: [(f64, f64); 2] = [(1.0, 0.41), (0.55, 0.57)];
+const DUST_LUMPS: usize = 5;
+
+/// A "dust" puff: DUST_LUMPS lumps round the centre (in the view plane), turned
+/// by seed and age and drifting apart as it ages, each lump fading and shrinking:
+/// a cloud of dust that breaks up and turns (Tero: Chicxulub's debris).
+/// pf: x y z r alpha bright seed age; v: the centre in view space.
+fn dust_rings(v: V3, pf: &[f64], focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<f64>, f64)> {
+    let (r, seed, age) = (pf[3], pf[6], pf[7].clamp(0.0, 1.0));
+    let mut out = Vec::new();
+    let spin = 1.0 + 2.5 * seed.fract();
+    for j in 0..DUST_LUMPS {
+        let hj = ((seed * 7.31 + j as f64 * 3.17).sin() * 43758.5453).fract().abs();
+        let th = seed * std::f64::consts::TAU + j as f64 * std::f64::consts::TAU / DUST_LUMPS as f64 + age * spin * std::f64::consts::TAU;
+        let d = r * (0.18 + 0.75 * age) * (0.6 + 0.6 * hj);
+        let lr = r * (0.62 - 0.3 * age) * (0.75 + 0.5 * hj);
+        let c = [v[0] + th.cos() * d, v[1] + th.sin() * d, v[2]];
+        let fade = (1.0 - 0.55 * age) * (0.7 + 0.3 * hj);
+        for (pts, k) in puff_rings_of(c, lr, focal, w, h, near, &DUST_RINGS) {
+            out.push((pts, k * fade));
+        }
+    }
+    out
+}
+
+fn puff_rings_of(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64, set: &[(f64, f64)]) -> Vec<(Vec<f64>, f64)> {
     if v[2] < near + r * 0.5 {
         return Vec::new();
     }
@@ -377,7 +412,7 @@ fn puff_rings(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<
     if pr < 0.4 || cx + pr < 0.0 || cy + pr < 0.0 || cx - pr > w || cy - pr > h {
         return Vec::new();
     }
-    let rings: &[(f64, f64)] = if pr < 3.0 { &PUFF_RINGS[1..2] } else { &PUFF_RINGS };
+    let rings: &[(f64, f64)] = if pr < 3.0 { &set[set.len() / 2..set.len() / 2 + 1] } else { set };
     let sides = (8.0 + pr / 5.0).clamp(8.0, 20.0) as usize;
     rings.iter().map(|&(k, a)| {
         let mut pts = Vec::with_capacity(sides * 2);
@@ -607,7 +642,7 @@ impl Scene {
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
                         tri_mesh(a)
-                    } else if shape == "puffs" {
+                    } else if shape == "puffs" || shape == "dust" {
                         Mesh::plain(Vec::new(), Vec::new())
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
@@ -626,6 +661,7 @@ impl Scene {
                     wy: a.get("wy").as_num(0.0),
                     group: a.get("group").as_num(0.0) as i32,
                     puffs: a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect(),
+                    dust: shape == "dust",
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -921,11 +957,12 @@ impl Scene {
             if o.opacity <= 0.0 {
                 continue;
             }
-            for pf in o.puffs.chunks_exact(6) {
+            for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
                 let c = add(o.pos, [pf[0], pf[1], pf[2]]);
                 let v = to_view(c);
                 let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
-                for (pts, k) in puff_rings(v, pf[3], focal, w, h, near) {
+                let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
+                for (pts, k) in rings {
                     let alpha = (pf[4] * k * o.opacity).clamp(0.0, 0.999);
                     if alpha < 0.004 {
                         continue;
@@ -1119,11 +1156,12 @@ impl Scene {
                 continue;
             }
             // puffs: see-through rings, added like the other see-through faces
-            for pf in o.puffs.chunks_exact(6) {
+            for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
                 let c = add(o.pos, [pf[0], pf[1], pf[2]]);
                 let v = to_view(c);
                 let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
-                for (pts, k) in puff_rings(v, pf[3], focal, w, h, near) {
+                let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
+                for (pts, k) in rings {
                     let a = (pf[4] * k * o.opacity).clamp(0.0, 1.0);
                     let dz = d(v[2]) + 2.0;
                     let corners: Vec<V3> = pts.chunks_exact(2).map(|p| [p[0], p[1], dz]).collect();
@@ -1284,6 +1322,35 @@ mod mesh_tests {
         sc.gl = true;
         sc.render(&mut DrawStream::new(), 400.0, 400.0);
         assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
+    }
+
+    #[test]
+    fn dust_breaks_up_into_turning_lumps() {
+        let mut sc = Scene::new();
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "d", "shape": "dust", "color": "#806040" }"##));
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        // the lumps' rings in view space, straight from dust_rings
+        let centres = |age: f64| -> Vec<(f64, f64)> {
+            dust_rings([0.0, 0.0, 10.0], &[0.0, 0.0, 0.0, 1.0, 0.8, 1.0, 0.3, age], 400.0, 400.0, 400.0, 0.1).iter().map(|(pts, _)| {
+                let n = (pts.len() / 2) as f64;
+                let (mut x, mut y) = (0.0, 0.0);
+                for p in pts.chunks_exact(2) { x += p[0]; y += p[1]; }
+                (x / n, y / n)
+            }).collect()
+        };
+        let young = centres(0.0);
+        let old = centres(1.0);
+        // five lumps of two rings each
+        assert_eq!(young.len(), 10);
+        // older: the lumps lie farther from the centre (it breaks up)
+        let spread = |v: &Vec<(f64, f64)>| v.iter().map(|p| ((p.0 - 200.0).powi(2) + (p.1 - 200.0).powi(2)).sqrt()).sum::<f64>();
+        assert!(spread(&old) > spread(&young) * 1.5, "{} {}", spread(&old), spread(&young));
+        // painted as see-through paths
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "d", "puffs": [0, 0, 0, 1, 0.8, 1, 0.3, 0.5] }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let n = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).count();
+        assert_eq!(n, 10);
     }
 
     #[test]
