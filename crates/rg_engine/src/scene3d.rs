@@ -973,15 +973,45 @@ impl Scene {
         let u = cross(r, f);
         let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
         let near = 0.05;
-        // depth: 1/z between these two (closer than DN is depth 0)
-        const DN: f64 = 0.2;
-        const DF: f64 = 2000.0;
-        let depth = |z: f64| ((1.0 / DN - 1.0 / z.max(DN)) / (1.0 / DN - 1.0 / DF)).clamp(0.0, 1.0);
         let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
         };
+        // the objects' corners in the world, once
+        let worlds: Vec<Vec<V3>> = self.objs.iter().map(|o| {
+            if !o.visible || o.opacity <= 0.0 {
+                return Vec::new();
+            }
+            let (sx, cx) = o.rot[0].sin_cos();
+            let (sy, cy) = o.rot[1].sin_cos();
+            let (sz, cz) = o.rot[2].sin_cos();
+            let (sw, cw) = o.wy.sin_cos();
+            o.mesh.verts.iter().map(|v| {
+                let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
+                let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
+                let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
+                let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
+                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
+                add(p, o.pos)
+            }).collect()
+        }).collect();
+        // depth: 1/z between DN and DF, fitted to the shapes in view so that
+        // the whole depth buffer goes to them: a small ship close to the eye
+        // (Solar Pilot: 0.04 units at 0.1-0.3) was all closer than a fixed
+        // 0.2 = all depth 0, and its parts drew in painter order
+        let (mut zmin, mut zmax) = (f64::MAX, 0.0f64);
+        for wv in worlds.iter() {
+            for p in wv.iter() {
+                let z = to_view(*p)[2];
+                if z >= near {
+                    zmin = zmin.min(z);
+                    zmax = zmax.max(z);
+                }
+            }
+        }
+        let (dn, df) = if zmin <= zmax { let dn = (zmin * 0.9).max(near); (dn, (zmax * 1.1).max(dn * 1.01)) } else { (0.2, 2000.0) };
+        let depth = |z: f64| ((1.0 / dn - 1.0 / z.max(dn)) / (1.0 / dn - 1.0 / df)).clamp(0.0, 1.0);
         // clip against the near plane, project; corners as (x, y, view z)
         let project = |v: &[V3]| -> Vec<V3> {
             let mut clipped: Vec<V3> = Vec::with_capacity(v.len() + 2);
@@ -1021,22 +1051,10 @@ impl Scene {
         }
         let mut drawn = 0;
         let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
-        for o in self.objs.iter() {
+        for (o, world) in self.objs.iter().zip(worlds.iter()) {
             if !o.visible {
                 continue;
             }
-            let (sx, cx) = o.rot[0].sin_cos();
-            let (sy, cy) = o.rot[1].sin_cos();
-            let (sz, cz) = o.rot[2].sin_cos();
-            let (sw, cw) = o.wy.sin_cos();
-            let world: Vec<V3> = o.mesh.verts.iter().map(|v| {
-                let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
-                let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
-                let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
-                let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
-                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
-                add(p, o.pos)
-            }).collect();
             // (about one step of a 16-bit depth buffer a layer, so that a
             // decoration stays in front of its wall there too)
             let bias = o.layer.max(0) as f64 * 1.2e-5;
@@ -1198,5 +1216,26 @@ mod mesh_tests {
         sc.gl = true;
         sc.render(&mut DrawStream::new(), 400.0, 400.0);
         assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
+    }
+
+    #[test]
+    fn a_small_ship_close_to_the_eye_gets_the_whole_depth_range() {
+        // Solar Pilot: parts 0.04 units big at 0.1-0.3 from the eye were all
+        // closer than the old fixed near depth (0.2), so all at depth 0
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 0.15, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "front", "shape": "box", "size": [0.01], "z": 0.02, "color": "#ffd040", "emissive": true }"##));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "back", "shape": "box", "size": [0.04], "color": "#ffffff", "emissive": true }"##));
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        let t = &sc.tris;
+        let gold: Vec<f32> = t.chunks(6).filter(|c| c[5] < 0.5).map(|c| c[2]).collect();
+        let white: Vec<f32> = t.chunks(6).filter(|c| c[5] > 0.9).map(|c| c[2]).collect();
+        assert!(!gold.is_empty() && !white.is_empty());
+        let gmax = gold.iter().cloned().fold(0.0f32, f32::max);
+        let wmin = white.iter().cloned().fold(1.0f32, f32::min);
+        // the front box is nearer than the back box's front face, by many 16-bit steps
+        assert!(gmax < wmin, "{} {}", gmax, wmin);
+        assert!(wmin - gmax > 50.0 / 65536.0, "{} {}", gmax, wmin);
     }
 }
