@@ -918,6 +918,34 @@ impl Cam3 {
     }
 }
 
+/// A ball that needs no drawing: wholly behind the camera, wholly off the
+/// screen (with room for its air), or under half a pixel across, where a ball
+/// drawn from its regions still cost ~34 draw calls (Solar Pilot's 27 small
+/// bodies cost ~8 ms a frame on the tablet, all far away and invisible).
+/// `dist` is the eye's distance from the centre, already over the radius.
+fn globe_unseen(cam: &Cam3, place: &Place3, dist: f64) -> bool {
+    let v = cam.view(place.centre);
+    let r = place.radius;
+    if v[2] < -r {
+        return true;
+    }
+    // within a couple of radii the edge can reach round the camera: draw
+    if v[2] <= r * 1.2 {
+        return false;
+    }
+    let px = cam.focal * r / dist;
+    if px < 0.5 {
+        return true;
+    }
+    // off the screen: only for a small ball, whose outline stays near a circle
+    if r / dist > 0.1 {
+        return false;
+    }
+    let s = cam.screen(v);
+    let m = px * 1.6 + 2.0;
+    (s[0] as f64) < -m || (s[0] as f64) > cam.w + m || (s[1] as f64) < -m || (s[1] as f64) > cam.h + m
+}
+
 /// Where a globe stands in the scene: its centre, radius and the world
 /// directions of its own x, y and z (z: the north pole).
 pub struct Place3 {
@@ -1360,6 +1388,9 @@ impl Globe {
         if dist <= place.radius * floor {
             return;
         }
+        if !glowing && globe_unseen(cam, place, dist) {
+            return;
+        }
         let e = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);
         let cap = Cap::new(e, (place.radius / dist).min(0.999_999_9));
         let (w, h) = (cam.w, cam.h);
@@ -1713,6 +1744,30 @@ mod tests {
         // from the far side, B
         g.render_3d(&mut out, &cam_at([-3.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, false);
         assert_eq!(g.drawn, 1);
+    }
+
+    #[test]
+    fn a_far_tiny_or_off_screen_ball_draws_nothing() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r##"{{"regions":[["A","x",{}]],"grid":false,"glow":false,"border":false,"ocean":"#204060"}}"##, square(0.0, 0.0)));
+        g.command(&a);
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        // 300 px focal: at 1000 radii the ball is 0.3 px across its radius: nothing
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([1000.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert_eq!(out.count, 0);
+        // at 100 radii (3 px) it is drawn
+        g.render_3d(&mut out, &cam_at([100.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert!(out.count > 0);
+        // at 100 radii but well to the side of the view: nothing
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([100.0, 200.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert_eq!(out.count, 0);
+        // a glowing ball (a star) far away is still drawn
+        let mut out = DrawStream::new();
+        g.command(&rg_core::json::parse(r##"{"glow":"#ffffff"}"##));
+        g.render_3d(&mut out, &cam_at([1000.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, true, false);
+        assert!(out.count > 0);
     }
 
     #[test]
