@@ -1178,7 +1178,9 @@ mod mesh_tests {
         sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
         sc.command("add", &rg_core::json::parse(r##"{ "id": "flame", "shape": "box", "size": [1], "z": 1, "color": "#4060ff", "emissive": true, "opacity": 0.5 }"##));
         sc.command("add", &rg_core::json::parse(r##"{ "id": "hull", "shape": "box", "size": [2], "color": "#ffffff", "emissive": true }"##));
-        sc.render_gl(400.0, 400.0);
+        // (through render: the GL form when the host draws depth-tested triangles)
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
         let t = &sc.tris;
         assert!(t.len() > 36);
         // the solid hull first (depth 0..1), then the flame (2..3) at half its colour
@@ -1187,12 +1189,14 @@ mod mesh_tests {
         assert!((0..first_glow).all(|i| t[i * 6 + 2] <= 1.0 && t[i * 6 + 3] > 0.99));
         assert!((t[first_glow * 6 + 5] - 0.5).abs() < 0.01, "{}", t[first_glow * 6 + 5]);
         // the painter: the flame as a path with opacity 0.5
+        sc.gl = false;
         let mut out = DrawStream::new();
         sc.render(&mut out, 400.0, 400.0);
         assert!(out.nums.windows(9).any(|w| w[0] == 6.0 && w[8] == 0.5), "no see-through path");
         // opacity 0: not drawn
         sc.command("set", &rg_core::json::parse(r#"{ "id": "flame", "opacity": 0 }"#));
-        sc.render_gl(400.0, 400.0);
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
         assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
     }
 }
