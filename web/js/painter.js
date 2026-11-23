@@ -202,7 +202,11 @@
     "  float ps = dot(p, sun); float sh = ps < 0.0 ? smoothstep(0.98, 1.02, length(p - sun * ps)) : 1.0;" +
     "  float lt = lit > 0.5 ? side * mix(0.12, 1.0, sh) : 1.0;" +
     "  float dust = 1.0 - smoothstep(1.5e-5, 1.2e-4, f);" +
-    "  vec4 res = vec4(col * lt * a * (1.0 - dust), a * (1.0 - dust));" +
+    // looking towards the Sun through the rings (Cassini's backlit pictures): the thin, dusty parts
+    // (the Cassini division, the outer edge) light up by forward scattering, the thick B ring stays dark
+    "  float fsc = lit > 0.5 && sign(sun.z) != sign(eye.z) ? pow(max(0.0, dot(normalize(d), sun)), 6.0) * sh : 0.0;" +
+    "  vec3 glow = mix(col, vec3(0.92, 0.9, 1.0), 0.6) * fsc * 3.2 * a * (1.0 - a) * (1.0 - a);" +
+    "  vec4 res = vec4((col * lt * a + glow) * (1.0 - dust), a * (1.0 - dust));" +
     "  if (dust > 0.0) { float L = log2(max(f, 1e-7) * 5.0); float l0 = floor(L), fr = L - l0; float sp = 0.0;" +
     "    float a0 = textureLod(ratex, vec2(u, 0.5), 0.0).r;" +
     "    for (int k = 0; k < 2; k++) { float cs = exp2(l0 + float(k)); vec2 g = p.xy / cs; vec2 c = floor(g);" +
@@ -336,7 +340,7 @@
     "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // the rings' shadow on the ball
-    "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.75 * ringA(length((p + sun * ts).xy), 2.0); }" +
+    "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
