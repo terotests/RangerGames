@@ -56,6 +56,19 @@ function __plain(s) {
 }
 
 var __seed = 12345;
+// sound handles: rg.sound and rg.music number each sound they start
+var __soundH = 0;
+function __play(kind, name, opts) {
+  var o = { h: ++__soundH };
+  if (opts) for (var k in opts) o[k] = opts[k];
+  __cmds.push([kind, __file(name), o]);
+  return o.h;
+}
+function __soundCtl(op, h, opts) {
+  var o = { h: h === undefined || h === null ? 0 : Number(h) || 0 };
+  if (opts) for (var k in opts) o[k] = opts[k];
+  __cmds.push(["soundctl", op, o]);
+}
 // A sound file named from the game's folder ("sounds/hop.wav") is read from
 // the virtual directory as /games/<id>/sounds/hop.wav, as rg.asset does for
 // pictures; a built-in effect's name ("jump") and an absolute path stay.
@@ -67,8 +80,24 @@ function __file(name) {
 var rg = {
   // sounds: a built-in effect's name ("jump", "coin", "click", "win",
   // "lose", "pop", "hit", "tick", "whoosh", "note") or a file in the game's
-  // folder ("sounds/hop.wav"); opts: { volume, pitch, freq }
-  sound: function (name, opts) { __cmds.push(["sound", __file(name), opts === undefined ? null : opts]); },
+  // folder ("sounds/hop.wav"); opts: { volume, pitch, freq, loop (the file
+  // plays again and again), fade (seconds from silence up to volume) }.
+  // Returns the sound's handle for rg.stopSound, rg.soundVolume,
+  // rg.pauseSound and rg.resumeSound (they control files and music; a
+  // built-in effect is too short to need it).
+  sound: function (name, opts) { return __play("sound", name, opts); },
+  // stops sound h (rg.sound's or rg.music's handle), or every sound and the
+  // music when h is left out; opts: { fade } seconds down to silence first
+  stopSound: function (h, opts) { __soundCtl("stop", h, opts); },
+  // sound h's volume (0..1, as opts.volume), reached in opts.fade seconds
+  soundVolume: function (h, volume, opts) {
+    var o = { volume: Number(volume) };
+    if (opts && opts.fade) o.fade = opts.fade;
+    __soundCtl("volume", h, o);
+  },
+  // holds sound h (all when left out) where it is; rg.resumeSound goes on
+  pauseSound: function (h) { __soundCtl("pause", h, null); },
+  resumeSound: function (h) { __soundCtl("resume", h, null); },
   // speech: voice clips rendered by crates/rg_voice from voice/fi.json (Finnish)
   // and voice/<lang>/*.json (English "en", Spanish "es") into /games/_voice/<lang>.
   // rg.say("hyva"), or a list said one after another: rg.say(["valitse", "punainen"]).
@@ -158,8 +187,12 @@ var rg = {
     var v = rg.lang === "en" ? en : rg.lang === "es" ? es : fi;
     return v === undefined || v === null ? fi : v;
   },
-  music: function (name, opts) { __cmds.push(["music", __file(name), opts === undefined ? null : opts]); },
-  stopMusic: function () { __cmds.push(["stop", "music", null]); },
+  // music: a built-in tune ("happy", "calm", "chase") or a sound file,
+  // played over and over (opts.loop false: once); opts: { volume, fade }.
+  // One music at a time: new music stops the old. Returns its handle.
+  music: function (name, opts) { return __play("music", name, opts); },
+  // opts: { fade } seconds down to silence first
+  stopMusic: function (opts) { __cmds.push(["stop", "music", opts && opts.fade ? { fade: opts.fade } : null]); },
   // a vibration in milliseconds, or a pattern [on, off, on, …]
   vibrate: function (ms) { __cmds.push(["vibrate", "", ms === undefined ? 30 : ms]); },
   // puts text on the clipboard (call it from a tap: a browser allows it
