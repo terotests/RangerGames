@@ -43,10 +43,10 @@
   // 2D canvas, so the globe keeps its place in the painter's order.
   var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; out vec3 wpos; void main() { uv = a; wpos = vec3(0.0); gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
   var SPHERE_FS = "#version 300 es\nprecision highp float; precision highp int; in vec2 uv; in vec3 wpos; out vec4 o;" +
-    "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
+    "uniform sampler2D tex, ltex, htex, gtex, dtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite; uniform vec4 hole;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite, useD; uniform vec4 hole;" +
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
@@ -122,12 +122,24 @@
     "  return mix(top, bot, a.y); }" +
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
     "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
-    "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
-    "float groundF(vec3 p, float n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumpsF(p, n); }" +
+    // a detail window's own heights (dtex, useD): inside the window, faded in from its edges (where the ball's own
+    // shape goes on), they are the ground's height; xy: the window's u v, z: how much they count
+    "vec3 winAt(vec2 t) { float uw = t.x; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
+    "  vec2 w = vec2((uw - win.x) / (win.z - win.x), (t.y - win.y) / (win.w - win.y));" +
+    "  return vec3(w, smoothstep(0.0, 0.06, min(min(w.x, 1.0 - w.x), min(w.y, 1.0 - w.y)))); }" +
+    "float coarseH(vec3 p) { vec2 t = lonlat(p); float h = (hhi - hlo) * shape(t);" +
+    "  if (useD > 0.5 && useWin > 0.5) { vec3 w = winAt(t); if (w.z > 0.0) h = mix(h, (hhi - hlo) * dec(textureLod(dtex, w.xy, 0.0)), w.z); }" +
+    "  return h; }" +
+    "float ground(vec3 p, int n) { return 1.0 + hlo + coarseH(p) + bumps(p, n); }" +
+    "float groundF(vec3 p, float n) { return 1.0 + hlo + coarseH(p) + bumpsF(p, n); }" +
     // octs, fractional (the phone's mesh: its corners' heights change smoothly as they slide over the ground)
     "float octsAF(float sz) { if (hamp <= 0.0) return 0.0; return clamp(log(hamp * 1.5 / max(sz, 1e-9)) / log(1.0 / 0.48) + 1.0, 0.0, lite > 0.5 ? 3.0 : 5.0); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
-    "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
+    "float shadeH(vec3 p, float lod) { vec2 t = lonlat(p); bool dw = useD > 0.5 && useWin > 0.5;" +
+    "  float lh = dw ? max(0.0, lod + log2(float(textureSize(htex, 0).x) * (win.z - win.x) / float(textureSize(dtex, 0).x))) : lod;" +
+    "  float h = (hhi - hlo) * dec(textureLod(htex, t, lh));" +
+    "  if (dw) { vec3 w = winAt(t); if (w.z > 0.0) h = mix(h, (hhi - hlo) * dec(textureLod(dtex, w.xy, lod)), w.z); }" +
+    "  return h; }" +
     // casts the ray against the ground's shape; t: where it meets it
     "bool march(vec3 d, float pix, out float t) {" +
     "  float Ro = 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq, Ri = 1.0 + hlo - 2.0 * hamp - 0.25 * crat / hfreq;" +
@@ -221,7 +233,8 @@
     // wr: the slopes fade in from 0.06 to 0.03 radii up (with them the picture's own baked light is taken out)
     "  if (useH > 0.5 && terr) { float wr = 1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0);" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
-    "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
+    "    float ta = 6.2831853 / float(textureSize(htex, 0).x); if (useD > 0.5 && useWin > 0.5) ta = 6.2831853 * (win.z - win.x) / float(textureSize(dtex, 0).x);" +
+    "    float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(max(eps, fpt * 0.7) / ta)); float nb = 0.0;" +
     // close by also the finer bumps, down to about three pixels across
     "    if (terr && lite < 0.5) nb = octsF(max(fp * 3.0, fpt * 1.5));" +
@@ -317,7 +330,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -347,7 +360,8 @@
 
   // draws one sphere command into ctx (which has the game's transform);
   // p: the 20 extra numbers (24 with a detail window); px: device pixels per game unit
-  // hs: the height pictures [shading, shape] and their names, when loaded
+  // hs: the height pictures [shading, shape] and their names, when loaded; [4], [5]: a detail window's own
+  // heights and their name, when it has them
   Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs) {
     var gl = this.gl, c = this.canvas;
     // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
@@ -380,6 +394,11 @@
     gl.activeTexture(gl.TEXTURE3);
     if (w40) gl.bindTexture(gl.TEXTURE_2D, this.texture(hs[3], hs[1], false, true));
     gl.uniform1i(u.gtex, 3);
+    var wd = w40 && w4 && hs.length > 4;
+    gl.activeTexture(gl.TEXTURE4);
+    if (wd) gl.bindTexture(gl.TEXTURE_2D, this.texture(hs[5], hs[4], true));
+    gl.uniform1i(u.dtex, 4);
+    gl.uniform1f(u.useD, wd ? 1 : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -479,6 +498,9 @@
           if (s2 >= 0 && nx >= 40) {
             var hn = strings[s2].split("|"), hi = this.images.get(hn[0]), gi = this.images.get(hn[1]);
             if (hi && gi) hs = [hi, gi, hn[0], hn[1]];
+            // "shading|shape|window heights": the window's own heights, once loaded (until then the ball's)
+            var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
+            if (di) hs.push(di, hn[2]);
           }
           spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20)), scale, limg, s1 >= 0 ? strings[s1] : "", hs);
         }

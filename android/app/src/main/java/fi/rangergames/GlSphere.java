@@ -97,8 +97,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -211,6 +211,8 @@ final class GlSphere {
             GLES30.glUniform1i(u[LTEX], 1);
             GLES30.glUniform1i(u[HTEX], 2);
             GLES30.glUniform1i(u[GTEX], 3);
+            // a detail window's own heights on unit 5 (4 is the edge pass's)
+            GLES30.glUniform1i(u[DTEX], 5);
             // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
             GLES30.glUniform1f(u[LITE], 1);
             try {
@@ -271,6 +273,7 @@ final class GlSphere {
         GLES30.glUniform1i(um[LTEX], 1);
         GLES30.glUniform1i(um[HTEX], 2);
         GLES30.glUniform1i(um[GTEX], 3);
+        GLES30.glUniform1i(um[DTEX], 5);
         GLES30.glUniform1f(um[LITE], 1);
         GLES30.glUniform1f(um[MESHM], 1);
         int cols = SPOKES + 1;
@@ -574,9 +577,10 @@ final class GlSphere {
     /**
      * One globe into the picture, as painter.js Spheres.draw; p from at: the
      * extra numbers (nx of them); hs, gs: the heights' shading and shape
-     * pictures or null. False when its main picture does not load.
+     * pictures or null; ds: a detail window's own heights or null. False when
+     * its main picture does not load.
      */
-    boolean draw(String src, String lsrc, String hs, String gs, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
+    boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
@@ -589,6 +593,10 @@ final class GlSphere {
             if (ht == null || gt == null) ht = gt = null;
         }
         boolean w40 = ht != null;
+        // the window's heights (decoded on the other thread, as its picture; until then the ball's shape)
+        Tex dt = w40 && w4 && ds != null ? texture(ds, true, false, true) : null;
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE5);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dt != null ? dt.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tx.id);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
@@ -614,12 +622,17 @@ final class GlSphere {
             // the ball with a ray for each pixel, or close by only the air round the mesh
             GLES30.glUseProgram(prog);
             uniforms(u, p, at, w32, w4, w40, lt != null, ho, x, y, w, h);
+            GLES30.glUniform1f(u[USED], dt != null ? 1 : 0);
             GLES30.glUniform1f(u[MESHM], mesh ? 2 : 0);
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
             GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
         }
-        if (mesh) meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
+        if (mesh) {
+            GLES30.glUseProgram(progMesh);
+            GLES30.glUniform1f(um[USED], dt != null ? 1 : 0);
+            meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
+        }
         return true;
     }
 

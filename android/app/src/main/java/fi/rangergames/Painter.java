@@ -189,12 +189,14 @@ final class Painter {
             int s0 = (int) nums[q + 18], s1 = (int) nums[q + 19], s2 = (int) nums[q + 20], nx = (int) nums[q + 22];
             if (nx < 20 || w <= 0 || h <= 0 || s0 < 0 || s0 >= strings.length || strings[s0].isEmpty()) continue;
             String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
-            String hs = null, gs = null;
+            // "shading|shape" or "shading|shape|window heights" (a detail window's own heights)
+            String hs = null, gs = null, ds = null;
             if (nx >= 40 && s2 >= 0 && s2 < strings.length) {
-                int bar = strings[s2].indexOf('|');
-                if (bar > 0) {
-                    hs = strings[s2].substring(0, bar);
-                    gs = strings[s2].substring(bar + 1);
+                String[] parts = strings[s2].split("\\|");
+                if (parts.length >= 2 && !parts[0].isEmpty()) {
+                    hs = parts[0];
+                    gs = parts[1];
+                    if (parts.length > 2 && !parts[2].isEmpty()) ds = parts[2];
                 }
             }
             int at = extras(nums, q);
@@ -209,7 +211,7 @@ final class Painter {
                     gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
                 }
             }
-            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
+            any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
         }
         Bitmap bm = gl.end();
         if (bm == null) return -1;
@@ -396,9 +398,12 @@ final class Painter {
         // the 40-number form: real heights, "shading|shape" (Terrain)
         int[] hm = null, gm = null;
         int bar = hs.indexOf('|');
+        // a third part (a detail window's own heights) is only for the GPU's ground
+        int bar2 = bar > 0 ? hs.indexOf('|', bar + 1) : -1;
+        String gname = bar > 0 ? (bar2 > 0 ? hs.substring(bar + 1, bar2) : hs.substring(bar + 1)) : "";
         if (nx >= 40 && bar > 0) {
             hm = map(hs.substring(0, bar));
-            gm = map(hs.substring(bar + 1));
+            gm = map(gname);
             if (hm == null || gm == null) hm = gm = null;
         }
         boolean window = nx >= 32 && nums[at + 24] > 0.5f;
@@ -407,7 +412,7 @@ final class Painter {
         if (near && window) return;
         boolean mesh = false;
         if (near) {
-            int[] gsize = mapSizes.get(hs.substring(bar + 1));
+            int[] gsize = mapSizes.get(gname);
             terrain.set(nums, at, gm, gsize[0], gsize[1]);
             mesh = terrain.mesh(nums, at);
         }

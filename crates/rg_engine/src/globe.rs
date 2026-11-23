@@ -40,6 +40,10 @@
 //!   heightScale,                 // the bumps' coarsest size (same units, default r / 60)
 //!   heightRelief,                // how much the sharp picture tilts the ground (default 1: true)
 //!   heightCraters,               // made-up craters in the bumps: 0 none, 1 deep (a fifth of their width)
+//!   detail,                      // sharper pictures over parts of the map: [{ src, u0, v0, u1, v1,
+//!                                // sun, shade (the picture's own light), height }]: height, a picture
+//!                                // of the window's own heights (as `height`, from heightMin to
+//!                                // heightMax) for the ground's shape and slopes close by
 //!   visible })
 //! ```
 //!
@@ -259,7 +263,8 @@ pub struct Globe {
     /// the sharper pictures: their path, window u0 v0 u1 v1 and their own sun
     /// [azimuth (radians, from east towards north), brightness per unit of slope
     /// towards it (0: none)] for reading slopes from the picture close by
-    detail: Vec<(String, [f64; 4], [f64; 2])>,
+    /// the sharper pictures: (picture, window u0 v0 u1 v1, its own sun [azimuth, shade], its heights or "")
+    detail: Vec<(String, [f64; 4], [f64; 2], String)>,
     /// the host can draw `detail` (a sphere command with a window)
     pub detail_ok: bool,
     /// the host can draw `height` (a sphere command with 40 numbers)
@@ -428,7 +433,10 @@ impl Globe {
                 let src = d.get("src").as_str();
                 let w = [d.get("u0").as_num(0.0), d.get("v0").as_num(0.0), d.get("u1").as_num(1.0), d.get("v1").as_num(1.0)];
                 let sun = [d.get("sun").as_num(0.0).to_radians(), d.get("shade").as_num(0.0).max(0.0)];
-                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w, sun)) }
+                // its own heights (16 bits as red * 256 + green, from heightMin to heightMax): close by the
+                // ground's shape and slopes inside the window come from them
+                let hs = d.get("height").as_str();
+                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w, sun, hs)) }
             }).collect();
         }
         let cell = a.get("cell");
@@ -1119,7 +1127,7 @@ impl Globe {
         // the host only inside its window, in the box its part of the
         // surface takes on the screen
         let near_c0 = (cap.c0.clamp(-1.0, 1.0).acos() + (2.0 * (self.terrain_high() / rr).max(0.0)).sqrt() + 0.02).min(std::f64::consts::PI).cos();
-        for (src, win, wsun) in self.detail.iter() {
+        for (src, win, wsun, dh) in self.detail.iter() {
             let n = 8;
             let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
             let mut seen = false;
@@ -1173,17 +1181,19 @@ impl Globe {
             } else {
                 p.extend(win.iter().map(|v| *v as f32));
             }
-            out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &heights, &p);
+            // the window's own heights: a third name, "shading|shape|window heights"
+            let wh = if terrain && !dh.is_empty() { format!("{}|{}", heights, dh) } else { heights.clone() };
+            out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &wh, &p);
         }
     }
 }
 
 /// The detail windows together, when they cover one rectangle of the map (u may run past 0 or 1 across the date line).
-fn detail_union(detail: &[(String, [f64; 4], [f64; 2])]) -> Option<[f64; 4]> {
+fn detail_union(detail: &[(String, [f64; 4], [f64; 2], String)]) -> Option<[f64; 4]> {
     let first = detail.first()?.1;
     let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     let mut area = 0.0;
-    for (_, w, _) in detail.iter() {
+    for (_, w, _, _) in detail.iter() {
         let mut sh = 0.0;
         if w[0] - first[0] > 0.5 {
             sh = -1.0;
@@ -1282,6 +1292,9 @@ impl Globe {
             for d in self.detail.iter_mut() {
                 if !d.0.starts_with('/') {
                     d.0 = rg_core::vfs::join(dir, &d.0);
+                }
+                if !d.3.is_empty() && !d.3.starts_with('/') {
+                    d.3 = rg_core::vfs::join(dir, &d.3);
                 }
             }
         }
@@ -1752,6 +1765,25 @@ mod tests {
         let n = &out.nums;
         assert_eq!(n[23 + 35], 1.0);
         assert_eq!((n[1], n[2]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_detail_window_with_its_own_heights_names_them_third() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-0.1,"heightMax":0.2,
+            "detail":[{"src":"img/d/0_3.jpg","u0":0.45,"v0":0.4,"u1":0.55,"v1":0.6,"height":"img/h/0_3.webp"},
+                      {"src":"img/d/1_3.jpg","u0":0.55,"v0":0.4,"u1":0.65,"v1":0.6}]}"##);
+        g.command(&a);
+        g.texture_in("/games/x");
+        g.terrain_ok = true;
+        g.detail_ok = true;
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        let names: Vec<&str> = out.strings.iter().map(|s| s.as_str()).filter(|s| s.contains('|')).collect();
+        assert!(names.contains(&"/games/x/img/moon-height.png|/games/x/img/moon-shape.png|/games/x/img/h/0_3.webp"), "{:?}", names);
+        assert!(names.contains(&"/games/x/img/moon-height.png|/games/x/img/moon-shape.png"), "{:?}", names);
     }
 
     #[test]
