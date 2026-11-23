@@ -271,6 +271,12 @@ pub struct Globe {
     pub terrain_ok: bool,
     /// glowing air round a textured ball: its height in radii and colour
     air: f64,
+    /// rings in the ball's equator plane, drawn by the host's ball shader
+    /// (draw.rs `sphere`, 44 numbers): "colour|opacity" pictures (a strip,
+    /// inner edge on the left) and the inner and outer edge in radii
+    rings: String,
+    ring_in: f64,
+    ring_out: f64,
     air_color: V3,
     /// city lights on the night side of a textured ball, and how bright
     lights: String,
@@ -343,6 +349,9 @@ impl Globe {
             terrain_ok: false,
             drawn: 0,
             air: 0.0,
+            rings: String::new(),
+            ring_in: 0.0,
+            ring_out: 0.0,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
             lights_gain: 1.0,
@@ -408,6 +417,17 @@ impl Globe {
             self.texture = t;
         }
         self.air = a.get("air").as_num(self.air).clamp(0.0, 0.5);
+        // rings: { src: "colour.png|opacity.png", inner, outer } (radii); false: none
+        match a.get("rings") {
+            Json::Bool(false) => self.rings.clear(),
+            Json::Obj(_) => {
+                let r = a.get("rings");
+                self.rings = r.get("src").as_str().to_string();
+                self.ring_in = r.get("inner").as_num(1.2).max(1.0);
+                self.ring_out = r.get("outer").as_num(2.3).max(self.ring_in + 1e-3);
+            }
+            _ => {}
+        }
         if !a.get("airColor").is_null() {
             self.air_color = color(&a.get("airColor"), self.air_color);
         }
@@ -1016,7 +1036,8 @@ impl Globe {
     fn render_textured(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, cap: &Cap, to_eye: V3, sun_local: Option<V3>) {
         let (w, h) = (cam.w, cam.h);
         // all of it behind the camera: nothing to draw
-        if -dot(to_eye, cam.fwd) < -place.radius {
+        let reach = if self.rings.is_empty() { 1.0 } else { self.ring_out };
+        if -dot(to_eye, cam.fwd) < -place.radius * reach {
             return;
         }
         let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
@@ -1045,7 +1066,20 @@ impl Globe {
             Some(c) => c.horizon(48).iter().map(|p| [p[0] * ka, p[1] * ka, p[2] * ka]).collect(),
             None => cap.horizon(48),
         };
-        for p in rim.iter() {
+        // the rings reach past the ball: their outer edge in the box too
+        let rings = !self.rings.is_empty();
+        let ring_rim: Vec<V3> = if rings {
+            (0..64).map(|i| {
+                let a = i as f64 / 64.0 * std::f64::consts::TAU;
+                [a.cos() * self.ring_out, a.sin() * self.ring_out, 0.0]
+            }).collect()
+        } else {
+            Vec::new()
+        };
+        if rings && dist < place.radius * self.ring_out * 1.05 {
+            whole = true;
+        }
+        for p in rim.iter().chain(ring_rim.iter()) {
             if whole {
                 break;
             }
@@ -1092,7 +1126,7 @@ impl Globe {
             cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
         ];
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain;
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings;
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1115,9 +1149,15 @@ impl Globe {
             params.extend(more(hole.unwrap_or([0.0, 0.0, 1.0, 1.0]), 0.0, self.air));
             if terrain {
                 params.extend_from_slice(&hparams);
+            } else if rings {
+                params.extend_from_slice(&[0.0; 8]);
+            }
+            if rings {
+                // the 44-number form: the rings (draw.rs `sphere`)
+                params.extend_from_slice(&[self.ring_in as f32, self.ring_out as f32, 1.0, 0.0]);
             }
         }
-        out.sphere_terrain(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, &params);
+        out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
         params.truncate(20);
         self.drawn = 1;
         if !self.detail_ok {
@@ -1287,6 +1327,11 @@ impl Globe {
         }
         if !self.height_shape.is_empty() && !self.height_shape.starts_with('/') && !dir.is_empty() {
             self.height_shape = rg_core::vfs::join(dir, &self.height_shape);
+        }
+        if !self.rings.is_empty() && !dir.is_empty() {
+            // "colour|opacity": each in the game's folder
+            self.rings = self.rings.split('|').map(|r| if r.starts_with('/') || r.is_empty() { r.to_string() } else { rg_core::vfs::join(dir, r) })
+                .collect::<Vec<_>>().join("|");
         }
         if !dir.is_empty() {
             for d in self.detail.iter_mut() {
@@ -1701,6 +1746,24 @@ mod tests {
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam, &place, None, false, true);
         assert_eq!(out.count, 1);
+    }
+
+    #[test]
+    fn rings_go_with_the_ball_as_44_numbers_and_widen_its_box() {
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r#"{"texture":"img/saturn.jpg","grid":false,"glow":false,"border":false,
+            "rings":{"src":"img/rc.png|img/ra.png","inner":1.27,"outer":2.42}}"#));
+        g.texture_in("/games/sp");
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([0.0, 0.0, 12.0], [0.0, 0.0, -1.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.count, 1);
+        let n = &out.nums;
+        assert_eq!(n[22], 44.0);
+        assert_eq!(&n[23 + 40..23 + 43], &[1.27f32, 2.42, 1.0]);
+        assert_eq!(out.strings[n[21] as usize], "/games/sp/img/rc.png|/games/sp/img/ra.png");
+        // seen from above the pole the box takes in the whole ring: 300 * 2.42 / 12 ≈ 60 px each side
+        assert!(n[3] > 2.0 * 300.0 * 2.3 / 12.0, "{:?}", &n[1..5]);
     }
 
     #[test]

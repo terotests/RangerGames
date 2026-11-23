@@ -665,6 +665,11 @@
           var hn = strings[nums[i + 20]].split("|");
           for (var hk = 0; hk < hn.length; hk++) if (hn[hk] && !this.images.has(hn[hk])) this.image(hn[hk]);
         }
+        // its rings' pictures "colour|opacity" (slot 21, with 44 numbers)
+        if (nums[i] === 8 && (nums[i + 22] | 0) >= 44 && nums[i + 23 + 42] > 0.5) {
+          var rn = strings[nums[i + 21]].split("|");
+          for (var rk = 0; rk < rn.length; rk++) if (rn[rk] && !this.images.has(rn[rk])) this.image(rn[rk]);
+        }
       }
       i += 23 + (nums[i + 22] | 0);
     }

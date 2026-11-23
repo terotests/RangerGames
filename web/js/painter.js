@@ -53,6 +53,8 @@
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
+    // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
+    "uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -184,12 +186,39 @@
     "    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
+    // the rings' opacity at rr radii from the middle (for shadows: the coarse picture)
+    "float ringA(float rr, float lod) { if (rr <= rIn || rr >= rOut) return 0.0; return textureLod(ratex, vec2((rr - rIn) / (rOut - rIn), 0.5), lod).r; }" +
+    // where the ray meets the rings (tr: how far, -1 if not) and what it sees there, premultiplied: far off the
+    // pictures, close by (a pixel under ~1 km of ring) specks, the lumps of ice they are made of, on a lattice of
+    // cells a few pixels wide (two sizes blended by the distance, so they do not pop)
+    "vec4 ring(vec3 d, float pix, out float tr) { tr = -1.0;" +
+    "  if (useR < 0.5 || abs(d.z) < 1e-7) return vec4(0.0); float t = -eye.z / d.z; if (t <= 0.0) return vec4(0.0);" +
+    "  vec3 p = eye + d * t; float rr = length(p.xy); if (rr <= rIn || rr >= rOut) return vec4(0.0); tr = t;" +
+    "  float f = t * pix, u = (rr - rIn) / (rOut - rIn), texel = (rOut - rIn) / float(textureSize(ratex, 0).x);" +
+    "  float lod = max(0.0, log2(f / max(abs(d.z / length(d)), 0.03) / texel));" +
+    "  vec3 col = textureLod(rctex, vec2(u, 0.5), lod).rgb; float a = textureLod(ratex, vec2(u, 0.5), lod).r;" +
+    // lit from the side the eye is on, or from behind (light through the ice, weaker where it is thick)
+    "  float side = sign(sun.z) == sign(eye.z) ? 0.55 + 0.45 * sqrt(abs(sun.z)) : 0.3 * (1.0 - 0.6 * a);" +
+    "  float ps = dot(p, sun); float sh = ps < 0.0 ? smoothstep(0.98, 1.02, length(p - sun * ps)) : 1.0;" +
+    "  float lt = lit > 0.5 ? side * mix(0.12, 1.0, sh) : 1.0;" +
+    "  float dust = 1.0 - smoothstep(1.5e-5, 1.2e-4, f);" +
+    "  vec4 res = vec4(col * lt * a * (1.0 - dust), a * (1.0 - dust));" +
+    "  if (dust > 0.0) { float L = log2(max(f, 1e-7) * 5.0); float l0 = floor(L), fr = L - l0; float sp = 0.0;" +
+    "    float a0 = textureLod(ratex, vec2(u, 0.5), 0.0).r;" +
+    "    for (int k = 0; k < 2; k++) { float cs = exp2(l0 + float(k)); vec2 g = p.xy / cs; vec2 c = floor(g);" +
+    "      uint h = hsh(ivec3(int(c.x), int(c.y), int(l0) + k + 4099)); vec2 j = vec2(float(h & 1023u), float((h >> 10u) & 1023u)) / 1023.0;" +
+    "      if (float((h >> 20u) & 1023u) / 1023.0 < a0 * 1.2) { float dd = length((g - c - j) * cs) / f;" +
+    "        sp += (k == 0 ? 1.0 - fr : fr) * (1.0 - smoothstep(0.25, 1.4, dd)) * (0.45 + 0.55 * float((h >> 4u) & 15u) / 15.0); } }" +
+    "    sp = clamp(sp, 0.0, 1.0) * dust; vec3 sc = mix(col, vec3(1.0), 0.35) * lt * 1.5;" +
+    "    res = vec4(min(sc, vec3(1.0)) * sp, sp) + res * (1.0 - sp); }" +
+    "  return res; }" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
     "  bool mesh = meshM > 0.5 && meshM < 1.5;" +
     "  vec3 d = mesh ? normalize(wpos - eye) : normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
     "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
     "  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;" +
+    "  float tr = -1.0; vec4 rg = (!terr && !mesh && meshM < 0.5) ? ring(d, pix, tr) : vec4(0.0);" +
     // the smooth ball's edge covers a pixel in part: how much (0..1) from how far past the rim the ray passes, in
     // pixels. Without it the rim moved in whole (picture) pixels: a far planet's edge crept and jumped back as it
     // came nearer, a wobble the eye sees
@@ -214,12 +243,13 @@
     "    if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }" +
     "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : soft ? (cover > 0.0 && -b > 0.0) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
-    "    float R = 1.0 + air;" +
-    "    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;" +
-    "    float hq = sqrt(q2);" +
-    "    vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);" +
-    "    if (g.a < 0.003) discard;" +
-    "    DEPTH(1e3); o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;" +
+    "    float R = 1.0 + air; vec4 ga = vec4(0.0);" +
+    "    if (!(air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0)) { float hq = sqrt(q2);" +
+    "      vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false); ga = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }" +
+    // past the ball: the rings (in front of the air, a thin shell)
+    "    ga = rg + ga * (1.0 - rg.a);" +
+    "    if (ga.a < 0.003) discard;" +
+    "    DEPTH(1e3); o = ga; return;" +
     "  }" +
     "  if (!terr) th = -b - sqrt(max(disc, 0.0));" +
     "  vec3 p = normalize(eye + d * th);" +
@@ -305,6 +335,8 @@
     // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
     "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
+    // the rings' shadow on the ball
+    "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.75 * ringA(length((p + sun * ts).xy), 2.0); }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
@@ -326,6 +358,8 @@
     // the part of an edge pixel the ball leaves: the air behind it
     "  if (soft && cover < 1.0 && air > 0.0) { float R = 1.0 + air; vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(max(R * R - q2, 0.0)), false);" +
     "    o += vec4(min(g.rgb, vec3(1.0)) * g.a, g.a) * (1.0 - cover); }" +
+    // the rings in front of the ball (behind it they are hidden); at the edge the part the ball leaves sees them too
+    "  if (tr > 0.0 && (tr < th || cover < 1.0)) { float k = tr < th ? 1.0 : 1.0 - cover; o = rg * k + o * (1.0 - rg.a * k); }" +
     "}";
 
   function Spheres() {
@@ -350,7 +384,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -404,7 +438,8 @@
     ctx.drawImage(this.canvas, 0, 0, g.cw, g.ch, g.x, g.y, g.w, g.h);
   };
 
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs) {
+  // rs: the rings' pictures [colour, opacity, their names] (44 numbers), when loaded
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs) {
     var gl = this.gl, c = this.canvas, gr = this.group;
     // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
     var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
@@ -449,6 +484,16 @@
     if (wd) gl.bindTexture(gl.TEXTURE_2D, this.texture(hs[5], hs[4], true));
     gl.uniform1i(u.dtex, 4);
     gl.uniform1f(u.useD, wd ? 1 : 0);
+    var wr = p.length >= 44 && p[42] > 0.5 && rs;
+    gl.activeTexture(gl.TEXTURE5);
+    if (wr) gl.bindTexture(gl.TEXTURE_2D, this.texture(rs[2], rs[0], true, false));
+    gl.uniform1i(u.rctex, 5);
+    gl.activeTexture(gl.TEXTURE6);
+    if (wr) gl.bindTexture(gl.TEXTURE_2D, this.texture(rs[3], rs[1], true, false));
+    gl.uniform1i(u.ratex, 6);
+    gl.uniform1f(u.useR, wr ? 1 : 0);
+    gl.uniform1f(u.rIn, wr ? p[40] : 0);
+    gl.uniform1f(u.rOut, wr ? p[41] : 1);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -553,7 +598,13 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
+          var rs = null;
+          if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {
+            var rn = strings[ls].split("|"), rci = this.images.get(rn[0]), rai = this.images.get(rn[1] || rn[0]);
+            if (rci && rai) rs = [rci, rai, rn[0], rn[1] || rn[0]];
+          }
           // a window close by with its own heights: it and the ones right after it are drawn together
           if (!spheres.group && hs && hs.length > 4 && sp[24] > 0.5 && sp[35] > 0.5) {
             var gx0 = x, gy0 = y, gx1 = x + w, gy1 = y + h, gn = 1;
@@ -569,7 +620,7 @@
             spheres.begin(gx0, gy0, gx1 - gx0, gy1 - gy0, scale);
             spheres.groupLeft = gn;
           }
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs);
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs);
         }
         // the group's last window drawn (or skipped): the picture into the canvas
         if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);

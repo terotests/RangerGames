@@ -211,6 +211,9 @@ final class Painter {
                     gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
                 }
             }
+            // the rings' pictures "colour|opacity" (slot 21, with 44 numbers)
+            int rsi = (int) nums[q + 21];
+            gl.rings = nx >= 44 && nums[at + 42] > 0.5f && rsi >= 0 && rsi < strings.length ? strings[rsi] : null;
             any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
         }
         Bitmap bm = gl.end();

@@ -277,6 +277,18 @@ impl DrawStream {
     ///    (brightness - its blur) / this, and light them by the game's own sun
     /// ```
     ///
+    /// With 44 numbers the ball has rings in its equator plane (z = 0), seen in
+    /// front of it or hidden behind it, with each other's shadows; header slot
+    /// 21 names their pictures "colour|opacity" (strips across: the inner edge
+    /// on the left, the outer on the right; opacity as brightness):
+    ///
+    /// ```text
+    /// 40 inner  41 outer edge, in radii  42 rings (1)  43 unused
+    /// ```
+    ///
+    /// Close by the rings break up into specks (their lumps of ice) instead of a
+    /// smooth picture.
+    ///
     /// With 40 numbers, near (35) and no window (24 = 0), 20-23 that are not
     /// 0 0 1 1 are a hole: the windows drawn after this ball cover it (u may
     /// run below 0 or past 1), so the host may skip the ground there, and
@@ -306,13 +318,21 @@ impl DrawStream {
     /// `sphere_air` with the height pictures ("shading|shape", string 3).
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_terrain(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, params: &[f32]) {
+        self.sphere_rings(x, y, w, h, src, lights, heights, "", params);
+    }
+
+    /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"
+    /// are string 4, header slot 21, read only with 44 numbers and 42 = 1).
+    #[allow(clippy::too_many_arguments)]
+    pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
         let s = self.string(src);
         let l = if lights.is_empty() { -1.0 } else { self.string(lights) };
         let hs = if heights.is_empty() { -1.0 } else { self.string(heights) };
+        let rs = if rings.is_empty() { 0.0 } else { self.string(rings) };
         self.nums.extend_from_slice(&[
             8.0, x as f32, y as f32, w as f32, h as f32,
             255.0, 255.0, 255.0, 1.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, hs, 0.0, params.len() as f32,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, hs, rs, params.len() as f32,
         ]);
         self.nums.extend_from_slice(params);
         self.count += 1;

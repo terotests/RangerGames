@@ -97,8 +97,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -580,6 +580,10 @@ final class GlSphere {
      * pictures or null; ds: a detail window's own heights or null. False when
      * its main picture does not load.
      */
+    /** the rings' pictures "colour|opacity" of the next draw (44 numbers), or null; Painter sets it */
+    String rings;
+    private boolean ringOn;
+
     boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
@@ -595,6 +599,18 @@ final class GlSphere {
         boolean w40 = ht != null;
         // the window's heights (decoded on the other thread, as its picture; until then the ball's shape)
         Tex dt = w40 && w4 && ds != null ? texture(ds, true, false, true) : null;
+        // the rings (decoded on the other thread; until then none)
+        Tex rc = null, ra = null;
+        if (nx >= 44 && p[at + 42] > 0.5f && rings != null && !rings.isEmpty()) {
+            String[] rn = rings.split("\\|");
+            rc = texture(rn[0], true, false);
+            ra = texture(rn.length > 1 ? rn[1] : rn[0], true, false);
+        }
+        ringOn = rc != null && ra != null;
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE6);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ringOn ? rc.id : 0);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE7);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ringOn ? ra.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE5);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dt != null ? dt.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
@@ -667,6 +683,11 @@ final class GlSphere {
         GLES30.glUniform1f(L[USEWIN], w4 ? 1 : 0);
         GLES30.glUniform4f(L[WIN], w4 ? p[at + 20] : 0, w4 ? p[at + 21] : 0, w4 ? p[at + 22] : 1, w4 ? p[at + 23] : 1);
         GLES30.glUniform4f(L[BOX], x, y, w, h);
+        GLES30.glUniform1i(L[RCTEX], 6);
+        GLES30.glUniform1i(L[RATEX], 7);
+        GLES30.glUniform1f(L[USER], ringOn ? 1 : 0);
+        GLES30.glUniform1f(L[RIN], ringOn ? p[at + 40] : 0);
+        GLES30.glUniform1f(L[ROUT], ringOn ? p[at + 41] : 1);
     }
 
     /**
