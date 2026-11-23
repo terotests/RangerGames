@@ -88,11 +88,14 @@ layout(location = 0) in vec2 p;
 layout(location = 1) in float d;
 layout(location = 2) in vec3 c;
 uniform vec4 xf;
-out vec3 v;
-void main() { v = c; gl_Position = vec4(p * xf.xy + xf.zw, d * 2.0 - 1.0, 1.0); }";
+out vec4 v;
+// see-through faces (an engine's flame) come last with depth + 2 and their
+// colour already times their opacity: drawn at depth - 2, alpha 0, so their
+// light adds under premultiplied blending; solid faces have alpha 1
+void main() { float g = step(1.5, d); v = vec4(c, 1.0 - g); gl_Position = vec4(p * xf.xy + xf.zw, (d - 2.0 * g) * 2.0 - 1.0, 1.0); }";
 
 pub const TRIS_FS: &str = "#version 300 es
 precision mediump float;
-in vec3 v;
+in vec4 v;
 out vec4 o;
-void main() { o = vec4(v, 1.0); }";
+void main() { o = v; }";

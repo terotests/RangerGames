@@ -996,7 +996,9 @@ impl Renderer {
                         gl::clear(gl::DEPTH_BUFFER_BIT);
                     }
                     depth_used = true;
-                    gl::disable(gl::BLEND);
+                    // solid faces (alpha 1) replace; see-through ones add their light
+                    gl::enable(gl::BLEND);
+                    gl::blend_func(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
                     gl::enable(gl::DEPTH_TEST);
                     gl::depth_func(gl::LEQUAL);
                     gl::depth_mask(true);
