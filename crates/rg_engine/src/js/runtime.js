@@ -629,6 +629,7 @@ function __start(arg) {
   rg.store.available = !!a.store;
   rg.renderer = a.renderer || "evg";
   rg.terrain = !!a.terrain;
+  rg.detail = !!a.detail;
   rg.seed(a.seed || 1);
   if (typeof init === "function") init();
   var cmds = __cmds;

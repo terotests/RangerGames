@@ -47,6 +47,9 @@
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
     "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite, useD; uniform vec4 hole;" +
+    // RG_DEPTH (the web's windows with their own heights, drawn together): the ray's length as the depth, so the
+    // nearest ground of all the windows shows (a phone's mesh has its own depth: there it is left out)
+    "\n#ifdef RG_DEPTH\n#define DEPTH(t) gl_FragDepth = clamp(log2(max(t, 1e-9) * 1e6) / 26.0, 0.0, 1.0)\n#else\n#define DEPTH(t)\n#endif\n" +
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
@@ -122,14 +125,20 @@
     "  return mix(top, bot, a.y); }" +
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
     "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
-    // a detail window's own heights (dtex, useD): inside the window, faded in from its edges (where the ball's own
-    // shape goes on), they are the ground's height; xy: the window's u v, z: how much they count
+    // a detail window's own heights (dtex, useD): inside the window they are the ground's height, up to its
+    // edge (the next window's heights go on from there, the same ground; a fade would sink the ground towards
+    // the ball's coarse shape along every seam); xy: the window's u v, z: 1 inside (rg.height reads them alike)
     "vec3 winAt(vec2 t) { float uw = t.x; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
     "  vec2 w = vec2((uw - win.x) / (win.z - win.x), (t.y - win.y) / (win.w - win.y));" +
-    "  return vec3(w, smoothstep(0.0, 0.06, min(min(w.x, 1.0 - w.x), min(w.y, 1.0 - w.y)))); }" +
-    "float coarseH(vec3 p) { vec2 t = lonlat(p); float h = (hhi - hlo) * shape(t);" +
-    "  if (useD > 0.5 && useWin > 0.5) { vec3 w = winAt(t); if (w.z > 0.0) h = mix(h, (hhi - hlo) * dec(textureLod(dtex, w.xy, 0.0)), w.z); }" +
-    "  return h; }" +
+    "  return vec3(w, w.x >= 0.0 && w.x <= 1.0 && w.y >= 0.0 && w.y <= 1.0 ? 1.0 : 0.0); }" +
+    // outside the window (the other windows' ground, each drawn by its own command) the ground is left out
+    // (the lowest height): rays and shadows pass over it, instead of meeting the ball's coarse shape there,
+    // which stands higher or lower than the real ground and left holes along the seams
+    "float coarseH(vec3 p) { vec2 t = lonlat(p);" +
+    // (a phone's mesh: its corners just outside the window take the window's edge, its triangles there are cut
+    // off at the window's edge, and the left out ground would have pulled them down)
+    "  if (useD > 0.5 && useWin > 0.5) { vec3 w = winAt(t); return w.z > 0.0 || meshM > 0.5 ? (hhi - hlo) * dec(textureLod(dtex, clamp(w.xy, 0.0, 1.0), 0.0)) : 0.0; }" +
+    "  return (hhi - hlo) * shape(t); }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + coarseH(p) + bumps(p, n); }" +
     "float groundF(vec3 p, float n) { return 1.0 + hlo + coarseH(p) + bumpsF(p, n); }" +
     // octs, fractional (the phone's mesh: its corners' heights change smoothly as they slide over the ground)
@@ -203,7 +212,7 @@
     "    float hq = sqrt(q2);" +
     "    vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);" +
     "    if (g.a < 0.003) discard;" +
-    "    o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;" +
+    "    DEPTH(1e3); o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;" +
     "  }" +
     "  if (!terr) th = -b - sqrt(max(disc, 0.0));" +
     "  vec3 p = normalize(eye + d * th);" +
@@ -305,7 +314,7 @@
     // slopes) never show against the ball's own picture; the ball's hole is only inside 0.10 radians
     "  float fa = useWin > 0.5 ? (terr ? 1.0 : 1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
     "  if (fa <= 0.0) discard;" +
-    "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
+    "  DEPTH(th); o = vec4(min(c, vec3(1.0)) * fa, fa);" +
     "}";
 
   function Spheres() {
@@ -313,10 +322,10 @@
     this.textures = new Map();
     var c = typeof document !== "undefined" ? document.createElement("canvas") : null;
     var gl = null;
-    try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
+    try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: true, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
     if (!gl) return;
     var prog = gl.createProgram();
-    [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, SPHERE_FS]].forEach(function (x) {
+    [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, SPHERE_FS.replace("#version 300 es\n", "#version 300 es\n#define RG_DEPTH\n")]].forEach(function (x) {
       var sh = gl.createShader(x[0]);
       gl.shaderSource(sh, x[1]);
       gl.compileShader(sh);
@@ -362,15 +371,45 @@
   // p: the 20 extra numbers (24 with a detail window); px: device pixels per game unit
   // hs: the height pictures [shading, shape] and their names, when loaded; [4], [5]: a detail window's own
   // heights and their name, when it has them
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs) {
-    var gl = this.gl, c = this.canvas;
-    // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
-    var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
-    var cw = Math.max(1, Math.min(4096, Math.round(w * px * ks))), ch = Math.max(1, Math.min(4096, Math.round(h * px * ks)));
+  // the windows that have their own heights are drawn together into one picture (begin, draw…, end), each
+  // into its part of it, with the rays' lengths as depth: where one window's ground hides another's, the
+  // nearer shows (drawn one by one, the later one covered the other, or the seams had holes)
+  Spheres.prototype.begin = function (x, y, w, h, px) {
+    var gl = this.gl, c = this.canvas, k = px * 0.6;
+    var cw = Math.max(1, Math.min(4096, Math.round(w * k))), ch = Math.max(1, Math.min(4096, Math.round(h * k)));
     if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
     gl.viewport(0, c.height - ch, cw, ch);
     gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    this.group = { x: x, y: y, w: w, h: h, k: cw / w, cw: cw, ch: ch };
+  };
+  Spheres.prototype.end = function (ctx) {
+    var g = this.group;
+    this.group = null;
+    this.gl.disable(this.gl.DEPTH_TEST);
+    ctx.drawImage(this.canvas, 0, 0, g.cw, g.ch, g.x, g.y, g.w, g.h);
+  };
+
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs) {
+    var gl = this.gl, c = this.canvas, gr = this.group;
+    // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
+    var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
+    var cw = Math.max(1, Math.min(4096, Math.round(w * px * ks))), ch = Math.max(1, Math.min(4096, Math.round(h * px * ks)));
+    if (gr) {
+      // its part of the group's picture, in whole pixels; the box the pixels cover, so the rays meet
+      var vx = Math.round((x - gr.x) * gr.k), vy = Math.round((y - gr.y) * gr.k);
+      cw = Math.max(1, Math.round((x + w - gr.x) * gr.k) - vx); ch = Math.max(1, Math.round((y + h - gr.y) * gr.k) - vy);
+      gl.viewport(vx, c.height - vy - ch, cw, ch);
+      x = gr.x + vx / gr.k; y = gr.y + vy / gr.k; w = cw / gr.k; h = ch / gr.k;
+    } else {
+      if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
+      gl.viewport(0, c.height - ch, cw, ch);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(this.prog);
     gl.activeTexture(gl.TEXTURE0);
     var w32 = p.length >= 32;
@@ -426,7 +465,7 @@
     gl.uniform4f(u.win, w4 ? p[20] : 0, w4 ? p[21] : 0, w4 ? p[22] : 1, w4 ? p[23] : 1);
     gl.uniform4f(u.box, x, y, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-    ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
+    if (!gr) ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
   };
 
   var spheres = null;
@@ -470,6 +509,7 @@
     ctx.rect(0, 0, view.w, view.h);
     ctx.clip();
     var clips = 0;
+    if (spheres && spheres.group) { spheres.group = null; spheres.gl.disable(spheres.gl.DEPTH_TEST); }
     var i = 0, n = nums.length;
     while (i < n) {
       var k = nums[i], x = nums[i + 1], y = nums[i + 2], w = nums[i + 3], h = nums[i + 4];
@@ -502,8 +542,26 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20)), scale, limg, s1 >= 0 ? strings[s1] : "", hs);
+          var sp = nums.subarray(e, e + (nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          // a window close by with its own heights: it and the ones right after it are drawn together
+          if (!spheres.group && hs && hs.length > 4 && sp[24] > 0.5 && sp[35] > 0.5) {
+            var gx0 = x, gy0 = y, gx1 = x + w, gy1 = y + h, gn = 1;
+            for (var gi2 = i; gi2 < n; gn++) {
+              var gnx = nums[gi2 + 22] | 0, gs2 = nums[gi2 + 20];
+              if (nums[gi2] !== KIND.SPHERE || gnx < 40 || nums[gi2 + 17] !== 0 || gs2 < 0 || strings[gs2].split("|").length < 3) break;
+              var gp = gi2 + HEADER;
+              if (nums[gp + 24] <= 0.5 || nums[gp + 35] <= 0.5) break;
+              gx0 = Math.min(gx0, nums[gi2 + 1]); gy0 = Math.min(gy0, nums[gi2 + 2]);
+              gx1 = Math.max(gx1, nums[gi2 + 1] + nums[gi2 + 3]); gy1 = Math.max(gy1, nums[gi2 + 2] + nums[gi2 + 4]);
+              gi2 = gp + gnx;
+            }
+            spheres.begin(gx0, gy0, gx1 - gx0, gy1 - gy0, scale);
+            spheres.groupLeft = gn;
+          }
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs);
         }
+        // the group's last window drawn (or skipped): the picture into the canvas
+        if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);
         continue;
       }
       if (k === KIND.PUSH_CLIP) {

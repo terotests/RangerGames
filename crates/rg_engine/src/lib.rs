@@ -25,6 +25,7 @@ pub mod fiber;
 pub mod fluid;
 pub mod globe;
 pub mod gltf;
+pub mod heights;
 pub mod scene3d;
 pub mod script;
 pub mod ui;
@@ -740,6 +741,8 @@ impl Engine {
             member("menu", Json::Bool(self.has_launcher())),
             member("store", Json::Bool(self.store)),
             member("terrain", Json::Bool(self.terrain)),
+            // the host draws detail windows (rg.detail): with rg.terrain, also their own heights
+            member("detail", Json::Bool(self.detail)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());
