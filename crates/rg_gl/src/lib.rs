@@ -150,7 +150,8 @@ enum Step {
     /// see-through stroke drawn once a pixel: triangles, then the box clears the stencil
     Once { first: u32, count: u32, cover: u32, clip: Clip },
     Globes { from: usize, to: usize, clip: Clip },
-    Tris { first: i32, count: i32, clip: Clip },
+    /// `phong`: the per-pixel lit meshes (`ptris`) first, in the same depth
+    Tris { first: i32, count: i32, phong: bool, clip: Clip },
 }
 
 struct Pic {
@@ -180,6 +181,14 @@ pub struct Renderer {
     shape_tex: i32,
     tris_prog: u32,
     tris_xf: i32,
+    /// per-pixel lit meshes (scene3d.rs `ptris`): program, xf, lights, count, fog
+    phong: u32,
+    phong_xf: i32,
+    phong_lt: [i32; 8],
+    phong_nl: i32,
+    phong_fog: i32,
+    phong_vao: u32,
+    phong_vbo: u32,
     vao: u32,
     vbo: u32,
     ibo: u32,
@@ -266,6 +275,13 @@ impl Renderer {
             shape_tex: -1,
             tris_prog: 0,
             tris_xf: -1,
+            phong: 0,
+            phong_xf: -1,
+            phong_lt: [-1; 8],
+            phong_nl: -1,
+            phong_fog: -1,
+            phong_vao: 0,
+            phong_vbo: 0,
             vao: 0,
             vbo: 0,
             ibo: 0,
@@ -310,6 +326,17 @@ impl Renderer {
         self.shape_aa = gl::uniform_location(self.shape, "aa");
         self.shape_tex = gl::uniform_location(self.shape, "tex");
         self.tris_xf = gl::uniform_location(self.tris_prog, "xf");
+        // the per-pixel light is a bonus: without it the engine's corners' light is used
+        let mut perr = String::new();
+        self.phong = program(shaders::PHONG_VS, shaders::PHONG_FS, &mut perr);
+        if self.phong != 0 {
+            self.phong_xf = gl::uniform_location(self.phong, "xf");
+            for i in 0..8 {
+                self.phong_lt[i] = gl::uniform_location(self.phong, &format!("lt[{}]", i));
+            }
+            self.phong_nl = gl::uniform_location(self.phong, "nl");
+            self.phong_fog = gl::uniform_location(self.phong, "fogc");
+        }
 
         self.vao = gl::create_vertex_array();
         gl::bind_vertex_array(self.vao);
@@ -340,6 +367,18 @@ impl Renderer {
         gl::attrib_pointer(1, 1, gl::FLOAT, false, 24, 8);
         gl::enable_attrib(2);
         gl::attrib_pointer(2, 3, gl::FLOAT, false, 24, 12);
+        if self.phong != 0 {
+            self.phong_vao = gl::create_vertex_array();
+            gl::bind_vertex_array(self.phong_vao);
+            self.phong_vbo = gl::create_buffer();
+            gl::bind_buffer(gl::ARRAY_BUFFER, self.phong_vbo);
+            // x y | depth | base rgb | rest rgb | normal | eye | shiny, fog (18 floats, 72 bytes)
+            let at: [(u32, i32, usize); 7] = [(0, 2, 0), (1, 1, 8), (2, 3, 12), (3, 3, 24), (4, 3, 36), (5, 3, 48), (6, 2, 60)];
+            for (i, n, off) in at {
+                gl::enable_attrib(i);
+                gl::attrib_pointer(i, n, gl::FLOAT, false, 72, off);
+            }
+        }
         gl::bind_vertex_array(0);
 
         // a white pixel: plain shapes sample it, so one texture unit serves all
@@ -535,7 +574,7 @@ impl Renderer {
     }
 
     /// Builds the frame's vertices and steps from the stream.
-    fn build(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], v: &View) {
+    fn build(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], ptris: &[f32], v: &View) {
         self.verts.clear();
         self.idx.clear();
         self.steps.clear();
@@ -587,8 +626,9 @@ impl Renderer {
             i = next;
             if k == LAYER3D {
                 let (t0, t1) = (x.max(0.0) as usize / 6, (y.max(0.0) as usize / 6).min(tris.len() / 6));
-                if t1 > t0 {
-                    self.steps.push(Step::Tris { first: t0 as i32, count: (t1 - t0) as i32, clip });
+                let phong = w > 0.0 && self.phong != 0 && ptris.len() >= 18 * 3;
+                if t1 > t0 || phong {
+                    self.steps.push(Step::Tris { first: t0 as i32, count: t1.saturating_sub(t0) as i32, phong, clip });
                 }
                 continue;
             }
@@ -900,14 +940,16 @@ impl Renderer {
     }
 
     /// Paints one frame into the current framebuffer 0 (the host swaps it).
-    pub fn render(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], v: &View, background: [f32; 4]) {
+    /// `ptris` and `plights`: the scene's per-pixel lit meshes and their
+    /// directional lights (rg_engine scene3d.rs), empty when there are none
+    pub fn render(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], ptris: &[f32], plights: &[f32], v: &View, background: [f32; 4]) {
         if !self.init() {
             return;
         }
         self.frame += 1;
         self.calls = 0;
         gl::pixel_store(gl::UNPACK_ALIGNMENT, 1);
-        self.build(host, nums, strings, tris, v);
+        self.build(host, nums, strings, tris, ptris, v);
         self.vertex_count = self.verts.len() as u32;
         let s = v.scale * v.density;
         let aa = 1.0 / s.max(1e-3);
@@ -934,6 +976,13 @@ impl Renderer {
         let ib = unsafe { std::slice::from_raw_parts(self.idx.as_ptr() as *const u8, self.idx.len() * 4) };
         gl::buffer_data(gl::ELEMENT_ARRAY_BUFFER, ib, gl::STREAM_DRAW);
         let has_tris = self.steps.iter().any(|s| matches!(s, Step::Tris { .. }));
+        if self.steps.iter().any(|s| matches!(s, Step::Tris { phong: true, .. })) {
+            gl::bind_vertex_array(self.phong_vao);
+            gl::bind_buffer(gl::ARRAY_BUFFER, self.phong_vbo);
+            let n = ptris.len() / 54 * 54;
+            let pb = unsafe { std::slice::from_raw_parts(ptris.as_ptr() as *const u8, n * 4) };
+            gl::buffer_data(gl::ARRAY_BUFFER, pb, gl::STREAM_DRAW);
+        }
         if has_tris {
             gl::bind_vertex_array(self.tris_vao);
             gl::bind_buffer(gl::ARRAY_BUFFER, self.tris_vbo);
@@ -997,7 +1046,7 @@ impl Renderer {
                     gl::disable(gl::STENCIL_TEST);
                     self.calls += 2;
                 }
-                Step::Tris { first, count, clip } => {
+                Step::Tris { first, count, phong, clip } => {
                     Self::set_clip(clip);
                     if depth_used {
                         // a second scene in one frame: its own depth
@@ -1011,11 +1060,29 @@ impl Renderer {
                     gl::enable(gl::DEPTH_TEST);
                     gl::depth_func(gl::LEQUAL);
                     gl::depth_mask(true);
-                    gl::use_program(self.tris_prog);
-                    gl::uniform4f(self.tris_xf, xf[0], xf[1], xf[2], xf[3]);
-                    gl::bind_vertex_array(self.tris_vao);
-                    gl::draw_arrays(gl::TRIANGLES, *first, *count);
-                    self.calls += 1;
+                    if *phong {
+                        gl::use_program(self.phong);
+                        gl::uniform4f(self.phong_xf, xf[0], xf[1], xf[2], xf[3]);
+                        let nl = (plights.len().saturating_sub(4) / 8).min(4);
+                        for i in 0..nl * 2 {
+                            let a = &plights[i * 4..i * 4 + 4];
+                            gl::uniform4f(self.phong_lt[i], a[0], a[1], a[2], a[3]);
+                        }
+                        gl::uniform1i(self.phong_nl, nl as i32);
+                        let f = if plights.len() >= 4 { &plights[plights.len() - 4..] } else { &[0.0f32; 4][..] };
+                        gl::uniform4f(self.phong_fog, f[0], f[1], f[2], 0.0);
+                        gl::bind_vertex_array(self.phong_vao);
+                        // the solid meshes first: replace (alpha 1)
+                        gl::draw_arrays(gl::TRIANGLES, 0, (ptris.len() / 54 * 3) as i32);
+                        self.calls += 1;
+                    }
+                    if *count > 0 {
+                        gl::use_program(self.tris_prog);
+                        gl::uniform4f(self.tris_xf, xf[0], xf[1], xf[2], xf[3]);
+                        gl::bind_vertex_array(self.tris_vao);
+                        gl::draw_arrays(gl::TRIANGLES, *first, *count);
+                        self.calls += 1;
+                    }
                     self.shape_state(xf, aa);
                     bound = 0;
                 }
@@ -1131,7 +1198,7 @@ mod tests {
         nums.extend(t);
         nums.extend(cmd(0.0, 0.0, 30.0, 10.0, 10.0, 1.0, &[], 0.0));
         let strings = vec!["Hei".to_string()];
-        r.render(&mut NoHost, &nums, &strings, &[], &view(), [0.0, 0.0, 0.0, 1.0]);
+        r.render(&mut NoHost, &nums, &strings, &[], &[], &[], &view(), [0.0, 0.0, 0.0, 1.0]);
         // 50 boxes, the text (atlas) and a box: the boxes sample no texture, one draw
         assert_eq!(r.steps.len(), 1);
         assert_eq!(r.calls, 1);
@@ -1150,11 +1217,23 @@ mod tests {
         nums.extend(cmd(6.0, 0.0, 0.0, 0.0, 0.0, 1.0, &[8.0, 0.0, 0.0, 10.0, 5.0, 0.0, 10.0, 3.0, 5.0, 1.0, 8.0], 0.0));
         let tris = vec![0.0f32; 6 * 3];
         nums.extend(cmd(9.0, 0.0, 18.0, 0.0, 0.0, 1.0, &[], 0.0));
-        r.render(&mut NoHost, &nums, &[], &tris, &view(), [0.0; 4]);
+        r.render(&mut NoHost, &nums, &[], &tris, &[], &[], &view(), [0.0; 4]);
         assert!(matches!(r.steps[0], Step::Draw { clip: [0, 1080, 200, 200], .. }));
         assert!(matches!(r.steps[1], Step::Draw { .. }));
         assert!(matches!(r.steps[2], Step::Fill { even_odd: false, .. }));
-        assert!(matches!(r.steps[3], Step::Tris { first: 0, count: 3, .. }));
+        assert!(matches!(r.steps[3], Step::Tris { first: 0, count: 3, phong: false, .. }));
+    }
+
+    #[test]
+    fn a_scene_of_only_per_pixel_lit_meshes_still_gets_its_layer() {
+        let mut r = Renderer::new();
+        // the scene's layer with w 1: its faces are all in ptris (one triangle, 18 floats a corner)
+        let nums = cmd(9.0, 0.0, 0.0, 1.0, 0.0, 1.0, &[], 0.0);
+        let ptris = vec![0.5f32; 18 * 3];
+        let plights = [0.0, 1.0, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0];
+        r.render(&mut NoHost, &nums, &[], &[], &ptris, &plights, &view(), [0.0; 4]);
+        assert_eq!(r.steps.len(), 1);
+        assert!(matches!(r.steps[0], Step::Tris { count: 0, phong: true, .. }));
     }
 
     #[test]

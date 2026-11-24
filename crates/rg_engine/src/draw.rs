@@ -206,6 +206,15 @@ impl DrawStream {
         }
     }
 
+    /// The 3D scene's own layer (kind 9 as `layer3d`), also when all its
+    /// faces are in the per-pixel lit `ptris` (scene3d.rs): then w is 1, and
+    /// the host draws those first, at this layer
+    pub fn scene_layer3d(&mut self, from: usize, to: usize, phong: bool) {
+        if to > from || phong {
+            self.raw(9, from as f64, to as f64, if phong { 1.0 } else { 0.0 }, 0.0, [0.0; 3], None, &[]);
+        }
+    }
+
     /// A filled path of several rings (`ends`: where each ring's numbers end).
     pub fn raw_rings(&mut self, rgb: [f64; 3], pts: &[f32], ends: &[f32]) {
         self.emit(6, 0.0, 0.0, 0.0, 0.0, rgb, None, pts, ends);

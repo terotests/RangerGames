@@ -389,11 +389,13 @@
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // the rings' shadow on the ball
     "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
-    // the hot cap: molten rock glowing by its own heat (the same by day and by night), the map's light and
-    // dark as hotter and cooler melt, white-hot round its middle, a brighter front where it is still spreading
+    // the hot cap: molten rock glowing by its own heat (the same by day and by night): mostly bright
+    // orange to yellow (the map's light parts the hottest), dark red only at its cooling edge, white-hot
+    // round its middle, a brighter front where it is still spreading
     "  if (hotk.y > 0.0 && useWin < 0.5) { float ha = acos(clamp(dot(p, hot.xyz), -1.0, 1.0)); float hw = 1.0 - smoothstep(hot.w - hotk.x, hot.w, ha);" +
     "    if (hw > 0.0) { float hl = lum(vec2(u, v));" +
-    "      vec3 g = mix(vec3(0.7, 0.14, 0.03), vec3(1.0, 0.56, 0.13), clamp(hl * 1.6, 0.0, 1.0)) + vec3(1.0, 0.86, 0.55) * 0.8 * exp(-ha / (0.18 * hot.w + 0.03));" +
+    "      vec3 g = mix(vec3(0.78, 0.2, 0.04), vec3(1.0, 0.6, 0.16), smoothstep(0.0, 0.55, hw));" +
+    "      g = mix(g, vec3(1.0, 0.86, 0.48), clamp(hl * 1.4, 0.0, 1.0) * smoothstep(0.3, 1.0, hw)) + vec3(1.0, 0.86, 0.55) * 0.8 * exp(-ha / (0.18 * hot.w + 0.03));" +
     "      g += vec3(1.0, 0.68, 0.24) * 0.6 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));" +
     "      c = mix(c, g * hotk.y, hw); } }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
