@@ -383,6 +383,18 @@ impl DrawStream {
     /// cycle, 0..1, [50] how much the clouds morph, [51] the morph's time;
     /// [52 + 5i..] storm i: the picture's u, v of its middle, its radius
     /// (radians), width / height, how far its middle turns in a cycle.)
+    /// (80 numbers, globe.rs: [72-74] the eye's remainder, the eye minus its
+    /// 32-bit 0-2, so that eye + remainder is the eye to 64 bits: close over
+    /// the ground a host casts its rays from it (a 32-bit eye near the ground
+    /// is only to about 6e-8 radii, 10 cm on the Moon, and a headset's two eyes
+    /// 6.4 cm apart came out 0 to 15 cm apart); the host takes |eye|² - 1 of
+    /// 0-2 in 64 bits. [75] unused. The light that changes with the eye, each
+    /// 0…1: [76] dust (Lommel-Seeliger against Lambert, and the opposition
+    /// surge round the point opposite the sun), [77] the grains' glints (close
+    /// by, small facets that shine towards the half way between the sun and the
+    /// eye, each eye its own), [78] the sea's glint (the sun mirrored on the
+    /// picture's dark blue); [79] unused. A detail window has them too, its
+    /// 40-71 then 0.)
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
         let s = self.string(src);

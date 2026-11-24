@@ -53,6 +53,9 @@
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
+    // the eye's remainder (draw.rs `sphere` 72-74: the eye minus its 32-bit 0-2), |eye|² - 1 (the host, in 64 bits), and the
+    // light that changes with the eye (76 dust, 77 grains' glints, 78 the sea's glint)
+    "uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;" +
     // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
     "uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;" +
     // a gas giant's cloud bands drifting (48 numbers): flowA how far the fastest band goes in a cycle (picture
@@ -177,6 +180,7 @@
     "  if (useD > 0.5 && useWin > 0.5) { vec3 w = winAt(t); return w.z > 0.0 || meshM > 0.5 ? (hhi - hlo) * dec(textureLod(dtex, clamp(w.xy, 0.0, 1.0), 0.0)) : 0.0; }" +
     "  return (hhi - hlo) * shape(t); }" +
     "float ground(vec3 p, int n) { return 1.0 + hlo + coarseH(p) + bumps(p, n); }" +
+    "float groundH(vec3 p, int n) { return hlo + coarseH(p) + bumps(p, n); }" +
     "float groundF(vec3 p, float n) { return 1.0 + hlo + coarseH(p) + bumpsF(p, n); }" +
     // octs, fractional (the phone's mesh: its corners' heights change smoothly as they slide over the ground)
     "float octsAF(float sz) { if (hamp <= 0.0) return 0.0; return clamp(log(hamp * 1.5 / max(sz, 1e-9)) / log(1.0 / 0.48) + 1.0, 0.0, lite > 0.5 ? 3.0 : 5.0); }" +
@@ -187,18 +191,22 @@
     "  if (dw) { vec3 w = winAt(t); if (w.z > 0.0) h = mix(h, (hhi - hlo) * dec(textureLod(dtex, w.xy, lod)), w.z); }" +
     "  return h; }" +
     // casts the ray against the ground's shape; t: where it meets it
+    // the height over the unit ball of the point eye + y (y from the eye's 32 bits, its remainder eyeL in it), without
+    // eye's 1: in 32 bits a point near the ground is only to about 6e-8 radii (10 cm on the Moon), so two eyes 6 cm
+    // apart were up to 15 cm apart, or together, and the ground's depth swam in a headset
+    "float altY(vec3 y) { float m = eyeK + 2.0 * dot(eye, y) + dot(y, y); return m / (sqrt(max(1.0 + m, 0.0)) + 1.0); }" +
     "bool march(vec3 d, float pix, out float t) {" +
-    "  float Ro = 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq, Ri = 1.0 + hlo - 2.0 * hamp - 0.25 * crat / hfreq;" +
-    "  float bq = dot(eye, d), ee = dot(eye, eye); float ds = bq * bq - ee + Ro * Ro;" +
+    "  float ao = hhi + 2.0 * hamp + 0.05 * crat / hfreq, ai = hlo - 2.0 * hamp - 0.25 * crat / hfreq;" +
+    "  float bq = dot(eye, d) + dot(eyeL, d), ek = eyeK + 2.0 * dot(eye, eyeL) + dot(eyeL, eyeL); float ds = bq * bq - ek + ao * (2.0 + ao);" +
     "  t = 0.0; if (ds < 0.0) return false;" +
     "  float t0 = max(0.0, -bq - sqrt(ds)), t1 = -bq + sqrt(ds);" +
-    "  float di = bq * bq - ee + Ri * Ri; if (di > 0.0 && -bq - sqrt(di) > 0.0) t1 = min(t1, -bq - sqrt(di));" +
+    "  float di = bq * bq - ek + ai * (2.0 + ai); if (di > 0.0 && -bq - sqrt(di) > 0.0) t1 = min(t1, -bq - sqrt(di));" +
     "  if (t1 <= t0) return false;" +
     "  float tp = t0; t = t0; bool hit = false;" +
     // lite (a phone's GPU): at most 56 steps, then where the ray is (only far off, at the horizon)
     "  for (int i = 0; i < 160; i++) {" +
     "    if (lite > 0.5 && i >= 56) { hit = true; tp = t; break; }" +
-    "    vec3 x = eye + d * t; float r = length(x); float f = r - ground(x / r, octs(t * pix));" +
+    "    vec3 y = eyeL + d * t; float a = altY(y); float f = a - groundH((eye + y) / (1.0 + a), octs(t * pix));" +
     "    if (f < 0.0) { hit = true; break; }" +
     "    if (f < t * pix * 0.3) { hit = true; tp = t; break; }" +
     "    tp = t; t += max(f * 0.7, t * pix * 0.8);" +
@@ -207,8 +215,8 @@
     "  if (!hit) return false;" +
     // between the last point above and the first below, with all the bumps
     "  float a = tp, b = t;" +
-    "  for (int i = 0; i < 7; i++) { if (lite > 0.5 && i >= 4) break; float m = (a + b) * 0.5; vec3 x = eye + d * m; float r = length(x);" +
-    "    if (r - ground(x / r, octs(m * pix * 0.5)) < 0.0) b = m; else a = m; }" +
+    "  for (int i = 0; i < 7; i++) { if (lite > 0.5 && i >= 4) break; float m = (a + b) * 0.5; vec3 y = eyeL + d * m; float h = altY(y);" +
+    "    if (h - groundH((eye + y) / (1.0 + h), octs(m * pix * 0.5)) < 0.0) b = m; else a = m; }" +
     "  t = b; return true;" +
     "}" +
     // how much sun reaches the ground point x (radii from the centre): a ray towards the sun against the ground's shape,
@@ -249,6 +257,21 @@
     "    sp = clamp(sp, 0.0, 1.0) * dust; vec3 sc = mix(col, vec3(1.0), 0.35) * lt * 1.5;" +
     "    res = vec4(min(sc, vec3(1.0)) * sp, sp) + res * (1.0 - sp); }" +
     "  return res; }" +
+    // the grains' glints (draw.rs `sphere` 77): the ground's grains, on cells a few pixels wide (two sizes blended by the
+    // pixel's size, as the rings' specks), each a small facet tilted at random; one shines where its normal is the half
+    // way hw between the sun and the eye, so each eye sees its own (in a headset the ground glitters like real dust or
+    // snow). The cells are counted from the eye's 32 bits split at 1/1024 radii (exact) plus y: the same grains from
+    // both eyes and every frame, to 1e-10 radii
+    "float grains(vec3 y, vec3 n, vec3 hw, float fpt) { float Lf = log2(max(fpt, 1e-12)); float L0 = clamp(floor(Lf), -30.0, -11.0);" +
+    "  float fr = Lf - L0 >= 1.0 || Lf < -30.0 ? 0.0 : Lf - L0; vec3 ch = floor(eye * 1024.0) / 1024.0, cl = eye - ch; float sp = 0.0;" +
+    "  for (int k = 0; k < 2; k++) { float l = L0 + float(k), cs = exp2(l); vec3 r = (cl + y) / cs, fl = floor(r);" +
+    "    uvec3 a = uvec3(ivec3(ch * 1024.0)) * uint(1 << int(-l - 10.0)) + uvec3(ivec3(fl));" +
+    "    uint h = hsh(ivec3(a) + ivec3(0, 0, int(l) * 7919)), h2 = hsh(ivec3(a.yzx) + ivec3(31, 17, int(l)));" +
+    "    vec3 j = vec3(float(h & 1023u), float((h >> 10u) & 1023u), float((h >> 20u) & 1023u)) / 1023.0;" +
+    "    vec3 rn = vec3(float(h2 & 1023u), float((h2 >> 10u) & 1023u), float((h2 >> 20u) & 1023u)) / 511.5 - 1.0;" +
+    "    vec3 nf = normalize(n + 1.2 * rn); if (dot(nf, n) < 0.0) nf = reflect(nf, n); vec3 q = r - fl - j; q -= n * dot(q, n); float dd = length(q) * cs / fpt;" +
+    "    sp += (k == 0 ? 1.0 - fr : fr) * (1.0 - smoothstep(0.25, 0.9, dd)) * pow(max(dot(nf, hw), 0.0), 150.0); }" +
+    "  return sp; }" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
     "  bool mesh = meshM > 0.5 && meshM < 1.5;" +
@@ -289,7 +312,7 @@
     "    DEPTH(1e3); o = ga; return;" +
     "  }" +
     "  if (!terr) th = -b - sqrt(max(disc, 0.0));" +
-    "  vec3 p = normalize(eye + d * th);" +
+    "  vec3 p = normalize(eye + (eyeL + d * th));" +
     "  vec2 uvw = lonlat(p); float u = uvw.x, v = uvw.y;" +
     // the seam at longitude 180: take the derivatives of the u that does not jump there
     "  float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));" +
@@ -368,18 +391,34 @@
     "    float hy = (lum(vec2(u, v - ts.y)) - lum(vec2(u, v + ts.y))) / (2.0 * ts.y * 3.1415927);" +
     "    n = normalize(p - relief * (hx * east + hy * north));" +
     "  }" +
-    "  float s = dot(p, sun);" +
+    "  float s = dot(p, sun); float kl = 0.0;" +
     "  if (lit > 0.5 && useH > 0.5) {" +
     // real heights: the slope against the ground's own (flat) light, and close by the shadows of the hills
     "    float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);" +
     // (the mesh's point lies on its flat triangles: the sun's ray starts from the true ground there)
-    "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + d * th, fp);" +
+    "    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + (eyeL + d * th), fp);" +
+    "    kl = k;" +
     // close by on the day side the shadows are not black: the sunlit ground round them lights them a little
     // (about a fifth), and the slopes still show in it (the shadows of the coarse heights were blurry black patches)
     "    if (terr) k = max(k, 0.2 * smoothstep(-0.04, 0.22, s) * clamp(1.0 + 3.0 * (dot(n, p) - 1.0) + 0.6 * dot(n - p * dot(n, p), sun), 0.3, 1.3));" +
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
-    "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); }" +
+    "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); kl = k; }" +
+    // the light that changes with where the eye is (draw.rs `sphere` 76-78), so that a headset's two eyes see the
+    // ground a little differently, as real ground: ve towards the eye, hw half way between the sun and ve
+    "  vec3 ve = -d, hw = normalize(sun + ve);" +
+    // dust (the Moon's regolith): Lommel-Seeliger against Lambert (no darker limb; a slope turned from the eye is not
+    // darker), and the opposition surge: round the point opposite the sun (the shadow of the eye's head) the ground
+    // shines, its grains' shadows hidden behind them (Hapke, its width h = 0.05); 1 at a phase angle of 30 degrees
+    "  if (lit > 0.5 && dust > 0.0) { float mu0 = max(dot(n, sun), 0.0), mu = max(dot(n, ve), 0.03), ls = clamp((max(s, 0.03) + max(dot(p, ve), 0.03)) / (mu0 + mu + 1e-3), 0.5, 2.5);" +
+    "    float ca = clamp(dot(ve, sun), -1.0, 1.0), ta = sqrt(max(1.0 - ca, 0.0) / max(1.0 + ca, 1e-6)), B = (1.0 + 1.0 / (1.0 + ta / 0.05)) / (1.0 + 1.0 / (1.0 + 0.268 / 0.05));" +
+    "    c *= mix(1.0, ls * B, dust * smoothstep(-0.04, 0.1, s)); }" +
+    // the sea's glint: the sun mirrored on the water (the picture's dark blue), a sharp spot and a wide sheen of waves
+    "  if (lit > 0.5 && seaG > 0.0 && kl > 0.0) { float nh = max(dot(n, hw), 0.0);" +
+    "    float wet = smoothstep(0.03, 0.12, c.b - max(c.r, c.g * 0.85)) * (1.0 - smoothstep(0.35, 0.6, c.r + c.g));" +
+    "    c += vec3(1.0, 0.93, 0.8) * seaG * wet * min(kl, 1.0) * (pow(nh, 250.0) * 2.5 + pow(nh, 30.0) * 0.2); }" +
+    // the grains' glints, close by (up to about 1e-4 radii away)
+    "  if (lit > 0.5 && glint > 0.0 && terr && kl > 0.0 && th < 1e-4) c += vec3(1.5, 1.45, 1.35) * glint * min(kl, 1.0) * grains(eyeL + d * th, n, hw, fpt) * (1.0 - smoothstep(3e-5, 1e-4, th));" +
     // close by, a band about 10 pixels on each side of the smooth ball's horizon line fades to black (the edge
     // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
     "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
@@ -433,7 +472,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "eyeL", "eyeK", "dust", "glint", "seaG"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -570,6 +609,13 @@
     gl.uniform1f(u.useHole, ho ? 1 : 0);
     gl.uniform4f(u.hole, ho ? p[20] : 0, ho ? p[21] : 0, ho ? p[22] : 0, ho ? p[23] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
+    // the eye's remainder and the light that changes with the eye (80 numbers), |eye|² - 1 here in 64 bits
+    var w80 = p.length >= 80;
+    gl.uniform3f(u.eyeL, w80 ? p[72] : 0, w80 ? p[73] : 0, w80 ? p[74] : 0);
+    gl.uniform1f(u.eyeK, p[0] * p[0] + p[1] * p[1] + p[2] * p[2] - 1);
+    gl.uniform1f(u.dust, w80 ? p[76] : 0);
+    gl.uniform1f(u.glint, w80 ? p[77] : 0);
+    gl.uniform1f(u.seaG, w80 ? p[78] : 0);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
     gl.uniform3f(u.fwd, p[9], p[10], p[11]);
@@ -818,7 +864,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

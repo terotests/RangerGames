@@ -87,6 +87,28 @@ the eye's own part of it is `xr_view`. Positions stay in f64 up to the
 projection, relative to the eye, so real distances (a planet 10⁸ units away)
 keep their precision.
 
+Real ground close by (a planet with `height`, draw.rs `sphere`, 80 numbers):
+the 32-bit eye of a sphere command is only to about 6e-8 radii (10 cm on the
+Moon), so two eyes 6.4 cm apart came out 0 to 15 cm apart and the ground's
+depth swam. The engine sends the eye's remainder past its 32 bits, and the
+shader casts its rays from it and takes a point's height over the ball without
+the eye's 1 (`altY` in web/js/painter.js); the hosts take |eye|² - 1 in 64
+bits. `globe.rs` tests it in 32-bit sums: 6.4 cm apart to a micrometre, the
+height of a point 3 m ahead off by 0.00001 cm instead of 3 cm.
+
+A planet can also have light that changes with the eye, so the two eyes see
+the ground a little differently, as real ground (rg.three `planet`, each 0…1):
+
+- `dust`: regolith's light: Lommel-Seeliger instead of Lambert, and the
+  opposition surge, a bright halo round the point opposite the sun (the shadow
+  of the player's head), which moves with the head.
+- `glint`: close by (up to about 1e-4 radii) grains that glitter, small facets
+  that shine towards the half way between the sun and each eye: each eye sees
+  its own.
+- `seaGlint`: the sun mirrored on the sea (the picture's dark blue).
+
+They work without a headset too (the halo and glints follow the camera).
+
 Not yet in VR:
 
 - the map globe (`rg.three("globe")`, flat on the screen).
