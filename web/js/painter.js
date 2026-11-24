@@ -64,6 +64,9 @@
     // their cycle, how much the clouds morph, the morph's time), vtx[i] = (u, v, radius in radians, width / height),
     // vamp[i] how far its middle turns in a cycle (radians)
     "uniform vec4 vinfo; uniform vec4 vtx[4]; uniform float vamp[4];" +
+    // a glowing hot cap (80 numbers, globe.rs `hot`): hot = (its middle on the ball, radius in radians),
+    // hotk = (soft edge in radians, gain); lit by its own heat
+    "uniform vec4 hot; uniform vec2 hotk;" +
     // the morph is EVG's smoke: noise read at a place two other noises have moved (domain warping), on the ball
     // (no seam), stretched along the bands, the two warps out of step so that it rolls instead of breathing
     "float vh(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }" +
@@ -386,6 +389,13 @@
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // the rings' shadow on the ball
     "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
+    // the hot cap: molten rock glowing by its own heat (the same by day and by night), the map's light and
+    // dark as hotter and cooler melt, white-hot round its middle, a brighter front where it is still spreading
+    "  if (hotk.y > 0.0 && useWin < 0.5) { float ha = acos(clamp(dot(p, hot.xyz), -1.0, 1.0)); float hw = 1.0 - smoothstep(hot.w - hotk.x, hot.w, ha);" +
+    "    if (hw > 0.0) { float hl = lum(vec2(u, v));" +
+    "      vec3 g = mix(vec3(0.7, 0.14, 0.03), vec3(1.0, 0.56, 0.13), clamp(hl * 1.6, 0.0, 1.0)) + vec3(1.0, 0.86, 0.55) * 0.8 * exp(-ha / (0.18 * hot.w + 0.03));" +
+    "      g += vec3(1.0, 0.68, 0.24) * 0.6 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));" +
+    "      c = mix(c, g * hotk.y, hw); } }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
@@ -433,7 +443,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -555,6 +565,10 @@
       gl.uniform4fv(u.vtx, vt);
       gl.uniform1fv(u.vamp, va);
     }
+    // the hot cap (80 numbers)
+    var wh = p.length >= 80 && !w4;
+    gl.uniform4f(u.hot, wh ? p[72] : 0, wh ? p[73] : 0, wh ? p[74] : 1, wh ? p[75] : 0);
+    gl.uniform2f(u.hotk, wh ? p[76] : 0, wh ? p[77] : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -818,7 +832,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

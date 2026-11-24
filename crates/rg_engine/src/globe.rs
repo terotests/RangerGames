@@ -286,6 +286,9 @@ pub struct Globe {
     /// radius (degrees), width / height, turns an hour of `flow_time`
     /// (+ counter-clockwise seen from outside), how much the middle turns (0..1)
     vortices: Vec<[f64; 6]>,
+    /// a glowing hot cap (Solar Pilot: the heat spreading from a giant impact):
+    /// lat, lon (degrees), radius, soft edge (degrees), gain; gain 0 = none
+    hot: [f64; 5],
     /// the clouds morph (a gas giant): their picture read through a slowly
     /// rolling warp (EVG's smoke), 0 still; None: as much as `flow`
     turbulence: Option<f64>,
@@ -416,6 +419,7 @@ impl Globe {
             flow: 0.0,
             flow_time: 0.0,
             vortices: Vec::new(),
+            hot: [0.0; 5],
             turbulence: None,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
@@ -500,6 +504,22 @@ impl Globe {
         match a.get("turbulence") {
             Json::Null => {}
             v => self.turbulence = Some(v.as_num(0.0).clamp(0.0, 4.0)),
+        }
+        // hot: { lat, lon, r, soft, gain } (degrees): a glowing molten cap of radius r round the place,
+        // lit by its own heat (also on the night side); false or gain 0: none
+        match a.get("hot") {
+            Json::Bool(false) => self.hot = [0.0; 5],
+            Json::Obj(_) => {
+                let h = a.get("hot");
+                self.hot = [
+                    h.get("lat").as_num(0.0).clamp(-90.0, 90.0),
+                    h.get("lon").as_num(0.0),
+                    h.get("r").as_num(10.0).clamp(0.0, 180.0),
+                    h.get("soft").as_num(8.0).clamp(0.1, 90.0),
+                    h.get("gain").as_num(1.0).clamp(0.0, 4.0),
+                ];
+            }
+            _ => {}
         }
         // vortices: [{ lat, lon, r, ell, turns, depth }] (degrees, turns an hour); [] none
         if let Json::Arr(v) = a.get("vortices") {
@@ -1246,7 +1266,7 @@ impl Globe {
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
         let flow = self.flow_params();
         let vort = self.vortex_params();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some();
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0);
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1287,6 +1307,16 @@ impl Globe {
             if let Some(v) = vort {
                 // the 72-number form: the storms (draw.rs `sphere`)
                 params.extend(v.iter().map(|x| *x as f32));
+            }
+            if self.hot[4] > 0.0 && self.hot[2] > 0.0 {
+                // the 80-number form: the hot cap (the forms before it as zeros where unused: no heights
+                // without their pictures, no rings, no drift, no storms), its middle as the shader's ball point
+                params.resize(72, 0.0);
+                let c = unit(self.hot[1], self.hot[0]);
+                params.extend_from_slice(&[
+                    c[0] as f32, c[1] as f32, c[2] as f32, self.hot[2].to_radians() as f32,
+                    self.hot[3].to_radians() as f32, self.hot[4] as f32, 0.0, 0.0,
+                ]);
             }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
@@ -1872,6 +1902,38 @@ mod tests {
         g.command(&rg_core::json::parse(r##"{"glow":"#ffffff"}"##));
         g.render_3d(&mut out, &cam_at([1000.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, true, false);
         assert!(out.count > 0);
+    }
+
+    #[test]
+    fn a_hot_cap_is_the_80_number_form() {
+        // the sphere command (kind 8) and its numbers after the 23-number head
+        fn sphere(out: &DrawStream) -> (usize, Vec<f32>) {
+            let n = &out.nums;
+            let i = (0..n.len().saturating_sub(23)).find(|&i| n[i] == 8.0 && [20.0, 24.0, 32.0, 80.0].contains(&n[i + 22]) && n[i + 18] >= 0.0).unwrap();
+            let c = n[i + 22] as usize;
+            (c, n[i + 23..i + 23 + c].to_vec())
+        }
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r#"{"texture":"/p.jpg","grid":false,"border":false}"#));
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, true);
+        assert_eq!(sphere(&out).0, 20);
+        // a cap round lat 0, lon 90 (the ball's +y), 30 degrees across, soft 10, gain 1.5
+        g.command(&rg_core::json::parse(r#"{"hot":{"lat":0,"lon":90,"r":30,"soft":10,"gain":1.5}}"#));
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, true);
+        let (c, p) = sphere(&out);
+        assert_eq!(c, 80);
+        assert!(p[72].abs() < 1e-6 && (p[73] - 1.0).abs() < 1e-6 && p[74].abs() < 1e-6);
+        assert!((p[75] - 30f32.to_radians()).abs() < 1e-6 && (p[76] - 10f32.to_radians()).abs() < 1e-6 && p[77] == 1.5);
+        // the unused forms between are zeros: no rings, no drift, no storms
+        assert!(p[42] == 0.0 && p[44] == 0.0 && p[48] == 0.0 && p[50] == 0.0);
+        // false: back to the plain ball
+        g.command(&rg_core::json::parse(r#"{"hot":false}"#));
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, true);
+        assert_eq!(sphere(&out).0, 20);
     }
 
     #[test]
