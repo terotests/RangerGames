@@ -545,7 +545,9 @@ impl Engine {
     /// metres, bearing in degrees from north or -1) or `heading` (`{deg}`,
     /// where the top of the phone points, degrees from north), `orient`
     /// (`{m: [9]}`, the screen's right, up and out-of-screen axes as rows in
-    /// the world: x east, y north, z up; up to 60 a second), or `error`
+    /// the world: z up; on Android x/y are a fixed horizontal pair that need
+    /// not point east/north, because orient uses the gyro-based game rotation
+    /// vector for a steady turn; up to 60 a second), or `error`
     /// (`{sensor, reason}`). The game asks for one with `rg.sensor(name, true)`
     /// and gets it in `onLocation(fix)` / `onHeading(deg)` / `onSensor(name, data)`.
     pub fn sensor(&mut self, name: &str, data: &str) {
