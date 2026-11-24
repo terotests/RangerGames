@@ -178,7 +178,7 @@ final class Sensors implements LocationListener, SensorEventListener {
             r = o;
         }
         long now = System.currentTimeMillis();
-        if (orientOn && now - lastOrientAt >= 30) {
+        if (orientOn && now - lastOrientAt >= 15) {
             // rows: the screen's right, up and out-of-screen axes in the world
             // (x east, y north, z up); the screen's turn is already taken off
             lastOrientAt = now;

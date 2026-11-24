@@ -227,7 +227,7 @@ var rg = {
   // times a second onMic({ db, talk }), db = loudness in dBFS, -100…0, talk =
   // true while the phone itself speaks or plays a sound, so a game can ignore
   // its own voice) or "orient" (the phone's whole turn, for looking around by
-  // turning it: about 30 times a second onOrient(m), m = 9 numbers, the rows
+  // turning it: up to 60 times a second onOrient(m), m = 9 numbers, the rows
   // are the screen's right, up and out-of-screen axes in the world, x east,
   // y north, z up). Failures come as onSensor("error", { sensor, reason }).
   // a photo with the phone's camera: it goes to the phone's photo folder and
