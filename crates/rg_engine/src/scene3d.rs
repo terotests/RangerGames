@@ -380,6 +380,58 @@ struct Obj {
     dust: bool,
     /// a "burst" object: its particles (burst.rs), placed from `pos`
     burst: Option<Box<crate::burst::Burst>>,
+    /// a "splats" object: its baked run and how it lies in the world
+    splats: Option<Box<SplatRun>>,
+}
+
+/// A "splats" object's run (splats.rs): the file's x, y, z axes in the world,
+/// file units to world units, colours over temperature (cold to hot).
+struct SplatRun {
+    run: crate::splats::Splats,
+    axes: [V3; 3],
+    scale: f64,
+    palette: Vec<V3>,
+}
+
+impl SplatRun {
+    fn new(run: crate::splats::Splats, a: &Json) -> SplatRun {
+        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new() };
+        s.set(a);
+        if s.palette.is_empty() {
+            s.palette = vec![[0.25, 0.08, 0.05], [0.65, 0.12, 0.04], [1.0, 0.42, 0.08], [1.0, 0.72, 0.3], [1.0, 0.9, 0.6]];
+        }
+        s
+    }
+
+    fn set(&mut self, a: &Json) {
+        let ax = a.get("axes").items();
+        if ax.len() >= 3 {
+            for k in 0..3 {
+                let v = ax[k].items();
+                if v.len() >= 3 {
+                    self.axes[k] = [v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)];
+                }
+            }
+        }
+        self.scale = a.get("scale").as_num(self.scale);
+        if let Json::Arr(v) = a.get("palette") {
+            if !v.is_empty() {
+                self.palette = v.iter().map(|c| color(c, [1.0; 3])).collect();
+            }
+        }
+        self.run.time = a.get("time").as_num(self.run.time);
+    }
+
+    /// a place in the file into the world, from the object's place
+    fn world(&self, pos: V3, p: V3) -> V3 {
+        let k = self.scale;
+        let a = &self.axes;
+        [
+            pos[0] + k * (a[0][0] * p[0] + a[1][0] * p[1] + a[2][0] * p[2]),
+            pos[1] + k * (a[0][1] * p[0] + a[1][1] * p[1] + a[2][1] * p[2]),
+            pos[2] + k * (a[0][2] * p[0] + a[1][2] * p[1] + a[2][2] * p[2]),
+        ]
+    }
 }
 
 /// The rings of one puff: (radius share, alpha share). Inner rings over outer
@@ -476,6 +528,10 @@ pub struct Scene {
     pub terrain: bool,
     /// the game's folder (textures are given in it)
     pub dir: String,
+    /// the host draws liquid splats (draw kind 10; set by the engine every frame)
+    pub splats_ok: bool,
+    /// the bytes of the "splats" file the next add reads (lib.rs reads them)
+    pub splat_bytes: Option<Vec<u8>>,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
     /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
     /// See-through faces (`opacity` below 1) come last, far ones first, with
@@ -580,6 +636,8 @@ impl Scene {
             detail: false,
             terrain: false,
             dir: String::new(),
+            splats_ok: false,
+            splat_bytes: None,
             tris: Vec::new(),
             globe: None,
             planets: Vec::new(),
@@ -683,7 +741,7 @@ impl Scene {
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
                         tri_mesh(a)
-                    } else if shape == "puffs" || shape == "dust" || shape == "burst" {
+                    } else if shape == "puffs" || shape == "dust" || shape == "burst" || shape == "splats" {
                         Mesh::plain(Vec::new(), Vec::new())
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
@@ -704,6 +762,11 @@ impl Scene {
                     puffs: a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect(),
                     dust: shape == "dust",
                     burst: if shape == "burst" { Some(Box::new(crate::burst::Burst::new(a))) } else { None },
+                    splats: if shape == "splats" {
+                        self.splat_bytes.take().and_then(crate::splats::Splats::new).map(|r| Box::new(SplatRun::new(r, a)))
+                    } else {
+                        None
+                    },
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -729,6 +792,9 @@ impl Scene {
                     }
                     if !a.get("puffs").is_null() {
                         o.puffs = a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect();
+                    }
+                    if let Some(sp) = o.splats.as_mut() {
+                        sp.set(a);
                     }
                     if let Some(b) = o.burst.as_mut() {
                         b.time = a.get("time").as_num(b.time);
@@ -1136,6 +1202,65 @@ impl Scene {
             self.drawn += j - i;
             i = j;
         }
+        // baked particle runs, over the shapes: liquid splats (kind 10), or
+        // added squares where the host cannot draw them
+        for o in self.objs.iter() {
+            let sp = match (&o.splats, o.visible) {
+                (Some(sp), true) => sp,
+                _ => continue,
+            };
+            let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+            let mut pts: Vec<f32> = Vec::new();
+            let pal = &sp.palette;
+            let mut squares: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
+            sp.run.each(|p, r, t, _| {
+                let v = to_view(sp.world(o.pos, p));
+                if v[2] < near || hidden(v, &discs) {
+                    return;
+                }
+                let px = (r * sp.scale * focal / v[2]).clamp(0.4, 80.0);
+                let x = w / 2.0 + v[0] / v[2] * focal;
+                let y = h / 2.0 - v[1] / v[2] * focal;
+                if x < -px || y < -px || x > w + px || y > h + px {
+                    return;
+                }
+                if self.splats_ok {
+                    pts.extend_from_slice(&[x as f32, y as f32, px as f32, t as f32]);
+                    return;
+                }
+                let xq = t * (pal.len() - 1) as f64;
+                let k = (xq.floor() as usize).min(pal.len().saturating_sub(2));
+                let fr = xq - k as f64;
+                let a = pal[k];
+                let b = pal[(k + 1).min(pal.len() - 1)];
+                let c = [a[0] + (b[0] - a[0]) * fr, a[1] + (b[1] - a[1]) * fr, a[2] + (b[2] - a[2]) * fr];
+                let key = burst_key(c);
+                let i = match squares.iter().position(|e| e.0 == key) {
+                    Some(i) => i,
+                    None => {
+                        squares.push((key, c, Vec::new(), Vec::new()));
+                        squares.len() - 1
+                    }
+                };
+                let e = &mut squares[i];
+                let q = (px * 0.7) as f32;
+                let (x, y) = (x as f32, y as f32);
+                e.2.extend_from_slice(&[x - q, y - q, x + q, y - q, x + q, y + q, x - q, y + q]);
+                e.3.push(e.2.len() as f32);
+            });
+            if self.splats_ok {
+                let c = sp.world(o.pos, [0.0; 3]);
+                let l = match self.sun {
+                    Some(s) => norm(sub(s, c)),
+                    None => norm(sub(cam, c)),
+                };
+                out.splats(w, h, o.opacity, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+            } else {
+                for (_, c, p, e) in squares {
+                    out.rings_added(c, (o.opacity * 0.6).min(0.999), &p, &e);
+                }
+            }
+        }
     }
 
     /// The scene as depth-tested triangles into `self.tris` (see `tris`).
@@ -1468,6 +1593,36 @@ mod mesh_tests {
         sc.render(&mut out, 400.0, 400.0);
         let n = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).count();
         assert_eq!(n, 10);
+    }
+
+    #[test]
+    fn splats_play_a_baked_run_as_one_liquid_command() {
+        // 50 particles in a row along file x, 0.1 apart (10 i16 steps of 0.01), still
+        let f = crate::splats::test_file(50, 2, 1.0, |_, i| ([(i as i16 - 25) * 10, 0, 0], [0; 3], 200));
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.splat_bytes = Some(f.clone());
+        // the file's x along world y
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "splats", "src": "x.rgps", "axes": [[0, 1, 0], [1, 0, 0], [0, 0, 1]], "scale": 1 }"#));
+        sc.splats_ok = true;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // one kind 10 command: 5 palette colours, light, 50 splats in a column
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        let ex = &out.nums[k + 23..];
+        assert_eq!(ex[0], 5.0);
+        let at = 1 + 5 * 3;
+        assert_eq!(ex[at + 3], 50.0);
+        let pts = &ex[at + 4..at + 4 + 200];
+        assert!(pts.chunks(4).all(|p| (p[0] - 200.0).abs() < 0.01 && (p[3] - 200.0 / 255.0).abs() < 1e-3));
+        let ys: Vec<f32> = pts.chunks(4).map(|p| p[1]).collect();
+        assert!(ys[0] > ys[49], "file x runs up the screen");
+        // a host without splats: added squares
+        sc.splats_ok = false;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(!out.nums.contains(&10.0) || out.nums.windows(23).all(|w| w[0] != 10.0 || w[17] != 0.0));
+        assert!(out.count > 0);
     }
 
     #[test]

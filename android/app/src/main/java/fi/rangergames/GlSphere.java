@@ -534,6 +534,11 @@ final class GlSphere {
     private float bx, by, bw, bh, bk;
     private int bpw, bph;
 
+    /** this context current on this thread (GlSplats draws in it too) */
+    void current() {
+        EGL14.eglMakeCurrent(display, surface, surface, context);
+    }
+
     /** Starts a picture covering x, y, w, h (game units) at k pixels per unit. */
     void begin(float x, float y, float w, float h, float k) {
         k = Math.min(k, maxTex / Math.max(w, h));

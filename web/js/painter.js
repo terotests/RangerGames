@@ -550,6 +550,136 @@
     return spheres.ok;
   }
 
+  // Liquid splats (draw.rs `splats`, kind 10): a baked particle run. Each splat adds a soft round
+  // weight into a density picture (red: weight, green: weight × temperature), half the canvas's
+  // pixels; then where the density is thick enough it shows as a liquid surface: the mean
+  // temperature picks the colour, the density's slope makes a normal that the light shades and
+  // glints off, and the thin edge fades out. Drawn into a picture of its own, then into the canvas.
+  var SPLAT_VS = "#version 300 es\nlayout(location=0) in vec2 q; layout(location=1) in vec4 s; uniform vec4 xf; out vec2 lq; out float tt;" +
+    "void main() { lq = q; tt = s.w; vec2 p = s.xy + q * s.z * 1.6; gl_Position = vec4(p * xf.xy + xf.zw, 0.0, 1.0); }";
+  var SPLAT_FS = "#version 300 es\nprecision highp float; in vec2 lq; in float tt; uniform float gain; out vec4 o;" +
+    "void main() { float d = dot(lq, lq); if (d > 1.0) discard; float w = exp(-4.0 * d) * gain; o = vec4(w, w * tt, 0.0, 0.0); }";
+  var SHOW_VS = "#version 300 es\nlayout(location=0) in vec2 q; out vec2 uv; void main() { uv = q * 0.5 + 0.5; gl_Position = vec4(q, 0.0, 1.0); }";
+  var SHOW_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac; out vec4 o;" +
+    "float D(vec2 t) { return texture(den, t).r / gain; }" +
+    "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.02) discard;" +
+    "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
+    "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
+    // the surface: where the density passes 0.35; its slope a normal (screen y down in the picture: flipped)
+    "  float gx = D(uv + vec2(texel.x, 0.0)) - D(uv - vec2(texel.x, 0.0)), gy = D(uv + vec2(0.0, texel.y)) - D(uv - vec2(0.0, texel.y));" +
+    "  vec3 n = normalize(vec3(-gx * 3.0, -gy * 3.0, 1.0)); vec3 l = normalize(light * vec3(1.0, -1.0, 1.0));" +
+    "  float dif = 0.45 + 0.55 * max(dot(n, l), 0.0), spec = pow(max(dot(reflect(-l, n), vec3(0.0, 0.0, 1.0)), 0.0), 28.0) * 0.5;" +
+    // hot magma glows of itself (less shading), cold rock is lit
+    "  float glow = smoothstep(0.35, 0.9, tm); vec3 col = c * mix(dif, 1.0, glow * 0.7) + spec * mix(vec3(1.0), c, 0.4);" +
+    "  float body = smoothstep(0.3, 0.55, d), halo = smoothstep(0.02, 0.3, d) * 0.35 * (0.3 + glow);" +
+    "  float al = max(body, halo) * opac; o = vec4(mix(c * (0.6 + glow), col, body) * al, al); }";
+
+  function Splats() {
+    this.ok = false;
+    try {
+      var c = document.createElement("canvas");
+      var gl = c.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false });
+      if (!gl) return;
+      this.canvas = c; this.gl = gl;
+      this.f16 = !!gl.getExtension("EXT_color_buffer_float");
+      var mk = function (vs, fs) {
+        var p = gl.createProgram();
+        [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]].forEach(function (x) {
+          var sh = gl.createShader(x[0]); gl.shaderSource(sh, x[1]); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) console.warn("splat shader: " + gl.getShaderInfoLog(sh));
+          gl.attachShader(p, sh);
+        });
+        gl.linkProgram(p);
+        return p;
+      };
+      this.add = mk(SPLAT_VS, SPLAT_FS);
+      this.show = mk(SHOW_VS, SHOW_FS);
+      this.quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      this.inst = gl.createBuffer();
+      this.vao = gl.createVertexArray();
+      gl.bindVertexArray(this.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.inst);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
+      gl.bindVertexArray(null);
+      this.den = gl.createTexture(); this.fbo = gl.createFramebuffer(); this.dw = 0; this.dh = 0;
+      this.pal = gl.createTexture();
+      this.ok = true;
+    } catch (e) { this.ok = false; }
+  }
+
+  // ex: the extras (palette, light, splats); w, h: the box in game units; px: device pixels a unit
+  Splats.prototype.draw = function (ctx, ex, w, h, px, opac) {
+    var gl = this.gl, c = this.canvas;
+    var np = ex[0] | 0, at = 1 + np * 3;
+    var light = [ex[at], ex[at + 1], ex[at + 2]], m = ex[at + 3] | 0, pts = ex.subarray(at + 4, at + 4 + m * 4);
+    var k = px * 0.5;
+    var cw = Math.max(1, Math.min(2048, Math.round(w * k))), ch = Math.max(1, Math.min(2048, Math.round(h * k)));
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    if (this.dw !== cw || this.dh !== ch) {
+      gl.bindTexture(gl.TEXTURE_2D, this.den);
+      if (this.f16) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, cw, ch, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cw, ch, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.den, 0);
+      this.dw = cw; this.dh = ch;
+    }
+    // without float pictures the weights are kept small (8 bits fill up at 1)
+    var gain = this.f16 ? 1.0 : 0.25;
+    // the palette as a strip
+    var pb = new Uint8Array(np * 4);
+    for (var i = 0; i < np; i++) { pb[i * 4] = ex[1 + i * 3] * 255; pb[i * 4 + 1] = ex[2 + i * 3] * 255; pb[i * 4 + 2] = ex[3 + i * 3] * 255; pb[i * 4 + 3] = 255; }
+    gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, np, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pb);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    // 1: the weights added up
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.viewport(0, 0, cw, ch);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(this.add);
+    // game units to clip space (y down)
+    gl.uniform4f(gl.getUniformLocation(this.add, "xf"), 2 / w, -2 / h, -1, 1);
+    gl.uniform1f(gl.getUniformLocation(this.add, "gain"), gain);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.inst);
+    gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STREAM_DRAW);
+    gl.bindVertexArray(this.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m);
+    // 2: the surface into the picture
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cw, ch);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.show);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.den);
+    gl.uniform1i(gl.getUniformLocation(this.show, "den"), 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.uniform1i(gl.getUniformLocation(this.show, "pal"), 1);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform2f(gl.getUniformLocation(this.show, "texel"), 1 / cw, 1 / ch);
+    gl.uniform3f(gl.getUniformLocation(this.show, "light"), light[0], light[1], light[2]);
+    gl.uniform1f(gl.getUniformLocation(this.show, "npal"), np);
+    gl.uniform1f(gl.getUniformLocation(this.show, "gain"), gain);
+    gl.uniform1f(gl.getUniformLocation(this.show, "opac"), opac);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindVertexArray(null);
+    ctx.drawImage(c, 0, 0, cw, ch, 0, 0, w, h);
+  };
+  var splats = null;
+  function canDrawSplats() {
+    if (!splats) splats = new Splats();
+    return splats.ok;
+  }
+
   function Painter(canvas, images) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
@@ -643,6 +773,10 @@
         }
         // the group's last window drawn (or skipped): the picture into the canvas
         if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);
+        continue;
+      }
+      if (k === 10) {
+        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a);
         continue;
       }
       if (k === KIND.PUSH_CLIP) {
@@ -779,6 +913,7 @@
 
   global.RgPainter = Painter;
   global.RgPainter.canDrawSpheres = canDrawSpheres;
+  global.RgPainter.canDrawSplats = canDrawSplats;
   // sphere commands with a detail window (24 numbers) are understood
   global.RgPainter.canDrawDetail = canDrawSpheres;
   // and real heights (40 numbers: the ground's shape, made-up bumps)
