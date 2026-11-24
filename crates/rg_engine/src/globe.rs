@@ -282,6 +282,13 @@ pub struct Globe {
     /// seconds of the planet's time (the game's clock, warp and all)
     flow: f64,
     flow_time: f64,
+    /// storms turning in the clouds (at most 4): latitude, longitude and
+    /// radius (degrees), width / height, turns an hour of `flow_time`
+    /// (+ counter-clockwise seen from outside), how much the middle turns (0..1)
+    vortices: Vec<[f64; 6]>,
+    /// the clouds morph (a gas giant): their picture read through a slowly
+    /// rolling warp (EVG's smoke), 0 still; None: as much as `flow`
+    turbulence: Option<f64>,
     air_color: V3,
     /// city lights on the night side of a textured ball, and how bright
     lights: String,
@@ -324,6 +331,40 @@ impl Globe {
         let amp = 0.012;
         let cycle = amp / rate;
         Some((amp, (self.flow_time / cycle).rem_euclid(1.0)))
+    }
+
+    /// The morphing clouds and storms as the shader takes them (the
+    /// 72-number form, after the flow's 48): the storms' count, where in
+    /// their cycle the time is, how much the clouds morph and the morph's
+    /// time; then for each storm the picture's u, v of its middle, its radius
+    /// (radians), width / height and how far its middle turns in one cycle
+    /// (radians). As with the bands, two readings half a cycle apart are
+    /// cross-faded: a cycle is as long as the fastest storm takes to turn
+    /// 0.5 radians.
+    fn vortex_params(&self) -> Option<[f64; 24]> {
+        let fastest = self.vortices.iter().map(|v| (v[4] * v[5]).abs()).fold(0.0f64, f64::max);
+        let turb = self.turbulence.unwrap_or(self.flow.min(1.0));
+        if fastest <= 0.0 && turb <= 0.0 {
+            return None;
+        }
+        let tau = std::f64::consts::TAU;
+        let cycle = if fastest > 0.0 { 0.5 / (fastest * tau / 3600.0) } else { 1.0 };
+        let mut p = [0.0; 24];
+        p[0] = if fastest > 0.0 { self.vortices.len() as f64 } else { 0.0 };
+        p[1] = (self.flow_time / cycle).rem_euclid(1.0);
+        p[2] = turb;
+        // the morph's time: one unit in 6 hours of the planet's time (an eddy
+        // changes shape in about a day), round after 4096 units (~3 years)
+        p[3] = (self.flow_time / 21600.0).rem_euclid(4096.0);
+        for (i, v) in self.vortices.iter().enumerate() {
+            let k = 4 + i * 5;
+            p[k] = (v[1] / 360.0 + 0.5).rem_euclid(1.0);
+            p[k + 1] = 0.5 - v[0] / 180.0;
+            p[k + 2] = v[2].to_radians();
+            p[k + 3] = v[3];
+            p[k + 4] = v[4] * v[5] * tau / 3600.0 * cycle;
+        }
+        Some(p)
     }
 
     pub fn new() -> Globe {
@@ -374,6 +415,8 @@ impl Globe {
             ring_out: 0.0,
             flow: 0.0,
             flow_time: 0.0,
+            vortices: Vec::new(),
+            turbulence: None,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
             lights_gain: 1.0,
@@ -453,6 +496,28 @@ impl Globe {
         // flow: k (1 = Jupiter's winds, 0 = still), flowTime: the planet's time in seconds
         self.flow = a.get("flow").as_num(self.flow).max(0.0);
         self.flow_time = a.get("flowTime").as_num(self.flow_time);
+        // turbulence: k (1 = Jupiter's), null: as much as flow
+        match a.get("turbulence") {
+            Json::Null => {}
+            v => self.turbulence = Some(v.as_num(0.0).clamp(0.0, 4.0)),
+        }
+        // vortices: [{ lat, lon, r, ell, turns, depth }] (degrees, turns an hour); [] none
+        if let Json::Arr(v) = a.get("vortices") {
+            self.vortices = v
+                .iter()
+                .take(4)
+                .map(|o| {
+                    [
+                        o.get("lat").as_num(0.0).clamp(-85.0, 85.0),
+                        o.get("lon").as_num(0.0),
+                        o.get("r").as_num(10.0).clamp(0.1, 90.0),
+                        o.get("ell").as_num(1.0).clamp(0.2, 5.0),
+                        o.get("turns").as_num(0.0),
+                        o.get("depth").as_num(1.0).clamp(0.0, 1.0),
+                    ]
+                })
+                .collect();
+        }
         if !a.get("airColor").is_null() {
             self.air_color = color(&a.get("airColor"), self.air_color);
         }
@@ -1180,7 +1245,8 @@ impl Globe {
         ];
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
         let flow = self.flow_params();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some();
+        let vort = self.vortex_params();
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some();
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1203,18 +1269,24 @@ impl Globe {
             params.extend(more(hole.unwrap_or([0.0, 0.0, 1.0, 1.0]), 0.0, self.air));
             if terrain {
                 params.extend_from_slice(&hparams);
-            } else if rings || flow.is_some() {
+            } else if rings || flow.is_some() || vort.is_some() {
                 params.extend_from_slice(&[0.0; 8]);
             }
             if rings {
                 // the 44-number form: the rings (draw.rs `sphere`)
                 params.extend_from_slice(&[self.ring_in as f32, self.ring_out as f32, 1.0, 0.0]);
-            } else if flow.is_some() {
+            } else if flow.is_some() || vort.is_some() {
                 params.extend_from_slice(&[0.0; 4]);
             }
             if let Some((amp, phase)) = flow {
                 // the 48-number form: the cloud bands' drift (draw.rs `sphere`)
                 params.extend_from_slice(&[amp as f32, phase as f32, 0.0, 0.0]);
+            } else if vort.is_some() {
+                params.extend_from_slice(&[0.0; 4]);
+            }
+            if let Some(v) = vort {
+                // the 72-number form: the storms (draw.rs `sphere`)
+                params.extend(v.iter().map(|x| *x as f32));
             }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
