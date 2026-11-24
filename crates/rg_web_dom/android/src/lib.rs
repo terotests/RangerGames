@@ -13,3 +13,4 @@ fn new_engine() -> rg_engine::Engine {
 }
 
 include!("../../../rg_android/src/jni.rs");
+include!("../../../rg_android/src/xr_android.rs");

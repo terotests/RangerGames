@@ -201,6 +201,14 @@ pub struct Renderer {
     pub vertex_count: u32,
     /// the shaders' compile errors, when !ok
     pub error: String,
+    /// the framebuffer `render` paints into (0: the window; VR: the panel's)
+    fbo: u32,
+    /// VR: the 2D view's panel (a texture with its framebuffer), its size,
+    /// and the program and buffers that draw it into an eye
+    panel: Option<(u32, u32, u32, i32, i32)>,
+    panel_prog: u32,
+    panel_vao: u32,
+    panel_vbo: u32,
 }
 
 impl Default for Renderer {
@@ -285,6 +293,11 @@ impl Renderer {
             calls: 0,
             vertex_count: 0,
             error: String::new(),
+            fbo: 0,
+            panel: None,
+            panel_prog: 0,
+            panel_vao: 0,
+            panel_vbo: 0,
         }
     }
 
@@ -880,7 +893,7 @@ impl Renderer {
 
     /// The 2D state: blending premultiplied, no depth, the shape program and buffers.
     fn shape_state(&self, xf: [f32; 4], aa: f32) {
-        gl::bind_framebuffer(0);
+        gl::bind_framebuffer(self.fbo);
         gl::disable(gl::DEPTH_TEST);
         gl::disable(gl::CULL_FACE);
         gl::disable(gl::STENCIL_TEST);
@@ -914,7 +927,7 @@ impl Renderer {
         let (wpx, hpx) = (v.width.max(1) as f32, v.height.max(1) as f32);
         let xf = [2.0 * s / wpx, -2.0 * s / hpx, 2.0 * v.x * v.density / wpx - 1.0, 1.0 - 2.0 * v.y * v.density / hpx];
 
-        gl::bind_framebuffer(0);
+        gl::bind_framebuffer(self.fbo);
         gl::viewport(0, 0, v.width, v.height);
         gl::disable(gl::SCISSOR_TEST);
         gl::color_mask(true);
@@ -1089,6 +1102,139 @@ impl Renderer {
         gl::bind_vertex_array(self.vao);
         gl::bind_buffer(gl::ARRAY_BUFFER, self.vbo);
         gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.ibo);
+    }
+
+    // ---- VR (crates/rg_engine/src/xr.rs) ----
+
+    /// VR: paints the frame's draw stream (the game's 2D view, and its 3D
+    /// when the game is not in VR) into the panel's texture, transparent
+    /// where nothing is: `v.width` × `v.height` pixels.
+    pub fn render_panel(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], v: &View) -> bool {
+        if !self.init() {
+            return false;
+        }
+        let (w, h) = (v.width.max(1), v.height.max(1));
+        match self.panel {
+            Some((_, _, _, pw, ph)) if pw == w && ph == h => {}
+            old => {
+                if let Some((tex, fbo, rb, _, _)) = old {
+                    gl::delete_texture(tex);
+                    gl::delete_framebuffer(fbo);
+                    gl::delete_renderbuffer(rb);
+                }
+                let tex = gl::create_texture();
+                gl::bind_texture(gl::TEXTURE_2D, tex);
+                gl::tex_image(w, h, None);
+                Self::tex_params();
+                let fbo = gl::create_framebuffer();
+                gl::bind_framebuffer(fbo);
+                gl::framebuffer_texture(tex);
+                let rb = gl::create_depth_stencil(w, h);
+                if !gl::framebuffer_ok() {
+                    self.error = "VR panel framebuffer".to_string();
+                }
+                gl::bind_framebuffer(0);
+                self.panel = Some((tex, fbo, rb, w, h));
+            }
+        }
+        let (_, fbo, _, _, _) = self.panel.unwrap();
+        self.fbo = fbo;
+        self.render(host, nums, strings, tris, v, [0.0, 0.0, 0.0, 0.0]);
+        self.fbo = 0;
+        gl::bind_framebuffer(0);
+        true
+    }
+
+    /// VR: paints one eye into framebuffer `fbo` at `rect` (x, y, w, h in
+    /// pixels, from the bottom left): `tris` depth-tested (the engine's
+    /// triangles in the eye's units, `units` = their width and height), the
+    /// panel at its clip-space corners (top left, top right, bottom right,
+    /// bottom left), then `over` (the controllers' rays) over everything.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<[[f32; 4]; 4]>, over: &[f32], background: [f32; 4]) {
+        if !self.init() {
+            return;
+        }
+        if self.panel_prog == 0 {
+            let mut err = String::new();
+            self.panel_prog = program(shaders::PANEL_VS, shaders::PANEL_FS, &mut err);
+            if self.panel_prog == 0 {
+                self.error = err;
+            }
+            self.panel_vao = gl::create_vertex_array();
+            gl::bind_vertex_array(self.panel_vao);
+            self.panel_vbo = gl::create_buffer();
+            gl::bind_buffer(gl::ARRAY_BUFFER, self.panel_vbo);
+            gl::enable_attrib(0);
+            gl::attrib_pointer(0, 4, gl::FLOAT, false, 24, 0);
+            gl::enable_attrib(1);
+            gl::attrib_pointer(1, 2, gl::FLOAT, false, 24, 16);
+            gl::bind_vertex_array(0);
+        }
+        self.calls = 0;
+        gl::bind_framebuffer(fbo);
+        gl::viewport(rect[0], rect[1], rect[2], rect[3]);
+        gl::enable(gl::SCISSOR_TEST);
+        gl::scissor(rect[0], rect[1], rect[2], rect[3]);
+        gl::color_mask(true);
+        gl::depth_mask(true);
+        gl::clear_color(background[0], background[1], background[2], background[3]);
+        gl::clear_depth(1.0);
+        gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        gl::disable(gl::STENCIL_TEST);
+        gl::disable(gl::CULL_FACE);
+        gl::enable(gl::BLEND);
+        gl::blend_func(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
+        let xf = [2.0 / units.0.max(1e-3), -2.0 / units.1.max(1e-3), -1.0, 1.0];
+        let tris_pass = |r: &mut Renderer, t: &[f32], depth: bool| {
+            if t.len() < 18 {
+                return;
+            }
+            if depth {
+                gl::enable(gl::DEPTH_TEST);
+                gl::depth_func(gl::LEQUAL);
+                gl::depth_mask(true);
+            } else {
+                gl::disable(gl::DEPTH_TEST);
+                gl::depth_mask(false);
+            }
+            gl::use_program(r.tris_prog);
+            gl::uniform4f(r.tris_xf, xf[0], xf[1], xf[2], xf[3]);
+            gl::bind_vertex_array(r.tris_vao);
+            gl::bind_buffer(gl::ARRAY_BUFFER, r.tris_vbo);
+            let tb = unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, t.len() * 4) };
+            gl::buffer_data(gl::ARRAY_BUFFER, tb, gl::STREAM_DRAW);
+            gl::draw_arrays(gl::TRIANGLES, 0, (t.len() / 6) as i32);
+            r.calls += 1;
+        };
+        tris_pass(self, tris, true);
+        if let (Some(c), Some((tex, _, _, _, _))) = (panel, self.panel) {
+            if self.panel_prog != 0 {
+                gl::disable(gl::DEPTH_TEST);
+                gl::depth_mask(false);
+                // two triangles, texture v = 1 at the top (a framebuffer's rows go up)
+                let uv = [[0.0f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+                let mut q: Vec<f32> = Vec::with_capacity(36);
+                for &k in [0usize, 1, 2, 0, 2, 3].iter() {
+                    q.extend_from_slice(&c[k]);
+                    q.extend_from_slice(&uv[k]);
+                }
+                gl::use_program(self.panel_prog);
+                gl::active_texture(gl::TEXTURE0);
+                gl::bind_texture(gl::TEXTURE_2D, tex);
+                gl::bind_vertex_array(self.panel_vao);
+                gl::bind_buffer(gl::ARRAY_BUFFER, self.panel_vbo);
+                let qb = unsafe { std::slice::from_raw_parts(q.as_ptr() as *const u8, q.len() * 4) };
+                gl::buffer_data(gl::ARRAY_BUFFER, qb, gl::STREAM_DRAW);
+                gl::draw_arrays(gl::TRIANGLES, 0, 6);
+                self.calls += 1;
+            }
+        }
+        tris_pass(self, over, false);
+        gl::disable(gl::DEPTH_TEST);
+        gl::disable(gl::SCISSOR_TEST);
+        gl::depth_mask(true);
+        gl::bind_vertex_array(0);
     }
 
     /// One line for the log: draw calls, vertices, pictures and text runs kept.

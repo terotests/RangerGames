@@ -13,3 +13,7 @@ jni = { version = "0.21", default-features = false }
 
 [lib]
 crate-type = ["cdylib"]
+
+# VR headsets (Meta Quest): OpenXR through the Khronos loader in the APK (xr_android.rs)
+[target.'cfg(target_os = "android")'.dependencies]
+openxr = { version = "0.22", default-features = false, features = ["loaded"] }

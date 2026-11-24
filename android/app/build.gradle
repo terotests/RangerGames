@@ -17,6 +17,9 @@ android {
         targetSdk 34
         versionCode 2
         versionName "0.2.0"
+        // the engine is built for these two (scripts/build-android.sh); the
+        // OpenXR loader below has x86 libraries too, left out
+        ndk { abiFilters "arm64-v8a", "armeabi-v7a" }
     }
 
     // One key for every build (the Mac's and CI's), so a CI-built APK installs
@@ -47,4 +50,10 @@ android {
     androidResources {
         noCompress "rgpk", "ttf"
     }
+}
+
+dependencies {
+    // VR headsets: the Khronos OpenXR loader (Apache-2.0 OR MIT), which finds the
+    // headset's runtime (crates/rg_android/src/xr_android.rs loads it)
+    implementation "org.khronos.openxr:openxr_loader_for_android:1.1.58"
 }

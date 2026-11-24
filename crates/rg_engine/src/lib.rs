@@ -31,6 +31,7 @@ pub mod scene3d;
 pub mod splats;
 pub mod script;
 pub mod ui;
+pub mod xr;
 
 use draw::DrawStream;
 use rg_core::host::HostCommand;
@@ -350,6 +351,17 @@ pub struct Engine {
     pub dom_default: bool,
     /// whether the running game is drawn by the RangerDOM renderer
     dom_on: bool,
+    /// VR (rg.xr, xr.rs): stereo on a phone, or a headset's eyes and controllers
+    pub xr: xr::Xr,
+    /// VR controllers' rays (tracking space) for trigger presses that missed
+    /// the panel, by pointer id: their taps go into the 3D world
+    xr_rays: Vec<(i64, xr::V3, xr::V3)>,
+    /// pointers let go last frame (their rays are forgotten now)
+    xr_ups: Vec<i64>,
+    /// the last eye drawn (`xr_eye`): the controllers' rays and cursor, and
+    /// the panel's corners in clip space
+    pub xr_over: Vec<f32>,
+    pub xr_panel: Option<[[f32; 4]; 4]>,
 }
 
 impl Engine {
@@ -378,6 +390,11 @@ impl Engine {
             dom: None,
             dom_default: false,
             dom_on: false,
+            xr: xr::Xr::new(),
+            xr_rays: Vec::new(),
+            xr_ups: Vec::new(),
+            xr_over: Vec::new(),
+            xr_panel: None,
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -549,6 +566,9 @@ impl Engine {
     /// (`{sensor, reason}`). The game asks for one with `rg.sensor(name, true)`
     /// and gets it in `onLocation(fix)` / `onHeading(deg)` / `onSensor(name, data)`.
     pub fn sensor(&mut self, name: &str, data: &str) {
+        if name == "orient" && self.xr.mode == xr::Mode::Stereo {
+            self.xr.orient(&json::parse(data).get("m"));
+        }
         let mut e = rg_core::input::event("sensor", name, 0, 0.0, 0.0);
         e.target = data.to_string();
         // rg.store: the host installed or removed a game; the event carries
@@ -623,6 +643,9 @@ impl Engine {
         // host tells the new game what it can do and which links are up
         // ({type: "info"}), and the game says to them where it is
         self.commands.push(HostCommand { kind: "net".into(), name: "info".into(), args: Json::Null });
+        // the last game's VR: the next game starts flat (a headset app keeps its panel)
+        self.xr_leave();
+        self.xr.events.clear();
         self.error = String::new();
         self.script = None;
         self.input = Input::new();
@@ -792,6 +815,166 @@ impl Engine {
         Err(e)
     }
 
+    /// The host's VR frame (before `frame`): the eyes, the head and the
+    /// controllers in its tracking space, or an event. See xr.rs `Xr::input`.
+    pub fn xr_input(&mut self, data: &str) {
+        let aspect = if self.ui.width > 0.0 { self.ui.height / self.ui.width } else { 1.0 };
+        self.xr.input(&json::parse(data), aspect);
+    }
+
+    /// The headset's eyes: how many the host gave this frame.
+    pub fn xr_eyes(&self) -> usize {
+        if self.xr.headset() { self.xr.views.len() } else { 0 }
+    }
+
+    /// Eye `i`'s picture size in units (the host maps it to the eye's viewport).
+    pub fn xr_eye_size(&self, i: usize) -> (f64, f64) {
+        self.xr.eye_local(i).map(|e| e.size()).unwrap_or((1.0, 1.0))
+    }
+
+    /// Draws headset eye `i` (after `frame`): the 3D world's triangles into
+    /// `scene.tris` (or an empty room when the game is not in VR), the
+    /// controllers' rays into `xr_over`, the panel's corners into `xr_panel`.
+    /// Units are the eye's (`xr_eye_size`); the host draws the triangles, the
+    /// panel (the frame's draw stream as a texture) and then `xr_over`.
+    pub fn xr_eye(&mut self, i: usize) -> bool {
+        self.scene.tris.clear();
+        self.xr_over.clear();
+        self.xr_panel = None;
+        if self.xr.eye_local(i).is_none() {
+            return false;
+        }
+        if self.xr.immersive() {
+            if self.scene.active {
+                let (p, r, u, f) = self.scene.rig();
+                if let Some(e) = self.xr.eye(i, p, r, u, f) {
+                    self.scene.render_eye(e);
+                }
+            }
+            let rig = self.world.borrow().rig();
+            if let Some((p, r, u, f)) = rig {
+                if let Some(e) = self.xr.eye(i, p, r, u, f) {
+                    self.world.borrow_mut().render_eye(&e, i == 0, &mut self.scene.tris);
+                }
+            }
+            if !self.scene.active && rig.is_none() {
+                self.xr.room_tris(i, &mut self.scene.tris);
+            }
+        } else {
+            self.xr.room_tris(i, &mut self.scene.tris);
+        }
+        self.xr_panel = self.xr.panel_clip(i);
+        self.xr.pointer_tris(i, &mut self.xr_over);
+        true
+    }
+
+    /// stereo: both eyes side by side into `scene.tris`, in game units
+    fn stereo_tris(&mut self) {
+        let (gw, gh) = (self.ui.width, self.ui.height);
+        let mut acc: Vec<f32> = Vec::new();
+        let mut tmp: Vec<f32> = Vec::new();
+        for i in 0..2 {
+            let rect = [i as f64 * gw / 2.0, 0.0, gw / 2.0, gh];
+            if self.scene.active {
+                let (p, r, u, f) = self.scene.rig();
+                if let Some(e) = self.xr.eye(i, p, r, u, f) {
+                    self.scene.render_eye(e);
+                    let (ew, eh) = e.size();
+                    xr::place_tris(&self.scene.tris, ew, eh, rect, &mut acc);
+                }
+            }
+            let rig = self.world.borrow().rig();
+            if let Some((p, r, u, f)) = rig {
+                if let Some(e) = self.xr.eye(i, p, r, u, f) {
+                    tmp.clear();
+                    self.world.borrow_mut().render_eye(&e, i == 0, &mut tmp);
+                    let (ew, eh) = e.size();
+                    xr::place_tris(&tmp, ew, eh, rect, &mut acc);
+                }
+            }
+        }
+        self.scene.tris = acc;
+    }
+
+    /// Before the game's frame: the controllers' triggers as taps on the
+    /// panel (game units) or rays into the 3D world.
+    fn xr_step(&mut self) {
+        let ups = std::mem::take(&mut self.xr_ups);
+        self.xr_rays.retain(|r| !ups.contains(&r.0));
+        self.xr.step(self.ui.width, self.ui.height);
+        let pointers = std::mem::take(&mut self.xr.pointers);
+        for p in pointers.iter() {
+            // a press that missed the panel stays a world ray until it is let go
+            if p.kind == 0 {
+                self.xr_rays.retain(|r| r.0 != p.id);
+                if p.at.is_none() {
+                    self.xr_rays.push((p.id, p.ray.0, p.ray.1));
+                }
+            }
+            let in_world = self.xr_rays.iter().any(|r| r.0 == p.id);
+            let (x, y) = if in_world { (-1.0e5, -1.0e5) } else { p.at.unwrap_or((-1.0e5, -1.0e5)) };
+            match p.kind {
+                0 => self.input.pointer_down(p.id, x, y),
+                1 => self.input.pointer_move(p.id, x, y),
+                _ => self.input.pointer_up(p.id, x, y),
+            }
+        }
+        // an up event still needs its ray this frame: forgotten next frame
+        self.xr_ups = pointers.iter().filter(|p| p.kind == 2).map(|p| p.id).collect();
+    }
+
+    fn xr_state(&self) -> Json {
+        let rig = self.world.borrow().rig().or_else(|| if self.scene.active { Some(self.scene.rig()) } else { None });
+        self.xr.state(rig)
+    }
+
+    /// Leaves VR (a game ends): the phone's sensor and the host's session off.
+    fn xr_leave(&mut self) {
+        if self.xr.mode == xr::Mode::Off {
+            return;
+        }
+        let mode = self.xr.mode;
+        self.xr.exit();
+        self.xr_rays.clear();
+        if mode == xr::Mode::Stereo {
+            self.commands.push(HostCommand { kind: "sensor".into(), name: "orient".into(), args: Json::Bool(false) });
+        } else if !self.xr.always {
+            self.commands.push(HostCommand { kind: "xr".into(), name: "exit".into(), args: Json::Null });
+        }
+    }
+
+    /// rg.xr's commands: enter, exit, recenter, set, pulse.
+    fn xr_command(&mut self, name: &str, a: &Json) {
+        match name {
+            "enter" => {
+                let mode = a.get("mode").as_str();
+                if self.xr.mode != xr::Mode::Off {
+                    self.xr_leave();
+                }
+                if mode == "stereo" {
+                    self.xr.enter("stereo", a);
+                    self.commands.push(HostCommand { kind: "sensor".into(), name: "orient".into(), args: Json::Bool(true) });
+                } else if self.xr.always {
+                    self.xr.enter("vr", a);
+                } else if self.xr.vr_ok {
+                    self.xr.enter("vr", a);
+                    self.commands.push(HostCommand { kind: "xr".into(), name: "enter".into(), args: a.clone() });
+                } else {
+                    self.xr.events.push(json::obj(vec![member("type", Json::Str("error".into())), member("reason", Json::Str("unsupported".into()))]));
+                }
+            }
+            "exit" => self.xr_leave(),
+            "recenter" => self.xr.recentre_now(),
+            "set" => self.xr.options(a),
+            "pulse" => {
+                if self.xr.headset() {
+                    self.commands.push(HostCommand { kind: "xr".into(), name: "pulse".into(), args: a.clone() });
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn take_commands(&mut self, cmds: &Json) {
         for c in cmds.items() {
             let cmd = HostCommand::from_json(&c);
@@ -825,6 +1008,10 @@ impl Engine {
             }
             if cmd.kind == "setting" {
                 self.set_setting(&cmd.name, cmd.args.clone());
+                continue;
+            }
+            if cmd.kind == "xr" {
+                self.xr_command(&cmd.name, &cmd.args);
                 continue;
             }
             self.commands.push(cmd);
@@ -878,6 +1065,7 @@ impl Engine {
         self.draw.clear();
         let dt = (dt_ms / 1000.0).clamp(0.0, 0.1);
         self.time += dt;
+        self.xr_step();
         let mut events = self.input.take_events();
         if !self.error.is_empty() || self.script.is_none() {
             // a tap or Back on the error screen goes to the launcher
@@ -907,9 +1095,20 @@ impl Engine {
                 };
             }
             let mut j = event_json(e);
-            // what the 3D world has under the finger (React Three Fiber's events)
+            // what the 3D world has under the finger (React Three Fiber's events),
+            // or a VR controller's ray that missed the panel
+            let ray = self.xr_rays.iter().find(|r| r.0 == e.pointer).map(|r| (r.1, r.2));
             if tap && world_on {
-                if let Some(hit) = self.world.borrow().raycast(e.x as f32, e.y as f32).into_iter().next() {
+                let w = self.world.borrow();
+                let hits = match (ray, w.rig()) {
+                    (Some(ray), Some((p, r, u, f))) => {
+                        let (o, d) = self.xr.ray_world(ray, p, r, u, f);
+                        w.raycast_ray(o, d)
+                    }
+                    (Some(_), None) => Vec::new(),
+                    _ => w.raycast(e.x as f32, e.y as f32),
+                };
+                if let Some(hit) = hits.into_iter().next() {
                     if let Json::Obj(m) = &mut j {
                         m.push(member("hit", hit));
                     }
@@ -926,7 +1125,9 @@ impl Engine {
             member("events", Json::Arr(evs)),
             member("sim", self.fluid.state()),
             member("boxes", self.boxes.clone()),
+            member("xr", self.xr_state()),
         ]);
+        self.xr.events.clear();
         self.lend_files(true);
         let p0 = now_ms();
         let r = self.script.as_mut().unwrap().call("__frame", arg.write());
@@ -945,9 +1146,17 @@ impl Engine {
                 self.scene.detail = self.detail;
                 self.scene.terrain = self.terrain;
                 self.scene.splats_ok = self.splats;
+                // VR: the 3D is drawn per eye (stereo here, a headset's by xr_eye)
+                let stereo = self.xr.mode == xr::Mode::Stereo && self.xr.eyes_on() && self.gl3d;
+                let eyes = stereo || self.xr.immersive();
+                self.scene.eyes_only = eyes;
+                self.world.borrow_mut().eyes_only = eyes;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 let t0 = self.scene.tris.len();
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
+                if stereo {
+                    self.stereo_tris();
+                }
                 if self.gl3d && self.gl_all {
                     self.draw.layer3d(t0, self.scene.tris.len());
                 }
