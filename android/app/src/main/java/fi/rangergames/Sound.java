@@ -650,7 +650,9 @@ final class Sound implements Runnable {
         boolean loop = o == null || o.optBoolean("loop", true);
         musicH = h;
         if (t == null) {
-            playFile(name, vol * 0.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
+            // music files: 1.6 × MASTER 0.5 = 0.8 of full scale (0.6 × 0.5 was half as
+            // loud as the MediaPlayer music before, and barely audible on the tablet)
+            playFile(name, vol * 1.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
             return;
         }
         tuneVol = vol;
