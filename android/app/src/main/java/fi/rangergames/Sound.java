@@ -5,12 +5,19 @@ import android.content.res.AssetManager;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioTrack;
+import android.media.MediaCodec;
+import android.media.MediaDataSource;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.ShortBuffer;
 import java.util.ArrayList;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -21,6 +28,8 @@ import java.util.concurrent.ConcurrentLinkedQueue;
  * WAV files from the engine's virtual directory play too: the games' sound
  * files and the Finnish voice clips of {@code rg.say} (8-bit μ-law WAVs from
  * crates/rg_voice), one after another on their own speech channel.
+ * MP3, AAC and Ogg files are decoded with MediaCodec on a thread of their own
+ * and start when ready (a long music file would stall the game otherwise).
  */
 final class Sound implements Runnable {
     private static final int RATE = 22050;
@@ -249,8 +258,23 @@ final class Sound implements Runnable {
     /** queue (as audio.js): the file waits until the queued files before it have
      *  ended, so a spoken line does not talk over the one before it */
     private void playFile(String name, double vol, int h, boolean loop, double fade, double base, boolean queue) {
+        boolean known;
+        synchronized (files) {
+            known = files.containsKey(name);
+        }
+        if (!known) {
+            byte[] b = raw(name);
+            if (b != null && !isWav(b)) {
+                decodeLater(name, b, vol, h, loop, fade, base, ++serial);
+                return;
+            }
+        }
         short[] pcm = file(name);
         if (pcm == null || pcm.length == 0) return;
+        startFile(pcm, vol, h, loop, fade, base, queue, ++serial);
+    }
+
+    private void startFile(short[] pcm, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser) {
         Voice v = new Voice();
         v.pcm = pcm;
         v.vol = vol;
@@ -263,7 +287,7 @@ final class Sound implements Runnable {
         v.h = h;
         v.loop = loop;
         v.base = base;
-        v.serial = ++serial;
+        v.serial = ser;
         if (fade > 0) {
             v.gain = 0;
             v.fadeTo(1, fade);
@@ -274,6 +298,7 @@ final class Sound implements Runnable {
     /** rg.stopSound and the rest: op "stop", "volume", "pause", "resume"; o { h (0: all), volume, fade }. */
     void control(String op, JSONObject o) {
         if (op.equals("stop") && (o == null || o.optInt("h", 0) == 0)) queueEnd = now;
+        if (op.equals("stop")) markStopped(o != null ? o.optInt("h", 0) : 0);
         ctls.add(new Ctl(op, o != null ? o.optInt("h", 0) : 0, o != null ? o.optDouble("volume", 1) : 1, o != null ? o.optDouble("fade", 0) : 0, serial));
     }
 
@@ -358,17 +383,164 @@ final class Sound implements Runnable {
 
     /** A WAV file of the virtual directory (or a voice clip asset) as samples at RATE (cached), or null. */
     private short[] file(String path) {
-        if (files.containsKey(path)) return files.get(path);
+        synchronized (files) {
+            if (files.containsKey(path)) return files.get(path);
+        }
         short[] pcm = null;
+        try {
+            byte[] b = raw(path);
+            if (b != null) pcm = decodeWav(b);
+        } catch (Throwable ignored) {
+        }
+        synchronized (files) {
+            files.put(path, pcm);
+        }
+        return pcm;
+    }
+
+    /** A sound file's bytes: a voice clip asset, a downloaded game's file or the pack's. */
+    private byte[] raw(String path) {
         try {
             byte[] b = path.startsWith("/games/_voice/") ? voiceAsset(path) : null;
             if (b == null) b = Store.readLazy(path);   // a downloaded game's sound stays on disk
             if (b == null) b = Engine.read(path);
-            if (b != null) pcm = decodeWav(b);
-        } catch (Throwable ignored) {
+            return b;
+        } catch (Throwable e) {
+            return null;
         }
-        files.put(path, pcm);
-        return pcm;
+    }
+
+    private static boolean isWav(byte[] b) {
+        return b.length >= 4 && b[0] == 'R' && b[1] == 'I' && b[2] == 'F' && b[3] == 'F';
+    }
+
+    // stops asked while a file was still being decoded: handle → serial (0: all)
+    private final java.util.concurrent.ConcurrentHashMap<Integer, Long> stoppedAt = new java.util.concurrent.ConcurrentHashMap<>();
+    private final java.util.HashSet<String> decoding = new java.util.HashSet<>();
+
+    private void markStopped(int h) {
+        stoppedAt.put(h, serial);
+    }
+
+    private boolean stoppedSince(int h, long ser) {
+        Long all = stoppedAt.get(0), mine = h != 0 ? stoppedAt.get(h) : null;
+        return (all != null && all >= ser) || (mine != null && mine >= ser);
+    }
+
+    /** A compressed file (MP3 …): decoded on its own thread, cached, then played
+     *  unless it was stopped meanwhile. */
+    private void decodeLater(String name, byte[] b, double vol, int h, boolean loop, double fade, double base, long ser) {
+        synchronized (decoding) {
+            if (!decoding.add(name)) return;   // the same file asked again while decoding
+        }
+        Thread t = new Thread(() -> {
+            short[] pcm = null;
+            try {
+                pcm = decodeCompressed(b);
+            } catch (Throwable ignored) {
+            }
+            synchronized (files) {
+                files.put(name, pcm);
+            }
+            synchronized (decoding) {
+                decoding.remove(name);
+            }
+            if (pcm != null && pcm.length > 0 && !stoppedSince(h, ser)) startFile(pcm, vol, h, loop, fade, base, false, ser);
+        }, "rg-decode");
+        t.setPriority(Thread.MIN_PRIORITY);
+        t.start();
+    }
+
+    /** MP3/AAC/Ogg → mono 16-bit at RATE (channels averaged, resampled linearly as it comes). */
+    static short[] decodeCompressed(final byte[] b) throws Exception {
+        MediaExtractor ex = new MediaExtractor();
+        MediaCodec c = null;
+        try {
+            ex.setDataSource(new MediaDataSource() {
+                @Override public int readAt(long pos, byte[] buf, int off, int size) {
+                    if (pos >= b.length) return -1;
+                    int n = (int) Math.min(size, b.length - pos);
+                    System.arraycopy(b, (int) pos, buf, off, n);
+                    return n;
+                }
+                @Override public long getSize() { return b.length; }
+                @Override public void close() {}
+            });
+            int tr = -1;
+            MediaFormat fmt = null;
+            for (int i = 0; i < ex.getTrackCount(); i++) {
+                MediaFormat f = ex.getTrackFormat(i);
+                String m = f.getString(MediaFormat.KEY_MIME);
+                if (m != null && m.startsWith("audio/")) { tr = i; fmt = f; break; }
+            }
+            if (fmt == null) return null;
+            ex.selectTrack(tr);
+            int src = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE), ch = Math.max(1, fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT));
+            long dur = fmt.containsKey(MediaFormat.KEY_DURATION) ? fmt.getLong(MediaFormat.KEY_DURATION) : 0;
+            short[] out = new short[(int) Math.max(RATE, dur * RATE / 1000000L + RATE)];
+            int n = 0;
+            long si = 0;          // source frames seen
+            double prev = 0;
+            c = MediaCodec.createDecoderByType(fmt.getString(MediaFormat.KEY_MIME));
+            c.configure(fmt, null, null, 0);
+            c.start();
+            MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+            boolean inEnd = false, outEnd = false;
+            while (!outEnd) {
+                if (!inEnd) {
+                    int ii = c.dequeueInputBuffer(10000);
+                    if (ii >= 0) {
+                        ByteBuffer ib = c.getInputBuffer(ii);
+                        int len = ib != null ? ex.readSampleData(ib, 0) : -1;
+                        if (len < 0) {
+                            c.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                            inEnd = true;
+                        } else {
+                            c.queueInputBuffer(ii, 0, len, ex.getSampleTime(), 0);
+                            ex.advance();
+                        }
+                    }
+                }
+                int oi = c.dequeueOutputBuffer(info, 10000);
+                if (oi == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
+                    MediaFormat of = c.getOutputFormat();
+                    src = of.getInteger(MediaFormat.KEY_SAMPLE_RATE);
+                    ch = Math.max(1, of.getInteger(MediaFormat.KEY_CHANNEL_COUNT));
+                } else if (oi >= 0) {
+                    ByteBuffer ob = c.getOutputBuffer(oi);
+                    if (ob != null && info.size > 0) {
+                        ob.position(info.offset);
+                        ob.limit(info.offset + info.size);
+                        ShortBuffer sb = ob.order(ByteOrder.LITTLE_ENDIAN).asShortBuffer();
+                        int frames = sb.remaining() / ch;
+                        for (int f = 0; f < frames; f++) {
+                            int sum = 0;
+                            for (int k = 0; k < ch; k++) sum += sb.get(f * ch + k);
+                            double s = (double) sum / ch;
+                            // output samples whose source place falls in (si-1, si]
+                            while (true) {
+                                double p = (double) n * src / RATE;
+                                if (p > si) break;
+                                double fr = p - (si - 1);
+                                if (n >= out.length) out = java.util.Arrays.copyOf(out, out.length + RATE * 10);
+                                out[n++] = (short) Math.round(si == 0 ? s : prev + (s - prev) * fr);
+                            }
+                            prev = s;
+                            si++;
+                        }
+                    }
+                    c.releaseOutputBuffer(oi, false);
+                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outEnd = true;
+                }
+            }
+            return n == out.length ? out : java.util.Arrays.copyOf(out, n);
+        } finally {
+            if (c != null) {
+                try { c.stop(); } catch (Throwable ignored) { }
+                c.release();
+            }
+            ex.release();
+        }
     }
 
     private static int u16(byte[] b, int i) {
@@ -451,6 +623,7 @@ final class Sound implements Runnable {
     void stopMusic(JSONObject o) {
         tune = null;
         if (musicH != 0) ctls.add(new Ctl("stop", musicH, 0, o != null ? o.optDouble("fade", 0) : 0, serial));
+        markStopped(musicH != 0 ? musicH : -1);
         musicH = 0;
     }
 
