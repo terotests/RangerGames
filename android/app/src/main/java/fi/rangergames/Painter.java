@@ -27,7 +27,7 @@ import java.util.Map;
 final class Painter {
     private static final int HEADER = 23;
     private static final android.graphics.PorterDuffXfermode ADD = new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD);
-    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8;
+    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8, SPLATS = 10;
 
     private final AssetManager assets;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -123,6 +123,16 @@ final class Painter {
         GlSphere g = new GlSphere();
         if (g.init(assets)) gl = g;
         return gl != null;
+    }
+
+    /** liquid splats (kind 10) in the GPU globes' context, when it works */
+    private GlSplats splats;
+
+    boolean canSplats() {
+        if (gl == null || !gl.ok) return false;
+        GlSplats s = new GlSplats(gl);
+        if (s.ok) splats = s;
+        return splats != null;
     }
 
     /** where a command's extra numbers after the optional parts begin */
@@ -492,6 +502,25 @@ final class Painter {
         int i = 0, n = nums.length;
         while (i + HEADER <= n) {
             int k = (int) nums[i];
+            if (k == SPLATS) {
+                int nx = (int) nums[i + 22], e = extras(nums, i);
+                float w = nums[i + 3], h = nums[i + 4];
+                if (splats != null && splats.ok && gl.ok && w > 0 && h > 0 && e + nx <= n) {
+                    Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8]);
+                    if (bm != null) {
+                        // GL's rows from below: flipped into place
+                        c.save();
+                        c.translate(0, h);
+                        c.scale(1, -1);
+                        src.set(0, 0, splats.pw, splats.ph);
+                        rf.set(0, 0, w, h);
+                        c.drawBitmap(bm, src, rf, image);
+                        c.restore();
+                    }
+                }
+                i = i + HEADER + nx;
+                continue;
+            }
             if (k == SPHERE && gl != null && gl.ok) {
                 int next = glSpheres(c, nums, strings, i, scale);
                 if (next >= 0) {
