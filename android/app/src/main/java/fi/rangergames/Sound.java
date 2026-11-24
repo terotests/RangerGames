@@ -424,7 +424,7 @@ final class Sound implements Runnable {
 
     // stops asked while a file was still being decoded: handle → serial (0: all)
     private final java.util.concurrent.ConcurrentHashMap<Integer, Long> stoppedAt = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.HashSet<String> decoding = new java.util.HashSet<>();
+    private final java.util.HashMap<String, Stream> decoding = new java.util.HashMap<>();
 
     private void markStopped(int h) {
         stoppedAt.put(h, serial);
@@ -438,7 +438,7 @@ final class Sound implements Runnable {
     /** A file being decoded: samples [0, avail) of buf are ready; buf may be
      *  swapped for a bigger one (avail is written after, read first). */
     static final class Stream {
-        volatile short[] buf;
+        volatile short[] buf = new short[0];
         volatile int avail;
         volatile boolean done;
     }
@@ -448,10 +448,18 @@ final class Sound implements Runnable {
      *  all of it left the start silent), unless it was stopped meanwhile; cached
      *  once whole. */
     private void decodeLater(String name, byte[] b, double vol, int h, boolean loop, double fade, double base, long ser) {
+        final Stream st;
         synchronized (decoding) {
-            if (!decoding.add(name)) return;   // the same file asked again while decoding
+            Stream old = decoding.get(name);
+            if (old != null) {
+                // asked again while still decoding (music stopped and started again):
+                // a new voice on the same stream, from its start
+                startFile(old.buf, old, vol, h, loop, fade, base, false, ser);
+                return;
+            }
+            st = new Stream();
+            decoding.put(name, st);
         }
-        final Stream st = new Stream();
         Thread t = new Thread(() -> {
             short[] pcm = null;
             final boolean[] started = { false };
