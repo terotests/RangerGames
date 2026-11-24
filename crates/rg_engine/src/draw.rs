@@ -15,7 +15,8 @@
 //! 14 rotate (degrees)  15-16 rotation origin
 //! 17 flags                      1 gradient, 2 gradient across, 4 shadow, 8 flip x,
 //!                               16 flip y, 32 even-odd, 64 crop, 128 rotation origin,
-//!                               256 italic, 512 smooth, 1024 tile
+//!                               256 italic, 512 smooth, 1024 tile, 2048 added
+//!                               (a path's colour added to what is under it: sparks)
 //! 18 string: text or image src  19 string: font family  20 string: font weight
 //! 21 letter spacing
 //! 22 n: the extra numbers that follow
@@ -204,6 +205,17 @@ impl DrawStream {
     /// A filled (`kind` 6) or stroked (7) path of several rings, with an
     /// opacity and, for a stroke, a line width.
     pub fn rings(&mut self, kind: u32, rgb: [f64; 3], alpha: f64, width: f64, pts: &[f32], ends: &[f32]) {
+        self.rings_flags(kind, rgb, alpha, width, pts, ends, 0);
+    }
+
+    /// A filled path whose colour is added to what is under it (flag 2048):
+    /// glowing sparks that brighten where they overlap.
+    pub fn rings_added(&mut self, rgb: [f64; 3], alpha: f64, pts: &[f32], ends: &[f32]) {
+        self.rings_flags(6, rgb, alpha, 0.0, pts, ends, 2048);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rings_flags(&mut self, kind: u32, rgb: [f64; 3], alpha: f64, width: f64, pts: &[f32], ends: &[f32], flags: u32) {
         if pts.is_empty() {
             return;
         }
@@ -215,7 +227,7 @@ impl DrawStream {
         self.nums.extend_from_slice(&[
             kind as f32, 0.0, 0.0, 0.0, 0.0,
             (rgb[0] * 255.0) as f32, (rgb[1] * 255.0) as f32, (rgb[2] * 255.0) as f32, alpha as f32,
-            0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+            0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, flags as f32, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
         ]);
         self.nums.extend_from_slice(&extra);
         self.count += 1;

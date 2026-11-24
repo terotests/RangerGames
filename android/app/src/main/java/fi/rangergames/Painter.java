@@ -26,6 +26,7 @@ import java.util.Map;
  */
 final class Painter {
     private static final int HEADER = 23;
+    private static final android.graphics.PorterDuffXfermode ADD = new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD);
     private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8;
 
     private final AssetManager assets;
@@ -649,7 +650,10 @@ final class Painter {
                     path.setFillType((flags & 32) != 0 ? Path.FillType.EVEN_ODD : Path.FillType.WINDING);
                     fill.setShader(null);
                     fill.setColor(argb(r, g, b, a));
+                    // added (sparks): brighter where they overlap
+                    if ((flags & 2048) != 0) fill.setXfermode(ADD);
                     c.drawPath(path, fill);
+                    if ((flags & 2048) != 0) fill.setXfermode(null);
                 } else {
                     stroke.setColor(argb(r, g, b, a));
                     stroke.setStrokeWidth(t != 0 ? t : 1);

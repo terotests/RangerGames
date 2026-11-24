@@ -22,6 +22,16 @@
 //!                                               // set { puffs: [x, y, z, r, alpha, bright, …] }, six
 //!                                               // numbers a puff, x y z from the object's place; each
 //!                                               // is a few rings, fainter outwards; `color` × bright
+//!                             | "burst"        // up to 20 000 sparks flung from x, y, z (burst.rs):
+//!                                               // count, speed: [min, max], dir: [x, y, z] + spread
+//!                                               // (half angle, radians; π or no dir: every way),
+//!                                               // v: [x, y, z] added to all, g: [x, y, z] a pull,
+//!                                               // gravity: { x, y, z, gm, r } a point mass (from the
+//!                                               // object's place; inside r they are gone), drag,
+//!                                               // life: [min, max] s, size: [start, end] (world),
+//!                                               // palette: colours over a life, bright, seed;
+//!                                               // set { id, time } the seconds since it went off
+//!                                               // (back in time runs it again), bright
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
@@ -368,6 +378,8 @@ struct Obj {
     /// a "dust" object: its puffs have two numbers more, seed and age (0…1):
     /// each is a few lumps that turn round its centre and drift apart with age
     dust: bool,
+    /// a "burst" object: its particles (burst.rs), placed from `pos`
+    burst: Option<Box<crate::burst::Burst>>,
 }
 
 /// The rings of one puff: (radius share, alpha share). Inner rings over outer
@@ -505,6 +517,27 @@ impl Planet {
     }
 }
 
+/// A burst particle's colour bucket: 5 bits a channel (the painter draws one
+/// path a bucket).
+fn burst_key(c: V3) -> u32 {
+    let q = |x: f64| ((x.clamp(0.0, 1.0) * 31.0).round()) as u32;
+    q(c[0]) << 10 | q(c[1]) << 5 | q(c[2])
+}
+
+/// A point (view space, the eye at 0) behind one of the planets' balls.
+fn hidden(v: V3, discs: &[(V3, f64)]) -> bool {
+    let l = dot(v, v).sqrt();
+    if l <= 0.0 {
+        return false;
+    }
+    let dir = mul(v, 1.0 / l);
+    discs.iter().any(|(c, r)| {
+        let t = dot(*c, dir);
+        let d2 = dot(*c, *c) - t * t;
+        d2 < r * r && t > 0.0 && t - (r * r - d2).sqrt() < l
+    })
+}
+
 struct Poly {
     /// the sort key: (outer layer, outer depth, group, layer, depth); a poly
     /// of no group has its own layer and depth as the outer ones
@@ -517,6 +550,10 @@ struct Poly {
     rgb: V3,
     /// 1 solid, less: see-through (Obj `opacity`)
     alpha: f64,
+    /// several rings in `pts` (their ends, as DrawStream's), or empty: one
+    ends: Vec<f32>,
+    /// its colour added to what is under it (burst sparks)
+    added: bool,
 }
 
 fn get3(a: &Json, keys: [&str; 3], d: V3) -> V3 {
@@ -646,7 +683,7 @@ impl Scene {
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
                         tri_mesh(a)
-                    } else if shape == "puffs" || shape == "dust" {
+                    } else if shape == "puffs" || shape == "dust" || shape == "burst" {
                         Mesh::plain(Vec::new(), Vec::new())
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
@@ -666,6 +703,7 @@ impl Scene {
                     group: a.get("group").as_num(0.0) as i32,
                     puffs: a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect(),
                     dust: shape == "dust",
+                    burst: if shape == "burst" { Some(Box::new(crate::burst::Burst::new(a))) } else { None },
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -691,6 +729,10 @@ impl Scene {
                     }
                     if !a.get("puffs").is_null() {
                         o.puffs = a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect();
+                    }
+                    if let Some(b) = o.burst.as_mut() {
+                        b.time = a.get("time").as_num(b.time);
+                        b.bright = a.get("bright").as_num(b.bright).max(0.0);
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -816,6 +858,11 @@ impl Scene {
         self.tris.clear();
         if !self.active {
             return;
+        }
+        for o in self.objs.iter_mut() {
+            if let Some(b) = o.burst.as_mut() {
+                b.advance();
+            }
         }
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h);
@@ -973,7 +1020,43 @@ impl Scene {
                     }
                     let pts: Vec<f32> = pts.iter().map(|x| *x as f32).collect();
                     let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, v[2], 0) };
-                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: v[2], pts, rgb, alpha });
+                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: v[2], pts, rgb, alpha, ends: Vec::new(), added: false });
+                }
+            }
+            // burst particles: tiny squares, one path a colour (hidden behind the planets)
+            if let Some(b) = o.burst.as_ref() {
+                let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+                let mut buckets: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
+                b.each(|lp, size, c| {
+                    let v = to_view(add(o.pos, lp));
+                    if v[2] < near || hidden(v, &discs) {
+                        return;
+                    }
+                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
+                    let x = w / 2.0 + v[0] / v[2] * focal;
+                    let y = h / 2.0 - v[1] / v[2] * focal;
+                    if x < -px || y < -px || x > w + px || y > h + px {
+                        return;
+                    }
+                    let rgb = self.fogged(c, v[2]);
+                    let key = burst_key(rgb);
+                    let k = match buckets.iter().position(|e| e.0 == key) {
+                        Some(k) => k,
+                        None => {
+                            buckets.push((key, rgb, Vec::new(), Vec::new()));
+                            buckets.len() - 1
+                        }
+                    };
+                    let e = &mut buckets[k];
+                    let (x0, y0, x1, y1) = ((x - px) as f32, (y - px) as f32, (x + px) as f32, (y + px) as f32);
+                    e.2.extend_from_slice(&[x0, y0, x1, y0, x1, y1, x0, y1]);
+                    e.3.push(e.2.len() as f32);
+                });
+                let z = to_view(o.pos)[2];
+                let alpha = (o.opacity * 0.999).clamp(0.0, 0.999);
+                for (_, rgb, pts, ends) in buckets {
+                    let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, z, 0) };
+                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: z, pts, rgb, alpha, ends, added: true });
                 }
             }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
@@ -1015,7 +1098,7 @@ impl Scene {
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
-                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist), alpha: o.opacity });
+                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist), alpha: o.opacity, ends: Vec::new(), added: false });
             }
         }
         let far = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
@@ -1026,12 +1109,23 @@ impl Scene {
         while i < polys.len() {
             let rgb = q(polys[i].rgb);
             let alpha = polys[i].alpha;
+            if polys[i].added {
+                out.rings_added(rgb_f(rgb), alpha, &polys[i].pts, &polys[i].ends);
+                self.drawn += 1;
+                i += 1;
+                continue;
+            }
             let mut j = i;
             let mut pts: Vec<f32> = Vec::new();
             let mut ends: Vec<f32> = Vec::new();
-            while j < polys.len() && q(polys[j].rgb) == rgb && polys[j].alpha == alpha && j - i < 24 {
+            while j < polys.len() && q(polys[j].rgb) == rgb && polys[j].alpha == alpha && !polys[j].added && (j - i < 24 || !polys[j].ends.is_empty()) {
+                let base = pts.len() as f32;
                 pts.extend_from_slice(&polys[j].pts);
-                ends.push(pts.len() as f32);
+                if polys[j].ends.is_empty() {
+                    ends.push(pts.len() as f32);
+                } else {
+                    ends.extend(polys[j].ends.iter().map(|e| base + e));
+                }
                 j += 1;
             }
             if alpha < 1.0 {
@@ -1171,6 +1265,25 @@ impl Scene {
                     let corners: Vec<V3> = pts.chunks_exact(2).map(|p| [p[0], p[1], dz]).collect();
                     glow.push((v[2], corners, mul(rgb, a)));
                 }
+            }
+            // burst particles: see-through quads, added like the puffs
+            if let Some(b) = o.burst.as_ref() {
+                let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+                b.each(|lp, size, c| {
+                    let v = to_view(add(o.pos, lp));
+                    if v[2] < near || hidden(v, &discs) {
+                        return;
+                    }
+                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
+                    let x = w / 2.0 + v[0] / v[2] * focal;
+                    let y = h / 2.0 - v[1] / v[2] * focal;
+                    if x < -px || y < -px || x > w + px || y > h + px {
+                        return;
+                    }
+                    let dz = d(v[2]) + 2.0;
+                    let rgb = mul(self.fogged(c, v[2]), o.opacity);
+                    glow.push((v[2], vec![[x - px, y - px, dz], [x + px, y - px, dz], [x + px, y + px, dz], [x - px, y + px, dz]], rgb));
+                });
             }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
@@ -1355,6 +1468,32 @@ mod mesh_tests {
         sc.render(&mut out, 400.0, 400.0);
         let n = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).count();
         assert_eq!(n, 10);
+    }
+
+    #[test]
+    fn a_burst_draws_a_path_a_colour_and_hides_behind_planets() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 3000, "speed": [1, 2], "life": [3, 3],
+            "size": 0.02, "palette": ["#ffffff", "#ff8000"] }"##));
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // 3000 squares in a handful of paths (one a colour)
+        assert!(out.count > 0 && out.count < 40, "{} commands", out.count);
+        let mut gl = Scene::new();
+        gl.gl = true;
+        gl.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        gl.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 100, "speed": 1, "life": [3, 3] }"##));
+        gl.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        gl.render(&mut DrawStream::new(), 400.0, 400.0);
+        // see-through quads (two triangles each), depth 2..3
+        assert_eq!(gl.tris.len(), 100 * 6 * 6);
+        assert!(gl.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // a planet between the eye and the burst hides it
+        assert!(hidden([0.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
+        assert!(!hidden([3.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
+        assert!(!hidden([0.0, 0.0, 3.0], &[([0.0, 0.0, 5.0], 1.0)]));
     }
 
     #[test]

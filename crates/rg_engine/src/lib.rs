@@ -20,6 +20,7 @@
 //! Each platform is a thin host around this: `rg_web` (WebAssembly, the
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
+pub mod burst;
 pub mod draw;
 pub mod fiber;
 pub mod fluid;

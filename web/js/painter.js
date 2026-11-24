@@ -760,7 +760,9 @@
         }
         if (k === KIND.PATH) {
           ctx.fillStyle = rgba(r, g, b, a);
+          if (flags & 2048) ctx.globalCompositeOperation = "lighter";
           ctx.fill((flags & 32) ? "evenodd" : "nonzero");
+          if (flags & 2048) ctx.globalCompositeOperation = "source-over";
         } else {
           ctx.strokeStyle = rgba(r, g, b, a);
           ctx.lineWidth = t || 1;
