@@ -76,6 +76,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private final Object glLock = new Object();
     private boolean glLetGo;
     private int glFrames;
+    /** even frames for the GL painter */
+    private FramePacer pacer;
     private long glStatsAt;
     private static final String SETTINGS = "/save/_settings.json";
     /** touches and keys for the game thread: {kind, id, x, y} or a key name */
@@ -434,6 +436,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             double dt = Math.min(100, (t - last) / 1e6);
             last = t;
             if (glPaint) {
+                if (pacer == null) pacer = new FramePacer(getWindowManager().getDefaultDisplay().getRefreshRate());
+                dt = pacer.step(dt);
+                glCtx.interval(pacer.interval);
                 Engine.frame(dt);
                 afterCall();
                 if (!running) break;
@@ -504,13 +509,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             return;
         }
         painter.glFrameDone();
+        if (pacer != null) pacer.worked((System.nanoTime() - t) / 1e6);
         glCtx.swap();
         glFrames++;
         long now = System.nanoTime();
         if (glStatsAt == 0) glStatsAt = now;
         if (now - glStatsAt > 5_000_000_000L) {
             // logcat RangerGames: frames a second and the painter's numbers
-            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL paint: %.1f fps, %s", glFrames * 1e9 / (now - glStatsAt), Engine.glStats()));
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL paint: %.1f fps (swap %d), %s", glFrames * 1e9 / (now - glStatsAt), pacer != null ? pacer.interval : 1, Engine.glStats()));
             glFrames = 0;
             glStatsAt = now;
         }
