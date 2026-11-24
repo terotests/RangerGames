@@ -348,8 +348,12 @@ impl DrawStream {
     /// splats' mean temperature and lit from `light` (screen x right, y down,
     /// z towards the eye). Extras: palette count, its colours (0..1), the
     /// light (3), the splat count, then x, y, radius (the game's units),
-    /// temperature (0..1) a splat.
-    pub fn splats(&mut self, w: f64, h: f64, opacity: f64, palette: &[[f64; 3]], light: [f64; 3], pts: &[f32]) {
+    /// temperature (0..1) a splat. Header slot 9: the density picture's
+    /// pixels a screen pixel (0: 0.5). Slot 10: more than 0 for see-through
+    /// gas, its density a splat (alpha 1 - exp(-gas × weight), lit by
+    /// light · eye and self-shadowed, the hot part glowing).
+    #[allow(clippy::too_many_arguments)]
+    pub fn splats(&mut self, w: f64, h: f64, opacity: f64, res: f64, gas: f64, palette: &[[f64; 3]], light: [f64; 3], pts: &[f32]) {
         if pts.is_empty() {
             return;
         }
@@ -364,7 +368,7 @@ impl DrawStream {
         self.nums.extend_from_slice(&[
             10.0, 0.0, 0.0, w as f32, h as f32,
             255.0, 255.0, 255.0, opacity as f32,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+            res as f32, gas as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
         ]);
         self.nums.extend_from_slice(&extra);
         self.count += 1;

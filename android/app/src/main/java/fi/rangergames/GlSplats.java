@@ -36,11 +36,30 @@ final class GlSplats {
             "  float body = smoothstep(0.3, 0.55, d), halo = smoothstep(0.02, 0.3, d) * 0.35 * (0.3 + glow);" +
             "  float al = max(body, halo) * opac; o = vec4(mix(c * (0.6 + glow), col, body) * al, al); }";
 
+    /** see-through gas (look "gas"), painter.js gasFs; the picture's v against the screen's up as the liquid's normal here */
+    private static final String GAS_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac, kd; out vec4 o;" +
+            "float D(vec2 t) { return texture(den, t).r / gain; }" +
+            "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.004) discard;" +
+            "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
+            "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
+            "  vec3 l = normalize(light * vec3(1.0, -1.0, 1.0)); vec2 s = vec2(l.x, l.y * -1.0) * texel;" +
+            "  float db = 0.5 * d + 0.125 * (D(uv + vec2(texel.x, 0.0)) + D(uv - vec2(texel.x, 0.0)) + D(uv + vec2(0.0, texel.y)) + D(uv - vec2(0.0, texel.y)));" +
+            "  float al = 1.0 - exp(-kd * db);" +
+            "  float occ = D(uv + s * 4.0) + D(uv + s * 12.0) + D(uv + s * 28.0);" +
+            "  float lit = exp(-kd * 0.12 * occ);" +
+            "  float front = 0.5 + 0.5 * l.z, back = max(-l.z, 0.0);" +
+            "  float dif = 0.25 + 0.75 * lit * mix(0.4, 1.0, front);" +
+            "  float fwd = back * back * (1.0 - al) * lit * 1.6;" +
+            "  float glow = smoothstep(0.35, 0.9, tm);" +
+            "  vec3 col = mix(c * (dif + fwd), c * 1.25, glow);" +
+            "  float oa = al * opac; o = vec4(col * oa, oa); }";
+
     private final GlSphere gl;
     boolean ok;
     private boolean f16;
-    private int add, show, quad, inst, vao, den, denFbo, out, outFbo, pal;
+    private int add, show, gas, quad, inst, vao, den, denFbo, out, outFbo, pal;
     private int uXf, uGain, uDen, uPal, uTexel, uLight, uNpal, uSGain, uOpac;
+    private int gDen, gPal, gTexel, gLight, gNpal, gGain, gOpac, gKd;
     private int dw, dh, ow, oh;
     /** the last picture's pixels (its part of the bitmap) */
     int pw, ph;
@@ -68,6 +87,15 @@ final class GlSplats {
             uNpal = GLES30.glGetUniformLocation(show, "npal");
             uSGain = GLES30.glGetUniformLocation(show, "gain");
             uOpac = GLES30.glGetUniformLocation(show, "opac");
+            gas = program(SHOW_VS, GAS_FS);
+            gDen = GLES30.glGetUniformLocation(gas, "den");
+            gPal = GLES30.glGetUniformLocation(gas, "pal");
+            gTexel = GLES30.glGetUniformLocation(gas, "texel");
+            gLight = GLES30.glGetUniformLocation(gas, "light");
+            gNpal = GLES30.glGetUniformLocation(gas, "npal");
+            gGain = GLES30.glGetUniformLocation(gas, "gain");
+            gOpac = GLES30.glGetUniformLocation(gas, "opac");
+            gKd = GLES30.glGetUniformLocation(gas, "kd");
             int[] ids = new int[7];
             GLES30.glGenBuffers(2, ids, 0);
             quad = ids[0];
@@ -168,21 +196,21 @@ final class GlSplats {
      * splat) over w × h game units at px pixels a unit; the picture is the
      * bitmap's pw × ph corner, rows from below. Null when the GPU failed.
      */
-    Bitmap draw(float[] nums, int e, float w, float h, float px, float opac) {
+    Bitmap draw(float[] nums, int e, float w, float h, float px, float opac, float res, float kd) {
         gl.current();
-        if (!passes(nums, e, w, h, px, opac)) return null;
+        if (!passes(nums, e, w, h, px, opac, res, kd)) return null;
         return readBack();
     }
 
     /** the two passes into the shown picture (out), pw × ph of it; false when there is nothing to draw */
-    private boolean passes(float[] nums, int e, float w, float h, float px, float opac) {
+    private boolean passes(float[] nums, int e, float w, float h, float px, float opac, float res, float kd) {
         int np = Math.max(1, Math.min(256, (int) nums[e]));
         int at = e + 1 + np * 3;
         float lx = nums[at], ly = nums[at + 1], lz = nums[at + 2];
         int m = (int) nums[at + 3];
         int p0 = at + 4;
         if (m <= 0 || p0 + m * 4 > nums.length) return false;
-        float k = px * 0.5f;
+        float k = px * (res > 0 ? res : 0.5f);
         int cw = Math.max(1, Math.min(2048, Math.round(w * k))), ch = Math.max(1, Math.min(2048, Math.round(h * k)));
         targets(cw, ch);
         pw = cw;
@@ -228,19 +256,21 @@ final class GlSplats {
         GLES30.glScissor(0, 0, cw, ch);
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
         GLES30.glDisable(GLES30.GL_BLEND);
-        GLES30.glUseProgram(show);
+        boolean g = kd > 0;
+        GLES30.glUseProgram(g ? gas : show);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, den);
-        GLES30.glUniform1i(uDen, 0);
+        GLES30.glUniform1i(g ? gDen : uDen, 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pal);
-        GLES30.glUniform1i(uPal, 1);
+        GLES30.glUniform1i(g ? gPal : uPal, 1);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
-        GLES30.glUniform2f(uTexel, 1f / dw, 1f / dh);
-        GLES30.glUniform3f(uLight, lx, ly, lz);
-        GLES30.glUniform1f(uNpal, np);
-        GLES30.glUniform1f(uSGain, gain);
-        GLES30.glUniform1f(uOpac, opac);
+        GLES30.glUniform2f(g ? gTexel : uTexel, 1f / dw, 1f / dh);
+        GLES30.glUniform3f(g ? gLight : uLight, lx, ly, lz);
+        GLES30.glUniform1f(g ? gNpal : uNpal, np);
+        GLES30.glUniform1f(g ? gGain : uSGain, gain);
+        GLES30.glUniform1f(g ? gOpac : uOpac, opac);
+        if (g) GLES30.glUniform1f(gKd, kd);
         // the density's corner: uv runs 0..sx, 0..sy (the show pass's quad stretched by the viewport)
         GLES30.glViewport(0, 0, dw, dh);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
@@ -254,8 +284,8 @@ final class GlSplats {
      * left in a texture, rows from below; 0 when nothing was drawn or the GPU
      * failed. Its part of the texture: pw × ph of tw × th.
      */
-    int texture(float[] nums, int e, float w, float h, float px, float opac) {
-        if (!passes(nums, e, w, h, px, opac)) return 0;
+    int texture(float[] nums, int e, float w, float h, float px, float opac, float res, float kd) {
+        if (!passes(nums, e, w, h, px, opac, res, kd)) return 0;
         int err = GLES30.glGetError();
         if (err != GLES30.GL_NO_ERROR) {
             Log.w(TAG, "GL splats: error " + err + ", off from now on");

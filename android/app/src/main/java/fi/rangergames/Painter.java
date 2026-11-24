@@ -181,7 +181,7 @@ final class Painter {
             // liquid splats over the game's box: their picture as a texture, rows from below (flipped)
             float w = nums[3], h = nums[4];
             if (splats == null || !splats.ok || w <= 0 || h <= 0) return false;
-            int tex = splats.texture(nums, extras(nums, 0), w, h, px, nums[8]);
+            int tex = splats.texture(nums, extras(nums, 0), w, h, px, nums[8], nums[9], nums[10]);
             if (tex == 0) return false;
             put(out, tex, 0, 0, w, h, splats.pw / (float) splats.texWidth(), splats.ph / (float) splats.texHeight());
             out[7] = 1;
@@ -594,7 +594,7 @@ final class Painter {
                 int nx = (int) nums[i + 22], e = extras(nums, i);
                 float w = nums[i + 3], h = nums[i + 4];
                 if (splats != null && splats.ok && gl.ok && w > 0 && h > 0 && e + nx <= n) {
-                    Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8]);
+                    Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8], nums[i + 9], nums[i + 10]);
                     if (bm != null) {
                         // GL's rows from below: flipped into place
                         c.save();
