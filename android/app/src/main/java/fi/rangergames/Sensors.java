@@ -24,7 +24,9 @@ import java.util.Queue;
 
 /**
  * The phone's sensors for the games (rg.sensor): GPS positions and the
- * compass heading, put on the game thread's input queue as {name, json}.
+ * compass heading, and the phone's whole turn ("orient": the rotation
+ * matrix, for looking around by turning the phone), put on the game
+ * thread's input queue as {name, json}.
  * The GPS works without a network; only the satellites are needed. Asks
  * for the location permission the first time a game wants the position.
  */
@@ -32,11 +34,12 @@ final class Sensors implements LocationListener, SensorEventListener {
     static final int PERMISSION_REQUEST = 41;
     private final Activity activity;
     private final Queue<Object> out;
-    private boolean wantLocation, wantHeading, locationOn, headingOn, paused, asked;
+    private boolean wantLocation, wantHeading, wantOrient, locationOn, headingOn, orientOn, paused, asked;
     private final float[] rot = new float[9];
     private final float[] orient = new float[3];
+    private Sensor headingSensor, orientSensor;
     private float lastDeg = -1000;
-    private long lastHeadingAt;
+    private long lastHeadingAt, lastOrientAt;
 
     Sensors(Activity activity, Queue<Object> out) {
         this.activity = activity;
@@ -53,6 +56,7 @@ final class Sensors implements LocationListener, SensorEventListener {
                     wantLocation = on;
                 }
                 if (name.equals("heading") || name.equals("*")) wantHeading = on;
+                if (name.equals("orient") || name.equals("*")) wantOrient = on;
                 apply();
             }
         });
@@ -106,19 +110,35 @@ final class Sensors implements LocationListener, SensorEventListener {
             lm.removeUpdates(this);
             locationOn = false;
         }
+        // heading uses the rotation vector (it needs magnetic north); orient uses
+        // the game rotation vector when there is one: gyro + accelerometer, no
+        // magnetometer, so the view does not wander or jump indoors (Tero: the
+        // eye mode did not match the real turn)
         SensorManager sm = (SensorManager) activity.getSystemService(Context.SENSOR_SERVICE);
-        boolean head = wantHeading && !paused;
-        if (head && !headingOn && sm != null) {
-            Sensor s = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
-            if (s == null) {
-                send("error", "{\"sensor\":\"heading\",\"reason\":\"unavailable\"}");
-            } else {
-                sm.registerListener(this, s, SensorManager.SENSOR_DELAY_UI);
-                headingOn = true;
-            }
-        } else if (!head && headingOn && sm != null) {
+        boolean head = wantHeading && !paused, ori = wantOrient && !paused;
+        if ((head != headingOn || ori != orientOn) && sm != null) {
             sm.unregisterListener(this);
             headingOn = false;
+            orientOn = false;
+            orientSensor = null;
+            Sensor rv = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+            Sensor grv = sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+            if (head) {
+                Sensor s = rv != null ? rv : grv;
+                if (s == null) send("error", "{\"sensor\":\"heading\",\"reason\":\"unavailable\"}");
+                else { sm.registerListener(this, s, SensorManager.SENSOR_DELAY_UI); headingOn = true; headingSensor = s; }
+            }
+            if (ori) {
+                Sensor s = grv != null ? grv : rv;
+                if (s == null) send("error", "{\"sensor\":\"orient\",\"reason\":\"unavailable\"}");
+                else {
+                    // the same sensor as heading: register once, at the faster rate
+                    if (headingOn && s == headingSensor) sm.unregisterListener(this);
+                    sm.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME);
+                    orientOn = true;
+                    orientSensor = s;
+                }
+            }
         }
     }
 
@@ -168,10 +188,20 @@ final class Sensors implements LocationListener, SensorEventListener {
             SensorManager.remapCoordinateSystem(rot, ax, ay, o);
             r = o;
         }
+        long now = System.currentTimeMillis();
+        Sensor from = e.sensor;
+        if (orientOn && from == orientSensor && now - lastOrientAt >= 15) {
+            // rows: the screen's right, up and out-of-screen axes in the world
+            // (z up; with the game rotation vector x/y are a fixed but arbitrary
+            // horizontal pair, not east/north); the screen's turn is already taken off
+            lastOrientAt = now;
+            send("orient", String.format(Locale.US, "{\"m\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
+                    r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]));
+        }
+        if (!headingOn || from != headingSensor) return;
         SensorManager.getOrientation(r, orient);
         float deg = (float) Math.toDegrees(orient[0]);
         if (deg < 0) deg += 360;
-        long now = System.currentTimeMillis();
         float diff = Math.abs(deg - lastDeg);
         if (diff > 180) diff = 360 - diff;
         if (diff < 1.5f || now - lastHeadingAt < 80) return;

@@ -367,6 +367,33 @@
         this.geoWatch = undefined;
       }
     }
+    if (name === "orient" || name === "*") {
+      // the phone's whole turn: rows = the screen's right, up and out-of-screen
+      // axes in the world (x east, y north, z up), like the Android host sends
+      if (on && !this.onTurn) {
+        this.onTurn = function (e) {
+          if (e.alpha == null || e.beta == null || e.gamma == null) return;
+          var t = Date.now();
+          if (self.lastTurnAt && t - self.lastTurnAt < 15) return;
+          self.lastTurnAt = t;
+          var d = Math.PI / 180, a = e.alpha * d, b = e.beta * d, g = e.gamma * d;
+          var ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);
+          // R = Rz(alpha) Rx(beta) Ry(gamma), world = R * device; columns = device axes
+          var X = [ca * cg - sa * sb * sg, sa * cg + ca * sb * sg, -cb * sg];
+          var Y = [-sa * cb, ca * cb, sb];
+          var Z = [ca * sg + sa * sb * cg, sa * sg - ca * sb * cg, cb * cg];
+          var turn = (screen.orientation && screen.orientation.angle) || global.orientation || 0;
+          turn = ((turn % 360) + 360) % 360;
+          var neg = function (v) { return [-v[0], -v[1], -v[2]]; }, sx = X, sy = Y;
+          if (turn === 90) { sx = Y; sy = neg(X); } else if (turn === 180) { sx = neg(X); sy = neg(Y); } else if (turn === 270) { sx = neg(Y); sy = X; }
+          self.sendSensor("orient", { m: sx.concat(sy, Z) });
+        };
+        global.addEventListener("deviceorientation", this.onTurn);
+      } else if (!on && this.onTurn) {
+        global.removeEventListener("deviceorientation", this.onTurn);
+        this.onTurn = null;
+      }
+    }
     if (name === "mic" || name === "*") this.mic(on);
     if (name === "heading" || name === "*") {
       if (on && !this.onOrient) {

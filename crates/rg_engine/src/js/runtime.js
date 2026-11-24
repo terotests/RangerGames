@@ -226,7 +226,10 @@ var rg = {
   // or "mic" (the microphone's loudness, no recording and no network: about 20
   // times a second onMic({ db, talk }), db = loudness in dBFS, -100…0, talk =
   // true while the phone itself speaks or plays a sound, so a game can ignore
-  // its own voice). Failures come as onSensor("error", { sensor, reason }).
+  // its own voice) or "orient" (the phone's whole turn, for looking around by
+  // turning it: up to 60 times a second onOrient(m), m = 9 numbers, the rows
+  // are the screen's right, up and out-of-screen axes in the world, x east,
+  // y north, z up). Failures come as onSensor("error", { sensor, reason }).
   // a photo with the phone's camera: it goes to the phone's photo folder and
   // a small copy to "/save/photos/<id>.jpg" (thumbnail "<id>_t.jpg", for
   // <img src>); then onPhoto({ id, ok, path, thumb, w, h, reason }). id: letters,
@@ -535,6 +538,7 @@ function __frame(arg) {
       if (e.key === "location" && typeof onLocation === "function") onLocation(data);
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
       else if (e.key === "mic") { if (typeof onMic === "function" && data) onMic(data); }
+      else if (e.key === "orient") { if (typeof onOrient === "function" && data && data.m) onOrient(data.m); }
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
       else if (e.key === "store") {
