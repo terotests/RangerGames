@@ -115,6 +115,8 @@ final class Sound implements Runnable {
     private final java.util.HashMap<String, short[]> files = new java.util.HashMap<>();
     /** the speech channel: clips said one after another (guarded by itself) */
     private final ArrayList<Clip> speech = new ArrayList<>();
+    /** where the queued sound files end (the mixer's clock; rg.sound { queue }) */
+    private long queueEnd;
     private volatile boolean running;
     private volatile boolean paused;
     private Thread thread;
@@ -234,18 +236,29 @@ final class Sound implements Runnable {
                 break;
             }
             default:
-                playFile(name, vol, o != null ? o.optInt("h", 0) : 0, o != null && o.optBoolean("loop", false), o != null ? o.optDouble("fade", 0) : 0, vol);
+                playFile(name, vol, o != null ? o.optInt("h", 0) : 0, o != null && o.optBoolean("loop", false), o != null ? o.optDouble("fade", 0) : 0, vol,
+                        o != null && o.optBoolean("queue", false));
                 break;
         }
     }
 
     private void playFile(String name, double vol, int h, boolean loop, double fade, double base) {
+        playFile(name, vol, h, loop, fade, base, false);
+    }
+
+    /** queue (as audio.js): the file waits until the queued files before it have
+     *  ended, so a spoken line does not talk over the one before it */
+    private void playFile(String name, double vol, int h, boolean loop, double fade, double base, boolean queue) {
         short[] pcm = file(name);
         if (pcm == null || pcm.length == 0) return;
         Voice v = new Voice();
         v.pcm = pcm;
         v.vol = vol;
         v.at = now;
+        if (queue && !loop) {
+            v.at = Math.max(now, queueEnd);
+            queueEnd = v.at + pcm.length + (long) (0.15 * RATE);
+        }
         v.len = pcm.length;
         v.h = h;
         v.loop = loop;
@@ -260,6 +273,7 @@ final class Sound implements Runnable {
 
     /** rg.stopSound and the rest: op "stop", "volume", "pause", "resume"; o { h (0: all), volume, fade }. */
     void control(String op, JSONObject o) {
+        if (op.equals("stop") && (o == null || o.optInt("h", 0) == 0)) queueEnd = now;
         ctls.add(new Ctl(op, o != null ? o.optInt("h", 0) : 0, o != null ? o.optDouble("volume", 1) : 1, o != null ? o.optDouble("fade", 0) : 0, serial));
     }
 
@@ -279,6 +293,11 @@ final class Sound implements Runnable {
                 if (v.pcm == null || v.serial > c.upTo || (c.h != 0 && v.h != c.h)) continue;
                 switch (c.op) {
                     case "stop":
+                        // a queued sound that has not started yet: gone at once
+                        if (v.at > now) {
+                            voices.remove(i);
+                            break;
+                        }
                         if (c.fade > 0 && !v.held) {
                             v.stopAtZero = true;
                             v.fadeTo(0, c.fade);
