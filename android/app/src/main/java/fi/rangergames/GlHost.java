@@ -53,12 +53,20 @@ final class GlHost {
             if (f == null) {
                 byte[] bytes = path.startsWith("/") ? Engine.read(path) : null;
                 if (bytes == null) return -2;
-                decoding.put(path, decoder.submit(() -> {
+                f = decoder.submit(() -> {
                     BitmapFactory.Options o = new BitmapFactory.Options();
                     o.inPreferredConfig = Bitmap.Config.ARGB_8888;
                     return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
-                }));
-                return -1;
+                });
+                decoding.put(path, f);
+                // a short wait first: most pictures decode in ~30 ms, and one shown
+                // missing for a frame (a white Earth) flashed; a longer one waits
+                if (uploaded) return -1;
+                try {
+                    f.get(40, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    return -1;
+                }
             }
             if (!f.isDone() || uploaded) return -1;
             decoding.remove(path);
