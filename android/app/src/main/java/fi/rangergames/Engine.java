@@ -43,6 +43,8 @@ final class Engine {
     static native void textures(boolean on);
     /** the app draws real heights on globes (Terrain.java) */
     static native void terrain(boolean on);
+    /** the app draws baked particle runs as liquid splats (GlSplats.java) */
+    static native void splats(boolean on);
     /** the app draws a planet's detail pictures (GlSphere: GPU globes) */
     static native void detail(boolean on);
 

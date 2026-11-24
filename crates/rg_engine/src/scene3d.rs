@@ -16,18 +16,38 @@
 //!                                               // clockwise seen from outside), colors: a 0xrrggbb a
 //!                                               // triangle (else `color`), glow: the triangles drawn
 //!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
+//!                             | "dust"         // as puffs with two numbers more a puff (seed, age 0…1):
+//!                                               // a few lumps turning round it and drifting apart with age
+//!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
+//!                                               // set { puffs: [x, y, z, r, alpha, bright, …] }, six
+//!                                               // numbers a puff, x y z from the object's place; each
+//!                                               // is a few rings, fainter outwards; `color` × bright
+//!                             | "burst"        // up to 20 000 sparks flung from x, y, z (burst.rs):
+//!                                               // count, speed: [min, max], dir: [x, y, z] + spread
+//!                                               // (half angle, radians; π or no dir: every way),
+//!                                               // v: [x, y, z] added to all, g: [x, y, z] a pull,
+//!                                               // gravity: { x, y, z, gm, r } a point mass (from the
+//!                                               // object's place; inside r they are gone), drag,
+//!                                               // life: [min, max] s, size: [start, end] (world),
+//!                                               // palette: colours over a life, bright, seed;
+//!                                               // set { id, time } the seconds since it went off
+//!                                               // (back in time runs it again), bright
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
 //!                                                   // dome: a half sphere, size [r], its flat bottom at y 0
 //!                      size: [..], color, x, y, z, rx, ry, rz, sx, sy, sz, detail, emissive, double,
 //!                      layer,                            // -1: flat on the floor, drawn first
+//!                      shiny,                            // 0..1: a glint of each light off the faces
+//!                                                        // that turn it towards the camera
+//!                      opacity,                          // 0..1 (1): below 1 a see-through light, a flame
 //!                      wy,                               // a turn round world y after rx, ry, rz
 //!                      group })                          // objects of one group (a house) are sorted
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
-//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible,
-//!                      heights })                        // a heightfield's new heights
+//! rg.three("set",    { id, x, y, z, rx, ry, rz, wy, sx, sy, sz, color, visible, shiny, opacity,
+//!                      heights,                          // a heightfield's new heights
+//!                      puffs })                          // a "puffs" object's puffs (one call for all)
 //! rg.three("remove", { id })
 //! rg.three("clear")
 //! rg.three("globe",  { regions, lon, lat, r, colors, … })   // a map globe, see globe.rs
@@ -37,6 +57,10 @@
 //!                                                 // longitude -180…180, north up): hosts that
 //!                                                 // can draw it (web, phone, screenshots) do,
 //!                                                 // others draw the regions
+//!                      flow: 1, flowTime: t       // the cloud bands drift: 1 = Jupiter's winds
+//!                                                 // (0.3 for a calmer giant), t the planet's
+//!                                                 // time in seconds (the game's clock, warp
+//!                                                 // and all), set each frame
 //! rg.three("space",  { sun: [x, y, z], stars })   // the light of the planets; a sky of `stars` stars
 //! ```
 //!
@@ -337,6 +361,11 @@ struct Obj {
     visible: bool,
     emissive: bool,
     double: bool,
+    /// 0..1: how strongly the lights glint off it (a polished hull)
+    shiny: f64,
+    /// 1: solid; below 1 a see-through light (a flame, a glow): the painter
+    /// blends it over what is behind, GL adds its colour times this
+    opacity: f64,
     /// drawn before the higher layers whatever the depth: flat things on the
     /// floor (a road, a shadow) use -1 so that nothing standing on them sinks in
     layer: i32,
@@ -344,6 +373,124 @@ struct Obj {
     wy: f64,
     /// 0: none; objects of one group sort against others as one thing
     group: i32,
+    /// a "puffs" object: x, y, z (from `pos`), radius, alpha, brightness a puff
+    puffs: Vec<f64>,
+    /// a "dust" object: its puffs have two numbers more, seed and age (0…1):
+    /// each is a few lumps that turn round its centre and drift apart with age
+    dust: bool,
+    /// a "burst" object: its particles (burst.rs), placed from `pos`
+    burst: Option<Box<crate::burst::Burst>>,
+    /// a "splats" object: its baked run and how it lies in the world
+    splats: Option<Box<SplatRun>>,
+}
+
+/// A "splats" object's run (splats.rs): the file's x, y, z axes in the world,
+/// file units to world units, colours over temperature (cold to hot).
+struct SplatRun {
+    run: crate::splats::Splats,
+    axes: [V3; 3],
+    scale: f64,
+    palette: Vec<V3>,
+}
+
+impl SplatRun {
+    fn new(run: crate::splats::Splats, a: &Json) -> SplatRun {
+        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new() };
+        s.set(a);
+        if s.palette.is_empty() {
+            s.palette = vec![[0.25, 0.08, 0.05], [0.65, 0.12, 0.04], [1.0, 0.42, 0.08], [1.0, 0.72, 0.3], [1.0, 0.9, 0.6]];
+        }
+        s
+    }
+
+    fn set(&mut self, a: &Json) {
+        let ax = a.get("axes").items();
+        if ax.len() >= 3 {
+            for k in 0..3 {
+                let v = ax[k].items();
+                if v.len() >= 3 {
+                    self.axes[k] = [v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)];
+                }
+            }
+        }
+        self.scale = a.get("scale").as_num(self.scale);
+        if let Json::Arr(v) = a.get("palette") {
+            if !v.is_empty() {
+                self.palette = v.iter().map(|c| color(c, [1.0; 3])).collect();
+            }
+        }
+        self.run.time = a.get("time").as_num(self.run.time);
+    }
+
+    /// a place in the file into the world, from the object's place
+    fn world(&self, pos: V3, p: V3) -> V3 {
+        let k = self.scale;
+        let a = &self.axes;
+        [
+            pos[0] + k * (a[0][0] * p[0] + a[1][0] * p[1] + a[2][0] * p[2]),
+            pos[1] + k * (a[0][1] * p[0] + a[1][1] * p[1] + a[2][1] * p[2]),
+            pos[2] + k * (a[0][2] * p[0] + a[1][2] * p[1] + a[2][2] * p[2]),
+        ]
+    }
+}
+
+/// The rings of one puff: (radius share, alpha share). Inner rings over outer
+/// ones make it soft at the edge; the shares differ a little so that the rings
+/// never merge into one path (the painter joins faces of one colour and alpha).
+const PUFF_RINGS: [(f64, f64); 4] = [(1.0, 0.22), (0.78, 0.26), (0.56, 0.3), (0.34, 0.34)];
+
+/// A puff's rings on the screen: (corners, alpha share), outer first; empty when
+/// it is behind the eye, too small or off the screen. v: the centre in view space.
+fn puff_rings(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<f64>, f64)> {
+    puff_rings_of(v, r, focal, w, h, near, &PUFF_RINGS)
+}
+
+/// A dust lump's two rings (alpha shares a little apart from PUFF_RINGS').
+const DUST_RINGS: [(f64, f64); 2] = [(1.0, 0.41), (0.55, 0.57)];
+const DUST_LUMPS: usize = 5;
+
+/// A "dust" puff: DUST_LUMPS lumps round the centre (in the view plane), turned
+/// by seed and age and drifting apart as it ages, each lump fading and shrinking:
+/// a cloud of dust that breaks up and turns (Tero: Chicxulub's debris).
+/// pf: x y z r alpha bright seed age; v: the centre in view space.
+fn dust_rings(v: V3, pf: &[f64], focal: f64, w: f64, h: f64, near: f64) -> Vec<(Vec<f64>, f64)> {
+    let (r, seed, age) = (pf[3], pf[6], pf[7].clamp(0.0, 1.0));
+    let mut out = Vec::new();
+    let spin = 1.0 + 2.5 * seed.fract();
+    for j in 0..DUST_LUMPS {
+        let hj = ((seed * 7.31 + j as f64 * 3.17).sin() * 43758.5453).fract().abs();
+        let th = seed * std::f64::consts::TAU + j as f64 * std::f64::consts::TAU / DUST_LUMPS as f64 + age * spin * std::f64::consts::TAU;
+        let d = r * (0.18 + 0.75 * age) * (0.6 + 0.6 * hj);
+        let lr = r * (0.62 - 0.3 * age) * (0.75 + 0.5 * hj);
+        let c = [v[0] + th.cos() * d, v[1] + th.sin() * d, v[2]];
+        let fade = (1.0 - 0.55 * age) * (0.7 + 0.3 * hj);
+        for (pts, k) in puff_rings_of(c, lr, focal, w, h, near, &DUST_RINGS) {
+            out.push((pts, k * fade));
+        }
+    }
+    out
+}
+
+fn puff_rings_of(v: V3, r: f64, focal: f64, w: f64, h: f64, near: f64, set: &[(f64, f64)]) -> Vec<(Vec<f64>, f64)> {
+    if v[2] < near + r * 0.5 {
+        return Vec::new();
+    }
+    let pr = r / v[2] * focal;
+    let (cx, cy) = (w / 2.0 + v[0] / v[2] * focal, h / 2.0 - v[1] / v[2] * focal);
+    if pr < 0.4 || cx + pr < 0.0 || cy + pr < 0.0 || cx - pr > w || cy - pr > h {
+        return Vec::new();
+    }
+    let rings: &[(f64, f64)] = if pr < 3.0 { &set[set.len() / 2..set.len() / 2 + 1] } else { set };
+    let sides = (8.0 + pr / 5.0).clamp(8.0, 20.0) as usize;
+    rings.iter().map(|&(k, a)| {
+        let mut pts = Vec::with_capacity(sides * 2);
+        for i in 0..sides {
+            let t = i as f64 / sides as f64 * std::f64::consts::TAU;
+            pts.push(cx + t.cos() * pr * k);
+            pts.push(cy + t.sin() * pr * k);
+        }
+        (pts, if pr < 3.0 { 0.8 } else { a })
+    }).collect()
 }
 
 struct Light {
@@ -385,8 +532,16 @@ pub struct Scene {
     pub terrain: bool,
     /// the game's folder (textures are given in it)
     pub dir: String,
+    /// the host draws liquid splats (draw kind 10; set by the engine every frame)
+    pub splats_ok: bool,
+    /// the bytes of the "splats" file the next add reads (lib.rs reads them)
+    pub splat_bytes: Option<Vec<u8>>,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
     /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
+    /// See-through faces (`opacity` below 1) come last, far ones first, with
+    /// depth + 2 (2…3) and their colour already times the opacity: the host
+    /// draws them at depth - 2, adding their colour (alpha 0 under premultiplied
+    /// blending); a host that does not know this clips them away.
     /// Empty when the scene is off or drawn with the painter.
     pub tris: Vec<f32>,
     /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
@@ -422,6 +577,27 @@ impl Planet {
     }
 }
 
+/// A burst particle's colour bucket: 5 bits a channel (the painter draws one
+/// path a bucket).
+fn burst_key(c: V3) -> u32 {
+    let q = |x: f64| ((x.clamp(0.0, 1.0) * 31.0).round()) as u32;
+    q(c[0]) << 10 | q(c[1]) << 5 | q(c[2])
+}
+
+/// A point (view space, the eye at 0) behind one of the planets' balls.
+fn hidden(v: V3, discs: &[(V3, f64)]) -> bool {
+    let l = dot(v, v).sqrt();
+    if l <= 0.0 {
+        return false;
+    }
+    let dir = mul(v, 1.0 / l);
+    discs.iter().any(|(c, r)| {
+        let t = dot(*c, dir);
+        let d2 = dot(*c, *c) - t * t;
+        d2 < r * r && t > 0.0 && t - (r * r - d2).sqrt() < l
+    })
+}
+
 struct Poly {
     /// the sort key: (outer layer, outer depth, group, layer, depth); a poly
     /// of no group has its own layer and depth as the outer ones
@@ -432,6 +608,12 @@ struct Poly {
     depth: f64,
     pts: Vec<f32>,
     rgb: V3,
+    /// 1 solid, less: see-through (Obj `opacity`)
+    alpha: f64,
+    /// several rings in `pts` (their ends, as DrawStream's), or empty: one
+    ends: Vec<f32>,
+    /// its colour added to what is under it (burst sparks)
+    added: bool,
 }
 
 fn get3(a: &Json, keys: [&str; 3], d: V3) -> V3 {
@@ -459,6 +641,8 @@ impl Scene {
             detail: false,
             terrain: false,
             dir: String::new(),
+            splats_ok: false,
+            splat_bytes: None,
             tris: Vec::new(),
             globe: None,
             planets: Vec::new(),
@@ -562,6 +746,8 @@ impl Scene {
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
                         tri_mesh(a)
+                    } else if shape == "puffs" || shape == "dust" || shape == "burst" || shape == "splats" {
+                        Mesh::plain(Vec::new(), Vec::new())
                     } else {
                         mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
                     },
@@ -573,9 +759,19 @@ impl Scene {
                     visible: !matches!(a.get("visible"), Json::Bool(false)),
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
+                    shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
+                    opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
                     group: a.get("group").as_num(0.0) as i32,
+                    puffs: a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect(),
+                    dust: shape == "dust",
+                    burst: if shape == "burst" { Some(Box::new(crate::burst::Burst::new(a))) } else { None },
+                    splats: if shape == "splats" {
+                        self.splat_bytes.take().and_then(crate::splats::Splats::new).map(|r| Box::new(SplatRun::new(r, a)))
+                    } else {
+                        None
+                    },
                 };
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
@@ -592,6 +788,22 @@ impl Scene {
                     }
                     if let Json::Bool(v) = a.get("visible") {
                         o.visible = v;
+                    }
+                    if !a.get("shiny").is_null() {
+                        o.shiny = a.get("shiny").as_num(0.0).clamp(0.0, 1.0);
+                    }
+                    if !a.get("opacity").is_null() {
+                        o.opacity = a.get("opacity").as_num(1.0).clamp(0.0, 1.0);
+                    }
+                    if !a.get("puffs").is_null() {
+                        o.puffs = a.get("puffs").items().iter().map(|v| v.as_num(0.0)).collect();
+                    }
+                    if let Some(sp) = o.splats.as_mut() {
+                        sp.set(a);
+                    }
+                    if let Some(b) = o.burst.as_mut() {
+                        b.time = a.get("time").as_num(b.time);
+                        b.bright = a.get("bright").as_num(b.bright).max(0.0);
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -669,7 +881,16 @@ impl Scene {
     }
 
     fn shade(&self, n: V3, centre: V3, base: V3) -> V3 {
+        self.shade_shiny(n, centre, base, 0.0, centre)
+    }
+
+    /// `shade` with a glint: each directional or point light adds white of
+    /// its colour where the face's normal is near the half-way direction
+    /// between the light and the camera (Blinn-Phong, one value per face)
+    fn shade_shiny(&self, n: V3, centre: V3, base: V3, shiny: f64, cam: V3) -> V3 {
         let mut light = [0.0, 0.0, 0.0];
+        let mut glint = [0.0, 0.0, 0.0];
+        let eye = norm(sub(cam, centre));
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
@@ -682,8 +903,14 @@ impl Scene {
                 }
             };
             light = add(light, mul(l.color, k));
+            if shiny > 0.0 && l.kind != "ambient" && k > 0.0 {
+                let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
+                let h = norm(add(to, eye));
+                let s = dot(n, h).max(0.0).powi(24) * shiny * l.intensity.min(1.5);
+                glint = add(glint, mul(l.color, s));
+            }
         }
-        [base[0] * light[0], base[1] * light[1], base[2] * light[2]]
+        [base[0] * light[0] + glint[0], base[1] * light[1] + glint[1], base[2] * light[2] + glint[2]]
     }
 
     fn fogged(&self, c: V3, dist: f64) -> V3 {
@@ -703,11 +930,17 @@ impl Scene {
         if !self.active {
             return;
         }
+        for o in self.objs.iter_mut() {
+            if let Some(b) = o.burst.as_mut() {
+                b.advance();
+            }
+        }
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
                 out.layer3d(0, self.tris.len());
             }
+            self.render_splats(out, w, h);
             return;
         }
         if let Some((top, bottom)) = self.sky {
@@ -774,6 +1007,7 @@ impl Scene {
             // the objects in front of the sky, the globes and the stars, depth-tested
             self.render_gl(w, h, false);
             out.layer3d(0, self.tris.len());
+            self.render_splats(out, w, h);
             return;
         }
         let cam = self.cam;
@@ -853,6 +1087,60 @@ impl Scene {
                 let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
                 add(p, o.pos)
             }).collect();
+            if o.opacity <= 0.0 {
+                continue;
+            }
+            for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
+                let c = add(o.pos, [pf[0], pf[1], pf[2]]);
+                let v = to_view(c);
+                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
+                for (pts, k) in rings {
+                    let alpha = (pf[4] * k * o.opacity).clamp(0.0, 0.999);
+                    if alpha < 0.004 {
+                        continue;
+                    }
+                    let pts: Vec<f32> = pts.iter().map(|x| *x as f32).collect();
+                    let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, v[2], 0) };
+                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: v[2], pts, rgb, alpha, ends: Vec::new(), added: false });
+                }
+            }
+            // burst particles: tiny squares, one path a colour (hidden behind the planets)
+            if let Some(b) = o.burst.as_ref() {
+                let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+                let mut buckets: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
+                b.each(|lp, size, c| {
+                    let v = to_view(add(o.pos, lp));
+                    if v[2] < near || hidden(v, &discs) {
+                        return;
+                    }
+                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
+                    let x = w / 2.0 + v[0] / v[2] * focal;
+                    let y = h / 2.0 - v[1] / v[2] * focal;
+                    if x < -px || y < -px || x > w + px || y > h + px {
+                        return;
+                    }
+                    let rgb = self.fogged(c, v[2]);
+                    let key = burst_key(rgb);
+                    let k = match buckets.iter().position(|e| e.0 == key) {
+                        Some(k) => k,
+                        None => {
+                            buckets.push((key, rgb, Vec::new(), Vec::new()));
+                            buckets.len() - 1
+                        }
+                    };
+                    let e = &mut buckets[k];
+                    let (x0, y0, x1, y1) = ((x - px) as f32, (y - px) as f32, (x + px) as f32, (y + px) as f32);
+                    e.2.extend_from_slice(&[x0, y0, x1, y0, x1, y1, x0, y1]);
+                    e.3.push(e.2.len() as f32);
+                });
+                let z = to_view(o.pos)[2];
+                let alpha = (o.opacity * 0.999).clamp(0.0, 0.999);
+                for (_, rgb, pts, ends) in buckets {
+                    let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, z, 0) };
+                    polys.push(Poly { olayer, odepth, group, layer: o.layer, depth: z, pts, rgb, alpha, ends, added: true });
+                }
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -888,11 +1176,11 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
-                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist) });
+                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist), alpha: o.opacity, ends: Vec::new(), added: false });
             }
         }
         let far = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
@@ -902,17 +1190,115 @@ impl Scene {
         let mut i = 0;
         while i < polys.len() {
             let rgb = q(polys[i].rgb);
+            let alpha = polys[i].alpha;
+            if polys[i].added {
+                out.rings_added(rgb_f(rgb), alpha, &polys[i].pts, &polys[i].ends);
+                self.drawn += 1;
+                i += 1;
+                continue;
+            }
             let mut j = i;
             let mut pts: Vec<f32> = Vec::new();
             let mut ends: Vec<f32> = Vec::new();
-            while j < polys.len() && q(polys[j].rgb) == rgb && j - i < 24 {
+            while j < polys.len() && q(polys[j].rgb) == rgb && polys[j].alpha == alpha && !polys[j].added && (j - i < 24 || !polys[j].ends.is_empty()) {
+                let base = pts.len() as f32;
                 pts.extend_from_slice(&polys[j].pts);
-                ends.push(pts.len() as f32);
+                if polys[j].ends.is_empty() {
+                    ends.push(pts.len() as f32);
+                } else {
+                    ends.extend(polys[j].ends.iter().map(|e| base + e));
+                }
                 j += 1;
             }
-            out.raw_rings(rgb_f(rgb), &pts, &ends);
+            if alpha < 1.0 {
+                out.rings(6, rgb_f(rgb), alpha, 0.0, &pts, &ends);
+            } else {
+                out.raw_rings(rgb_f(rgb), &pts, &ends);
+            }
             self.drawn += j - i;
             i = j;
+        }
+        self.render_splats(out, w, h);
+    }
+
+    /// Baked particle runs, over the shapes: liquid splats (kind 10), or
+    /// added squares where the host cannot draw them.
+    fn render_splats(&self, out: &mut DrawStream, w: f64, h: f64) {
+        if !self.objs.iter().any(|o| o.splats.is_some() && o.visible) {
+            return;
+        }
+        let f = norm(sub(self.look, self.cam));
+        let mut r = norm(cross(f, self.up));
+        if dot(r, r) < 0.5 {
+            r = norm(cross(f, [1.0, 0.0, 0.0]));
+            if dot(r, r) < 0.5 {
+                r = [1.0, 0.0, 0.0];
+            }
+        }
+        let u = cross(r, f);
+        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        let near = 0.05;
+        let cam = self.cam;
+        let to_view = |p: V3| -> V3 {
+            let d = sub(p, cam);
+            [dot(d, r), dot(d, u), dot(d, f)]
+        };
+        for o in self.objs.iter() {
+            let sp = match (&o.splats, o.visible) {
+                (Some(sp), true) => sp,
+                _ => continue,
+            };
+            let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+            let mut pts: Vec<f32> = Vec::new();
+            let pal = &sp.palette;
+            let mut squares: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
+            sp.run.each(|p, r, t, _| {
+                let v = to_view(sp.world(o.pos, p));
+                if v[2] < near || hidden(v, &discs) {
+                    return;
+                }
+                let px = (r * sp.scale * focal / v[2]).clamp(0.4, 80.0);
+                let x = w / 2.0 + v[0] / v[2] * focal;
+                let y = h / 2.0 - v[1] / v[2] * focal;
+                if x < -px || y < -px || x > w + px || y > h + px {
+                    return;
+                }
+                if self.splats_ok {
+                    pts.extend_from_slice(&[x as f32, y as f32, px as f32, t as f32]);
+                    return;
+                }
+                let xq = t * (pal.len() - 1) as f64;
+                let k = (xq.floor() as usize).min(pal.len().saturating_sub(2));
+                let fr = xq - k as f64;
+                let a = pal[k];
+                let b = pal[(k + 1).min(pal.len() - 1)];
+                let c = [a[0] + (b[0] - a[0]) * fr, a[1] + (b[1] - a[1]) * fr, a[2] + (b[2] - a[2]) * fr];
+                let key = burst_key(c);
+                let i = match squares.iter().position(|e| e.0 == key) {
+                    Some(i) => i,
+                    None => {
+                        squares.push((key, c, Vec::new(), Vec::new()));
+                        squares.len() - 1
+                    }
+                };
+                let e = &mut squares[i];
+                let q = (px * 0.7) as f32;
+                let (x, y) = (x as f32, y as f32);
+                e.2.extend_from_slice(&[x - q, y - q, x + q, y - q, x + q, y + q, x - q, y + q]);
+                e.3.push(e.2.len() as f32);
+            });
+            if self.splats_ok {
+                let c = sp.world(o.pos, [0.0; 3]);
+                let l = match self.sun {
+                    Some(s) => norm(sub(s, c)),
+                    None => norm(sub(cam, c)),
+                };
+                out.splats(w, h, o.opacity, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+            } else {
+                for (_, c, p, e) in squares {
+                    out.rings_added(c, (o.opacity * 0.6).min(0.999), &p, &e);
+                }
+            }
         }
     }
 
@@ -942,16 +1328,45 @@ impl Scene {
         let u = cross(r, f);
         let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
         let near = 0.05;
-        // depth: 1/z between these two (closer than DN is depth 0)
-        const DN: f64 = 0.2;
-        // drawn with the globes (space scenes): depth reaches far, as 1/z keeps its steps there
-        let df: f64 = if self.unified { 1.0e9 } else { 2000.0 };
-        let depth = |z: f64| ((1.0 / DN - 1.0 / z.max(DN)) / (1.0 / DN - 1.0 / df)).clamp(0.0, 1.0);
         let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
         };
+        // the objects' corners in the world, once
+        let worlds: Vec<Vec<V3>> = self.objs.iter().map(|o| {
+            if !o.visible || o.opacity <= 0.0 {
+                return Vec::new();
+            }
+            let (sx, cx) = o.rot[0].sin_cos();
+            let (sy, cy) = o.rot[1].sin_cos();
+            let (sz, cz) = o.rot[2].sin_cos();
+            let (sw, cw) = o.wy.sin_cos();
+            o.mesh.verts.iter().map(|v| {
+                let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
+                let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
+                let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
+                let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
+                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
+                add(p, o.pos)
+            }).collect()
+        }).collect();
+        // depth: 1/z between DN and DF, fitted to the shapes in view so that
+        // the whole depth buffer goes to them: a small ship close to the eye
+        // (Solar Pilot: 0.04 units at 0.1-0.3) was all closer than a fixed
+        // 0.2 = all depth 0, and its parts drew in painter order
+        let (mut zmin, mut zmax) = (f64::MAX, 0.0f64);
+        for wv in worlds.iter() {
+            for p in wv.iter() {
+                let z = to_view(*p)[2];
+                if z >= near {
+                    zmin = zmin.min(z);
+                    zmax = zmax.max(z);
+                }
+            }
+        }
+        let (dn, df) = if zmin <= zmax { let dn = (zmin * 0.9).max(near); (dn, (zmax * 1.1).max(dn * 1.01)) } else { (0.2, 2000.0) };
+        let depth = |z: f64| ((1.0 / dn - 1.0 / z.max(dn)) / (1.0 / dn - 1.0 / df)).clamp(0.0, 1.0);
         // clip against the near plane, project; corners as (x, y, view z)
         let project = |v: &[V3]| -> Vec<V3> {
             let mut clipped: Vec<V3> = Vec::with_capacity(v.len() + 2);
@@ -990,26 +1405,50 @@ impl Scene {
             }
         }
         let mut drawn = 0;
-        for o in self.objs.iter() {
+        let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
+        for (o, world) in self.objs.iter().zip(worlds.iter()) {
             if !o.visible {
                 continue;
             }
-            let (sx, cx) = o.rot[0].sin_cos();
-            let (sy, cy) = o.rot[1].sin_cos();
-            let (sz, cz) = o.rot[2].sin_cos();
-            let (sw, cw) = o.wy.sin_cos();
-            let world: Vec<V3> = o.mesh.verts.iter().map(|v| {
-                let p = [v[0] * o.scale[0], v[1] * o.scale[1], v[2] * o.scale[2]];
-                let p = [p[0] * cz - p[1] * sz, p[0] * sz + p[1] * cz, p[2]];
-                let p = [p[0] * cy + p[2] * sy, p[1], -p[0] * sy + p[2] * cy];
-                let p = [p[0], p[1] * cx - p[2] * sx, p[1] * sx + p[2] * cx];
-                let p = if o.wy != 0.0 { [p[0] * cw + p[2] * sw, p[1], -p[0] * sw + p[2] * cw] } else { p };
-                add(p, o.pos)
-            }).collect();
             // (about one step of a 16-bit depth buffer a layer, so that a
             // decoration stays in front of its wall there too)
             let bias = o.layer.max(0) as f64 * 1.2e-5;
             let d = |z: f64| (depth(z) - bias).max(0.0);
+            if o.opacity <= 0.0 {
+                continue;
+            }
+            // puffs: see-through rings, added like the other see-through faces
+            for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
+                let c = add(o.pos, [pf[0], pf[1], pf[2]]);
+                let v = to_view(c);
+                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
+                for (pts, k) in rings {
+                    let a = (pf[4] * k * o.opacity).clamp(0.0, 1.0);
+                    let dz = d(v[2]) + 2.0;
+                    let corners: Vec<V3> = pts.chunks_exact(2).map(|p| [p[0], p[1], dz]).collect();
+                    glow.push((v[2], corners, mul(rgb, a)));
+                }
+            }
+            // burst particles: see-through quads, added like the puffs
+            if let Some(b) = o.burst.as_ref() {
+                let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+                b.each(|lp, size, c| {
+                    let v = to_view(add(o.pos, lp));
+                    if v[2] < near || hidden(v, &discs) {
+                        return;
+                    }
+                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
+                    let x = w / 2.0 + v[0] / v[2] * focal;
+                    let y = h / 2.0 - v[1] / v[2] * focal;
+                    if x < -px || y < -px || x > w + px || y > h + px {
+                        return;
+                    }
+                    let dz = d(v[2]) + 2.0;
+                    let rgb = mul(self.fogged(c, v[2]), o.opacity);
+                    glow.push((v[2], vec![[x - px, y - px, dz], [x + px, y - px, dz], [x + px, y + px, dz], [x - px, y + px, dz]], rgb));
+                });
+            }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1044,11 +1483,25 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade(n, centre, fc) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
-                fan(&mut tris, &pts, &d, self.fogged(lit, dist));
+                let c = self.fogged(lit, dist);
+                if o.opacity < 1.0 {
+                    // see-through: added over what is behind, after the solid
+                    // faces and far ones first (see `tris`)
+                    let z = pts.iter().map(|p| p[2]).sum::<f64>() / pts.len() as f64;
+                    let k = o.opacity;
+                    let dd: Vec<V3> = pts.iter().map(|p| [p[0], p[1], d(p[2]) + 2.0]).collect();
+                    glow.push((z, dd, [c[0] * k, c[1] * k, c[2] * k]));
+                } else {
+                    fan(&mut tris, &pts, &d, c);
+                }
                 drawn += 1;
             }
+        }
+        glow.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (_, pts, c) in glow.iter() {
+            fan(&mut tris, pts, &|z| z, *c);
         }
         self.drawn = drawn;
         self.tris = tris;
@@ -1105,5 +1558,179 @@ mod mesh_tests {
         // plain shapes take the object's paint
         let b = mesh("box", &[1.0], 1);
         assert_eq!(b.face_paint(0, grey, true), (grey, true));
+    }
+
+    #[test]
+    fn a_shiny_face_glints_where_it_mirrors_the_light_to_the_camera() {
+        let mut sc = Scene::new();
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "a", "type": "ambient", "intensity": 0 }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "s", "type": "directional", "x": 0, "y": 1, "z": 1, "intensity": 1 }"#));
+        let grey = [0.5, 0.5, 0.5];
+        let up = [0.0, 1.0, 0.0];
+        let dull = sc.shade_shiny(up, [0.0; 3], grey, 0.0, [0.0, 10.0, -10.0]);
+        // the camera opposite the light: the face mirrors the light into it
+        let lit = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, -10.0]);
+        // the camera beside the light: no glint
+        let off = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, 10.0]);
+        assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
+        assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
+        assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
+    }
+
+    #[test]
+    fn a_see_through_object_is_added_last_in_gl_and_blended_by_the_painter() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "flame", "shape": "box", "size": [1], "z": 1, "color": "#4060ff", "emissive": true, "opacity": 0.5 }"##));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "hull", "shape": "box", "size": [2], "color": "#ffffff", "emissive": true }"##));
+        // (through render: the GL form when the host draws depth-tested triangles)
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        let t = &sc.tris;
+        assert!(t.len() > 36);
+        // the solid hull first (depth 0..1), then the flame (2..3) at half its colour
+        let first_glow = (0..t.len() / 6).find(|i| t[i * 6 + 2] >= 2.0).unwrap();
+        assert!((first_glow..t.len() / 6).all(|i| t[i * 6 + 2] >= 2.0 && t[i * 6 + 2] <= 3.0));
+        assert!((0..first_glow).all(|i| t[i * 6 + 2] <= 1.0 && t[i * 6 + 3] > 0.99));
+        assert!((t[first_glow * 6 + 5] - 0.5).abs() < 0.01, "{}", t[first_glow * 6 + 5]);
+        // the painter: the flame as a path with opacity 0.5
+        sc.gl = false;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(out.nums.windows(9).any(|w| w[0] == 6.0 && w[8] == 0.5), "no see-through path");
+        // opacity 0: not drawn
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "flame", "opacity": 0 }"#));
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(sc.tris.chunks(6).all(|c| c[2] <= 1.0));
+    }
+
+    #[test]
+    fn dust_breaks_up_into_turning_lumps() {
+        let mut sc = Scene::new();
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "d", "shape": "dust", "color": "#806040" }"##));
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        // the lumps' rings in view space, straight from dust_rings
+        let centres = |age: f64| -> Vec<(f64, f64)> {
+            dust_rings([0.0, 0.0, 10.0], &[0.0, 0.0, 0.0, 1.0, 0.8, 1.0, 0.3, age], 400.0, 400.0, 400.0, 0.1).iter().map(|(pts, _)| {
+                let n = (pts.len() / 2) as f64;
+                let (mut x, mut y) = (0.0, 0.0);
+                for p in pts.chunks_exact(2) { x += p[0]; y += p[1]; }
+                (x / n, y / n)
+            }).collect()
+        };
+        let young = centres(0.0);
+        let old = centres(1.0);
+        // five lumps of two rings each
+        assert_eq!(young.len(), 10);
+        // older: the lumps lie farther from the centre (it breaks up)
+        let spread = |v: &Vec<(f64, f64)>| v.iter().map(|p| ((p.0 - 200.0).powi(2) + (p.1 - 200.0).powi(2)).sqrt()).sum::<f64>();
+        assert!(spread(&old) > spread(&young) * 1.5, "{} {}", spread(&old), spread(&young));
+        // painted as see-through paths
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "d", "puffs": [0, 0, 0, 1, 0.8, 1, 0.3, 0.5] }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let n = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).count();
+        assert_eq!(n, 10);
+    }
+
+    #[test]
+    fn splats_play_a_baked_run_as_one_liquid_command() {
+        // 50 particles in a row along file x, 0.1 apart (10 i16 steps of 0.01), still
+        let f = crate::splats::test_file(50, 2, 1.0, |_, i| ([(i as i16 - 25) * 10, 0, 0], [0; 3], 200));
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.splat_bytes = Some(f.clone());
+        // the file's x along world y
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "splats", "src": "x.rgps", "axes": [[0, 1, 0], [1, 0, 0], [0, 0, 1]], "scale": 1 }"#));
+        sc.splats_ok = true;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // one kind 10 command: 5 palette colours, light, 50 splats in a column
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        let ex = &out.nums[k + 23..];
+        assert_eq!(ex[0], 5.0);
+        let at = 1 + 5 * 3;
+        assert_eq!(ex[at + 3], 50.0);
+        let pts = &ex[at + 4..at + 4 + 200];
+        assert!(pts.chunks(4).all(|p| (p[0] - 200.0).abs() < 0.01 && (p[3] - 200.0 / 255.0).abs() < 1e-3));
+        let ys: Vec<f32> = pts.chunks(4).map(|p| p[1]).collect();
+        assert!(ys[0] > ys[49], "file x runs up the screen");
+        // a host without splats: added squares
+        sc.splats_ok = false;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(!out.nums.contains(&10.0) || out.nums.windows(23).all(|w| w[0] != 10.0 || w[17] != 0.0));
+        assert!(out.count > 0);
+    }
+
+    #[test]
+    fn a_burst_draws_a_path_a_colour_and_hides_behind_planets() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 3000, "speed": [1, 2], "life": [3, 3],
+            "size": 0.02, "palette": ["#ffffff", "#ff8000"] }"##));
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // 3000 squares in a handful of paths (one a colour)
+        assert!(out.count > 0 && out.count < 40, "{} commands", out.count);
+        let mut gl = Scene::new();
+        gl.gl = true;
+        gl.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        gl.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 100, "speed": 1, "life": [3, 3] }"##));
+        gl.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        gl.render(&mut DrawStream::new(), 400.0, 400.0);
+        // see-through quads (two triangles each), depth 2..3
+        assert_eq!(gl.tris.len(), 100 * 6 * 6);
+        assert!(gl.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // a planet between the eye and the burst hides it
+        assert!(hidden([0.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
+        assert!(!hidden([3.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
+        assert!(!hidden([0.0, 0.0, 3.0], &[([0.0, 0.0, 5.0], 1.0)]));
+    }
+
+    #[test]
+    fn puffs_are_soft_rings_facing_the_eye_set_in_one_call() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "smoke", "shape": "puffs", "color": "#ffffff" }"##));
+        // two puffs: a big one in the middle, a tiny far one; one behind the eye
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "smoke", "puffs": [0, 0, 0, 1, 0.8, 1, 0, 0, -400, 0.5, 0.8, 1, 0, 0, 20, 1, 0.8, 1] }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // the painter: see-through paths, the big puff as four rings of
+        // different alpha (never merged), the tiny one as one ring
+        let alphas: Vec<f32> = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).map(|w| w[8]).collect();
+        assert_eq!(alphas.len(), 5, "{:?}", alphas);
+        // GL: see-through triangles only (depth 2..3)
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(!sc.tris.is_empty() && sc.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // an empty list hides them
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "smoke", "puffs": [] }"#));
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(sc.tris.is_empty());
+    }
+
+    #[test]
+    fn a_small_ship_close_to_the_eye_gets_the_whole_depth_range() {
+        // Solar Pilot: parts 0.04 units big at 0.1-0.3 from the eye were all
+        // closer than the old fixed near depth (0.2), so all at depth 0
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 0.15, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "front", "shape": "box", "size": [0.01], "z": 0.02, "color": "#ffd040", "emissive": true }"##));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "back", "shape": "box", "size": [0.04], "color": "#ffffff", "emissive": true }"##));
+        sc.gl = true;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        let t = &sc.tris;
+        let gold: Vec<f32> = t.chunks(6).filter(|c| c[5] < 0.5).map(|c| c[2]).collect();
+        let white: Vec<f32> = t.chunks(6).filter(|c| c[5] > 0.9).map(|c| c[2]).collect();
+        assert!(!gold.is_empty() && !white.is_empty());
+        let gmax = gold.iter().cloned().fold(0.0f32, f32::max);
+        let wmin = white.iter().cloned().fold(1.0f32, f32::min);
+        // the front box is nearer than the back box's front face, by many 16-bit steps
+        assert!(gmax < wmin, "{} {}", gmax, wmin);
+        assert!(wmin - gmax > 50.0 / 65536.0, "{} {}", gmax, wmin);
     }
 }

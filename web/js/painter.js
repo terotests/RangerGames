@@ -43,13 +43,23 @@
   // 2D canvas, so the globe keeps its place in the painter's order.
   var SPHERE_VS = "#version 300 es\nin vec2 a; out vec2 uv; out vec3 wpos; void main() { uv = a; wpos = vec3(0.0); gl_Position = vec4(a.x * 2.0 - 1.0, 1.0 - a.y * 2.0, 0.0, 1.0); }";
   var SPHERE_FS = "#version 300 es\nprecision highp float; precision highp int; in vec2 uv; in vec3 wpos; out vec4 o;" +
-    "uniform sampler2D tex, ltex, htex, gtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
+    "uniform sampler2D tex, ltex, htex, gtex, dtex; uniform vec3 eye, rgt, upv, fwd, sun, airc; uniform vec4 box, win; uniform vec2 view;" +
     "uniform float focal, night, lit, useWin, air, lgain, useL, relief;" +
     // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
-    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite; uniform vec4 hole;" +
+    "uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite, useD; uniform vec4 hole;" +
+    // RG_DEPTH (the web's windows with their own heights, drawn together): the ray's length as the depth, so the
+    // nearest ground of all the windows shows (a phone's mesh has its own depth: there it is left out)
+    "\n#ifdef RG_DEPTH\n#define DEPTH(t) gl_FragDepth = clamp(log2(max(t, 1e-9) * 1e6) / 26.0, 0.0, 1.0)\n#else\n#define DEPTH(t)\n#endif\n" +
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
+    // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
+    "uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;" +
+    // a gas giant's cloud bands drifting (48 numbers): flowA how far the fastest band goes in a cycle (picture
+    // widths), flowPh where in the cycle; jet(lat) the east (+) and west (-) winds by latitude, after Jupiter's:
+    // a fast equator, jets every ~15 degrees, quiet near the poles
+    "uniform float flowA, flowPh;" +
+    "float jet(float lat) { return (0.55 * cos(lat * 24.0) + 0.6 * exp(-lat * lat * 60.0) - 0.1) * (1.0 - smoothstep(1.0, 1.3, abs(lat))); }" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -58,9 +68,11 @@
     // looking towards the sun past the rim: forward scattering, a white burst at sunrise
     "  float fw = pow(max(dot(d, sun), 0.0), 10.0) * smoothstep(-0.45, 0.02, up);" +
     "  float dusk = smoothstep(-0.3, -0.02, up) * (1.0 - smoothstep(0.0, 0.25, up));" +
-    "  float dens = exp(-alt * 4.5) * (1.0 - alt);" +
+    // thinning smoothly to nothing at the top, and a soft (not clipped) build-up
+    // towards the rim: a gradient, no hard ring
+    "  float dens = exp(-alt * 3.5) * (1.0 - alt) * (1.0 - alt);" +
     "  float depth = dens * len / (air * 2.0);" +
-    "  float a = clamp(depth * (0.55 * day + 2.6 * fw + 0.25 * dusk), 0.0, 1.0);" +
+    "  float a = 1.0 - exp(-depth * (0.38 * day + 2.6 * fw + 0.25 * dusk));" +
     "  vec3 col = airc * (0.7 + 0.6 * day) + vec3(1.0, 0.96, 0.9) * fw * 3.0 + vec3(1.0, 0.55, 0.3) * dusk * 0.8;" +
     "  return vec4(col, a);" +
     "}" +
@@ -79,6 +91,13 @@
     "uint hsh(ivec3 c) { uint h = (uint(c.x) * 0x8da6b343u) ^ (uint(c.y) * 0xd8163841u) ^ (uint(c.z) * 0xcb1ab31fu);" +
     "  h ^= h >> 16u; h *= 0x7feb352du; h ^= h >> 15u; h *= 0x846ca68bu; h ^= h >> 16u; return h; }" +
     "float hv(ivec3 c) { return float(hsh(c) >> 8u) / 16777215.0; }" +
+    // value noise with its gradient (x: 0..1, yzw: d/dx), for the made-up rocks close by
+    "vec4 vnd(vec3 x) { ivec3 i = ivec3(floor(x)); vec3 f = x - floor(x); vec3 u = f * f * f * (f * (6.0 * f - 15.0) + 10.0), du = 30.0 * f * f * (f * (f - 2.0) + 1.0);" +
+    "  float a = hv(i), b = hv(i + ivec3(1, 0, 0)), c = hv(i + ivec3(0, 1, 0)), d = hv(i + ivec3(1, 1, 0));" +
+    "  float e = hv(i + ivec3(0, 0, 1)), g = hv(i + ivec3(1, 0, 1)), h = hv(i + ivec3(0, 1, 1)), k = hv(i + ivec3(1, 1, 1));" +
+    "  float k1 = b - a, k2 = c - a, k3 = e - a, k4 = a - b - c + d, k5 = a - c - e + h, k6 = a - b - e + g, k7 = -a + b + c - d + e - g - h + k;" +
+    "  return vec4(a + k1 * u.x + k2 * u.y + k3 * u.z + k4 * u.x * u.y + k5 * u.y * u.z + k6 * u.z * u.x + k7 * u.x * u.y * u.z," +
+    "    du * vec3(k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z, k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x, k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y)); }" +
     "float vnoise(vec3 x) { vec3 f = floor(x); ivec3 c = ivec3(f); vec3 t = x - f; t = t * t * (3.0 - 2.0 * t);" +
     "  float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);" +
     "  float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);" +
@@ -115,12 +134,30 @@
     "  return mix(top, bot, a.y); }" +
     // how many octaves of bumps are bigger than sz (radii): the smaller ones don't change what a ray meets
     "int octs(float sz) { if (hamp <= 0.0) return 0; int n = 0; float a = hamp * 1.5; for (int k = 0; k < 5; k++) { if (a < sz || (lite > 0.5 && n >= 3)) break; n++; a *= 0.48; } return n; }" +
-    "float ground(vec3 p, int n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumps(p, n); }" +
-    "float groundF(vec3 p, float n) { return 1.0 + hlo + (hhi - hlo) * shape(lonlat(p)) + bumpsF(p, n); }" +
+    // a detail window's own heights (dtex, useD): inside the window they are the ground's height, up to its
+    // edge (the next window's heights go on from there, the same ground; a fade would sink the ground towards
+    // the ball's coarse shape along every seam); xy: the window's u v, z: 1 inside (rg.height reads them alike)
+    "vec3 winAt(vec2 t) { float uw = t.x; if (uw < win.x) uw += 1.0; else if (uw > win.z) uw -= 1.0;" +
+    "  vec2 w = vec2((uw - win.x) / (win.z - win.x), (t.y - win.y) / (win.w - win.y));" +
+    "  return vec3(w, w.x >= 0.0 && w.x <= 1.0 && w.y >= 0.0 && w.y <= 1.0 ? 1.0 : 0.0); }" +
+    // outside the window (the other windows' ground, each drawn by its own command) the ground is left out
+    // (the lowest height): rays and shadows pass over it, instead of meeting the ball's coarse shape there,
+    // which stands higher or lower than the real ground and left holes along the seams
+    "float coarseH(vec3 p) { vec2 t = lonlat(p);" +
+    // (a phone's mesh: its corners just outside the window take the window's edge, its triangles there are cut
+    // off at the window's edge, and the left out ground would have pulled them down)
+    "  if (useD > 0.5 && useWin > 0.5) { vec3 w = winAt(t); return w.z > 0.0 || meshM > 0.5 ? (hhi - hlo) * dec(textureLod(dtex, clamp(w.xy, 0.0, 1.0), 0.0)) : 0.0; }" +
+    "  return (hhi - hlo) * shape(t); }" +
+    "float ground(vec3 p, int n) { return 1.0 + hlo + coarseH(p) + bumps(p, n); }" +
+    "float groundF(vec3 p, float n) { return 1.0 + hlo + coarseH(p) + bumpsF(p, n); }" +
     // octs, fractional (the phone's mesh: its corners' heights change smoothly as they slide over the ground)
     "float octsAF(float sz) { if (hamp <= 0.0) return 0.0; return clamp(log(hamp * 1.5 / max(sz, 1e-9)) / log(1.0 / 0.48) + 1.0, 0.0, lite > 0.5 ? 3.0 : 5.0); }" +
     // the height read for the shading: the sharp picture (at a level for the size eps) plus the bumps
-    "float shadeH(vec3 p, float lod) { return (hhi - hlo) * dec(textureLod(htex, lonlat(p), lod)); }" +
+    "float shadeH(vec3 p, float lod) { vec2 t = lonlat(p); bool dw = useD > 0.5 && useWin > 0.5;" +
+    "  float lh = dw ? max(0.0, lod + log2(float(textureSize(htex, 0).x) * (win.z - win.x) / float(textureSize(dtex, 0).x))) : lod;" +
+    "  float h = (hhi - hlo) * dec(textureLod(htex, t, lh));" +
+    "  if (dw) { vec3 w = winAt(t); if (w.z > 0.0) h = mix(h, (hhi - hlo) * dec(textureLod(dtex, w.xy, lod)), w.z); }" +
+    "  return h; }" +
     // casts the ray against the ground's shape; t: where it meets it
     "bool march(vec3 d, float pix, out float t) {" +
     "  float Ro = 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq, Ri = 1.0 + hlo - 2.0 * hamp - 0.25 * crat / hfreq;" +
@@ -154,12 +191,48 @@
     "    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }" +
     "  return clamp(k, 0.0, 1.0);" +
     "}" +
+    // the rings' opacity at rr radii from the middle (for shadows: the coarse picture)
+    "float ringA(float rr, float lod) { if (rr <= rIn || rr >= rOut) return 0.0; return textureLod(ratex, vec2((rr - rIn) / (rOut - rIn), 0.5), lod).r; }" +
+    // where the ray meets the rings (tr: how far, -1 if not) and what it sees there, premultiplied: far off the
+    // pictures, close by (a pixel under ~1 km of ring) specks, the lumps of ice they are made of, on a lattice of
+    // cells a few pixels wide (two sizes blended by the distance, so they do not pop)
+    "vec4 ring(vec3 d, float pix, out float tr) { tr = -1.0;" +
+    "  if (useR < 0.5 || abs(d.z) < 1e-7) return vec4(0.0); float t = -eye.z / d.z; if (t <= 0.0) return vec4(0.0);" +
+    "  vec3 p = eye + d * t; float rr = length(p.xy); if (rr <= rIn || rr >= rOut) return vec4(0.0); tr = t;" +
+    "  float f = t * pix, u = (rr - rIn) / (rOut - rIn), texel = (rOut - rIn) / float(textureSize(ratex, 0).x);" +
+    "  float lod = max(0.0, log2(f / max(abs(d.z / length(d)), 0.03) / texel));" +
+    "  vec3 col = textureLod(rctex, vec2(u, 0.5), lod).rgb; float a = textureLod(ratex, vec2(u, 0.5), lod).r;" +
+    // lit from the side the eye is on, or from behind (light through the ice, weaker where it is thick)
+    "  float side = sign(sun.z) == sign(eye.z) ? 0.55 + 0.45 * sqrt(abs(sun.z)) : 0.3 * (1.0 - 0.6 * a);" +
+    "  float ps = dot(p, sun); float sh = ps < 0.0 ? smoothstep(0.98, 1.02, length(p - sun * ps)) : 1.0;" +
+    "  float lt = lit > 0.5 ? side * mix(0.12, 1.0, sh) : 1.0;" +
+    "  float dust = 1.0 - smoothstep(1.5e-5, 1.2e-4, f);" +
+    // looking towards the Sun through the rings (Cassini's backlit pictures): the thin, dusty parts
+    // (the Cassini division, the outer edge) light up by forward scattering, the thick B ring stays dark
+    "  float fsc = lit > 0.5 && sign(sun.z) != sign(eye.z) ? pow(max(0.0, dot(normalize(d), sun)), 6.0) * sh : 0.0;" +
+    "  vec3 glow = mix(col, vec3(0.92, 0.9, 1.0), 0.6) * fsc * 3.2 * a * (1.0 - a) * (1.0 - a);" +
+    "  vec4 res = vec4((col * lt * a + glow) * (1.0 - dust), a * (1.0 - dust));" +
+    "  if (dust > 0.0) { float L = log2(max(f, 1e-7) * 5.0); float l0 = floor(L), fr = L - l0; float sp = 0.0;" +
+    "    float a0 = textureLod(ratex, vec2(u, 0.5), 0.0).r;" +
+    "    for (int k = 0; k < 2; k++) { float cs = exp2(l0 + float(k)); vec2 g = p.xy / cs; vec2 c = floor(g);" +
+    "      uint h = hsh(ivec3(int(c.x), int(c.y), int(l0) + k + 4099)); vec2 j = vec2(float(h & 1023u), float((h >> 10u) & 1023u)) / 1023.0;" +
+    "      if (float((h >> 20u) & 1023u) / 1023.0 < a0 * 1.2) { float dd = length((g - c - j) * cs) / f;" +
+    "        sp += (k == 0 ? 1.0 - fr : fr) * (1.0 - smoothstep(0.25, 1.4, dd)) * (0.45 + 0.55 * float((h >> 4u) & 15u) / 15.0); } }" +
+    "    sp = clamp(sp, 0.0, 1.0) * dust; vec3 sc = mix(col, vec3(1.0), 0.35) * lt * 1.5;" +
+    "    res = vec4(min(sc, vec3(1.0)) * sp, sp) + res * (1.0 - sp); }" +
+    "  return res; }" +
     "void main() {" +
     "  vec2 px = box.xy + uv * box.zw;" +
     "  bool mesh = meshM > 0.5 && meshM < 1.5;" +
     "  vec3 d = mesh ? normalize(wpos - eye) : normalize(fwd * focal + rgt * (px.x - view.x * 0.5) - upv * (px.y - view.y * 0.5));" +
     "  float b = dot(eye, d); vec3 q = eye - b * d; float q2 = dot(q, q); float disc = 1.0 - q2;" +
     "  bool terr = useH > 0.5 && nearM > 0.5; float pix = 1.0 / focal; float th = 0.0;" +
+    "  float tr = -1.0; vec4 rg = (!terr && !mesh && meshM < 0.5) ? ring(d, pix, tr) : vec4(0.0);" +
+    // the smooth ball's edge covers a pixel in part: how much (0..1) from how far past the rim the ray passes, in
+    // pixels. Without it the rim moved in whole (picture) pixels: a far planet's edge crept and jumped back as it
+    // came nearer, a wobble the eye sees
+    "  float qd = sqrt(q2) - 1.0; float cover = clamp(0.5 - qd / max(fwidth(qd), 1e-7), 0.0, 1.0);" +
+    "  bool soft = !terr && !mesh && meshM < 0.5 && useWin < 0.5;" +
     // a detail window close by: test the window on the smooth ball first (with a margin for mountains), so that only
     // the pixels it may cover cast the long ray
     "  if (terr && useWin > 0.5 && !mesh) { vec3 pw = normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);" +
@@ -177,14 +250,15 @@
     // (only at a slant, where it shows, and one step with the three largest octaves: two full ones cost 4-5 ms on a tablet)
     "  if (mesh && terr) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);" +
     "    if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }" +
-    "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
+    "  bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : soft ? (cover > 0.0 && -b > 0.0) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));" +
     "  if (!hit) {" +
-    "    float R = 1.0 + air;" +
-    "    if (air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0) discard;" +
-    "    float hq = sqrt(q2);" +
-    "    vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);" +
-    "    if (g.a < 0.003) discard;" +
-    "    o = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); return;" +
+    "    float R = 1.0 + air; vec4 ga = vec4(0.0);" +
+    "    if (!(air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0)) { float hq = sqrt(q2);" +
+    "      vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false); ga = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }" +
+    // past the ball: the rings (in front of the air, a thin shell)
+    "    ga = rg + ga * (1.0 - rg.a);" +
+    "    if (ga.a < 0.003) discard;" +
+    "    DEPTH(1e3); o = ga; return;" +
     "  }" +
     "  if (!terr) th = -b - sqrt(max(disc, 0.0));" +
     "  vec3 p = normalize(eye + d * th);" +
@@ -208,13 +282,21 @@
     "    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;" +
     "  }" +
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    // the bands drift: the picture read twice, half a cycle apart, each moved by its band's wind (an angle: the
+    // wind over the latitude's circle), and cross-faded so neither is seen while it jumps back
+    "  if (flowA > 0.0 && useWin < 0.5) { float lat = (0.5 - v) * 3.1415927, s = flowA * jet(lat) / max(cos(lat), 0.25);" +
+    "    float p1 = flowPh, p2 = fract(flowPh + 0.5), w1 = 1.0 - abs(2.0 * p1 - 1.0);" +
+    "    vec3 c1 = textureGrad(tex, vec2(u - s * (p1 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    "    vec3 c2 = textureGrad(tex, vec2(u - s * (p2 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    "    c = c1 * w1 + c2 * (1.0 - w1); }" +
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
     // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
     // wr: the slopes fade in from 0.06 to 0.03 radii up (with them the picture's own baked light is taken out)
     "  if (useH > 0.5 && terr) { float wr = 1.0 - smoothstep(0.03, 0.06, length(eye) - 1.0);" +
     // real heights: their slope east and north tilts the normal (the sharp picture at the pixel's size, the bumps close by)
-    "    float ta = 6.2831853 / float(textureSize(htex, 0).x); float eps = max(fp, ta * 0.5);" +
+    "    float ta = 6.2831853 / float(textureSize(htex, 0).x); if (useD > 0.5 && useWin > 0.5) ta = 6.2831853 * (win.z - win.x) / float(textureSize(dtex, 0).x);" +
+    "    float eps = max(fp, ta * 0.5);" +
     "    float lod = max(0.0, log2(max(eps, fpt * 0.7) / ta)); float nb = 0.0;" +
     // close by also the finer bumps, down to about three pixels across
     "    if (terr && lite < 0.5) nb = octsF(max(fp * 3.0, fpt * 1.5));" +
@@ -226,20 +308,19 @@
     "      tl += (bumpsF(normalize(p + east * eb), nb) - b0) / eb * east + (bumpsF(normalize(p + north * eb), nb) - b0) / eb * north; }" +
     // close by, a sharper picture's own small slopes: its brightness against its blur is the slope towards its own sun
     // (draw.rs `sphere` 31, 39); its baked light is taken out of the colour, the game's sun lights the slopes
-    "    float hf = 0.0;" +
-    // finer than the picture's pixels: its own pattern 8 and 64 times smaller (the ground looks alike at every size),
-    // faded in as its pixels grow larger than the screen's
-    "    if (terr && useWin > 0.5) { float ta = 6.2831853 * (win.z - win.x) / float(textureSize(tex, 0).x); float z = log2(ta / fpt);" +
-    // (both, and the picture's own slopes below, fade out near the piece's edges: the next piece's pattern and
-    // blur differ, and its edge showed as a line in the fine detail)
-    "      float ew = smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v)));" +
-    "      float w8 = 0.5 * smoothstep(0.0, 1.0, z) * ew, w64 = 0.5 * smoothstep(3.0, 4.0, z) * ew;" +
-    "      if (w8 > 0.0) hf += w8 * (lumAt(p, fpt, 0.0, 8.0) - lumAt(p, fpt, 3.0, 8.0));" +
-    "      if (w64 > 0.0) hf += w64 * (lumAt(p, fpt, 0.0, 64.0) - lumAt(p, fpt, 3.0, 64.0)); }" +
-    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb + hf) / mapK, -1.5, 1.5);" +
+    // finer than the detail pictures' pixels (2 pi / 16384 radians): made-up rocks and crags, seeded by the place
+    // itself (value noise of the point, three sizes, the finest ridged), the same wherever the eye comes from and
+    // without seams; each size fades in once it is a few screen pixels long (and out towards the horizon)
+    "    if (terr && wr > 0.0) { vec3 g = vec3(0.0); float lw = 7.67e-4; mat3 rk = mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6);" +
+    "      for (int k = 0; k < 3; k++) { float w = smoothstep(1.0, 2.0, log2(lw / max(fpt, 1e-9)));" +
+    "        if (w > 0.0) { vec4 q = vnd(rk * (p / lw) + vec3(17.3 * float(k), 5.1, 0.0)); vec3 dq = 2.0 * (q.yzw * rk);" +
+    "          if (k == 2) { float m = 2.0 * q.x - 1.0; dq *= -m * inversesqrt(m * m + 0.03); }" +
+    "          g += w * (0.025 + 0.015 * float(k)) * dq; }" +
+    "        lw /= 3.0; rk = rk * mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6); }" +
+    "      tl += g - p * dot(g, p); }" +
+    "    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);" +
     "      float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;" +
     "      tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }" +
-    "    else c *= mix(1.0, clamp(1.0 + 1.2 * hf, 0.6, 1.4), wr);" +
     // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
     // across), but their slope only towards the sun: the height here and one step towards it (two reads, as in a
     // Shadertoy height shader), not a whole normal (three); without it the lite ground close by was flat
@@ -270,6 +351,8 @@
     // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
     "  if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;" +
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
+    // the rings' shadow on the ball
+    "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
@@ -285,8 +368,14 @@
     // (0.10 to 0.18 radians): the game's pieces reach at least that far, so their outer edge (and their finer
     // slopes) never show against the ball's own picture; the ball's hole is only inside 0.10 radians
     "  float fa = useWin > 0.5 ? (terr ? 1.0 : 1.0 - smoothstep(0.55, 0.85, th)) * (1.0 - smoothstep(0.10, 0.18, acos(clamp(dot(p, normalize(eye)), -1.0, 1.0)))) : 1.0;" +
+    "  if (soft) fa *= cover;" +
     "  if (fa <= 0.0) discard;" +
-    "  o = vec4(min(c, vec3(1.0)) * fa, fa);" +
+    "  DEPTH(th); o = vec4(min(c, vec3(1.0)) * fa, fa);" +
+    // the part of an edge pixel the ball leaves: the air behind it
+    "  if (soft && cover < 1.0 && air > 0.0) { float R = 1.0 + air; vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(max(R * R - q2, 0.0)), false);" +
+    "    o += vec4(min(g.rgb, vec3(1.0)) * g.a, g.a) * (1.0 - cover); }" +
+    // the rings in front of the ball (behind it they are hidden); at the edge the part the ball leaves sees them too
+    "  if (tr > 0.0 && (tr < th || cover < 1.0)) { float k = tr < th ? 1.0 : 1.0 - cover; o = rg * k + o * (1.0 - rg.a * k); }" +
     "}";
 
   function Spheres() {
@@ -294,10 +383,10 @@
     this.textures = new Map();
     var c = typeof document !== "undefined" ? document.createElement("canvas") : null;
     var gl = null;
-    try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: false, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
+    try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: true, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
     if (!gl) return;
     var prog = gl.createProgram();
-    [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, SPHERE_FS]].forEach(function (x) {
+    [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, SPHERE_FS.replace("#version 300 es\n", "#version 300 es\n#define RG_DEPTH\n")]].forEach(function (x) {
       var sh = gl.createShader(x[0]);
       gl.shaderSource(sh, x[1]);
       gl.compileShader(sh);
@@ -311,7 +400,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -341,16 +430,48 @@
 
   // draws one sphere command into ctx (which has the game's transform);
   // p: the 20 extra numbers (24 with a detail window); px: device pixels per game unit
-  // hs: the height pictures [shading, shape] and their names, when loaded
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs) {
-    var gl = this.gl, c = this.canvas;
-    // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
-    var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
-    var cw = Math.max(1, Math.min(4096, Math.round(w * px * ks))), ch = Math.max(1, Math.min(4096, Math.round(h * px * ks)));
+  // hs: the height pictures [shading, shape] and their names, when loaded; [4], [5]: a detail window's own
+  // heights and their name, when it has them
+  // the windows that have their own heights are drawn together into one picture (begin, draw…, end), each
+  // into its part of it, with the rays' lengths as depth: where one window's ground hides another's, the
+  // nearer shows (drawn one by one, the later one covered the other, or the seams had holes)
+  Spheres.prototype.begin = function (x, y, w, h, px) {
+    var gl = this.gl, c = this.canvas, k = px * 0.6;
+    var cw = Math.max(1, Math.min(4096, Math.round(w * k))), ch = Math.max(1, Math.min(4096, Math.round(h * k)));
     if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
     gl.viewport(0, c.height - ch, cw, ch);
     gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.clearDepth(1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LESS);
+    this.group = { x: x, y: y, w: w, h: h, k: cw / w, cw: cw, ch: ch };
+  };
+  Spheres.prototype.end = function (ctx) {
+    var g = this.group;
+    this.group = null;
+    this.gl.disable(this.gl.DEPTH_TEST);
+    ctx.drawImage(this.canvas, 0, 0, g.cw, g.ch, g.x, g.y, g.w, g.h);
+  };
+
+  // rs: the rings' pictures [colour, opacity, their names] (44 numbers), when loaded
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs) {
+    var gl = this.gl, c = this.canvas, gr = this.group;
+    // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
+    var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
+    var cw = Math.max(1, Math.min(4096, Math.round(w * px * ks))), ch = Math.max(1, Math.min(4096, Math.round(h * px * ks)));
+    if (gr) {
+      // its part of the group's picture, in whole pixels; the box the pixels cover, so the rays meet
+      var vx = Math.round((x - gr.x) * gr.k), vy = Math.round((y - gr.y) * gr.k);
+      cw = Math.max(1, Math.round((x + w - gr.x) * gr.k) - vx); ch = Math.max(1, Math.round((y + h - gr.y) * gr.k) - vy);
+      gl.viewport(vx, c.height - vy - ch, cw, ch);
+      x = gr.x + vx / gr.k; y = gr.y + vy / gr.k; w = cw / gr.k; h = ch / gr.k;
+    } else {
+      if (c.width < cw || c.height < ch || c.width > cw * 2 + 256 || c.height > ch * 2 + 256) { c.width = cw; c.height = ch; }
+      gl.viewport(0, c.height - ch, cw, ch);
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+    }
     gl.useProgram(this.prog);
     gl.activeTexture(gl.TEXTURE0);
     var w32 = p.length >= 32;
@@ -374,6 +495,24 @@
     gl.activeTexture(gl.TEXTURE3);
     if (w40) gl.bindTexture(gl.TEXTURE_2D, this.texture(hs[3], hs[1], false, true));
     gl.uniform1i(u.gtex, 3);
+    var wd = w40 && w4 && hs.length > 4;
+    gl.activeTexture(gl.TEXTURE4);
+    if (wd) gl.bindTexture(gl.TEXTURE_2D, this.texture(hs[5], hs[4], true));
+    gl.uniform1i(u.dtex, 4);
+    gl.uniform1f(u.useD, wd ? 1 : 0);
+    var wr = p.length >= 44 && p[42] > 0.5 && rs;
+    gl.activeTexture(gl.TEXTURE5);
+    if (wr) gl.bindTexture(gl.TEXTURE_2D, this.texture(rs[2], rs[0], true, false));
+    gl.uniform1i(u.rctex, 5);
+    gl.activeTexture(gl.TEXTURE6);
+    if (wr) gl.bindTexture(gl.TEXTURE_2D, this.texture(rs[3], rs[1], true, false));
+    gl.uniform1i(u.ratex, 6);
+    gl.uniform1f(u.useR, wr ? 1 : 0);
+    gl.uniform1f(u.rIn, wr ? p[40] : 0);
+    gl.uniform1f(u.rOut, wr ? p[41] : 1);
+    var wf = p.length >= 48 && !w4;
+    gl.uniform1f(u.flowA, wf ? p[44] : 0);
+    gl.uniform1f(u.flowPh, wf ? p[45] : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -401,7 +540,7 @@
     gl.uniform4f(u.win, w4 ? p[20] : 0, w4 ? p[21] : 0, w4 ? p[22] : 1, w4 ? p[23] : 1);
     gl.uniform4f(u.box, x, y, w, h);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-    ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
+    if (!gr) ctx.drawImage(c, 0, 0, cw, ch, x, y, w, h);
   };
 
   var spheres = null;
@@ -409,6 +548,136 @@
   function canDrawSpheres() {
     if (!spheres) spheres = new Spheres();
     return spheres.ok;
+  }
+
+  // Liquid splats (draw.rs `splats`, kind 10): a baked particle run. Each splat adds a soft round
+  // weight into a density picture (red: weight, green: weight × temperature), half the canvas's
+  // pixels; then where the density is thick enough it shows as a liquid surface: the mean
+  // temperature picks the colour, the density's slope makes a normal that the light shades and
+  // glints off, and the thin edge fades out. Drawn into a picture of its own, then into the canvas.
+  var SPLAT_VS = "#version 300 es\nlayout(location=0) in vec2 q; layout(location=1) in vec4 s; uniform vec4 xf; out vec2 lq; out float tt;" +
+    "void main() { lq = q; tt = s.w; vec2 p = s.xy + q * s.z * 1.6; gl_Position = vec4(p * xf.xy + xf.zw, 0.0, 1.0); }";
+  var SPLAT_FS = "#version 300 es\nprecision highp float; in vec2 lq; in float tt; uniform float gain; out vec4 o;" +
+    "void main() { float d = dot(lq, lq); if (d > 1.0) discard; float w = exp(-4.0 * d) * gain; o = vec4(w, w * tt, 0.0, 0.0); }";
+  var SHOW_VS = "#version 300 es\nlayout(location=0) in vec2 q; out vec2 uv; void main() { uv = q * 0.5 + 0.5; gl_Position = vec4(q, 0.0, 1.0); }";
+  var SHOW_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac; out vec4 o;" +
+    "float D(vec2 t) { return texture(den, t).r / gain; }" +
+    "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.02) discard;" +
+    "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
+    "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
+    // the surface: where the density passes 0.35; its slope a normal (screen y down in the picture: flipped)
+    "  float gx = D(uv + vec2(texel.x, 0.0)) - D(uv - vec2(texel.x, 0.0)), gy = D(uv + vec2(0.0, texel.y)) - D(uv - vec2(0.0, texel.y));" +
+    "  vec3 n = normalize(vec3(-gx * 3.0, -gy * 3.0, 1.0)); vec3 l = normalize(light * vec3(1.0, -1.0, 1.0));" +
+    "  float dif = 0.45 + 0.55 * max(dot(n, l), 0.0), spec = pow(max(dot(reflect(-l, n), vec3(0.0, 0.0, 1.0)), 0.0), 28.0) * 0.5;" +
+    // hot magma glows of itself (less shading), cold rock is lit
+    "  float glow = smoothstep(0.35, 0.9, tm); vec3 col = c * mix(dif, 1.0, glow * 0.7) + spec * mix(vec3(1.0), c, 0.4);" +
+    "  float body = smoothstep(0.3, 0.55, d), halo = smoothstep(0.02, 0.3, d) * 0.35 * (0.3 + glow);" +
+    "  float al = max(body, halo) * opac; o = vec4(mix(c * (0.6 + glow), col, body) * al, al); }";
+
+  function Splats() {
+    this.ok = false;
+    try {
+      var c = document.createElement("canvas");
+      var gl = c.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false });
+      if (!gl) return;
+      this.canvas = c; this.gl = gl;
+      this.f16 = !!gl.getExtension("EXT_color_buffer_float");
+      var mk = function (vs, fs) {
+        var p = gl.createProgram();
+        [[gl.VERTEX_SHADER, vs], [gl.FRAGMENT_SHADER, fs]].forEach(function (x) {
+          var sh = gl.createShader(x[0]); gl.shaderSource(sh, x[1]); gl.compileShader(sh);
+          if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) console.warn("splat shader: " + gl.getShaderInfoLog(sh));
+          gl.attachShader(p, sh);
+        });
+        gl.linkProgram(p);
+        return p;
+      };
+      this.add = mk(SPLAT_VS, SPLAT_FS);
+      this.show = mk(SHOW_VS, SHOW_FS);
+      this.quad = gl.createBuffer();
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+      this.inst = gl.createBuffer();
+      this.vao = gl.createVertexArray();
+      gl.bindVertexArray(this.vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.inst);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 0, 0); gl.vertexAttribDivisor(1, 1);
+      gl.bindVertexArray(null);
+      this.den = gl.createTexture(); this.fbo = gl.createFramebuffer(); this.dw = 0; this.dh = 0;
+      this.pal = gl.createTexture();
+      this.ok = true;
+    } catch (e) { this.ok = false; }
+  }
+
+  // ex: the extras (palette, light, splats); w, h: the box in game units; px: device pixels a unit
+  Splats.prototype.draw = function (ctx, ex, w, h, px, opac) {
+    var gl = this.gl, c = this.canvas;
+    var np = ex[0] | 0, at = 1 + np * 3;
+    var light = [ex[at], ex[at + 1], ex[at + 2]], m = ex[at + 3] | 0, pts = ex.subarray(at + 4, at + 4 + m * 4);
+    var k = px * 0.5;
+    var cw = Math.max(1, Math.min(2048, Math.round(w * k))), ch = Math.max(1, Math.min(2048, Math.round(h * k)));
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    if (this.dw !== cw || this.dh !== ch) {
+      gl.bindTexture(gl.TEXTURE_2D, this.den);
+      if (this.f16) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, cw, ch, 0, gl.RGBA, gl.HALF_FLOAT, null);
+      else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, cw, ch, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.den, 0);
+      this.dw = cw; this.dh = ch;
+    }
+    // without float pictures the weights are kept small (8 bits fill up at 1)
+    var gain = this.f16 ? 1.0 : 0.25;
+    // the palette as a strip
+    var pb = new Uint8Array(np * 4);
+    for (var i = 0; i < np; i++) { pb[i * 4] = ex[1 + i * 3] * 255; pb[i * 4 + 1] = ex[2 + i * 3] * 255; pb[i * 4 + 2] = ex[3 + i * 3] * 255; pb[i * 4 + 3] = 255; }
+    gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, np, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pb);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    // 1: the weights added up
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
+    gl.viewport(0, 0, cw, ch);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(this.add);
+    // game units to clip space (y down)
+    gl.uniform4f(gl.getUniformLocation(this.add, "xf"), 2 / w, -2 / h, -1, 1);
+    gl.uniform1f(gl.getUniformLocation(this.add, "gain"), gain);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.inst);
+    gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STREAM_DRAW);
+    gl.bindVertexArray(this.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m);
+    // 2: the surface into the picture
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cw, ch);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.BLEND);
+    gl.useProgram(this.show);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.den);
+    gl.uniform1i(gl.getUniformLocation(this.show, "den"), 0);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.uniform1i(gl.getUniformLocation(this.show, "pal"), 1);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform2f(gl.getUniformLocation(this.show, "texel"), 1 / cw, 1 / ch);
+    gl.uniform3f(gl.getUniformLocation(this.show, "light"), light[0], light[1], light[2]);
+    gl.uniform1f(gl.getUniformLocation(this.show, "npal"), np);
+    gl.uniform1f(gl.getUniformLocation(this.show, "gain"), gain);
+    gl.uniform1f(gl.getUniformLocation(this.show, "opac"), opac);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    gl.bindVertexArray(null);
+    ctx.drawImage(c, 0, 0, cw, ch, 0, 0, w, h);
+  };
+  var splats = null;
+  function canDrawSplats() {
+    if (!splats) splats = new Splats();
+    return splats.ok;
   }
 
   function Painter(canvas, images) {
@@ -445,6 +714,7 @@
     ctx.rect(0, 0, view.w, view.h);
     ctx.clip();
     var clips = 0;
+    if (spheres && spheres.group) { spheres.group = null; spheres.gl.disable(spheres.gl.DEPTH_TEST); }
     var i = 0, n = nums.length;
     while (i < n) {
       var k = nums[i], x = nums[i + 1], y = nums[i + 2], w = nums[i + 3], h = nums[i + 4];
@@ -473,9 +743,40 @@
           if (s2 >= 0 && nx >= 40) {
             var hn = strings[s2].split("|"), hi = this.images.get(hn[0]), gi = this.images.get(hn[1]);
             if (hi && gi) hs = [hi, gi, hn[0], hn[1]];
+            // "shading|shape|window heights": the window's own heights, once loaded (until then the ball's)
+            var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
+            if (di) hs.push(di, hn[2]);
           }
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, nums.subarray(e, e + (nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20)), scale, limg, s1 >= 0 ? strings[s1] : "", hs);
+          var sp = nums.subarray(e, e + (nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
+          var rs = null;
+          if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {
+            var rn = strings[ls].split("|"), rci = this.images.get(rn[0]), rai = this.images.get(rn[1] || rn[0]);
+            if (rci && rai) rs = [rci, rai, rn[0], rn[1] || rn[0]];
+          }
+          // a window close by with its own heights: it and the ones right after it are drawn together
+          if (!spheres.group && hs && hs.length > 4 && sp[24] > 0.5 && sp[35] > 0.5) {
+            var gx0 = x, gy0 = y, gx1 = x + w, gy1 = y + h, gn = 1;
+            for (var gi2 = i; gi2 < n; gn++) {
+              var gnx = nums[gi2 + 22] | 0, gs2 = nums[gi2 + 20];
+              if (nums[gi2] !== KIND.SPHERE || gnx < 40 || nums[gi2 + 17] !== 0 || gs2 < 0 || strings[gs2].split("|").length < 3) break;
+              var gp = gi2 + HEADER;
+              if (nums[gp + 24] <= 0.5 || nums[gp + 35] <= 0.5) break;
+              gx0 = Math.min(gx0, nums[gi2 + 1]); gy0 = Math.min(gy0, nums[gi2 + 2]);
+              gx1 = Math.max(gx1, nums[gi2 + 1] + nums[gi2 + 3]); gy1 = Math.max(gy1, nums[gi2 + 2] + nums[gi2 + 4]);
+              gi2 = gp + gnx;
+            }
+            spheres.begin(gx0, gy0, gx1 - gx0, gy1 - gy0, scale);
+            spheres.groupLeft = gn;
+          }
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs);
         }
+        // the group's last window drawn (or skipped): the picture into the canvas
+        if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);
+        continue;
+      }
+      if (k === 10) {
+        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a);
         continue;
       }
       if (k === KIND.PUSH_CLIP) {
@@ -593,7 +894,9 @@
         }
         if (k === KIND.PATH) {
           ctx.fillStyle = rgba(r, g, b, a);
+          if (flags & 2048) ctx.globalCompositeOperation = "lighter";
           ctx.fill((flags & 32) ? "evenodd" : "nonzero");
+          if (flags & 2048) ctx.globalCompositeOperation = "source-over";
         } else {
           ctx.strokeStyle = rgba(r, g, b, a);
           ctx.lineWidth = t || 1;
@@ -610,6 +913,7 @@
 
   global.RgPainter = Painter;
   global.RgPainter.canDrawSpheres = canDrawSpheres;
+  global.RgPainter.canDrawSplats = canDrawSplats;
   // sphere commands with a detail window (24 numbers) are understood
   global.RgPainter.canDrawDetail = canDrawSpheres;
   // and real heights (40 numbers: the ground's shape, made-up bumps)

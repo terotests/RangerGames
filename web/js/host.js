@@ -76,6 +76,7 @@
           self.x.rg_textures(1);
           if (self.x.rg_detail && global.RgPainter.canDrawDetail && !params.has("nodetail")) self.x.rg_detail(1);
           if (self.x.rg_terrain && global.RgPainter.canDrawTerrain && !params.has("noterrain")) self.x.rg_terrain(1);
+          if (self.x.rg_splats && global.RgPainter.canDrawSplats && !params.has("nosplats") && global.RgPainter.canDrawSplats()) self.x.rg_splats(1);
         }
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
@@ -615,7 +616,8 @@
       case "sound": this.audio.play(name, args); break;
       case "say": this.audio.say(args); break;
       case "music": this.audio.startMusic(name, args); break;
-      case "stop": this.audio.stopMusic(); break;
+      case "stop": this.audio.stopMusic(args); break;
+      case "soundctl": this.audio.control(name, args); break;
       case "vibrate": this.vibrate(args); break;
       case "copy": this.copy(String(args)); break;
       case "open": if (/^\/[^\/\\]/.test(String(args))) global.location.href = String(args); break;
@@ -687,6 +689,11 @@
         if (nums[i] === 8 && nums[i + 20] >= 0) {
           var hn = strings[nums[i + 20]].split("|");
           for (var hk = 0; hk < hn.length; hk++) if (hn[hk] && !this.images.has(hn[hk])) this.image(hn[hk]);
+        }
+        // its rings' pictures "colour|opacity" (slot 21, with 44 numbers)
+        if (nums[i] === 8 && (nums[i + 22] | 0) >= 44 && nums[i + 23 + 42] > 0.5) {
+          var rn = strings[nums[i + 21]].split("|");
+          for (var rk = 0; rk < rn.length; rk++) if (rn[rk] && !this.images.has(rn[rk])) this.image(rn[rk]);
         }
       }
       i += 23 + (nums[i + 22] | 0);

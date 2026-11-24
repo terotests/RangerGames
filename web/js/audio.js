@@ -15,6 +15,8 @@
     this.buffers = {};
     this.music = null;
     this.muted = false;
+    // the sounds a game controls by handle (rg.stopSound …), see startSource
+    this.playing = {};
   }
 
   Audio.prototype.unlock = function () {
@@ -33,7 +35,7 @@
   };
 
   // one note: type, frequency from f0 to f1, length, volume
-  Audio.prototype.tone = function (type, f0, f1, len, vol, at) {
+  Audio.prototype.tone = function (type, f0, f1, len, vol, at, dest) {
     var c = this.ctx, t = (at || c.currentTime);
     var o = c.createOscillator(), g = c.createGain();
     o.type = type;
@@ -42,11 +44,11 @@
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(vol, t + 0.01);
     g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-    o.connect(g); g.connect(this.master);
+    o.connect(g); g.connect(dest || this.master);
     o.start(t); o.stop(t + len + 0.02);
   };
 
-  Audio.prototype.noise = function (len, vol, f0, f1, at) {
+  Audio.prototype.noise = function (len, vol, f0, f1, at, dest) {
     var c = this.ctx, t = (at || c.currentTime);
     var n = Math.floor(c.sampleRate * len);
     var buf = c.createBuffer(1, n, c.sampleRate), d = buf.getChannelData(0);
@@ -58,7 +60,7 @@
     var g = c.createGain();
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.0001, t + len);
-    s.connect(f); f.connect(g); g.connect(this.master);
+    s.connect(f); f.connect(g); g.connect(dest || this.master);
     s.start(t); s.stop(t + len);
   };
 
@@ -102,13 +104,13 @@
       if (vol !== 1) this.master.gain.value = saved;
       return;
     }
-    this.playFile(name, vol, pitch, false, !!(opts && opts.radio), !!(opts && opts.queue), opts);
+    this.playFile(name, vol, pitch, !!(opts && opts.loop), !!(opts && opts.radio), !!(opts && opts.queue), opts, opts && opts.h, opts && opts.fade);
   };
 
   // a radio voice: a squelch of static, the voice through a narrow band
   // with a little grit, a hiss under it and a click at the end
   // returns how long the whole call takes (from `t`, the voice starts 0.26 s in)
-  Audio.prototype.radioChain = function (s, vol, t) {
+  Audio.prototype.radioChain = function (s, vol, t, dest) {
     var c = this.ctx, len = s.buffer.duration / (s.playbackRate.value || 1);
     var hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 420;
     var lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2900;
@@ -117,11 +119,12 @@
     for (var i = 0; i < n; i++) { var x = i * 2 / (n - 1) - 1; curve[i] = Math.tanh(2.6 * x) / Math.tanh(2.6); }
     ws.curve = curve;
     var g = c.createGain(); g.gain.value = vol;
-    s.connect(hp); hp.connect(pk); pk.connect(lp); lp.connect(ws); ws.connect(g); g.connect(this.master);
-    this.noise(0.28, 0.5 * vol, 2600, 1400, t);
-    this.noise(len + 0.3, 0.06 * vol, 2200, 1800, t + 0.05);
-    this.tone("square", 1450, 1450, 0.05, 0.08 * vol, t + 0.3 + len);
-    this.noise(0.12, 0.35 * vol, 2400, 900, t + 0.32 + len);
+    dest = dest || this.master;
+    s.connect(hp); hp.connect(pk); pk.connect(lp); lp.connect(ws); ws.connect(g); g.connect(dest);
+    this.noise(0.28, 0.5 * vol, 2600, 1400, t, dest);
+    this.noise(len + 0.3, 0.06 * vol, 2200, 1800, t + 0.05, dest);
+    this.tone("square", 1450, 1450, 0.05, 0.08 * vol, t + 0.3 + len, dest);
+    this.noise(0.12, 0.35 * vol, 2400, 900, t + 0.32 + len, dest);
     return 0.45 + len;
   };
 
@@ -129,35 +132,64 @@
   // spoken line after a spoken line); radio: played as a radio call
   // fx (rg.sound's options): lowpass / highpass (Hz) filter the sound,
   // static (0..1) lays a hiss under it
-  Audio.prototype.fxChain = function (s, vol, t, fx) {
+  Audio.prototype.fxChain = function (s, vol, t, fx, dest) {
     var c = this.ctx, node = s;
     if (fx.highpass) { var hp = c.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = fx.highpass; node.connect(hp); node = hp; }
     if (fx.lowpass) { var lp = c.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = fx.lowpass; node.connect(lp); node = lp; }
     var g = c.createGain(); g.gain.value = vol;
-    node.connect(g); g.connect(this.master);
-    if (fx.static > 0) this.noise(s.buffer.duration / (s.playbackRate.value || 1) + 0.1, Math.min(1, fx.static) * 0.25 * vol, 2400, 1600, t);
+    dest = dest || this.master;
+    node.connect(g); g.connect(dest);
+    if (fx.static > 0) this.noise(s.buffer.duration / (s.playbackRate.value || 1) + 0.1, Math.min(1, fx.static) * 0.25 * vol, 2400, 1600, t, dest);
   };
 
-  Audio.prototype.playFile = function (path, vol, pitch, loop, radio, queue, fx) {
+  // A sound with a handle (h) is kept in this.playing until it ends or is
+  // stopped: { h, vol, buf, pitch, loop, radio, fx, out (its own gain, the
+  // handle's volume and fades), s (the source playing), t0 (ctx time of its
+  // position 0), off (seconds in, while paused), paused, level }
+  Audio.prototype.startSource = function (e, at, off) {
+    var c = this.ctx, s = c.createBufferSource(), self = this, p = e.pitch || 1;
+    off = off || 0;
+    if (e.loop && e.buf.duration > 0) off = off % e.buf.duration;
+    s.buffer = e.buf; s.loop = !!e.loop; s.playbackRate.value = p;
+    var len = (e.buf.duration - off) / p;
+    if (e.radio && !e.loop) {
+      len = this.radioChain(s, e.vol, at, e.out);
+      s.start(at + 0.26);
+    } else if (e.fx && !e.loop && (e.fx.lowpass || e.fx.highpass || e.fx.static > 0)) {
+      this.fxChain(s, e.vol, at, e.fx, e.out); s.start(at, off);
+    } else {
+      var g = c.createGain(); g.gain.value = e.vol;
+      s.connect(g); g.connect(e.out); s.start(at, off);
+    }
+    e.s = s; e.t0 = at - off / p;
+    s.onended = function () {
+      if (e.s !== s) return;
+      e.s = null;
+      if (e.h && self.playing[e.h] === e && !e.paused) delete self.playing[e.h];
+    };
+    return len;
+  };
+
+  Audio.prototype.playFile = function (path, vol, pitch, loop, radio, queue, fx, h, fade) {
     var self = this;
+    // the handle is known before the file is decoded: a stop, pause or
+    // volume asked for meanwhile applies when it starts
+    if (h) this.playing[h] = { h: h, vol: vol, base: vol };
     var go = function (buf) {
-      if (!buf || !self.ready()) return null;
-      var s = self.ctx.createBufferSource();
-      s.buffer = buf; s.loop = !!loop; s.playbackRate.value = pitch || 1;
+      var e = h ? self.playing[h] : { vol: vol };
+      if (!e) return null;   // stopped before it could start
+      if (!buf || !self.ready()) { if (h) delete self.playing[h]; return null; }
+      e.buf = buf; e.pitch = pitch || 1; e.loop = !!loop; e.radio = radio; e.fx = fx;
+      e.out = self.ctx.createGain(); e.out.connect(self.master);
       var now = self.ctx.currentTime;
       var at = queue && !loop ? Math.max(now, self.queueEnd || 0) : now;
-      var len = buf.duration / (pitch || 1);
-      if (radio && !loop) {
-        len = self.radioChain(s, vol, at);
-        s.start(at + 0.26);
-      } else if (fx && !loop && (fx.lowpass || fx.highpass || fx.static > 0)) {
-        self.fxChain(s, vol, at, fx); s.start(at);
-      } else {
-        var g = self.ctx.createGain(); g.gain.value = vol;
-        s.connect(g); g.connect(self.master); s.start(at);
-      }
+      var lvl = e.level === undefined ? 1 : e.level;
+      if (fade > 0) { e.out.gain.setValueAtTime(0, at); e.out.gain.linearRampToValueAtTime(lvl, at + fade); }
+      else e.out.gain.value = lvl;
+      if (e.paused) { e.off = 0; return null; }
+      var len = self.startSource(e, at, 0);
       if (queue && !loop) self.queueEnd = at + len + 0.15;
-      return s;
+      return e.s;
     };
     var have = this.buffers[path];
     if (have === undefined && /\.wav$/i.test(path)) {
@@ -176,8 +208,8 @@
     if (!bytes) { this.buffers[path] = null; return null; }
     this.buffers[path] = null;
     var copy = bytes.slice().buffer;
-    this.ctx.decodeAudioData(copy, function (buf) { self.buffers[path] = buf; if (loop) self.startMusic(path, { volume: vol }); else go(buf); },
-      function () { self.buffers[path] = null; });
+    this.ctx.decodeAudioData(copy, function (buf) { self.buffers[path] = buf; go(buf); },
+      function () { self.buffers[path] = null; if (h) delete self.playing[h]; });
     return null;
   };
 
@@ -287,31 +319,124 @@
     return !!(this.speaking || this.waitingFor || (this.speech && this.speech.length) || (this.fxAt && Date.now() - this.fxAt < 600));
   };
 
+  // music: a tune of TUNES or a sound file, looping unless opts.loop is
+  // false; opts.h its handle, opts.fade seconds up from silence
   Audio.prototype.startMusic = function (name, opts) {
     this.stopMusic();
     if (!this.ready()) { this.wanted = [name, opts]; return; }
     var tune = TUNES[name];
     var vol = opts && opts.volume !== undefined ? opts.volume : 1;
-    if (!tune) { this.music = { source: this.playFile(name, vol * 0.6, 1, true) }; return; }
-    var self = this, beat = 60 / tune.bpm, step = 0, next = this.ctx.currentTime + 0.05;
-    var timer = setInterval(function () {
+    var h = (opts && opts.h) || 0, fade = (opts && opts.fade) || 0;
+    if (!tune) {
+      // a file: a sound like rg.sound's, under the music's handle
+      if (!h) h = "m";
+      this.playFile(name, vol * 0.6, 1, !(opts && opts.loop === false), false, false, null, h, fade);
+      if (this.playing[h]) this.playing[h].base = vol;
+      this.music = { h: h };
+      return;
+    }
+    var c = this.ctx, out = c.createGain();
+    out.connect(this.master);
+    if (fade > 0) { out.gain.setValueAtTime(0, c.currentTime); out.gain.linearRampToValueAtTime(1, c.currentTime + fade); }
+    var m = { h: h, tune: true, out: out, vol: vol, paused: false };
+    var self = this, beat = 60 / tune.bpm, step = 0, next = c.currentTime + 0.05;
+    var once = opts && opts.loop === false;
+    m.timer = setInterval(function () {
       if (!self.ready()) return;
+      if (m.paused) { next = Math.max(next, self.ctx.currentTime + 0.05); return; }
       while (next < self.ctx.currentTime + 0.3) {
+        if (once && step >= tune.notes.length) { if (self.music === m) self.stopMusic(); return; }
         var n = tune.notes[step % tune.notes.length];
-        if (n[0]) self.tone(tune.wave, midi(n[0]), midi(n[0]), n[1] * beat * 0.9, tune.vol * vol, next);
+        if (n[0]) self.tone(tune.wave, midi(n[0]), midi(n[0]), n[1] * beat * 0.9, tune.vol * m.vol, next, out);
         next += n[1] * beat;
         step++;
       }
     }, 100);
-    this.music = { timer: timer };
+    this.music = m;
   };
 
-  Audio.prototype.stopMusic = function () {
+  // opts.fade: seconds down to silence first
+  Audio.prototype.stopMusic = function (opts) {
     this.wanted = null;
-    if (!this.music) return;
-    if (this.music.timer) clearInterval(this.music.timer);
-    if (this.music.source) { try { this.music.source.stop(); } catch (e) { } }
+    var m = this.music;
+    if (!m) return;
     this.music = null;
+    if (!m.tune) { this.stopOne(this.playing[m.h], opts && opts.fade); return; }
+    var c = this.ctx, fade = opts && opts.fade > 0 && c ? opts.fade : 0;
+    var end = function () { clearInterval(m.timer); try { m.out.disconnect(); } catch (e) { } };
+    if (!fade) { end(); return; }
+    m.out.gain.cancelScheduledValues(c.currentTime);
+    m.out.gain.setValueAtTime(m.out.gain.value, c.currentTime);
+    m.out.gain.linearRampToValueAtTime(0, c.currentTime + fade);
+    setTimeout(end, fade * 1000 + 50);
+  };
+
+  // a sound of this.playing stops (in `fade` seconds) and is let go
+  Audio.prototype.stopOne = function (e, fade) {
+    if (!e) return;
+    if (e.h && this.playing[e.h] === e) delete this.playing[e.h];
+    var s = e.s;
+    e.s = null;
+    if (!s) return;
+    var c = this.ctx;
+    if (fade > 0 && e.out) {
+      var t = c.currentTime;
+      e.out.gain.cancelScheduledValues(t);
+      e.out.gain.setValueAtTime(e.out.gain.value, t);
+      e.out.gain.linearRampToValueAtTime(0, t + fade);
+      try { s.stop(t + fade); } catch (x) { }
+    } else {
+      try { s.stop(); } catch (x) { }
+    }
+  };
+
+  // rg.stopSound, rg.soundVolume, rg.pauseSound, rg.resumeSound:
+  // o = { h (0: every sound and the music), fade, volume }
+  Audio.prototype.control = function (op, o) {
+    var h = (o && o.h) || 0, fade = o && o.fade > 0 ? o.fade : 0, self = this;
+    var m = this.music, tuneHit = m && m.tune && (!h || m.h === h);
+    var list = [];
+    if (h) { if (this.playing[h]) list.push(this.playing[h]); }
+    else for (var k in this.playing) list.push(this.playing[k]);
+    if (op === "stop") {
+      if (!h) this.wanted = null;
+      if (m && (!h || m.h === h)) this.stopMusic({ fade: fade });
+      list.forEach(function (e) { self.stopOne(e, fade); });
+      return;
+    }
+    if (!this.ctx) return;
+    var t = this.ctx.currentTime;
+    if (op === "volume") {
+      var v = Math.max(0, Number(o.volume) || 0);
+      if (tuneHit) m.vol = v;
+      list.forEach(function (e) {
+        e.level = e.base > 0 ? v / e.base : 1;
+        if (!e.out) return;
+        e.out.gain.cancelScheduledValues(t);
+        e.out.gain.setValueAtTime(e.out.gain.value, t);
+        if (fade) e.out.gain.linearRampToValueAtTime(e.level, t + fade); else e.out.gain.setValueAtTime(e.level, t);
+      });
+    } else if (op === "pause") {
+      if (tuneHit) m.paused = true;
+      list.forEach(function (e) {
+        if (e.paused) return;
+        e.paused = true;
+        if (!e.s) return;
+        e.off = Math.max(0, (t - e.t0) * (e.pitch || 1));
+        var s = e.s; e.s = null;
+        try { s.stop(); } catch (x) { }
+      });
+    } else if (op === "resume") {
+      if (tuneHit) m.paused = false;
+      list.forEach(function (e) {
+        if (!e.paused) return;
+        e.paused = false;
+        if (e.buf && !e.s && self.ready()) {
+          if (!e.loop && e.off >= e.buf.duration) { delete self.playing[e.h]; return; }
+          self.startSource(e, t, e.off || 0);
+        }
+      });
+    }
   };
 
   // music asked for before the first touch starts with it

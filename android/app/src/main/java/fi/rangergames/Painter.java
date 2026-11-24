@@ -26,7 +26,8 @@ import java.util.Map;
  */
 final class Painter {
     private static final int HEADER = 23;
-    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8;
+    private static final android.graphics.PorterDuffXfermode ADD = new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD);
+    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8, SPLATS = 10;
 
     private final AssetManager assets;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -137,6 +138,16 @@ final class Painter {
         glTune();
     }
 
+    /** liquid splats (kind 10) in the GPU globes' context, when it works */
+    private GlSplats splats;
+
+    boolean canSplats() {
+        if (gl == null || !gl.ok) return false;
+        GlSplats s = new GlSplats(gl);
+        if (s.ok) splats = s;
+        return splats != null;
+    }
+
     /** where a command's extra numbers after the optional parts begin */
     private static int extras(float[] nums, int i) {
         int flags = (int) nums[i + 17];
@@ -166,6 +177,16 @@ final class Painter {
     boolean glGlobes(float[] nums, String[] strings, float px, float[] out) {
         if (gl == null || !gl.ok) return false;
         out[0] = 0;
+        if (nums.length > HEADER && (int) nums[0] == SPLATS) {
+            // liquid splats over the game's box: their picture as a texture, rows from below (flipped)
+            float w = nums[3], h = nums[4];
+            if (splats == null || !splats.ok || w <= 0 || h <= 0) return false;
+            int tex = splats.texture(nums, extras(nums, 0), w, h, px, nums[8]);
+            if (tex == 0) return false;
+            put(out, tex, 0, 0, w, h, splats.pw / (float) splats.texWidth(), splats.ph / (float) splats.texHeight());
+            out[7] = 1;
+            return true;
+        }
         int r = glSpheres(null, nums, strings, 0, px, out);
         return r >= 0 && out[0] != 0;
     }
@@ -223,12 +244,14 @@ final class Painter {
             int s0 = (int) nums[q + 18], s1 = (int) nums[q + 19], s2 = (int) nums[q + 20], nx = (int) nums[q + 22];
             if (nx < 20 || w <= 0 || h <= 0 || s0 < 0 || s0 >= strings.length || strings[s0].isEmpty()) continue;
             String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
-            String hs = null, gs = null;
+            // "shading|shape" or "shading|shape|window heights" (a detail window's own heights)
+            String hs = null, gs = null, ds = null;
             if (nx >= 40 && s2 >= 0 && s2 < strings.length) {
-                int bar = strings[s2].indexOf('|');
-                if (bar > 0) {
-                    hs = strings[s2].substring(0, bar);
-                    gs = strings[s2].substring(bar + 1);
+                String[] parts = strings[s2].split("\\|");
+                if (parts.length >= 2 && !parts[0].isEmpty()) {
+                    hs = parts[0];
+                    gs = parts[1];
+                    if (parts.length > 2 && !parts[2].isEmpty()) ds = parts[2];
                 }
             }
             int at = extras(nums, q);
@@ -243,7 +266,10 @@ final class Painter {
                     gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
                 }
             }
-            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
+            // the rings' pictures "colour|opacity" (slot 21, with 44 numbers)
+            int rsi = (int) nums[q + 21];
+            gl.rings = nx >= 44 && nums[at + 42] > 0.5f && rsi >= 0 && rsi < strings.length ? strings[rsi] : null;
+            any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
         }
         if (c == null) {
             int tex = gl.endTexture();
@@ -467,9 +493,12 @@ final class Painter {
         // the 40-number form: real heights, "shading|shape" (Terrain)
         int[] hm = null, gm = null;
         int bar = hs.indexOf('|');
+        // a third part (a detail window's own heights) is only for the GPU's ground
+        int bar2 = bar > 0 ? hs.indexOf('|', bar + 1) : -1;
+        String gname = bar > 0 ? (bar2 > 0 ? hs.substring(bar + 1, bar2) : hs.substring(bar + 1)) : "";
         if (nx >= 40 && bar > 0) {
             hm = map(hs.substring(0, bar));
-            gm = map(hs.substring(bar + 1));
+            gm = map(gname);
             if (hm == null || gm == null) hm = gm = null;
         }
         boolean window = nx >= 32 && nums[at + 24] > 0.5f;
@@ -478,7 +507,7 @@ final class Painter {
         if (near && window) return;
         boolean mesh = false;
         if (near) {
-            int[] gsize = mapSizes.get(hs.substring(bar + 1));
+            int[] gsize = mapSizes.get(gname);
             terrain.set(nums, at, gm, gsize[0], gsize[1]);
             mesh = terrain.mesh(nums, at);
         }
@@ -554,6 +583,25 @@ final class Painter {
         int i = 0, n = nums.length;
         while (i + HEADER <= n) {
             int k = (int) nums[i];
+            if (k == SPLATS) {
+                int nx = (int) nums[i + 22], e = extras(nums, i);
+                float w = nums[i + 3], h = nums[i + 4];
+                if (splats != null && splats.ok && gl.ok && w > 0 && h > 0 && e + nx <= n) {
+                    Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8]);
+                    if (bm != null) {
+                        // GL's rows from below: flipped into place
+                        c.save();
+                        c.translate(0, h);
+                        c.scale(1, -1);
+                        src.set(0, 0, splats.pw, splats.ph);
+                        rf.set(0, 0, w, h);
+                        c.drawBitmap(bm, src, rf, image);
+                        c.restore();
+                    }
+                }
+                i = i + HEADER + nx;
+                continue;
+            }
             if (k == SPHERE && gl != null && gl.ok) {
                 int next = glSpheres(c, nums, strings, i, scale);
                 if (next >= 0) {
@@ -712,7 +760,10 @@ final class Painter {
                     path.setFillType((flags & 32) != 0 ? Path.FillType.EVEN_ODD : Path.FillType.WINDING);
                     fill.setShader(null);
                     fill.setColor(argb(r, g, b, a));
+                    // added (sparks): brighter where they overlap
+                    if ((flags & 2048) != 0) fill.setXfermode(ADD);
                     c.drawPath(path, fill);
+                    if ((flags & 2048) != 0) fill.setXfermode(null);
                 } else {
                     stroke.setColor(argb(r, g, b, a));
                     stroke.setStrokeWidth(t != 0 ? t : 1);

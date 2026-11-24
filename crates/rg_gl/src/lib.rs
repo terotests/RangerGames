@@ -27,6 +27,8 @@ const POP_CLIP: i32 = 5;
 const PATH: i32 = 6;
 const STROKE: i32 = 7;
 const SPHERE: i32 = 8;
+/// liquid splats (a baked particle run): drawn by the host into a texture, as globes
+const SPLATS: i32 = 10;
 /// the 3D scene's triangles go here: x = first float, y = end (of `tris`)
 const LAYER3D: i32 = 9;
 
@@ -104,7 +106,7 @@ pub trait Host {
     /// Writes the run into the bound texture at x, y (w × h pixels): the text
     /// starts at x + pad, its baseline at y + pad − ascent.
     fn text_draw(&mut self, run: &TextRun, x: i32, y: i32, w: i32, h: i32) -> bool;
-    /// Draws the globes of stream commands `from..to` (all kind 8) into a
+    /// Draws the globes of stream commands `from..to` (all kind 8, or one kind 10: liquid splats) into a
     /// texture; `px`: device pixels per game unit. None: nothing to show.
     fn globes(&mut self, nums: &[f32], strings: &[String], from: usize, to: usize, px: f32) -> Option<Globes>;
 }
@@ -573,6 +575,13 @@ impl Renderer {
                 }
                 self.steps.push(Step::Globes { from: i, to: j, clip });
                 i = j;
+                continue;
+            }
+            if k == SPLATS {
+                if w > 0.0 && h > 0.0 {
+                    self.steps.push(Step::Globes { from: i, to: next, clip });
+                }
+                i = next;
                 continue;
             }
             i = next;

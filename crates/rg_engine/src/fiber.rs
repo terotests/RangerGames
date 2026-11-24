@@ -357,6 +357,8 @@ impl Cam {
 pub struct World {
     pub active: bool,
     models: HashMap<String, Result<Rc<Asset>, String>>,
+    /// height pictures read for the script (op "height"), None when not readable
+    heights: HashMap<String, Option<crate::heights::HeightPic>>,
     geos: HashMap<String, Rc<Geo>>,
     /// set by the engine around script calls and the render: the files and
     /// the game's folder, for models (only read while they are valid)
@@ -387,6 +389,7 @@ impl World {
         World {
             active: false,
             models: HashMap::new(),
+            heights: HashMap::new(),
             geos: HashMap::new(),
             vfs: std::ptr::null(),
             dir: String::new(),
@@ -429,9 +432,32 @@ impl World {
     /// Answers a synchronous request from the script (`__hostSync`), JSON in
     /// and out: {op: "gltf", src} the model's clips and node names;
     /// {op: "raycast", x, y, all} what is under a point of the screen;
-    /// {op: "project", x, y, z} a world point on the screen.
+    /// {op: "project", x, y, z} a world point on the screen;
+    /// {op: "height", src, u, v} a height picture's value 0..1 at u, v (null
+    /// when the picture is missing or not a PNG this reads).
     pub fn sync(&mut self, req: &Json) -> Json {
         match req.get("op").as_str().as_str() {
+            "height" => {
+                let src = req.get("src").as_str();
+                if !self.heights.contains_key(src.as_str()) {
+                    let pic = if self.vfs.is_null() {
+                        None
+                    } else {
+                        // SAFETY: as in model(): the engine's Vfs, borrowed for this call
+                        let fs: &Vfs = unsafe { &*self.vfs };
+                        let path = if src.starts_with('/') { src.to_string() } else { vfs::join(&self.dir, &src) };
+                        crate::heights::decode_png(&fs.read(&path))
+                    };
+                    if pic.is_none() && self.vfs.is_null() {
+                        return Json::Null;
+                    }
+                    self.heights.insert(src.to_string(), pic);
+                }
+                match self.heights.get(src.as_str()) {
+                    Some(Some(p)) => Json::Num(p.at(req.get("u").as_num(0.0), req.get("v").as_num(0.0))),
+                    _ => Json::Null,
+                }
+            }
             "gltf" => match self.model(&req.get("src").as_str()) {
                 Ok(a) => json::obj(vec![
                     member("animations", Json::Arr(a.clips.iter().map(|c| json::obj(vec![

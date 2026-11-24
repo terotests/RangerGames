@@ -16,7 +16,8 @@
 //! 14 rotate (degrees)  15-16 rotation origin
 //! 17 flags                      1 gradient, 2 gradient across, 4 shadow, 8 flip x,
 //!                               16 flip y, 32 even-odd, 64 crop, 128 rotation origin,
-//!                               256 italic, 512 smooth, 1024 tile
+//!                               256 italic, 512 smooth, 1024 tile, 2048 added
+//!                               (a path's colour added to what is under it: sparks)
 //! 18 string: text or image src  19 string: font family  20 string: font weight
 //! 21 letter spacing
 //! 22 n: the extra numbers that follow
@@ -213,6 +214,17 @@ impl DrawStream {
     /// A filled (`kind` 6) or stroked (7) path of several rings, with an
     /// opacity and, for a stroke, a line width.
     pub fn rings(&mut self, kind: u32, rgb: [f64; 3], alpha: f64, width: f64, pts: &[f32], ends: &[f32]) {
+        self.rings_flags(kind, rgb, alpha, width, pts, ends, 0);
+    }
+
+    /// A filled path whose colour is added to what is under it (flag 2048):
+    /// glowing sparks that brighten where they overlap.
+    pub fn rings_added(&mut self, rgb: [f64; 3], alpha: f64, pts: &[f32], ends: &[f32]) {
+        self.rings_flags(6, rgb, alpha, 0.0, pts, ends, 2048);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn rings_flags(&mut self, kind: u32, rgb: [f64; 3], alpha: f64, width: f64, pts: &[f32], ends: &[f32], flags: u32) {
         if pts.is_empty() {
             return;
         }
@@ -224,7 +236,7 @@ impl DrawStream {
         self.nums.extend_from_slice(&[
             kind as f32, 0.0, 0.0, 0.0, 0.0,
             (rgb[0] * 255.0) as f32, (rgb[1] * 255.0) as f32, (rgb[2] * 255.0) as f32, alpha as f32,
-            0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+            0.0, 0.0, 0.0, 0.0, width as f32, 0.0, 0.0, 0.0, flags as f32, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
         ]);
         self.nums.extend_from_slice(&extra);
         self.count += 1;
@@ -286,6 +298,18 @@ impl DrawStream {
     ///    (brightness - its blur) / this, and light them by the game's own sun
     /// ```
     ///
+    /// With 44 numbers the ball has rings in its equator plane (z = 0), seen in
+    /// front of it or hidden behind it, with each other's shadows; header slot
+    /// 21 names their pictures "colour|opacity" (strips across: the inner edge
+    /// on the left, the outer on the right; opacity as brightness):
+    ///
+    /// ```text
+    /// 40 inner  41 outer edge, in radii  42 rings (1)  43 unused
+    /// ```
+    ///
+    /// Close by the rings break up into specks (their lumps of ice) instead of a
+    /// smooth picture.
+    ///
     /// With 40 numbers, near (35) and no window (24 = 0), 20-23 that are not
     /// 0 0 1 1 are a hole: the windows drawn after this ball cover it (u may
     /// run below 0 or past 1), so the host may skip the ground there, and
@@ -315,13 +339,51 @@ impl DrawStream {
     /// `sphere_air` with the height pictures ("shading|shape", string 3).
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_terrain(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, params: &[f32]) {
+        self.sphere_rings(x, y, w, h, src, lights, heights, "", params);
+    }
+
+    /// (48 numbers: [44] how far a gas giant's fastest cloud band drifts in a
+    /// cycle, in picture widths, [45] where in the cycle it is, 0..1)
+    /// Liquid splats (kind 10, a baked particle run, splats.rs): the host
+    /// adds soft round splats up into a density, and shows it as a liquid
+    /// surface where it is thick enough, coloured from `palette` by the
+    /// splats' mean temperature and lit from `light` (screen x right, y down,
+    /// z towards the eye). Extras: palette count, its colours (0..1), the
+    /// light (3), the splat count, then x, y, radius (the game's units),
+    /// temperature (0..1) a splat.
+    pub fn splats(&mut self, w: f64, h: f64, opacity: f64, palette: &[[f64; 3]], light: [f64; 3], pts: &[f32]) {
+        if pts.is_empty() {
+            return;
+        }
+        let mut extra: Vec<f32> = Vec::with_capacity(pts.len() + palette.len() * 3 + 5);
+        extra.push(palette.len() as f32);
+        for c in palette {
+            extra.extend_from_slice(&[c[0] as f32, c[1] as f32, c[2] as f32]);
+        }
+        extra.extend_from_slice(&[light[0] as f32, light[1] as f32, light[2] as f32]);
+        extra.push((pts.len() / 4) as f32);
+        extra.extend_from_slice(pts);
+        self.nums.extend_from_slice(&[
+            10.0, 0.0, 0.0, w as f32, h as f32,
+            255.0, 255.0, 255.0, opacity as f32,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -1.0, -1.0, -1.0, 0.0, extra.len() as f32,
+        ]);
+        self.nums.extend_from_slice(&extra);
+        self.count += 1;
+    }
+
+    /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"
+    /// are string 4, header slot 21, read only with 44 numbers and 42 = 1).
+    #[allow(clippy::too_many_arguments)]
+    pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
         let s = self.string(src);
         let l = if lights.is_empty() { -1.0 } else { self.string(lights) };
         let hs = if heights.is_empty() { -1.0 } else { self.string(heights) };
+        let rs = if rings.is_empty() { 0.0 } else { self.string(rings) };
         self.nums.extend_from_slice(&[
             8.0, x as f32, y as f32, w as f32, h as f32,
             255.0, 255.0, 255.0, 1.0,
-            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, hs, 0.0, params.len() as f32,
+            0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, s, l, hs, rs, params.len() as f32,
         ]);
         self.nums.extend_from_slice(params);
         self.count += 1;

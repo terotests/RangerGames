@@ -20,12 +20,15 @@
 //! Each platform is a thin host around this: `rg_web` (WebAssembly, the
 //! browser and the Android WebView shell) and `rg_cli` (headless, tests).
 
+pub mod burst;
 pub mod draw;
 pub mod fiber;
 pub mod fluid;
 pub mod globe;
 pub mod gltf;
+pub mod heights;
 pub mod scene3d;
+pub mod splats;
 pub mod script;
 pub mod ui;
 
@@ -329,6 +332,8 @@ pub struct Engine {
     /// the host draws real heights on a globe (a sphere command with 40
     /// numbers: the ground's shape close by); the game sees it as rg.terrain
     pub terrain: bool,
+    /// the host draws baked particle runs as liquid splats (draw kind 10)
+    pub splats: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -365,6 +370,7 @@ impl Engine {
             store: false,
             detail: false,
             terrain: false,
+            splats: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -609,6 +615,8 @@ impl Engine {
         // the last game's sensors off (GPS uses the battery)
         self.commands.push(HostCommand { kind: "sensor".into(), name: "*".into(), args: Json::Bool(false) });
         self.commands.push(HostCommand { kind: "stop".into(), name: "music".into(), args: Json::Null });
+        // and its sounds (rg.sound's long files, loops)
+        self.commands.push(HostCommand { kind: "soundctl".into(), name: "stop".into(), args: Json::Obj(vec![member("h", Json::Num(0.0))]) });
         // rg.net: the links to other phones stay up from game to game; the
         // host tells the new game what it can do and which links are up
         // ({type: "info"}), and the game says to them where it is
@@ -757,6 +765,8 @@ impl Engine {
             member("menu", Json::Bool(self.has_launcher())),
             member("store", Json::Bool(self.store)),
             member("terrain", Json::Bool(self.terrain)),
+            // the host draws detail windows (rg.detail): with rg.terrain, also their own heights
+            member("detail", Json::Bool(self.detail)),
         ]);
         let r = s.call("__start", arg.write());
         self.log.extend(s.take_output());
@@ -798,6 +808,12 @@ impl Engine {
                 continue;
             }
             if cmd.kind == "three" {
+                // a baked particle run: its file read here, where the files are
+                if cmd.name == "add" && cmd.args.get("shape").as_str() == "splats" {
+                    let src = cmd.args.get("src").as_str();
+                    let path = if src.starts_with('/') { src } else { vfs::join(&self.scene.dir, &src) };
+                    self.scene.splat_bytes = if self.vfs.exists(&path) { Some(self.vfs.read(&path)) } else { None };
+                }
                 self.scene.command(&cmd.name, &cmd.args);
                 continue;
             }
@@ -926,6 +942,7 @@ impl Engine {
                 self.scene.textures = self.textures;
                 self.scene.detail = self.detail;
                 self.scene.terrain = self.terrain;
+                self.scene.splats_ok = self.splats;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 let t0 = self.scene.tris.len();
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);

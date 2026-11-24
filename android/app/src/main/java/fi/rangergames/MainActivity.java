@@ -371,6 +371,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             // the globes on the GPU, with the detail pictures; else in software without them
             Engine.detail(painter.startGl());
         }
+        Engine.splats(painter.canSplats());
         Engine.start("");
         afterCall();
     }
@@ -545,7 +546,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "sound": sound.play(name, opts); break;
             case "say": sound.say(opts); break;
             case "music": sound.music(name, opts); break;
-            case "stop": sound.stopMusic(); break;
+            case "stop": sound.stopMusic(opts); break;
+            case "soundctl": sound.control(name, opts); break;
             case "vibrate": vibrate(args); break;
             case "copy": copy(String.valueOf(args)); break;
             case "sensor":

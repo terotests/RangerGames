@@ -196,6 +196,12 @@ pub extern "system" fn Java_fi_rangergames_Engine_textures(_env: JNIEnv, _c: JCl
     with(|e| e.textures = on != 0);
 }
 
+/// on: the app draws baked particle runs as liquid splats (draw kind 10, GlSplats.java)
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_splats(_env: JNIEnv, _c: JClass, on: jboolean) {
+    with(|e| e.splats = on != 0);
+}
+
 /// on: the app draws real heights on globes (a sphere command with 40 numbers, Terrain.java)
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_terrain(_env: JNIEnv, _c: JClass, on: jboolean) {

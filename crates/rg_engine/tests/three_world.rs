@@ -159,3 +159,20 @@ fn nappulasota_puzzles_mate_as_they_say() {
     let saved = e.vfs.read_text("/save/t.json");
     assert!(saved.contains("14 bad:\""), "{}", saved);
 }
+
+#[test]
+fn the_script_reads_a_height_picture() {
+    let mut e = engine(r##"
+        function view() { return <div class="s"></div>; }
+        function tick() {
+          const a = rg.height("img/h.png", 0.125, 0.25), b = rg.height("img/h.png", 0.875, 0.25), c = rg.height("img/none.png", 0.5, 0.5);
+          rg.save("h", [a, b.toFixed(3), c].join(","));
+        }
+    "##);
+    e.vfs.add("/games/t/img/h.png", include_bytes!("height4x2.png").to_vec());
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    e.frame(16.0).unwrap();
+    let saved = e.vfs.read_text("/save/t.json");
+    assert!(saved.contains("0,1.000,"), "{}", saved);
+}
