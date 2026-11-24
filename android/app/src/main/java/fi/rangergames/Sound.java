@@ -35,6 +35,7 @@ final class Sound implements Runnable {
     private static final int RATE = 22050;
     private static final int SINE = 0, SQUARE = 1, TRIANGLE = 2, SAW = 3;
     private static final float MASTER = 0.5f;
+    private static final double KNEE = 0.8;
 
     /** One note or noise burst: starts at sample `at`, lasts `len` samples. */
     private static final class Voice {
@@ -46,6 +47,8 @@ final class Sound implements Runnable {
         double x1, x2, y1, y2;
         /** a sound file's samples at RATE, or null for a synthesized voice */
         short[] pcm;
+        /** a file still being decoded: plays as far as it has come (pcm is its buffer then) */
+        Stream st;
         // a sound file's handle (rg.stopSound …), its place, looping, pause
         int h;
         /** the order it was asked in, against the controls' (Ctl.upTo) */
@@ -275,8 +278,13 @@ final class Sound implements Runnable {
     }
 
     private void startFile(short[] pcm, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser) {
+        startFile(pcm, null, vol, h, loop, fade, base, queue, ser);
+    }
+
+    private void startFile(short[] pcm, Stream st, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser) {
         Voice v = new Voice();
         v.pcm = pcm;
+        v.st = st;
         v.vol = vol;
         v.at = now;
         if (queue && !loop) {
@@ -416,7 +424,7 @@ final class Sound implements Runnable {
 
     // stops asked while a file was still being decoded: handle → serial (0: all)
     private final java.util.concurrent.ConcurrentHashMap<Integer, Long> stoppedAt = new java.util.concurrent.ConcurrentHashMap<>();
-    private final java.util.HashSet<String> decoding = new java.util.HashSet<>();
+    private final java.util.HashMap<String, Stream> decoding = new java.util.HashMap<>();
 
     private void markStopped(int h) {
         stoppedAt.put(h, serial);
@@ -427,32 +435,64 @@ final class Sound implements Runnable {
         return (all != null && all >= ser) || (mine != null && mine >= ser);
     }
 
-    /** A compressed file (MP3 …): decoded on its own thread, cached, then played
-     *  unless it was stopped meanwhile. */
+    /** A file being decoded: samples [0, avail) of buf are ready; buf may be
+     *  swapped for a bigger one (avail is written after, read first). */
+    static final class Stream {
+        volatile short[] buf = new short[0];
+        volatile int avail;
+        volatile boolean done;
+    }
+
+    /** A compressed file (MP3 …): decoded on its own thread and played as it
+     *  comes (a 3-minute MP3 took ~10 s to decode on the tablet, so waiting for
+     *  all of it left the start silent), unless it was stopped meanwhile; cached
+     *  once whole. */
     private void decodeLater(String name, byte[] b, double vol, int h, boolean loop, double fade, double base, long ser) {
+        final Stream st;
         synchronized (decoding) {
-            if (!decoding.add(name)) return;   // the same file asked again while decoding
+            Stream old = decoding.get(name);
+            if (old != null) {
+                // asked again while still decoding (music stopped and started again):
+                // a new voice on the same stream, from its start
+                startFile(old.buf, old, vol, h, loop, fade, base, false, ser);
+                return;
+            }
+            st = new Stream();
+            decoding.put(name, st);
         }
         Thread t = new Thread(() -> {
             short[] pcm = null;
+            final boolean[] started = { false };
             try {
-                pcm = decodeCompressed(b);
-            } catch (Throwable ignored) {
+                pcm = decodeCompressed(b, st, () -> {
+                    if (!started[0] && !stoppedSince(h, ser)) {
+                        started[0] = true;
+                        startFile(st.buf, st, vol, h, loop, fade, base, false, ser);
+                    }
+                });
+            } catch (Throwable e) {
+                android.util.Log.w("RangerGames", "decode " + name, e);
             }
+            st.done = true;
             synchronized (files) {
                 files.put(name, pcm);
             }
             synchronized (decoding) {
                 decoding.remove(name);
             }
-            if (pcm != null && pcm.length > 0 && !stoppedSince(h, ser)) startFile(pcm, vol, h, loop, fade, base, false, ser);
+            if (!started[0] && pcm != null && pcm.length > 0 && !stoppedSince(h, ser)) startFile(pcm, vol, h, loop, fade, base, false, ser);
         }, "rg-decode");
-        t.setPriority(Thread.MIN_PRIORITY);
+        t.setPriority(Thread.NORM_PRIORITY - 1);
         t.start();
     }
 
     /** MP3/AAC/Ogg → mono 16-bit at RATE (channels averaged, resampled linearly as it comes). */
     static short[] decodeCompressed(final byte[] b) throws Exception {
+        return decodeCompressed(b, null, null);
+    }
+
+    /** As above, filling st as it goes; ready runs once ~0.5 s is decoded. */
+    static short[] decodeCompressed(final byte[] b, Stream st, Runnable ready) throws Exception {
         MediaExtractor ex = new MediaExtractor();
         MediaCodec c = null;
         try {
@@ -478,6 +518,7 @@ final class Sound implements Runnable {
             int src = fmt.getInteger(MediaFormat.KEY_SAMPLE_RATE), ch = Math.max(1, fmt.getInteger(MediaFormat.KEY_CHANNEL_COUNT));
             long dur = fmt.containsKey(MediaFormat.KEY_DURATION) ? fmt.getLong(MediaFormat.KEY_DURATION) : 0;
             short[] out = new short[(int) Math.max(RATE, dur * RATE / 1000000L + RATE)];
+            if (st != null) st.buf = out;
             int n = 0;
             long si = 0;          // source frames seen
             double prev = 0;
@@ -522,7 +563,10 @@ final class Sound implements Runnable {
                                 double p = (double) n * src / RATE;
                                 if (p > si) break;
                                 double fr = p - (si - 1);
-                                if (n >= out.length) out = java.util.Arrays.copyOf(out, out.length + RATE * 10);
+                                if (n >= out.length) {
+                                    out = java.util.Arrays.copyOf(out, out.length + RATE * 10);
+                                    if (st != null) st.buf = out;
+                                }
                                 out[n++] = (short) Math.round(si == 0 ? s : prev + (s - prev) * fr);
                             }
                             prev = s;
@@ -531,7 +575,15 @@ final class Sound implements Runnable {
                     }
                     c.releaseOutputBuffer(oi, false);
                     if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) outEnd = true;
+                    if (st != null) {
+                        st.avail = n;
+                        if (ready != null && n >= RATE / 2) { ready.run(); ready = null; }
+                    }
                 }
+            }
+            if (st != null) {
+                st.avail = n;
+                if (ready != null && n > 0) ready.run();
             }
             return n == out.length ? out : java.util.Arrays.copyOf(out, n);
         } finally {
@@ -607,7 +659,9 @@ final class Sound implements Runnable {
         boolean loop = o == null || o.optBoolean("loop", true);
         musicH = h;
         if (t == null) {
-            playFile(name, vol * 0.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
+            // music files: 1.6 × MASTER 0.5 = 0.8 of full scale (0.6 × 0.5 was half as
+            // loud as the MediaPlayer music before, and barely audible on the tablet)
+            playFile(name, vol * 1.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
             return;
         }
         tuneVol = vol;
@@ -706,9 +760,24 @@ final class Sound implements Runnable {
                         if (v.held) continue;
                         loudAt = System.currentTimeMillis();
                         boolean done = false;
+                        // a file still decoding: only as far as it has come (avail before buf)
+                        Stream st = v.st;
+                        int lim = v.pcm.length;
+                        boolean more = false;
+                        if (st != null) {
+                            more = !st.done;   // first: once done, avail is final
+                            lim = st.avail;
+                            v.pcm = st.buf;
+                        }
+                        // nothing came out of the decoder: no samples to loop over
+                        if (lim == 0 && !more) {
+                            voices.remove(vi);
+                            continue;
+                        }
                         for (int s = 0; s < frames; s++) {
                             if (start + s < v.at) continue;
-                            if (v.pos >= v.pcm.length) {
+                            if (v.pos >= lim) {
+                                if (more) break;   // the decoder is behind: wait for it
                                 if (!v.loop) {
                                     done = true;
                                     break;
@@ -776,7 +845,12 @@ final class Sound implements Runnable {
                 }
                 for (int s = 0; s < frames; s++) {
                     double m = mix[s] * MASTER;
-                    m = m > 1 ? 1 : m < -1 ? -1 : m;
+                    // loud music with speech and effects on top goes over full scale:
+                    // above KNEE the level bends towards 1 instead of clipping flat
+                    // (a NaN would cast to 0 and silence every sound: left out)
+                    if (m != m) m = 0;
+                    else if (m > KNEE) m = KNEE + (1 - KNEE) * Math.tanh((m - KNEE) / (1 - KNEE));
+                    else if (m < -KNEE) m = -KNEE - (1 - KNEE) * Math.tanh((-m - KNEE) / (1 - KNEE));
                     buf[s] = (short) (m * 32767);
                 }
             }

@@ -371,7 +371,14 @@ final class Painter {
         float ex = nums[at], ey = nums[at + 1], ez = nums[at + 2];
         float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
         float w = x1 - x0, h = y1 - y0;
-        boolean same = (b.bm != null || b.kept) && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
+        // drifting cloud bands or morphing clouds (48 or 72 numbers) change every frame: drawn anew
+        boolean moving = false;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            int nq = (int) nums[q + 22], aq = extras(nums, q);
+            if (nq >= 48 && nums[aq + 44] > 0) moving = true;
+            if (nq >= 72 && (nums[aq + 48] > 0 || nums[aq + 50] > 0)) moving = true;
+        }
+        boolean same = !moving && (b.bm != null || b.kept) && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
         if (same) {
             // a third of a pixel of the picture (about half a screen pixel), as an angle seen from the globe and as a share of its size
             float tol = 0.3f / Math.max(8, Math.max(b.pw, b.ph));

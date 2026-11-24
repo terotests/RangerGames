@@ -61,6 +61,14 @@
 //!                                                 // (0.3 for a calmer giant), t the planet's
 //!                                                 // time in seconds (the game's clock, warp
 //!                                                 // and all), set each frame
+//!                      turbulence: 1              // the clouds morph (a rolling warp of the
+//!                                                 // picture, EVG's smoke); default: as `flow`
+//!                      vortices: [{ lat, lon, r, ell, turns, depth }]
+//!                                                 // storms turning in the clouds (at most 4):
+//!                                                 // middle and radius in degrees, width /
+//!                                                 // height, turns an hour of flowTime
+//!                                                 // (+ counter-clockwise from outside), how
+//!                                                 // much the middle turns (0..1)
 //! rg.three("space",  { sun: [x, y, z], stars })   // the light of the planets; a sky of `stars` stars
 //! ```
 //!
