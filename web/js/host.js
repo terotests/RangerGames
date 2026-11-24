@@ -60,6 +60,7 @@
           self.x.rg_textures(1);
           if (self.x.rg_detail && global.RgPainter.canDrawDetail && !params.has("nodetail")) self.x.rg_detail(1);
           if (self.x.rg_terrain && global.RgPainter.canDrawTerrain && !params.has("noterrain")) self.x.rg_terrain(1);
+          if (self.x.rg_splats && global.RgPainter.canDrawSplats && !params.has("nosplats") && global.RgPainter.canDrawSplats()) self.x.rg_splats(1);
         }
         // ?nogl: the old painter-sorted 3D, for comparing
         if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);

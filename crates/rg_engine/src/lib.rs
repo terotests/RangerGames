@@ -28,6 +28,7 @@ pub mod globe;
 pub mod gltf;
 pub mod heights;
 pub mod scene3d;
+pub mod splats;
 pub mod script;
 pub mod ui;
 
@@ -320,6 +321,8 @@ pub struct Engine {
     /// the host draws real heights on a globe (a sphere command with 40
     /// numbers: the ground's shape close by); the game sees it as rg.terrain
     pub terrain: bool,
+    /// the host draws baked particle runs as liquid splats (draw kind 10)
+    pub splats: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -353,6 +356,7 @@ impl Engine {
             store: false,
             detail: false,
             terrain: false,
+            splats: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -787,6 +791,12 @@ impl Engine {
                 continue;
             }
             if cmd.kind == "three" {
+                // a baked particle run: its file read here, where the files are
+                if cmd.name == "add" && cmd.args.get("shape").as_str() == "splats" {
+                    let src = cmd.args.get("src").as_str();
+                    let path = if src.starts_with('/') { src } else { vfs::join(&self.scene.dir, &src) };
+                    self.scene.splat_bytes = if self.vfs.exists(&path) { Some(self.vfs.read(&path)) } else { None };
+                }
                 self.scene.command(&cmd.name, &cmd.args);
                 continue;
             }
@@ -914,6 +924,7 @@ impl Engine {
                 self.scene.textures = self.textures;
                 self.scene.detail = self.detail;
                 self.scene.terrain = self.terrain;
+                self.scene.splats_ok = self.splats;
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
                 self.lend_files(false);

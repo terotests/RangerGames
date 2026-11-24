@@ -194,6 +194,12 @@ pub extern "C" fn rg_terrain(on: i32) {
     with(|e| e.terrain = on != 0)
 }
 
+/// The host draws baked particle runs as liquid splats (draw kind 10).
+#[no_mangle]
+pub extern "C" fn rg_splats(on: i32) {
+    with(|e| e.splats = on != 0)
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())
