@@ -29,7 +29,7 @@ final class Engine {
 
     static native void key(boolean down, String key);
 
-    /** A sensor reading: "location" or "heading" (or "error") and its JSON. */
+    /** A sensor reading: "location", "heading" or "orient" (or "error") and its JSON. */
     static native void sensor(String name, String json);
 
     static native int frame(double dtMs);

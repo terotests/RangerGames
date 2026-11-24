@@ -543,7 +543,9 @@ impl Engine {
     /// A phone sensor's reading for the game: `name` is `location` (data
     /// `{lat, lon, accuracy, speed, bearing, altitude, time}`, accuracy in
     /// metres, bearing in degrees from north or -1) or `heading` (`{deg}`,
-    /// where the top of the phone points, degrees from north), or `error`
+    /// where the top of the phone points, degrees from north), `orient`
+    /// (`{m: [9]}`, the screen's right, up and out-of-screen axes as rows in
+    /// the world: x east, y north, z up; about 30 a second), or `error`
     /// (`{sensor, reason}`). The game asks for one with `rg.sensor(name, true)`
     /// and gets it in `onLocation(fix)` / `onHeading(deg)` / `onSensor(name, data)`.
     pub fn sensor(&mut self, name: &str, data: &str) {
