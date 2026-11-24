@@ -15,7 +15,8 @@
 //!                             | "mesh"         // verts: [x, y, z, ...], tris: [a, b, c, ...] (counter-
 //!                                               // clockwise seen from outside), colors: a 0xrrggbb a
 //!                                               // triangle (else `color`), glow: the triangles drawn
-//!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
+//!                                               // unlit; smooth: true lights a corner (normals and
+//!                                               // colours averaged, GL); a ship from RangerSpaceshipBuilder
 //!                             | "dust"         // as puffs with two numbers more a puff (seed, age 0…1):
 //!                                               // a few lumps turning round it and drifting apart with age
 //!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
@@ -30,8 +31,19 @@
 //!                                               // object's place; inside r they are gone), drag,
 //!                                               // life: [min, max] s, size: [start, end] (world),
 //!                                               // palette: colours over a life, bright, seed;
+//!                                               // streak: s (thin triangles along the motion, the
+//!                                               // tail where it was s ago, fading), far: d (half
+//!                                               // the size at d from the start), split: n,
+//!                                               // splitAt: [min, max] (share of a life),
+//!                                               // splitSpeed (sparks break into n pieces);
 //!                                               // set { id, time } the seconds since it went off
 //!                                               // (back in time runs it again), bright
+//!                             | "splats"       // a baked particle run (src: a .rgps, splats.rs): axes,
+//!                                               // scale, palette (cold to hot), time; res (0.5: the
+//!                                               // density picture's pixels a screen pixel, less is
+//!                                               // cheaper), max (80: the biggest splat, px);
+//!                                               // look: "liquid" (a lit surface) or "gas" (see-
+//!                                               // through dust, density: 1.5 a splat)
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
@@ -371,6 +383,11 @@ struct Obj {
     double: bool,
     /// 0..1: how strongly the lights glint off it (a polished hull)
     shiny: f64,
+    /// "mesh" with smooth: true: lit a corner, with each corner's normal the
+    /// mean of its faces' and each corner's colour the mean of its faces', so
+    /// that light bends round a rounded rock instead of showing flat facets
+    /// (GL only; the painter draws it faceted)
+    smooth: bool,
     /// 1: solid; below 1 a see-through light (a flame, a glow): the painter
     /// blends it over what is behind, GL adds its colour times this
     opacity: f64,
@@ -399,11 +416,20 @@ struct SplatRun {
     axes: [V3; 3],
     scale: f64,
     palette: Vec<V3>,
+    /// the density picture's pixels a screen pixel (0.5; less is cheaper and softer)
+    res: f64,
+    /// the biggest splat, screen pixels (80; less is cheaper close by)
+    max: f64,
+    /// look "gas": see-through dust (alpha 1 - exp(-density × thickness)),
+    /// not a liquid surface
+    gas: bool,
+    /// how thick the gas is a splat (1.5)
+    density: f64,
 }
 
 impl SplatRun {
     fn new(run: crate::splats::Splats, a: &Json) -> SplatRun {
-        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new() };
+        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new(), res: 0.5, max: 80.0, gas: false, density: 1.5 };
         s.set(a);
         if s.palette.is_empty() {
             s.palette = vec![[0.25, 0.08, 0.05], [0.65, 0.12, 0.04], [1.0, 0.42, 0.08], [1.0, 0.72, 0.3], [1.0, 0.9, 0.6]];
@@ -428,6 +454,12 @@ impl SplatRun {
             }
         }
         self.run.time = a.get("time").as_num(self.run.time);
+        self.res = a.get("res").as_num(self.res).clamp(0.1, 1.0);
+        self.max = a.get("max").as_num(self.max).clamp(1.0, 200.0);
+        if let Json::Str(l) = a.get("look") {
+            self.gas = l == "gas";
+        }
+        self.density = a.get("density").as_num(self.density).clamp(0.01, 50.0);
     }
 
     /// a place in the file into the world, from the object's place
@@ -583,6 +615,45 @@ impl Planet {
         let tilt = |v: V3| -> V3 { [v[0] * ct - v[1] * st, v[0] * st + v[1] * ct, v[2]] };
         [tilt(x0), tilt(y0), tilt(z0)]
     }
+}
+
+/// A burst spark on the screen (eye space `vh`, and `vt` where it was a
+/// streak ago): four corners (x, y) with how much of its colour each carries,
+/// and how bright it is. A square, or along its motion a thin kite: the tip
+/// ahead, the head's sides, the tail (0: it fades out to there). A spark
+/// smaller than half a pixel stays half a pixel and is dimmer by its area;
+/// a long streak is dimmer, as a moving light is spread over its path.
+/// None: off the screen.
+fn spark_shape(vh: V3, vt: Option<V3>, size: f64, focal: f64, w: f64, h: f64, near: f64) -> Option<([[f64; 2]; 4], [f64; 4], f64)> {
+    let mut px = size * focal / vh[2];
+    let mut bright = 1.0;
+    if px < 0.5 {
+        bright = (px / 0.5) * (px / 0.5);
+        px = 0.5;
+    }
+    let px = px.min(40.0);
+    let x = w / 2.0 + vh[0] / vh[2] * focal;
+    let y = h / 2.0 - vh[1] / vh[2] * focal;
+    if let Some(t) = vt.filter(|t| t[2] >= near) {
+        let tx = w / 2.0 + t[0] / t[2] * focal;
+        let ty = h / 2.0 - t[1] / t[2] * focal;
+        let (dx, dy) = (x - tx, y - ty);
+        let l = (dx * dx + dy * dy).sqrt();
+        if l > 1.5 * px {
+            let (nx, ny) = (dx / l, dy / l);
+            let (l, tx, ty) = if l > 400.0 { (400.0, x - nx * 400.0, y - ny * 400.0) } else { (l, tx, ty) };
+            if (x.max(tx) < -px) || (y.max(ty) < -px) || (x.min(tx) > w + px) || (y.min(ty) > h + px) {
+                return None;
+            }
+            let (qx, qy) = (-ny * px, nx * px);
+            let pts = [[x + nx * px, y + ny * px], [x + qx, y + qy], [tx, ty], [x - qx, y - qy]];
+            return Some((pts, [1.0, 1.0, 0.0, 1.0], bright * (3.0 * px / l).sqrt().min(1.0)));
+        }
+    }
+    if x < -px || y < -px || x > w + px || y > h + px {
+        return None;
+    }
+    Some(([[x - px, y - px], [x + px, y - px], [x + px, y + px], [x - px, y + px]], [1.0; 4], bright))
 }
 
 /// A burst particle's colour bucket: 5 bits a channel (the painter draws one
@@ -768,6 +839,7 @@ impl Scene {
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
                     shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
+                    smooth: a.get("smooth").as_bool(),
                     opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
@@ -1117,18 +1189,21 @@ impl Scene {
             if let Some(b) = o.burst.as_ref() {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
                 let mut buckets: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
-                b.each(|lp, size, c| {
-                    let v = to_view(add(o.pos, lp));
+                let streak = b.streak;
+                b.each(|lp, lv, size, c| {
+                    let wp = add(o.pos, lp);
+                    let v = to_view(wp);
                     if v[2] < near || hidden(v, &discs) {
                         return;
                     }
-                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
-                    let x = w / 2.0 + v[0] / v[2] * focal;
-                    let y = h / 2.0 - v[1] / v[2] * focal;
-                    if x < -px || y < -px || x > w + px || y > h + px {
-                        return;
-                    }
-                    let rgb = self.fogged(c, v[2]);
+                    let vt = if streak > 0.0 { Some(to_view(sub(wp, mul(lv, streak)))) } else { None };
+                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, w, h, near) {
+                        Some(s) => s,
+                        None => return,
+                    };
+                    // one colour a path: a streak's fading tail as half its light
+                    let k = if wts[2] < 0.5 { k * 0.6 } else { k };
+                    let rgb = mul(self.fogged(c, v[2]), k);
                     let key = burst_key(rgb);
                     let k = match buckets.iter().position(|e| e.0 == key) {
                         Some(k) => k,
@@ -1138,8 +1213,9 @@ impl Scene {
                         }
                     };
                     let e = &mut buckets[k];
-                    let (x0, y0, x1, y1) = ((x - px) as f32, (y - px) as f32, (x + px) as f32, (y + px) as f32);
-                    e.2.extend_from_slice(&[x0, y0, x1, y0, x1, y1, x0, y1]);
+                    for p in pts.iter() {
+                        e.2.extend_from_slice(&[p[0] as f32, p[1] as f32]);
+                    }
                     e.3.push(e.2.len() as f32);
                 });
                 let z = to_view(o.pos)[2];
@@ -1265,7 +1341,7 @@ impl Scene {
                 if v[2] < near || hidden(v, &discs) {
                     return;
                 }
-                let px = (r * sp.scale * focal / v[2]).clamp(0.4, 80.0);
+                let px = (r * sp.scale * focal / v[2]).clamp(0.4, sp.max);
                 let x = w / 2.0 + v[0] / v[2] * focal;
                 let y = h / 2.0 - v[1] / v[2] * focal;
                 if x < -px || y < -px || x > w + px || y > h + px {
@@ -1301,7 +1377,7 @@ impl Scene {
                     Some(s) => norm(sub(s, c)),
                     None => norm(sub(cam, c)),
                 };
-                out.splats(w, h, o.opacity, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+                out.splats(w, h, o.opacity, sp.res, if sp.gas { sp.density } else { 0.0 }, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
             } else {
                 for (_, c, p, e) in squares {
                     out.rings_added(c, (o.opacity * 0.6).min(0.999), &p, &e);
@@ -1414,6 +1490,8 @@ impl Scene {
         }
         let mut drawn = 0;
         let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
+        // burst sparks: added triangles, a colour a corner (no order needed)
+        let mut sparks: Vec<f32> = Vec::new();
         for (o, world) in self.objs.iter().zip(worlds.iter()) {
             if !o.visible {
                 continue;
@@ -1441,22 +1519,52 @@ impl Scene {
             // burst particles: see-through quads, added like the puffs
             if let Some(b) = o.burst.as_ref() {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
-                b.each(|lp, size, c| {
-                    let v = to_view(add(o.pos, lp));
+                let streak = b.streak;
+                b.each(|lp, lv, size, c| {
+                    let wp = add(o.pos, lp);
+                    let v = to_view(wp);
                     if v[2] < near || hidden(v, &discs) {
                         return;
                     }
-                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
-                    let x = w / 2.0 + v[0] / v[2] * focal;
-                    let y = h / 2.0 - v[1] / v[2] * focal;
-                    if x < -px || y < -px || x > w + px || y > h + px {
-                        return;
+                    let vt = if streak > 0.0 { Some(to_view(sub(wp, mul(lv, streak)))) } else { None };
+                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, w, h, near) {
+                        Some(s) => s,
+                        None => return,
+                    };
+                    let dz = (d(v[2]) + 2.0) as f32;
+                    let rgb = mul(self.fogged(c, v[2]), o.opacity * k);
+                    for &i in [0usize, 1, 2, 0, 2, 3].iter() {
+                        let (p, m) = (pts[i], wts[i]);
+                        sparks.extend_from_slice(&[p[0] as f32, p[1] as f32, dz, (rgb[0] * m) as f32, (rgb[1] * m) as f32, (rgb[2] * m) as f32]);
                     }
-                    let dz = d(v[2]) + 2.0;
-                    let rgb = mul(self.fogged(c, v[2]), o.opacity);
-                    glow.push((v[2], vec![[x - px, y - px, dz], [x + px, y - px, dz], [x + px, y + px, dz], [x - px, y + px, dz]], rgb));
                 });
             }
+            // smooth meshes: a normal and a colour a corner, the area-weighted
+            // mean of the faces round it (the colours: plain mean)
+            let (vn, vc): (Vec<V3>, Vec<V3>) = if o.smooth && !o.mesh.faces.is_empty() {
+                let mut vn = vec![[0.0; 3]; world.len()];
+                let mut vc = vec![[0.0; 3]; world.len()];
+                let mut cnt = vec![0.0f64; world.len()];
+                for (fi, face) in o.mesh.faces.iter().enumerate() {
+                    let a = world[face[0]];
+                    let n = cross(sub(world[face[1]], a), sub(world[face[face.len() - 1]], a));
+                    let (fc, _) = o.mesh.face_paint(fi, o.color, o.emissive);
+                    for &i in face.iter() {
+                        vn[i] = add(vn[i], n);
+                        vc[i] = add(vc[i], fc);
+                        cnt[i] += 1.0;
+                    }
+                }
+                for i in 0..world.len() {
+                    vn[i] = norm(vn[i]);
+                    if cnt[i] > 0.0 {
+                        vc[i] = mul(vc[i], 1.0 / cnt[i]);
+                    }
+                }
+                (vn, vc)
+            } else {
+                (Vec::new(), Vec::new())
+            };
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1491,8 +1599,25 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
+                if !vn.is_empty() && !unlit && o.opacity >= 1.0 && pts.len() == face.len() && view.iter().all(|p| p[2] >= near) {
+                    // a colour a corner; the back of a double mesh turns its normals round
+                    let flip = if dot(norm(cross(sub(b, a), sub(c, a))), towards) > 0.0 { -1.0 } else { 1.0 };
+                    let cols: Vec<V3> = face.iter().map(|&i| {
+                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam);
+                        self.fogged(lit, dist)
+                    }).collect();
+                    for k in 1..pts.len() - 1 {
+                        for &j in [0, k, k + 1].iter() {
+                            let p = pts[j];
+                            let cc = cols[j];
+                            tris.extend_from_slice(&[p[0] as f32, p[1] as f32, d(p[2]) as f32, cc[0] as f32, cc[1] as f32, cc[2] as f32]);
+                        }
+                    }
+                    drawn += 1;
+                    continue;
+                }
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let c = self.fogged(lit, dist);
                 if o.opacity < 1.0 {
                     // see-through: added over what is behind, after the solid
@@ -1511,6 +1636,7 @@ impl Scene {
         for (_, pts, c) in glow.iter() {
             fan(&mut tris, pts, &|z| z, *c);
         }
+        tris.extend_from_slice(&sparks);
         self.drawn = drawn;
         self.tris = tris;
     }
@@ -1583,6 +1709,27 @@ mod mesh_tests {
         assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
         assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
         assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
+    }
+
+    #[test]
+    fn a_smooth_mesh_is_lit_a_corner_in_gl() {
+        // a ridge of two faces; the light from the right side
+        let corners = |smooth: bool| -> Vec<[f32; 3]> {
+            let mut sc = Scene::new();
+            sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+            sc.command("light", &rg_core::json::parse(r#"{ "id": "sun", "type": "directional", "x": 1, "y": 0, "z": 1, "intensity": 1 }"#));
+            let m = format!(r##"{{ "id": "ridge", "shape": "mesh", "color": "#ffffff", "smooth": {},
+                "verts": [-1,0,0, 0,-1,1, 0,1,1, 1,0,0], "tris": [0,1,2, 2,1,3] }}"##, smooth);
+            sc.command("add", &rg_core::json::parse(&m));
+            sc.gl = true;
+            sc.render(&mut DrawStream::new(), 400.0, 400.0);
+            assert!(sc.tris.len() >= 36);
+            (0..3).map(|i| [sc.tris[i * 6 + 3], sc.tris[i * 6 + 4], sc.tris[i * 6 + 5]]).collect()
+        };
+        let flat = corners(false);
+        assert!(flat[0] == flat[1] && flat[1] == flat[2], "{:?}", flat);
+        let smooth = corners(true);
+        assert!(smooth[0] != smooth[1], "{:?}", smooth);
     }
 
     #[test]
@@ -1664,6 +1811,14 @@ mod mesh_tests {
         assert!(pts.chunks(4).all(|p| (p[0] - 200.0).abs() < 0.01 && (p[3] - 200.0 / 255.0).abs() < 1e-3));
         let ys: Vec<f32> = pts.chunks(4).map(|p| p[1]).collect();
         assert!(ys[0] > ys[49], "file x runs up the screen");
+        assert_eq!(out.nums[k + 10], 0.0, "liquid by default");
+        // look "gas": its density in header slot 10, cheaper res in slot 9
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "s", "look": "gas", "density": 2, "res": 0.35 }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        assert_eq!(out.nums[k + 10], 2.0);
+        assert!((out.nums[k + 9] - 0.35).abs() < 1e-6);
         // a host without splats: added squares
         sc.splats_ok = false;
         let mut out = DrawStream::new();
@@ -1692,6 +1847,17 @@ mod mesh_tests {
         // see-through quads (two triangles each), depth 2..3
         assert_eq!(gl.tris.len(), 100 * 6 * 6);
         assert!(gl.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // streaks: kites along the motion, the tail corner dark (it fades out there)
+        let mut st = Scene::new();
+        st.gl = true;
+        st.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        st.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 50, "speed": 2, "dir": [1, 0, 0], "spread": 0.1,
+            "life": [3, 3], "streak": 0.5, "palette": ["#ffffff"] }"##));
+        st.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        st.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert_eq!(st.tris.len(), 50 * 6 * 6);
+        let dark = st.tris.chunks(6).filter(|c| c[3] == 0.0 && c[4] == 0.0 && c[5] == 0.0).count();
+        assert_eq!(dark, 50 * 2, "each streak's tail corner twice (two triangles)");
         // a planet between the eye and the burst hides it
         assert!(hidden([0.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
         assert!(!hidden([3.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
