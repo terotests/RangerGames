@@ -30,8 +30,19 @@
 //!                                               // object's place; inside r they are gone), drag,
 //!                                               // life: [min, max] s, size: [start, end] (world),
 //!                                               // palette: colours over a life, bright, seed;
+//!                                               // streak: s (thin triangles along the motion, the
+//!                                               // tail where it was s ago, fading), far: d (half
+//!                                               // the size at d from the start), split: n,
+//!                                               // splitAt: [min, max] (share of a life),
+//!                                               // splitSpeed (sparks break into n pieces);
 //!                                               // set { id, time } the seconds since it went off
 //!                                               // (back in time runs it again), bright
+//!                             | "splats"       // a baked particle run (src: a .rgps, splats.rs): axes,
+//!                                               // scale, palette (cold to hot), time; res (0.5: the
+//!                                               // density picture's pixels a screen pixel, less is
+//!                                               // cheaper), max (80: the biggest splat, px);
+//!                                               // look: "liquid" (a lit surface) or "gas" (see-
+//!                                               // through dust, density: 1.5 a splat)
 //!                             | "heightfield",  // size [w (x), d (z), nx, nz], heights: (nx+1)*(nz+1) numbers,
 //!                                               // row by row from -z; cells that are 0 at every corner are left out
 //!                                                   // roof: the prism's two slopes only (an open gable roof);
@@ -399,11 +410,20 @@ struct SplatRun {
     axes: [V3; 3],
     scale: f64,
     palette: Vec<V3>,
+    /// the density picture's pixels a screen pixel (0.5; less is cheaper and softer)
+    res: f64,
+    /// the biggest splat, screen pixels (80; less is cheaper close by)
+    max: f64,
+    /// look "gas": see-through dust (alpha 1 - exp(-density × thickness)),
+    /// not a liquid surface
+    gas: bool,
+    /// how thick the gas is a splat (1.5)
+    density: f64,
 }
 
 impl SplatRun {
     fn new(run: crate::splats::Splats, a: &Json) -> SplatRun {
-        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new() };
+        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new(), res: 0.5, max: 80.0, gas: false, density: 1.5 };
         s.set(a);
         if s.palette.is_empty() {
             s.palette = vec![[0.25, 0.08, 0.05], [0.65, 0.12, 0.04], [1.0, 0.42, 0.08], [1.0, 0.72, 0.3], [1.0, 0.9, 0.6]];
@@ -428,6 +448,12 @@ impl SplatRun {
             }
         }
         self.run.time = a.get("time").as_num(self.run.time);
+        self.res = a.get("res").as_num(self.res).clamp(0.1, 1.0);
+        self.max = a.get("max").as_num(self.max).clamp(1.0, 200.0);
+        if let Json::Str(l) = a.get("look") {
+            self.gas = l == "gas";
+        }
+        self.density = a.get("density").as_num(self.density).clamp(0.01, 50.0);
     }
 
     /// a place in the file into the world, from the object's place
@@ -583,6 +609,45 @@ impl Planet {
         let tilt = |v: V3| -> V3 { [v[0] * ct - v[1] * st, v[0] * st + v[1] * ct, v[2]] };
         [tilt(x0), tilt(y0), tilt(z0)]
     }
+}
+
+/// A burst spark on the screen (eye space `vh`, and `vt` where it was a
+/// streak ago): four corners (x, y) with how much of its colour each carries,
+/// and how bright it is. A square, or along its motion a thin kite: the tip
+/// ahead, the head's sides, the tail (0: it fades out to there). A spark
+/// smaller than half a pixel stays half a pixel and is dimmer by its area;
+/// a long streak is dimmer, as a moving light is spread over its path.
+/// None: off the screen.
+fn spark_shape(vh: V3, vt: Option<V3>, size: f64, focal: f64, w: f64, h: f64, near: f64) -> Option<([[f64; 2]; 4], [f64; 4], f64)> {
+    let mut px = size * focal / vh[2];
+    let mut bright = 1.0;
+    if px < 0.5 {
+        bright = (px / 0.5) * (px / 0.5);
+        px = 0.5;
+    }
+    let px = px.min(40.0);
+    let x = w / 2.0 + vh[0] / vh[2] * focal;
+    let y = h / 2.0 - vh[1] / vh[2] * focal;
+    if let Some(t) = vt.filter(|t| t[2] >= near) {
+        let tx = w / 2.0 + t[0] / t[2] * focal;
+        let ty = h / 2.0 - t[1] / t[2] * focal;
+        let (dx, dy) = (x - tx, y - ty);
+        let l = (dx * dx + dy * dy).sqrt();
+        if l > 1.5 * px {
+            let (nx, ny) = (dx / l, dy / l);
+            let (l, tx, ty) = if l > 400.0 { (400.0, x - nx * 400.0, y - ny * 400.0) } else { (l, tx, ty) };
+            if (x.max(tx) < -px) || (y.max(ty) < -px) || (x.min(tx) > w + px) || (y.min(ty) > h + px) {
+                return None;
+            }
+            let (qx, qy) = (-ny * px, nx * px);
+            let pts = [[x + nx * px, y + ny * px], [x + qx, y + qy], [tx, ty], [x - qx, y - qy]];
+            return Some((pts, [1.0, 1.0, 0.0, 1.0], bright * (3.0 * px / l).sqrt().min(1.0)));
+        }
+    }
+    if x < -px || y < -px || x > w + px || y > h + px {
+        return None;
+    }
+    Some(([[x - px, y - px], [x + px, y - px], [x + px, y + px], [x - px, y + px]], [1.0; 4], bright))
 }
 
 /// A burst particle's colour bucket: 5 bits a channel (the painter draws one
@@ -1117,18 +1182,21 @@ impl Scene {
             if let Some(b) = o.burst.as_ref() {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
                 let mut buckets: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
-                b.each(|lp, size, c| {
-                    let v = to_view(add(o.pos, lp));
+                let streak = b.streak;
+                b.each(|lp, lv, size, c| {
+                    let wp = add(o.pos, lp);
+                    let v = to_view(wp);
                     if v[2] < near || hidden(v, &discs) {
                         return;
                     }
-                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
-                    let x = w / 2.0 + v[0] / v[2] * focal;
-                    let y = h / 2.0 - v[1] / v[2] * focal;
-                    if x < -px || y < -px || x > w + px || y > h + px {
-                        return;
-                    }
-                    let rgb = self.fogged(c, v[2]);
+                    let vt = if streak > 0.0 { Some(to_view(sub(wp, mul(lv, streak)))) } else { None };
+                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, w, h, near) {
+                        Some(s) => s,
+                        None => return,
+                    };
+                    // one colour a path: a streak's fading tail as half its light
+                    let k = if wts[2] < 0.5 { k * 0.6 } else { k };
+                    let rgb = mul(self.fogged(c, v[2]), k);
                     let key = burst_key(rgb);
                     let k = match buckets.iter().position(|e| e.0 == key) {
                         Some(k) => k,
@@ -1138,8 +1206,9 @@ impl Scene {
                         }
                     };
                     let e = &mut buckets[k];
-                    let (x0, y0, x1, y1) = ((x - px) as f32, (y - px) as f32, (x + px) as f32, (y + px) as f32);
-                    e.2.extend_from_slice(&[x0, y0, x1, y0, x1, y1, x0, y1]);
+                    for p in pts.iter() {
+                        e.2.extend_from_slice(&[p[0] as f32, p[1] as f32]);
+                    }
                     e.3.push(e.2.len() as f32);
                 });
                 let z = to_view(o.pos)[2];
@@ -1265,7 +1334,7 @@ impl Scene {
                 if v[2] < near || hidden(v, &discs) {
                     return;
                 }
-                let px = (r * sp.scale * focal / v[2]).clamp(0.4, 80.0);
+                let px = (r * sp.scale * focal / v[2]).clamp(0.4, sp.max);
                 let x = w / 2.0 + v[0] / v[2] * focal;
                 let y = h / 2.0 - v[1] / v[2] * focal;
                 if x < -px || y < -px || x > w + px || y > h + px {
@@ -1301,7 +1370,7 @@ impl Scene {
                     Some(s) => norm(sub(s, c)),
                     None => norm(sub(cam, c)),
                 };
-                out.splats(w, h, o.opacity, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+                out.splats(w, h, o.opacity, sp.res, if sp.gas { sp.density } else { 0.0 }, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
             } else {
                 for (_, c, p, e) in squares {
                     out.rings_added(c, (o.opacity * 0.6).min(0.999), &p, &e);
@@ -1414,6 +1483,8 @@ impl Scene {
         }
         let mut drawn = 0;
         let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
+        // burst sparks: added triangles, a colour a corner (no order needed)
+        let mut sparks: Vec<f32> = Vec::new();
         for (o, world) in self.objs.iter().zip(worlds.iter()) {
             if !o.visible {
                 continue;
@@ -1441,20 +1512,24 @@ impl Scene {
             // burst particles: see-through quads, added like the puffs
             if let Some(b) = o.burst.as_ref() {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
-                b.each(|lp, size, c| {
-                    let v = to_view(add(o.pos, lp));
+                let streak = b.streak;
+                b.each(|lp, lv, size, c| {
+                    let wp = add(o.pos, lp);
+                    let v = to_view(wp);
                     if v[2] < near || hidden(v, &discs) {
                         return;
                     }
-                    let px = (size * focal / v[2]).clamp(0.6, 40.0);
-                    let x = w / 2.0 + v[0] / v[2] * focal;
-                    let y = h / 2.0 - v[1] / v[2] * focal;
-                    if x < -px || y < -px || x > w + px || y > h + px {
-                        return;
+                    let vt = if streak > 0.0 { Some(to_view(sub(wp, mul(lv, streak)))) } else { None };
+                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, w, h, near) {
+                        Some(s) => s,
+                        None => return,
+                    };
+                    let dz = (d(v[2]) + 2.0) as f32;
+                    let rgb = mul(self.fogged(c, v[2]), o.opacity * k);
+                    for &i in [0usize, 1, 2, 0, 2, 3].iter() {
+                        let (p, m) = (pts[i], wts[i]);
+                        sparks.extend_from_slice(&[p[0] as f32, p[1] as f32, dz, (rgb[0] * m) as f32, (rgb[1] * m) as f32, (rgb[2] * m) as f32]);
                     }
-                    let dz = d(v[2]) + 2.0;
-                    let rgb = mul(self.fogged(c, v[2]), o.opacity);
-                    glow.push((v[2], vec![[x - px, y - px, dz], [x + px, y - px, dz], [x + px, y + px, dz], [x - px, y + px, dz]], rgb));
                 });
             }
             for (fi, face) in o.mesh.faces.iter().enumerate() {
@@ -1511,6 +1586,7 @@ impl Scene {
         for (_, pts, c) in glow.iter() {
             fan(&mut tris, pts, &|z| z, *c);
         }
+        tris.extend_from_slice(&sparks);
         self.drawn = drawn;
         self.tris = tris;
     }
@@ -1664,6 +1740,14 @@ mod mesh_tests {
         assert!(pts.chunks(4).all(|p| (p[0] - 200.0).abs() < 0.01 && (p[3] - 200.0 / 255.0).abs() < 1e-3));
         let ys: Vec<f32> = pts.chunks(4).map(|p| p[1]).collect();
         assert!(ys[0] > ys[49], "file x runs up the screen");
+        assert_eq!(out.nums[k + 10], 0.0, "liquid by default");
+        // look "gas": its density in header slot 10, cheaper res in slot 9
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "s", "look": "gas", "density": 2, "res": 0.35 }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        assert_eq!(out.nums[k + 10], 2.0);
+        assert!((out.nums[k + 9] - 0.35).abs() < 1e-6);
         // a host without splats: added squares
         sc.splats_ok = false;
         let mut out = DrawStream::new();
@@ -1692,6 +1776,17 @@ mod mesh_tests {
         // see-through quads (two triangles each), depth 2..3
         assert_eq!(gl.tris.len(), 100 * 6 * 6);
         assert!(gl.tris.chunks(6).all(|c| c[2] >= 2.0 && c[2] <= 3.0));
+        // streaks: kites along the motion, the tail corner dark (it fades out there)
+        let mut st = Scene::new();
+        st.gl = true;
+        st.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        st.command("add", &rg_core::json::parse(r##"{ "id": "b", "shape": "burst", "count": 50, "speed": 2, "dir": [1, 0, 0], "spread": 0.1,
+            "life": [3, 3], "streak": 0.5, "palette": ["#ffffff"] }"##));
+        st.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        st.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert_eq!(st.tris.len(), 50 * 6 * 6);
+        let dark = st.tris.chunks(6).filter(|c| c[3] == 0.0 && c[4] == 0.0 && c[5] == 0.0).count();
+        assert_eq!(dark, 50 * 2, "each streak's tail corner twice (two triangles)");
         // a planet between the eye and the burst hides it
         assert!(hidden([0.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
         assert!(!hidden([3.0, 0.0, 10.0], &[([0.0, 0.0, 5.0], 1.0)]));
