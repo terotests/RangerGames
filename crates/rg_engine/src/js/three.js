@@ -477,6 +477,9 @@ var THREE = (function () {
 // { id, name, distance, point: [x, y, z], normal } or null; rg.project([x, y, z]):
 // where a world point is on the screen ({ x, y, depth } or null)
 rg.raycast = function (x, y, all) { return __sync({ op: "raycast", x: x, y: y, all: !!all }); };
+// rg.height(src, u, v): a height picture's value 0..1 at u, v (0..1 across it), read as the globe's
+// ground reads it (PNG, red * 256 + green), for physics on the drawn ground; null when it can't be read
+rg.height = function (src, u, v) { return __sync({ op: "height", src: src, u: u, v: v }); };
 rg.project = function (p) { var v = Array.isArray(p) ? p : [p.x, p.y, p.z]; return __sync({ op: "project", x: v[0], y: v[1], z: v[2] }); };
 // the orbit camera: { target, radius, theta, phi } (null before it is seen); reset() starts it again from the camera's props
 rg.orbit = { state: function () { return __orbit.st; }, reset: function () { __orbit.st = null; } };

@@ -97,8 +97,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -152,10 +152,23 @@ final class GlSphere {
     private final Bitmap[] ring = new Bitmap[4];
     private int ringNext;
 
+    /**
+     * In the context the app paints everything with (GlCtx, current on this
+     * thread): no context of its own, and endTexture() leaves the picture in a
+     * texture for that painting, with no reading back.
+     */
+    private boolean shared;
+
+    boolean initShared(AssetManager assets) {
+        shared = true;
+        return init(assets);
+    }
+
     /** Makes the context current on this thread; false (and ok false) when the phone has no GLES 3.0. */
     boolean init(AssetManager assets) {
         try {
             String fs = readAsset(assets, "shaders/sphere.fs");
+            if (!shared) {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             int[] ver = new int[2];
             if (!EGL14.eglInitialize(display, ver, 0, ver, 1)) throw new IllegalStateException("eglInitialize");
@@ -168,6 +181,7 @@ final class GlSphere {
             if (context == EGL14.EGL_NO_CONTEXT) throw new IllegalStateException("eglCreateContext");
             surface = EGL14.eglCreatePbufferSurface(display, cfg[0], new int[] {EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE}, 0);
             if (!EGL14.eglMakeCurrent(display, surface, surface, context)) throw new IllegalStateException("eglMakeCurrent");
+            }
             prog = GLES30.glCreateProgram();
             GLES30.glAttachShader(prog, shader(GLES30.GL_VERTEX_SHADER, VS));
             GLES30.glAttachShader(prog, shader(GLES30.GL_FRAGMENT_SHADER, fs));
@@ -211,6 +225,8 @@ final class GlSphere {
             GLES30.glUniform1i(u[LTEX], 1);
             GLES30.glUniform1i(u[HTEX], 2);
             GLES30.glUniform1i(u[GTEX], 3);
+            // a detail window's own heights on unit 5 (4 is the edge pass's)
+            GLES30.glUniform1i(u[DTEX], 5);
             // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
             GLES30.glUniform1f(u[LITE], 1);
             try {
@@ -271,6 +287,7 @@ final class GlSphere {
         GLES30.glUniform1i(um[LTEX], 1);
         GLES30.glUniform1i(um[HTEX], 2);
         GLES30.glUniform1i(um[GTEX], 3);
+        GLES30.glUniform1i(um[DTEX], 5);
         GLES30.glUniform1f(um[LITE], 1);
         GLES30.glUniform1f(um[MESHM], 1);
         int cols = SPOKES + 1;
@@ -481,6 +498,8 @@ final class GlSphere {
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, fbW, fbH, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target, 0);
         // depth for the mesh close by (its hills cover each other)
@@ -498,6 +517,8 @@ final class GlSphere {
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, f2W, f2H, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target2, 0);
         if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
@@ -531,6 +552,11 @@ final class GlSphere {
     private float bx, by, bw, bh, bk;
     private int bpw, bph;
 
+    /** this context current on this thread (GlSplats draws in it too) */
+    void current() {
+        if (!shared) EGL14.eglMakeCurrent(display, surface, surface, context);
+    }
+
     /** Starts a picture covering x, y, w, h (game units) at k pixels per unit. */
     void begin(float x, float y, float w, float h, float k) {
         k = Math.min(k, maxTex / Math.max(w, h));
@@ -541,7 +567,7 @@ final class GlSphere {
         bk = k;
         bpw = Math.max(1, Math.round(w * k));
         bph = Math.max(1, Math.round(h * k));
-        EGL14.eglMakeCurrent(display, surface, surface, context);
+        if (!shared) EGL14.eglMakeCurrent(display, surface, surface, context);
         // one row and column more, left clear: the smoothed bitmap reads past its edge
         target(bpw + 1, bph + 1);
         int want = Math.min(msaa, maxSamples);
@@ -574,9 +600,19 @@ final class GlSphere {
     /**
      * One globe into the picture, as painter.js Spheres.draw; p from at: the
      * extra numbers (nx of them); hs, gs: the heights' shading and shape
-     * pictures or null. False when its main picture does not load.
+     * pictures or null; ds: a detail window's own heights or null. False when
+     * its main picture does not load.
      */
-    boolean draw(String src, String lsrc, String hs, String gs, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
+    /** the rings' pictures "colour|opacity" of the next draw (44 numbers), or null; Painter sets it */
+    String rings;
+    private boolean ringOn;
+
+    // the extra numbers' count of the globe being drawn (uniforms() reads the band flow from 48, the storms from 72)
+    private int flowNx;
+    private final float[] vtx = new float[16], vamp = new float[4];
+
+    boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
+        flowNx = nx;
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
@@ -589,6 +625,22 @@ final class GlSphere {
             if (ht == null || gt == null) ht = gt = null;
         }
         boolean w40 = ht != null;
+        // the window's heights (decoded on the other thread, as its picture; until then the ball's shape)
+        Tex dt = w40 && w4 && ds != null ? texture(ds, true, false, true) : null;
+        // the rings (decoded on the other thread; until then none)
+        Tex rc = null, ra = null;
+        if (nx >= 44 && p[at + 42] > 0.5f && rings != null && !rings.isEmpty()) {
+            String[] rn = rings.split("\\|");
+            rc = texture(rn[0], true, false);
+            ra = texture(rn.length > 1 ? rn[1] : rn[0], true, false);
+        }
+        ringOn = rc != null && ra != null;
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE6);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ringOn ? rc.id : 0);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE7);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, ringOn ? ra.id : 0);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE5);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, dt != null ? dt.id : 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tx.id);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
@@ -614,12 +666,17 @@ final class GlSphere {
             // the ball with a ray for each pixel, or close by only the air round the mesh
             GLES30.glUseProgram(prog);
             uniforms(u, p, at, w32, w4, w40, lt != null, ho, x, y, w, h);
+            GLES30.glUniform1f(u[USED], dt != null ? 1 : 0);
             GLES30.glUniform1f(u[MESHM], mesh ? 2 : 0);
             GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
             GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
             GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
         }
-        if (mesh) meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
+        if (mesh) {
+            GLES30.glUseProgram(progMesh);
+            GLES30.glUniform1f(um[USED], dt != null ? 1 : 0);
+            meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
+        }
         return true;
     }
 
@@ -654,6 +711,26 @@ final class GlSphere {
         GLES30.glUniform1f(L[USEWIN], w4 ? 1 : 0);
         GLES30.glUniform4f(L[WIN], w4 ? p[at + 20] : 0, w4 ? p[at + 21] : 0, w4 ? p[at + 22] : 1, w4 ? p[at + 23] : 1);
         GLES30.glUniform4f(L[BOX], x, y, w, h);
+        GLES30.glUniform1i(L[RCTEX], 6);
+        GLES30.glUniform1i(L[RATEX], 7);
+        GLES30.glUniform1f(L[USER], ringOn ? 1 : 0);
+        GLES30.glUniform1f(L[RIN], ringOn ? p[at + 40] : 0);
+        GLES30.glUniform1f(L[ROUT], ringOn ? p[at + 41] : 1);
+        // the cloud bands' drift (48 numbers), not in a detail window
+        boolean flowOn = flowNx >= 48 && !w4;
+        GLES30.glUniform1f(L[FLOWA], flowOn ? p[at + 44] : 0);
+        GLES30.glUniform1f(L[FLOWPH], flowOn ? p[at + 45] : 0);
+        // the clouds morphing and their storms (72 numbers, painter.js)
+        boolean vOn = flowNx >= 72 && !w4;
+        GLES30.glUniform4f(L[VINFO], vOn ? p[at + 48] : 0, vOn ? p[at + 49] : 0, vOn ? p[at + 50] : 0, vOn ? p[at + 51] : 0);
+        if (vOn) {
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) vtx[i * 4 + j] = p[at + 52 + i * 5 + j];
+                vamp[i] = p[at + 56 + i * 5];
+            }
+            GLES30.glUniform4fv(L[VTX], 4, vtx, 0);
+            GLES30.glUniform1fv(L[VAMP], 4, vamp, 0);
+        }
     }
 
     /**
@@ -706,6 +783,97 @@ final class GlSphere {
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, meshCount, GLES30.GL_UNSIGNED_SHORT, 0);
         GLES30.glDisable(GLES30.GL_DEPTH_TEST);
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+    }
+
+    // the texture endTexture() left the picture in, its size and framebuffer
+    private int outTex, outW, outH, outFbo;
+
+    /**
+     * The shared context's end of a picture: the samples resolved and the
+     * edge pass drawn, the picture left in a texture (its first row the
+     * picture's top, premultiplied); 0 on a GL error.
+     */
+    int endTexture() {
+        if (ms) {
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, msFbo);
+            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, fbo);
+            GLES30.glBlitFramebuffer(0, 0, bpw + 1, bph + 1, 0, 0, bpw + 1, bph + 1, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST);
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
+        }
+        if (edge && progEdge != 0) target2(bpw + 1, bph + 1);
+        if (edge && progEdge != 0) {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
+            GLES30.glViewport(0, 0, bpw + 1, bph + 1);
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glDisable(GLES30.GL_BLEND);
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+            GLES30.glUseProgram(progEdge);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE4);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+            GLES30.glEnableVertexAttribArray(0);
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+            outTex = target2;
+            outW = f2W;
+            outH = f2H;
+            outFbo = fbo2;
+        } else {
+            outTex = target;
+            outW = fbW;
+            outH = fbH;
+            outFbo = fbo;
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        // drawn scaled on the screen: smoothed (the edge pass reads texels, so this does not change it)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, outTex);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        int err = GLES30.glGetError();
+        if (err != GLES30.GL_NO_ERROR) {
+            Log.w(TAG, "GL globes: error " + err + ", globes off from now on");
+            ok = false;
+            return 0;
+        }
+        if (++stN == 120) {
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL globes (shared): %d px, %.1f pictures a frame", (long) bpw * bph, stN / (float) Math.max(1, stFrames)));
+            stN = 0;
+            stFrames = 0;
+        }
+        evict();
+        return outTex;
+    }
+
+    /** the texture's size: the picture covers width() / texWidth() of it across */
+    int texWidth() {
+        return outW;
+    }
+
+    int texHeight() {
+        return outH;
+    }
+
+    /**
+     * The last picture copied into texture `tex` (made when 0) for keeping
+     * (a far globe drawn again only when it changes); returns its id.
+     */
+    int keep(int tex) {
+        if (tex == 0) {
+            int[] id = new int[1];
+            GLES30.glGenTextures(1, id, 0);
+            tex = id[0];
+        }
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
+        GLES30.glCopyTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, 0, 0, bpw + 1, bph + 1, 0);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        return tex;
     }
 
     /** Reads the picture back; null on a GL error (then the globes are left to the software path). */

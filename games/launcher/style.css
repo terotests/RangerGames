@@ -60,6 +60,7 @@
 .barfill { height: 14px; border-radius: 7px; background-color: #06d6a0; }
 .ogrey { background-color: #5a4b9c; }
 /* the menu over the page: a long press on a tile, or which of a replaced game to show */
+.fade { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: #000000; }
 .mback { position: absolute; left: 0px; top: 0px; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); align-items: center; justify-content: center; }
 .menu { width: 316px; padding: 16px; padding-bottom: 18px; border-radius: 22px; background-color: #2b2d6e; align-items: center; }
 .micon { font-size: 44px; }

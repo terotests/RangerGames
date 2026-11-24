@@ -78,7 +78,12 @@ final class Sphere {
                 float qx = ex - b * dx, qy = ey - b * dy, qz = ez - b * dz;
                 float q2 = qx * qx + qy * qy + qz * qz;
                 float disc = 1 - q2;
-                if (disc < 0 || -b < (float) Math.sqrt(disc)) {
+                // the edge covers a pixel in part (0..1), from how far past the rim the ray passes in pixels
+                // (a pixel spans stepX / focal radians, at the distance -b): without it the rim moved in whole
+                // pixels and a far planet's edge crept and jumped back as it came nearer
+                float hq0 = (float) Math.sqrt(q2), pw = Math.max(stepX / focal * Math.max(-b, 1e-3f), 1e-6f);
+                float cover = meshCos > -2 ? (disc >= 0 ? 1 : 0) : Math.max(0, Math.min(1, 0.5f - (hq0 - 1) / pw));
+                if (cover <= 0 || -b <= 0 || (disc >= 0 && -b < (float) Math.sqrt(disc))) {
                     // past the ball: the air's glow, if the ray goes through it
                     if (air > 0 && q2 < R * R && -b > 0) {
                         float hq = (float) Math.sqrt(q2);
@@ -95,7 +100,7 @@ final class Sphere {
                     }
                     continue;
                 }
-                float sq = (float) Math.sqrt(disc);
+                float sq = (float) Math.sqrt(Math.max(disc, 0));
                 float nx = qx - sq * dx, ny = qy - sq * dy, nz = qz - sq * dz;
                 if (meshCos > -2 && nx * cex + ny * cey + nz * cez > meshCos) {
                     out[row + i] = 0;
@@ -165,6 +170,24 @@ final class Sphere {
                 } else {
                     c |= 0xff000000;
                 }
+                if (cover < 1) {
+                    // the part the ball leaves: the air behind it (premultiplied)
+                    float ar = 0, ag = 0, ab = 0, aa = 0;
+                    if (air > 0 && q2 < R * R) {
+                        float hq = Math.max(hq0, 1e-6f);
+                        glow(dx, dy, dz, qx / hq, qy / hq, qz / hq, sx, sy, sz, Math.max(hq - 1, 0) / air, 2 * (float) Math.sqrt(R * R - q2), air, acr, acg, acb);
+                        aa = gA;
+                        ar = Math.min(1, gR) * aa;
+                        ag = Math.min(1, gG) * aa;
+                        ab = Math.min(1, gB) * aa;
+                    }
+                    float k0 = 1 - cover;
+                    int a8 = (int) (255 * Math.min(1, cover + aa * k0));
+                    int r8 = (int) Math.min(255, ((c >> 16) & 255) * cover + ar * 255 * k0);
+                    int g8 = (int) Math.min(255, ((c >> 8) & 255) * cover + ag * 255 * k0);
+                    int b8 = (int) Math.min(255, (c & 255) * cover + ab * 255 * k0);
+                    c = (a8 << 24) | (r8 << 16) | (g8 << 8) | b8;
+                }
                 out[row + i] = c;
             }
         }
@@ -182,9 +205,9 @@ final class Sphere {
         float d2 = ds * ds, d4 = d2 * d2, d8 = d4 * d4;
         float fw = d8 * d2 * smooth(-0.45f, 0.02f, up);
         float dusk = smooth(-0.3f, -0.02f, up) * (1 - smooth(0f, 0.25f, up));
-        float dens = (float) Math.exp(-alt * 4.5f) * (1 - alt);
+        float dens = (float) Math.exp(-alt * 3.5f) * (1 - alt) * (1 - alt);
         float depth = dens * len / (air * 2);
-        gA = Math.max(0, Math.min(1, depth * (0.55f * day + 2.6f * fw + 0.25f * dusk)));
+        gA = 1 - (float) Math.exp(-depth * (0.38f * day + 2.6f * fw + 0.25f * dusk));
         float k = 0.7f + 0.6f * day;
         gR = cr * k + fw * 3f + dusk * 0.8f;
         gG = cg * k + 0.96f * fw * 3f + 0.55f * dusk * 0.8f;

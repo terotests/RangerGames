@@ -40,6 +40,10 @@
 //!   heightScale,                 // the bumps' coarsest size (same units, default r / 60)
 //!   heightRelief,                // how much the sharp picture tilts the ground (default 1: true)
 //!   heightCraters,               // made-up craters in the bumps: 0 none, 1 deep (a fifth of their width)
+//!   detail,                      // sharper pictures over parts of the map: [{ src, u0, v0, u1, v1,
+//!                                // sun, shade (the picture's own light), height }]: height, a picture
+//!                                // of the window's own heights (as `height`, from heightMin to
+//!                                // heightMax) for the ground's shape and slopes close by
 //!   visible })
 //! ```
 //!
@@ -259,13 +263,32 @@ pub struct Globe {
     /// the sharper pictures: their path, window u0 v0 u1 v1 and their own sun
     /// [azimuth (radians, from east towards north), brightness per unit of slope
     /// towards it (0: none)] for reading slopes from the picture close by
-    detail: Vec<(String, [f64; 4], [f64; 2])>,
+    /// the sharper pictures: (picture, window u0 v0 u1 v1, its own sun [azimuth, shade], its heights or "")
+    detail: Vec<(String, [f64; 4], [f64; 2], String)>,
     /// the host can draw `detail` (a sphere command with a window)
     pub detail_ok: bool,
     /// the host can draw `height` (a sphere command with 40 numbers)
     pub terrain_ok: bool,
     /// glowing air round a textured ball: its height in radii and colour
     air: f64,
+    /// rings in the ball's equator plane, drawn by the host's ball shader
+    /// (draw.rs `sphere`, 44 numbers): "colour|opacity" pictures (a strip,
+    /// inner edge on the left) and the inner and outer edge in radii
+    rings: String,
+    ring_in: f64,
+    ring_out: f64,
+    /// the cloud bands drift (a gas giant): `flow` times Jupiter's winds
+    /// (east and west jets by latitude, up to ~150 m/s), at `flow_time`
+    /// seconds of the planet's time (the game's clock, warp and all)
+    flow: f64,
+    flow_time: f64,
+    /// storms turning in the clouds (at most 4): latitude, longitude and
+    /// radius (degrees), width / height, turns an hour of `flow_time`
+    /// (+ counter-clockwise seen from outside), how much the middle turns (0..1)
+    vortices: Vec<[f64; 6]>,
+    /// the clouds morph (a gas giant): their picture read through a slowly
+    /// rolling warp (EVG's smoke), 0 still; None: as much as `flow`
+    turbulence: Option<f64>,
     air_color: V3,
     /// city lights on the night side of a textured ball, and how bright
     lights: String,
@@ -295,6 +318,55 @@ fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
 }
 
 impl Globe {
+    /// The drift of the cloud bands as the shader takes it: how far (in
+    /// the picture's widths) the fastest band moves in one cycle, and where
+    /// in the cycle the planet's time is. Two readings half a cycle apart are
+    /// cross-faded, so the bands never smear however long it runs.
+    fn flow_params(&self) -> Option<(f64, f64)> {
+        if self.flow <= 0.0 {
+            return None;
+        }
+        // Jupiter: 150 m/s round 2π · 71 492 km, in picture widths a second
+        let rate = self.flow * 150.0 / (std::f64::consts::TAU * 7.1492e7);
+        let amp = 0.012;
+        let cycle = amp / rate;
+        Some((amp, (self.flow_time / cycle).rem_euclid(1.0)))
+    }
+
+    /// The morphing clouds and storms as the shader takes them (the
+    /// 72-number form, after the flow's 48): the storms' count, where in
+    /// their cycle the time is, how much the clouds morph and the morph's
+    /// time; then for each storm the picture's u, v of its middle, its radius
+    /// (radians), width / height and how far its middle turns in one cycle
+    /// (radians). As with the bands, two readings half a cycle apart are
+    /// cross-faded: a cycle is as long as the fastest storm takes to turn
+    /// 0.5 radians.
+    fn vortex_params(&self) -> Option<[f64; 24]> {
+        let fastest = self.vortices.iter().map(|v| (v[4] * v[5]).abs()).fold(0.0f64, f64::max);
+        let turb = self.turbulence.unwrap_or(self.flow.min(1.0));
+        if fastest <= 0.0 && turb <= 0.0 {
+            return None;
+        }
+        let tau = std::f64::consts::TAU;
+        let cycle = if fastest > 0.0 { 0.5 / (fastest * tau / 3600.0) } else { 1.0 };
+        let mut p = [0.0; 24];
+        p[0] = if fastest > 0.0 { self.vortices.len() as f64 } else { 0.0 };
+        p[1] = (self.flow_time / cycle).rem_euclid(1.0);
+        p[2] = turb;
+        // the morph's time: one unit in 6 hours of the planet's time (an eddy
+        // changes shape in about a day), round after 4096 units (~3 years)
+        p[3] = (self.flow_time / 21600.0).rem_euclid(4096.0);
+        for (i, v) in self.vortices.iter().enumerate() {
+            let k = 4 + i * 5;
+            p[k] = (v[1] / 360.0 + 0.5).rem_euclid(1.0);
+            p[k + 1] = 0.5 - v[0] / 180.0;
+            p[k + 2] = v[2].to_radians();
+            p[k + 3] = v[3];
+            p[k + 4] = v[4] * v[5] * tau / 3600.0 * cycle;
+        }
+        Some(p)
+    }
+
     pub fn new() -> Globe {
         // the lines of longitude and latitude every 30 degrees
         let mut lines: Vec<Vec<V3>> = Vec::new();
@@ -338,6 +410,13 @@ impl Globe {
             terrain_ok: false,
             drawn: 0,
             air: 0.0,
+            rings: String::new(),
+            ring_in: 0.0,
+            ring_out: 0.0,
+            flow: 0.0,
+            flow_time: 0.0,
+            vortices: Vec::new(),
+            turbulence: None,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
             lights_gain: 1.0,
@@ -403,6 +482,42 @@ impl Globe {
             self.texture = t;
         }
         self.air = a.get("air").as_num(self.air).clamp(0.0, 0.5);
+        // rings: { src: "colour.png|opacity.png", inner, outer } (radii); false: none
+        match a.get("rings") {
+            Json::Bool(false) => self.rings.clear(),
+            Json::Obj(_) => {
+                let r = a.get("rings");
+                self.rings = r.get("src").as_str().to_string();
+                self.ring_in = r.get("inner").as_num(1.2).max(1.0);
+                self.ring_out = r.get("outer").as_num(2.3).max(self.ring_in + 1e-3);
+            }
+            _ => {}
+        }
+        // flow: k (1 = Jupiter's winds, 0 = still), flowTime: the planet's time in seconds
+        self.flow = a.get("flow").as_num(self.flow).max(0.0);
+        self.flow_time = a.get("flowTime").as_num(self.flow_time);
+        // turbulence: k (1 = Jupiter's), null: as much as flow
+        match a.get("turbulence") {
+            Json::Null => {}
+            v => self.turbulence = Some(v.as_num(0.0).clamp(0.0, 4.0)),
+        }
+        // vortices: [{ lat, lon, r, ell, turns, depth }] (degrees, turns an hour); [] none
+        if let Json::Arr(v) = a.get("vortices") {
+            self.vortices = v
+                .iter()
+                .take(4)
+                .map(|o| {
+                    [
+                        o.get("lat").as_num(0.0).clamp(-85.0, 85.0),
+                        o.get("lon").as_num(0.0),
+                        o.get("r").as_num(10.0).clamp(0.1, 90.0),
+                        o.get("ell").as_num(1.0).clamp(0.2, 5.0),
+                        o.get("turns").as_num(0.0),
+                        o.get("depth").as_num(1.0).clamp(0.0, 1.0),
+                    ]
+                })
+                .collect();
+        }
         if !a.get("airColor").is_null() {
             self.air_color = color(&a.get("airColor"), self.air_color);
         }
@@ -428,7 +543,10 @@ impl Globe {
                 let src = d.get("src").as_str();
                 let w = [d.get("u0").as_num(0.0), d.get("v0").as_num(0.0), d.get("u1").as_num(1.0), d.get("v1").as_num(1.0)];
                 let sun = [d.get("sun").as_num(0.0).to_radians(), d.get("shade").as_num(0.0).max(0.0)];
-                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w, sun)) }
+                // its own heights (16 bits as red * 256 + green, from heightMin to heightMax): close by the
+                // ground's shape and slopes inside the window come from them
+                let hs = d.get("height").as_str();
+                if src.is_empty() || w[2] <= w[0] || w[3] <= w[1] { None } else { Some((src, w, sun, hs)) }
             }).collect();
         }
         let cell = a.get("cell");
@@ -890,6 +1008,34 @@ impl Cam3 {
     }
 }
 
+/// A ball that needs no drawing: wholly behind the camera, wholly off the
+/// screen (with room for its air), or under half a pixel across, where a ball
+/// drawn from its regions still cost ~34 draw calls (Solar Pilot's 27 small
+/// bodies cost ~8 ms a frame on the tablet, all far away and invisible).
+/// `dist` is the eye's distance from the centre, already over the radius.
+fn globe_unseen(cam: &Cam3, place: &Place3, dist: f64) -> bool {
+    let v = cam.view(place.centre);
+    let r = place.radius;
+    if v[2] < -r {
+        return true;
+    }
+    // within a couple of radii the edge can reach round the camera: draw
+    if v[2] <= r * 1.2 {
+        return false;
+    }
+    let px = cam.focal * r / dist;
+    if px < 0.5 {
+        return true;
+    }
+    // off the screen: only for a small ball, whose outline stays near a circle
+    if r / dist > 0.1 {
+        return false;
+    }
+    let s = cam.screen(v);
+    let m = px * 1.6 + 2.0;
+    (s[0] as f64) < -m || (s[0] as f64) > cam.w + m || (s[1] as f64) < -m || (s[1] as f64) > cam.h + m
+}
+
 /// Where a globe stands in the scene: its centre, radius and the world
 /// directions of its own x, y and z (z: the north pole).
 pub struct Place3 {
@@ -1008,7 +1154,8 @@ impl Globe {
     fn render_textured(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, cap: &Cap, to_eye: V3, sun_local: Option<V3>) {
         let (w, h) = (cam.w, cam.h);
         // all of it behind the camera: nothing to draw
-        if -dot(to_eye, cam.fwd) < -place.radius {
+        let reach = if self.rings.is_empty() { 1.0 } else { self.ring_out };
+        if -dot(to_eye, cam.fwd) < -place.radius * reach {
             return;
         }
         let (mut x0, mut y0, mut x1, mut y1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
@@ -1037,7 +1184,20 @@ impl Globe {
             Some(c) => c.horizon(48).iter().map(|p| [p[0] * ka, p[1] * ka, p[2] * ka]).collect(),
             None => cap.horizon(48),
         };
-        for p in rim.iter() {
+        // the rings reach past the ball: their outer edge in the box too
+        let rings = !self.rings.is_empty();
+        let ring_rim: Vec<V3> = if rings {
+            (0..64).map(|i| {
+                let a = i as f64 / 64.0 * std::f64::consts::TAU;
+                [a.cos() * self.ring_out, a.sin() * self.ring_out, 0.0]
+            }).collect()
+        } else {
+            Vec::new()
+        };
+        if rings && dist < place.radius * self.ring_out * 1.05 {
+            whole = true;
+        }
+        for p in rim.iter().chain(ring_rim.iter()) {
             if whole {
                 break;
             }
@@ -1084,7 +1244,9 @@ impl Globe {
             cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
         ];
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain;
+        let flow = self.flow_params();
+        let vort = self.vortex_params();
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some();
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1107,9 +1269,27 @@ impl Globe {
             params.extend(more(hole.unwrap_or([0.0, 0.0, 1.0, 1.0]), 0.0, self.air));
             if terrain {
                 params.extend_from_slice(&hparams);
+            } else if rings || flow.is_some() || vort.is_some() {
+                params.extend_from_slice(&[0.0; 8]);
+            }
+            if rings {
+                // the 44-number form: the rings (draw.rs `sphere`)
+                params.extend_from_slice(&[self.ring_in as f32, self.ring_out as f32, 1.0, 0.0]);
+            } else if flow.is_some() || vort.is_some() {
+                params.extend_from_slice(&[0.0; 4]);
+            }
+            if let Some((amp, phase)) = flow {
+                // the 48-number form: the cloud bands' drift (draw.rs `sphere`)
+                params.extend_from_slice(&[amp as f32, phase as f32, 0.0, 0.0]);
+            } else if vort.is_some() {
+                params.extend_from_slice(&[0.0; 4]);
+            }
+            if let Some(v) = vort {
+                // the 72-number form: the storms (draw.rs `sphere`)
+                params.extend(v.iter().map(|x| *x as f32));
             }
         }
-        out.sphere_terrain(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, &params);
+        out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
         params.truncate(20);
         self.drawn = 1;
         if !self.detail_ok {
@@ -1119,7 +1299,7 @@ impl Globe {
         // the host only inside its window, in the box its part of the
         // surface takes on the screen
         let near_c0 = (cap.c0.clamp(-1.0, 1.0).acos() + (2.0 * (self.terrain_high() / rr).max(0.0)).sqrt() + 0.02).min(std::f64::consts::PI).cos();
-        for (src, win, wsun) in self.detail.iter() {
+        for (src, win, wsun, dh) in self.detail.iter() {
             let n = 8;
             let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
             let mut seen = false;
@@ -1173,17 +1353,19 @@ impl Globe {
             } else {
                 p.extend(win.iter().map(|v| *v as f32));
             }
-            out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &heights, &p);
+            // the window's own heights: a third name, "shading|shape|window heights"
+            let wh = if terrain && !dh.is_empty() { format!("{}|{}", heights, dh) } else { heights.clone() };
+            out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &wh, &p);
         }
     }
 }
 
 /// The detail windows together, when they cover one rectangle of the map (u may run past 0 or 1 across the date line).
-fn detail_union(detail: &[(String, [f64; 4], [f64; 2])]) -> Option<[f64; 4]> {
+fn detail_union(detail: &[(String, [f64; 4], [f64; 2], String)]) -> Option<[f64; 4]> {
     let first = detail.first()?.1;
     let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
     let mut area = 0.0;
-    for (_, w, _) in detail.iter() {
+    for (_, w, _, _) in detail.iter() {
         let mut sh = 0.0;
         if w[0] - first[0] > 0.5 {
             sh = -1.0;
@@ -1278,10 +1460,18 @@ impl Globe {
         if !self.height_shape.is_empty() && !self.height_shape.starts_with('/') && !dir.is_empty() {
             self.height_shape = rg_core::vfs::join(dir, &self.height_shape);
         }
+        if !self.rings.is_empty() && !dir.is_empty() {
+            // "colour|opacity": each in the game's folder
+            self.rings = self.rings.split('|').map(|r| if r.starts_with('/') || r.is_empty() { r.to_string() } else { rg_core::vfs::join(dir, r) })
+                .collect::<Vec<_>>().join("|");
+        }
         if !dir.is_empty() {
             for d in self.detail.iter_mut() {
                 if !d.0.starts_with('/') {
                     d.0 = rg_core::vfs::join(dir, &d.0);
+                }
+                if !d.3.is_empty() && !d.3.starts_with('/') {
+                    d.3 = rg_core::vfs::join(dir, &d.3);
                 }
             }
         }
@@ -1300,6 +1490,9 @@ impl Globe {
         let terrain = textures && !glowing && self.has_terrain();
         let floor = if terrain { (1.0 + self.terrain_low() / place.radius).min(1.000_000_5) } else { 1.000_000_5 };
         if dist <= place.radius * floor {
+            return;
+        }
+        if !glowing && globe_unseen(cam, place, dist) {
             return;
         }
         let e = place.local([to_eye[0] / dist, to_eye[1] / dist, to_eye[2] / dist]);
@@ -1326,9 +1519,12 @@ impl Globe {
             }
         };
 
-        // the air round it: horizons of a slightly bigger ball
-        let own_air = textures && !self.texture.is_empty() && self.air > 0.0 && !glowing;
-        if let (Some(g), false) = (self.glow, own_air) {
+        // the air round it: horizons of a slightly bigger ball, only for a ball
+        // drawn from its regions (or a star): a textured ball has its air in
+        // the sphere's own smooth glow (`air`), or none (the flat rings showed
+        // as hard steps round the Moon and Mars)
+        let textured = textures && !self.texture.is_empty() && !glowing;
+        if let (Some(g), false) = (self.glow, textured) {
             let layers: &[(f64, f64)] = if glowing { &[(1.5, 0.08), (1.22, 0.14), (1.08, 0.3)] } else { &[(1.07, 0.18), (1.035, 0.3)] };
             for &(k, a) in layers.iter() {
                 let rr = place.radius * k;
@@ -1655,6 +1851,30 @@ mod tests {
     }
 
     #[test]
+    fn a_far_tiny_or_off_screen_ball_draws_nothing() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r##"{{"regions":[["A","x",{}]],"grid":false,"glow":false,"border":false,"ocean":"#204060"}}"##, square(0.0, 0.0)));
+        g.command(&a);
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        // 300 px focal: at 1000 radii the ball is 0.3 px across its radius: nothing
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([1000.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert_eq!(out.count, 0);
+        // at 100 radii (3 px) it is drawn
+        g.render_3d(&mut out, &cam_at([100.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert!(out.count > 0);
+        // at 100 radii but well to the side of the view: nothing
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([100.0, 200.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, false);
+        assert_eq!(out.count, 0);
+        // a glowing ball (a star) far away is still drawn
+        let mut out = DrawStream::new();
+        g.command(&rg_core::json::parse(r##"{"glow":"#ffffff"}"##));
+        g.render_3d(&mut out, &cam_at([1000.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, true, false);
+        assert!(out.count > 0);
+    }
+
+    #[test]
     fn detail_pictures_are_extra_sphere_commands_with_a_window() {
         let mut g = Globe::new();
         // windows round longitude 180 (u 0, facing -x) and round longitude 0 (u 0.5, facing +x)
@@ -1685,6 +1905,24 @@ mod tests {
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam, &place, None, false, true);
         assert_eq!(out.count, 1);
+    }
+
+    #[test]
+    fn rings_go_with_the_ball_as_44_numbers_and_widen_its_box() {
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r#"{"texture":"img/saturn.jpg","grid":false,"glow":false,"border":false,
+            "rings":{"src":"img/rc.png|img/ra.png","inner":1.27,"outer":2.42}}"#));
+        g.texture_in("/games/sp");
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([0.0, 0.0, 12.0], [0.0, 0.0, -1.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.count, 1);
+        let n = &out.nums;
+        assert_eq!(n[22], 44.0);
+        assert_eq!(&n[23 + 40..23 + 43], &[1.27f32, 2.42, 1.0]);
+        assert_eq!(out.strings[n[21] as usize], "/games/sp/img/rc.png|/games/sp/img/ra.png");
+        // seen from above the pole the box takes in the whole ring: 300 * 2.42 / 12 ≈ 60 px each side
+        assert!(n[3] > 2.0 * 300.0 * 2.3 / 12.0, "{:?}", &n[1..5]);
     }
 
     #[test]
@@ -1752,6 +1990,25 @@ mod tests {
         let n = &out.nums;
         assert_eq!(n[23 + 35], 1.0);
         assert_eq!((n[1], n[2]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn a_detail_window_with_its_own_heights_names_them_third() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-0.1,"heightMax":0.2,
+            "detail":[{"src":"img/d/0_3.jpg","u0":0.45,"v0":0.4,"u1":0.55,"v1":0.6,"height":"img/h/0_3.webp"},
+                      {"src":"img/d/1_3.jpg","u0":0.55,"v0":0.4,"u1":0.65,"v1":0.6}]}"##);
+        g.command(&a);
+        g.texture_in("/games/x");
+        g.terrain_ok = true;
+        g.detail_ok = true;
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+        let names: Vec<&str> = out.strings.iter().map(|s| s.as_str()).filter(|s| s.contains('|')).collect();
+        assert!(names.contains(&"/games/x/img/moon-height.png|/games/x/img/moon-shape.png|/games/x/img/h/0_3.webp"), "{:?}", names);
+        assert!(names.contains(&"/games/x/img/moon-height.png|/games/x/img/moon-shape.png"), "{:?}", names);
     }
 
     #[test]

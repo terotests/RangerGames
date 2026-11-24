@@ -1,0 +1,11 @@
+# SPDX-License-Identifier: AGPL-3.0-or-later
+# The engine's draw stream painted with OpenGL ES 3.0 / WebGL2: 2D, globes
+# and 3D in one surface, in the stream's order (docs/gl-renderer.md).
+[package]
+name = "rg_gl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]

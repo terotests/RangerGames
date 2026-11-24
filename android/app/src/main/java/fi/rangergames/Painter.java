@@ -26,7 +26,8 @@ import java.util.Map;
  */
 final class Painter {
     private static final int HEADER = 23;
-    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8;
+    private static final android.graphics.PorterDuffXfermode ADD = new android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.ADD);
+    private static final int RECT = 0, BORDER = 1, IMAGE = 2, TEXT = 3, PUSH_CLIP = 4, POP_CLIP = 5, PATH = 6, STROKE = 7, SPHERE = 8, SPLATS = 10;
 
     private final AssetManager assets;
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -124,6 +125,29 @@ final class Painter {
         return gl != null;
     }
 
+    /** The GPU globes in the context the app paints everything with (GlCtx, current now). */
+    boolean startGlShared() {
+        GlSphere g = new GlSphere();
+        if (g.initShared(assets)) gl = g;
+        return gl != null;
+    }
+
+    /** the end of a GL-painted frame (the globes' log) */
+    void glFrameDone() {
+        if (gl != null) gl.frameDone();
+        glTune();
+    }
+
+    /** liquid splats (kind 10) in the GPU globes' context, when it works */
+    private GlSplats splats;
+
+    boolean canSplats() {
+        if (gl == null || !gl.ok) return false;
+        GlSplats s = new GlSplats(gl);
+        if (s.ok) splats = s;
+        return splats != null;
+    }
+
     /** where a command's extra numbers after the optional parts begin */
     private static int extras(float[] nums, int i) {
         int flags = (int) nums[i + 17];
@@ -141,6 +165,33 @@ final class Painter {
      * index after the last one, or -1 when the GPU failed (nothing drawn).
      */
     private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale) {
+        return glSpheres(c, nums, strings, i, scale, null);
+    }
+
+    /**
+     * For GL painting (GlHost.globes, the shared context): the globes of
+     * nums (one run of them) into a texture; out: texture, x, y, w, h (game
+     * units), the texture's part across and down, 0 (its first row is the
+     * top). False when nothing is to be shown.
+     */
+    boolean glGlobes(float[] nums, String[] strings, float px, float[] out) {
+        if (gl == null || !gl.ok) return false;
+        out[0] = 0;
+        if (nums.length > HEADER && (int) nums[0] == SPLATS) {
+            // liquid splats over the game's box: their picture as a texture, rows from below (flipped)
+            float w = nums[3], h = nums[4];
+            if (splats == null || !splats.ok || w <= 0 || h <= 0) return false;
+            int tex = splats.texture(nums, extras(nums, 0), w, h, px, nums[8]);
+            if (tex == 0) return false;
+            put(out, tex, 0, 0, w, h, splats.pw / (float) splats.texWidth(), splats.ph / (float) splats.texHeight());
+            out[7] = 1;
+            return true;
+        }
+        int r = glSpheres(null, nums, strings, 0, px, out);
+        return r >= 0 && out[0] != 0;
+    }
+
+    private int glSpheres(Canvas c, float[] nums, String[] strings, int i, float scale, float[] out) {
         int n = nums.length, j = i;
         float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = -Float.MAX_VALUE, y1 = -Float.MAX_VALUE;
         boolean near = false;
@@ -159,7 +210,11 @@ final class Painter {
         if (x1 <= x0 || y1 <= y0) return j;
         // far off: the last picture again, moved and scaled, while the globe looks the same from here
         Baked bk = !near && glBake ? baked(nums, strings, i, j, x0, y0, x1, y1) : null;
-        if (bk != null && bk.bm != null) {
+        if (bk != null && c == null && bk.tex != 0 && bk.kept) {
+            put(out, bk.tex, x0, y0, x1 - x0, y1 - y0, bk.pw / (float) bk.tw, bk.ph / (float) bk.th);
+            return j;
+        }
+        if (bk != null && c != null && bk.bm != null) {
             src.set(0, 0, bk.pw, bk.ph);
             rf.set(x0, y0, x1, y1);
             c.drawBitmap(bk.bm, src, rf, image);
@@ -189,12 +244,14 @@ final class Painter {
             int s0 = (int) nums[q + 18], s1 = (int) nums[q + 19], s2 = (int) nums[q + 20], nx = (int) nums[q + 22];
             if (nx < 20 || w <= 0 || h <= 0 || s0 < 0 || s0 >= strings.length || strings[s0].isEmpty()) continue;
             String ls = s1 >= 0 && s1 < strings.length ? strings[s1] : "";
-            String hs = null, gs = null;
+            // "shading|shape" or "shading|shape|window heights" (a detail window's own heights)
+            String hs = null, gs = null, ds = null;
             if (nx >= 40 && s2 >= 0 && s2 < strings.length) {
-                int bar = strings[s2].indexOf('|');
-                if (bar > 0) {
-                    hs = strings[s2].substring(0, bar);
-                    gs = strings[s2].substring(bar + 1);
+                String[] parts = strings[s2].split("\\|");
+                if (parts.length >= 2 && !parts[0].isEmpty()) {
+                    hs = parts[0];
+                    gs = parts[1];
+                    if (parts.length > 2 && !parts[2].isEmpty()) ds = parts[2];
                 }
             }
             int at = extras(nums, q);
@@ -209,7 +266,32 @@ final class Painter {
                     gnd = (float) terrain.ground(ex / el, ey / el, ez / el);
                 }
             }
-            any |= gl.draw(strings[s0], ls, hs, gs, x, y, w, h, nums, at, nx, gnd);
+            // the rings' pictures "colour|opacity" (slot 21, with 44 numbers)
+            int rsi = (int) nums[q + 21];
+            gl.rings = nx >= 44 && nums[at + 42] > 0.5f && rsi >= 0 && rsi < strings.length ? strings[rsi] : null;
+            any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
+        }
+        if (c == null) {
+            int tex = gl.endTexture();
+            if (tex == 0) return -1;
+            if (any) {
+                put(out, tex, x0, y0, gl.width() / gl.scale(), gl.height() / gl.scale(), gl.width() / (float) gl.texWidth(), gl.height() / (float) gl.texHeight());
+                if (bk != null) {
+                    // kept in a texture of its own for the next frames
+                    bk.tex = gl.keep(bk.tex);
+                    bk.tw = gl.width() + 1;
+                    bk.th = gl.height() + 1;
+                    bk.pw = gl.width();
+                    bk.ph = gl.height();
+                    bk.at = System.currentTimeMillis();
+                    bk.bw = gl.width() / gl.scale();
+                    bk.bh = gl.height() / gl.scale();
+                    bk.kept = true;
+                }
+            } else if (bk != null) {
+                bk.kept = false;
+            }
+            return j;
         }
         Bitmap bm = gl.end();
         if (bm == null) return -1;
@@ -237,8 +319,22 @@ final class Painter {
     private boolean glBake = true;
     private int bakedReused;
 
+    private static void put(float[] out, int tex, float x, float y, float w, float h, float u1, float v1) {
+        out[0] = tex;
+        out[1] = x;
+        out[2] = y;
+        out[3] = w;
+        out[4] = h;
+        out[5] = u1;
+        out[6] = v1;
+        out[7] = 0;
+    }
+
     private static final class Baked {
         String key;
+        // GL painting: the kept picture's texture (w × h), and whether it holds the entry's picture
+        int tex, tw, th;
+        boolean kept;
         float[] eye = new float[3], sun = new float[3], cam = new float[9];
         float el, w, h, bw, bh;
         int count, pw, ph;
@@ -275,7 +371,14 @@ final class Painter {
         float ex = nums[at], ey = nums[at + 1], ez = nums[at + 2];
         float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
         float w = x1 - x0, h = y1 - y0;
-        boolean same = b.bm != null && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
+        // drifting cloud bands or morphing clouds (48 or 72 numbers) change every frame: drawn anew
+        boolean moving = false;
+        for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+            int nq = (int) nums[q + 22], aq = extras(nums, q);
+            if (nq >= 48 && nums[aq + 44] > 0) moving = true;
+            if (nq >= 72 && (nums[aq + 48] > 0 || nums[aq + 50] > 0)) moving = true;
+        }
+        boolean same = !moving && (b.bm != null || b.kept) && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
         if (same) {
             // a third of a pixel of the picture (about half a screen pixel), as an angle seen from the globe and as a share of its size
             float tol = 0.3f / Math.max(8, Math.max(b.pw, b.ph));
@@ -309,6 +412,7 @@ final class Painter {
         b.h = h;
         for (int a = 3; a < 12; a++) b.cam[a - 3] = nums[at + a];
         b.bm = null;
+        b.kept = false;
         return b;
     }
 
@@ -322,7 +426,7 @@ final class Painter {
     }
 
     /** Fredoka (assets/fonts) at the weight asked for, else the system's sans. */
-    private Typeface font(String weight, boolean italic) {
+    Typeface font(String weight, boolean italic) {
         String key = weight + (italic ? "i" : "");
         Typeface t = fonts.get(key);
         if (t != null) return t;
@@ -396,9 +500,12 @@ final class Painter {
         // the 40-number form: real heights, "shading|shape" (Terrain)
         int[] hm = null, gm = null;
         int bar = hs.indexOf('|');
+        // a third part (a detail window's own heights) is only for the GPU's ground
+        int bar2 = bar > 0 ? hs.indexOf('|', bar + 1) : -1;
+        String gname = bar > 0 ? (bar2 > 0 ? hs.substring(bar + 1, bar2) : hs.substring(bar + 1)) : "";
         if (nx >= 40 && bar > 0) {
             hm = map(hs.substring(0, bar));
-            gm = map(hs.substring(bar + 1));
+            gm = map(gname);
             if (hm == null || gm == null) hm = gm = null;
         }
         boolean window = nx >= 32 && nums[at + 24] > 0.5f;
@@ -407,7 +514,7 @@ final class Painter {
         if (near && window) return;
         boolean mesh = false;
         if (near) {
-            int[] gsize = mapSizes.get(hs.substring(bar + 1));
+            int[] gsize = mapSizes.get(gname);
             terrain.set(nums, at, gm, gsize[0], gsize[1]);
             mesh = terrain.mesh(nums, at);
         }
@@ -483,6 +590,25 @@ final class Painter {
         int i = 0, n = nums.length;
         while (i + HEADER <= n) {
             int k = (int) nums[i];
+            if (k == SPLATS) {
+                int nx = (int) nums[i + 22], e = extras(nums, i);
+                float w = nums[i + 3], h = nums[i + 4];
+                if (splats != null && splats.ok && gl.ok && w > 0 && h > 0 && e + nx <= n) {
+                    Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8]);
+                    if (bm != null) {
+                        // GL's rows from below: flipped into place
+                        c.save();
+                        c.translate(0, h);
+                        c.scale(1, -1);
+                        src.set(0, 0, splats.pw, splats.ph);
+                        rf.set(0, 0, w, h);
+                        c.drawBitmap(bm, src, rf, image);
+                        c.restore();
+                    }
+                }
+                i = i + HEADER + nx;
+                continue;
+            }
             if (k == SPHERE && gl != null && gl.ok) {
                 int next = glSpheres(c, nums, strings, i, scale);
                 if (next >= 0) {
@@ -641,7 +767,10 @@ final class Painter {
                     path.setFillType((flags & 32) != 0 ? Path.FillType.EVEN_ODD : Path.FillType.WINDING);
                     fill.setShader(null);
                     fill.setColor(argb(r, g, b, a));
+                    // added (sparks): brighter where they overlap
+                    if ((flags & 2048) != 0) fill.setXfermode(ADD);
                     c.drawPath(path, fill);
+                    if ((flags & 2048) != 0) fill.setXfermode(null);
                 } else {
                     stroke.setColor(argb(r, g, b, a));
                     stroke.setStrokeWidth(t != 0 ? t : 1);
