@@ -235,6 +235,12 @@ final class Painter {
         for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
             int s0 = (int) nums[q + 18], nx = (int) nums[q + 22];
             if (nx >= 32 && nums[extras(nums, q) + 24] > 0.5f && s0 >= 0 && s0 < strings.length && !strings[s0].isEmpty() && !gl.ready(strings[s0])) allReady = false;
+            // a window's own heights ("shading|shape|window heights"): until they are on the GPU the window is left out, so no hole either
+            int s2 = (int) nums[q + 20];
+            if (allReady && nx >= 40 && nums[extras(nums, q) + 24] > 0.5f && s2 >= 0 && s2 < strings.length) {
+                String[] parts = strings[s2].split("\\|");
+                if (parts.length > 2 && !parts[2].isEmpty() && !gl.readyHeights(parts[2])) allReady = false;
+            }
         }
         gl.noHole = !allReady;
         gl.begin(x0, y0, x1 - x0, y1 - y0, k);

@@ -405,6 +405,11 @@ final class GlSphere {
         return texture(src, true, false) != null;
     }
 
+    /** the same for a detail window's own heights */
+    boolean readyHeights(String src) {
+        return texture(src, true, false, true) != null;
+    }
+
     private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
     /** the frame the last decoded picture went to the GPU in */
     private long laterSent = -1;
@@ -638,6 +643,8 @@ final class GlSphere {
         boolean w40 = ht != null;
         // the window's heights (decoded on the other thread, as its picture; until then the ball's shape)
         Tex dt = w40 && w4 && ds != null ? texture(ds, true, false, true) : null;
+        // a window without its own heights would show other ground than the ball beside it: left out until they arrive
+        if (w40 && w4 && ds != null && dt == null) return false;
         // the rings (decoded on the other thread; until then none)
         Tex rc = null, ra = null;
         if (nx >= 44 && p[at + 42] > 0.5f && rings != null && !rings.isEmpty()) {
@@ -770,7 +777,12 @@ final class GlSphere {
         double ffx = fx - cx * fd, ffy = fy - cy * fd, ffz = fz - cz * fd;
         double fl = Math.sqrt(ffx * ffx + ffy * ffy + ffz * ffz);
         double az = Math.atan2(ffx * bx0 + ffy * by0 + ffz * bz0, ffx * ax0 + ffy * ay0);
-        double half = fl < 0.3 || -fd > 0.85 ? Math.PI : Math.min(Math.PI, Math.atan(p[at + 16] * 0.5 / p[at + 15]) + 1.0);
+        // the fan's half width from the view's diagonal (a tall portrait view sees farther up and down than across), and all
+        // round when the lower edge of the view reaches past the point under the eye: with the width alone the ground behind
+        // the nadir was missing at the bottom of a tablet's portrait view when the camera looked steeply down
+        double diag = Math.atan(Math.hypot(p[at + 16], p[at + 17]) * 0.5 / p[at + 15]);
+        double down = Math.asin(Math.max(-1, Math.min(1, -fd)));
+        double half = fl < 0.3 || -fd > 0.85 || down + diag > Math.PI / 2 - 0.15 ? Math.PI : Math.min(Math.PI, diag + 1.0);
         double near = Math.max(alt * 0.2, 1e-8), far = 2.5 * reach + alt;
         GLES30.glUseProgram(progMesh);
         uniforms(um, p, at, w32, w4, w40, useL, ho, x, y, w, h);
