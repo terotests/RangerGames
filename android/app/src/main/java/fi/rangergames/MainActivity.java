@@ -509,6 +509,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             return;
         }
         painter.glFrameDone();
+        GlHost.frameDone();
         if (pacer != null) pacer.worked((System.nanoTime() - t) / 1e6);
         glCtx.swap();
         glFrames++;
