@@ -271,6 +271,12 @@ final class Sound implements Runnable {
                 decodeLater(name, b, vol, h, loop, fade, base, ++serial);
                 return;
             }
+            // a big WAV (music): read into samples on a thread of its own; on
+            // the game thread it stalled the game for ~0.3 s on the tablet
+            if (b != null && !queue && b.length > 1_000_000) {
+                wavLater(name, b, vol, h, loop, fade, base, ++serial);
+                return;
+            }
         }
         short[] pcm = file(name);
         if (pcm == null || pcm.length == 0) return;
@@ -481,6 +487,24 @@ final class Sound implements Runnable {
                 decoding.remove(name);
             }
             if (!started[0] && pcm != null && pcm.length > 0 && !stoppedSince(h, ser)) startFile(pcm, vol, h, loop, fade, base, false, ser);
+        }, "rg-decode");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        t.start();
+    }
+
+    /** A big WAV file decoded on a thread of its own, then played unless stopped meanwhile; cached. */
+    private void wavLater(String name, byte[] b, double vol, int h, boolean loop, double fade, double base, long ser) {
+        Thread t = new Thread(() -> {
+            short[] pcm = null;
+            try {
+                pcm = decodeWav(b);
+            } catch (Throwable e) {
+                android.util.Log.w("RangerGames", "decode " + name, e);
+            }
+            synchronized (files) {
+                files.put(name, pcm);
+            }
+            if (pcm != null && pcm.length > 0 && !stoppedSince(h, ser)) startFile(pcm, vol, h, loop, fade, base, false, ser);
         }, "rg-decode");
         t.setPriority(Thread.NORM_PRIORITY - 1);
         t.start();
