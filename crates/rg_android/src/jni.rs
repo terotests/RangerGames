@@ -500,7 +500,7 @@ pub extern "system" fn Java_fi_rangergames_Engine_glRender(
                 width: w,
                 height: h,
             };
-            gl.render(&mut host, &e.draw.nums, &e.draw.strings, &e.scene.tris, &v, [r, g, b, 1.0]);
+            gl.render(&mut host, &e.draw.nums, &e.draw.strings, &e.scene.tris, &e.scene.ptris, &e.scene.plights, &v, [r, g, b, 1.0]);
             gl.ok() as jboolean
         })
     })
