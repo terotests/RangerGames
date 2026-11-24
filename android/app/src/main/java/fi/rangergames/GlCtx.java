@@ -77,8 +77,17 @@ final class GlCtx {
         }
         attached = s;
         // one frame for each of the display's: eglSwapBuffers waits
-        EGL14.eglSwapInterval(display, 1);
+        EGL14.eglSwapInterval(display, swapInterval);
         return true;
+    }
+
+    private int swapInterval = 1;
+
+    /** How many display frames each picture stays (FramePacer). */
+    void interval(int n) {
+        if (n == swapInterval) return;
+        swapInterval = n;
+        if (window != EGL14.EGL_NO_SURFACE) EGL14.eglSwapInterval(display, n);
     }
 
     /** Back to the pbuffer (the window going away). */

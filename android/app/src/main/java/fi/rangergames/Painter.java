@@ -336,6 +336,8 @@ final class Painter {
         int tex, tw, th;
         boolean kept;
         float[] eye = new float[3], sun = new float[3], cam = new float[9];
+        /** each globe's box within the picture and eye direction (x, y, w, h, ex, ey, ez a globe) */
+        float[] each = new float[0];
         float el, w, h, bw, bh;
         int count, pw, ph;
         long at;
@@ -398,7 +400,35 @@ final class Painter {
                 for (int a = 3; a < 12 && same; a++) same = Math.abs(nums[at + a] - b.cam[a - 3]) < tol;
             }
         }
+        // every globe of the picture, not only the first: a second globe moving
+        // inside the box (Theia coming at the Earth) stayed frozen in the kept
+        // picture until it was a second old, so it came on step by step
+        float[] now = new float[count * 7];
+        {
+            int n = 0;
+            for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
+                int aq = extras(nums, q);
+                float qx = nums[aq], qy = nums[aq + 1], qz = nums[aq + 2], ql = (float) Math.max(1e-9, Math.sqrt(qx * qx + qy * qy + qz * qz));
+                now[n++] = nums[q + 1] - x0;
+                now[n++] = nums[q + 2] - y0;
+                now[n++] = nums[q + 3];
+                now[n++] = nums[q + 4];
+                now[n++] = qx / ql;
+                now[n++] = qy / ql;
+                now[n++] = qz / ql;
+            }
+        }
+        if (same && b.each.length == now.length) {
+            // a quarter of a game unit (about half a screen pixel) for the boxes
+            for (int a = 0; a < now.length && same; a += 7) {
+                for (int c = 0; c < 4 && same; c++) same = Math.abs(now[a + c] - b.each[a + c]) < 0.25f;
+                float tol = 0.3f / Math.max(8, Math.max(b.pw, b.ph));
+                float ddx = now[a + 4] - b.each[a + 4], ddy = now[a + 5] - b.each[a + 5], ddz = now[a + 6] - b.each[a + 6];
+                if (same) same = Math.sqrt(ddx * ddx + ddy * ddy + ddz * ddz) < tol * 0.5f;
+            }
+        } else same = false;
         if (same) return b;
+        b.each = now;
         b.key = k;
         b.count = count;
         b.eye[0] = ex / el;

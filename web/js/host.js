@@ -379,7 +379,7 @@
         this.onTurn = function (e) {
           if (e.alpha == null || e.beta == null || e.gamma == null) return;
           var t = Date.now();
-          if (self.lastTurnAt && t - self.lastTurnAt < 30) return;
+          if (self.lastTurnAt && t - self.lastTurnAt < 15) return;
           self.lastTurnAt = t;
           var d = Math.PI / 180, a = e.alpha * d, b = e.beta * d, g = e.gamma * d;
           var ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);

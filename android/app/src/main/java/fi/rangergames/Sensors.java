@@ -37,6 +37,7 @@ final class Sensors implements LocationListener, SensorEventListener {
     private boolean wantLocation, wantHeading, wantOrient, locationOn, headingOn, orientOn, paused, asked;
     private final float[] rot = new float[9];
     private final float[] orient = new float[3];
+    private Sensor headingSensor, orientSensor;
     private float lastDeg = -1000;
     private long lastHeadingAt, lastOrientAt;
 
@@ -109,23 +110,33 @@ final class Sensors implements LocationListener, SensorEventListener {
             lm.removeUpdates(this);
             locationOn = false;
         }
-        // heading and orient share one rotation-vector listener; orient wants it faster
+        // heading uses the rotation vector (it needs magnetic north); orient uses
+        // the game rotation vector when there is one: gyro + accelerometer, no
+        // magnetometer, so the view does not wander or jump indoors (Tero: the
+        // eye mode did not match the real turn)
         SensorManager sm = (SensorManager) activity.getSystemService(Context.SENSOR_SERVICE);
         boolean head = wantHeading && !paused, ori = wantOrient && !paused;
         if ((head != headingOn || ori != orientOn) && sm != null) {
-            if (headingOn || orientOn) sm.unregisterListener(this);
+            sm.unregisterListener(this);
             headingOn = false;
             orientOn = false;
-            if (head || ori) {
-                Sensor s = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
-                if (s == null) s = sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
-                if (s == null) {
-                    if (head) send("error", "{\"sensor\":\"heading\",\"reason\":\"unavailable\"}");
-                    if (ori) send("error", "{\"sensor\":\"orient\",\"reason\":\"unavailable\"}");
-                } else {
-                    sm.registerListener(this, s, ori ? SensorManager.SENSOR_DELAY_GAME : SensorManager.SENSOR_DELAY_UI);
-                    headingOn = head;
-                    orientOn = ori;
+            orientSensor = null;
+            Sensor rv = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR);
+            Sensor grv = sm.getDefaultSensor(Sensor.TYPE_GAME_ROTATION_VECTOR);
+            if (head) {
+                Sensor s = rv != null ? rv : grv;
+                if (s == null) send("error", "{\"sensor\":\"heading\",\"reason\":\"unavailable\"}");
+                else { sm.registerListener(this, s, SensorManager.SENSOR_DELAY_UI); headingOn = true; headingSensor = s; }
+            }
+            if (ori) {
+                Sensor s = grv != null ? grv : rv;
+                if (s == null) send("error", "{\"sensor\":\"orient\",\"reason\":\"unavailable\"}");
+                else {
+                    // the same sensor as heading: register once, at the faster rate
+                    if (headingOn && s == headingSensor) sm.unregisterListener(this);
+                    sm.registerListener(this, s, SensorManager.SENSOR_DELAY_GAME);
+                    orientOn = true;
+                    orientSensor = s;
                 }
             }
         }
@@ -178,14 +189,16 @@ final class Sensors implements LocationListener, SensorEventListener {
             r = o;
         }
         long now = System.currentTimeMillis();
-        if (orientOn && now - lastOrientAt >= 30) {
+        Sensor from = e.sensor;
+        if (orientOn && from == orientSensor && now - lastOrientAt >= 15) {
             // rows: the screen's right, up and out-of-screen axes in the world
-            // (x east, y north, z up); the screen's turn is already taken off
+            // (z up; with the game rotation vector x/y are a fixed but arbitrary
+            // horizontal pair, not east/north); the screen's turn is already taken off
             lastOrientAt = now;
             send("orient", String.format(Locale.US, "{\"m\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
                     r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]));
         }
-        if (!headingOn) return;
+        if (!headingOn || from != headingSensor) return;
         SensorManager.getOrientation(r, orient);
         float deg = (float) Math.toDegrees(orient[0]);
         if (deg < 0) deg += 360;

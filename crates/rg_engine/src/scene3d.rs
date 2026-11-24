@@ -15,7 +15,8 @@
 //!                             | "mesh"         // verts: [x, y, z, ...], tris: [a, b, c, ...] (counter-
 //!                                               // clockwise seen from outside), colors: a 0xrrggbb a
 //!                                               // triangle (else `color`), glow: the triangles drawn
-//!                                               // unlit; a ship from RangerSpaceshipBuilder (ship scene)
+//!                                               // unlit; smooth: true lights a corner (normals and
+//!                                               // colours averaged, GL); a ship from RangerSpaceshipBuilder
 //!                             | "dust"         // as puffs with two numbers more a puff (seed, age 0…1):
 //!                                               // a few lumps turning round it and drifting apart with age
 //!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
@@ -382,6 +383,11 @@ struct Obj {
     double: bool,
     /// 0..1: how strongly the lights glint off it (a polished hull)
     shiny: f64,
+    /// "mesh" with smooth: true: lit a corner, with each corner's normal the
+    /// mean of its faces' and each corner's colour the mean of its faces', so
+    /// that light bends round a rounded rock instead of showing flat facets
+    /// (GL only; the painter draws it faceted)
+    smooth: bool,
     /// 1: solid; below 1 a see-through light (a flame, a glow): the painter
     /// blends it over what is behind, GL adds its colour times this
     opacity: f64,
@@ -840,6 +846,7 @@ impl Scene {
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
                     shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
+                    smooth: a.get("smooth").as_bool(),
                     opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
@@ -1593,6 +1600,32 @@ impl Scene {
                     }
                 });
             }
+            // smooth meshes: a normal and a colour a corner, the area-weighted
+            // mean of the faces round it (the colours: plain mean)
+            let (vn, vc): (Vec<V3>, Vec<V3>) = if o.smooth && !o.mesh.faces.is_empty() {
+                let mut vn = vec![[0.0; 3]; world.len()];
+                let mut vc = vec![[0.0; 3]; world.len()];
+                let mut cnt = vec![0.0f64; world.len()];
+                for (fi, face) in o.mesh.faces.iter().enumerate() {
+                    let a = world[face[0]];
+                    let n = cross(sub(world[face[1]], a), sub(world[face[face.len() - 1]], a));
+                    let (fc, _) = o.mesh.face_paint(fi, o.color, o.emissive);
+                    for &i in face.iter() {
+                        vn[i] = add(vn[i], n);
+                        vc[i] = add(vc[i], fc);
+                        cnt[i] += 1.0;
+                    }
+                }
+                for i in 0..world.len() {
+                    vn[i] = norm(vn[i]);
+                    if cnt[i] > 0.0 {
+                        vc[i] = mul(vc[i], 1.0 / cnt[i]);
+                    }
+                }
+                (vn, vc)
+            } else {
+                (Vec::new(), Vec::new())
+            };
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1627,8 +1660,25 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let dist = dot(towards, towards).sqrt();
+                if !vn.is_empty() && !unlit && o.opacity >= 1.0 && pts.len() == face.len() && view.iter().all(|p| p[2] >= near) {
+                    // a colour a corner; the back of a double mesh turns its normals round
+                    let flip = if dot(norm(cross(sub(b, a), sub(c, a))), towards) > 0.0 { -1.0 } else { 1.0 };
+                    let cols: Vec<V3> = face.iter().map(|&i| {
+                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam);
+                        self.fogged(lit, dist)
+                    }).collect();
+                    for k in 1..pts.len() - 1 {
+                        for &j in [0, k, k + 1].iter() {
+                            let p = pts[j];
+                            let cc = cols[j];
+                            tris.extend_from_slice(&[p[0] as f32, p[1] as f32, d(p[2]) as f32, cc[0] as f32, cc[1] as f32, cc[2] as f32]);
+                        }
+                    }
+                    drawn += 1;
+                    continue;
+                }
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
                 let c = self.fogged(lit, dist);
                 if o.opacity < 1.0 {
                     // see-through: added over what is behind, after the solid
@@ -1720,6 +1770,27 @@ mod mesh_tests {
         assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
         assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
         assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
+    }
+
+    #[test]
+    fn a_smooth_mesh_is_lit_a_corner_in_gl() {
+        // a ridge of two faces; the light from the right side
+        let corners = |smooth: bool| -> Vec<[f32; 3]> {
+            let mut sc = Scene::new();
+            sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+            sc.command("light", &rg_core::json::parse(r#"{ "id": "sun", "type": "directional", "x": 1, "y": 0, "z": 1, "intensity": 1 }"#));
+            let m = format!(r##"{{ "id": "ridge", "shape": "mesh", "color": "#ffffff", "smooth": {},
+                "verts": [-1,0,0, 0,-1,1, 0,1,1, 1,0,0], "tris": [0,1,2, 2,1,3] }}"##, smooth);
+            sc.command("add", &rg_core::json::parse(&m));
+            sc.gl = true;
+            sc.render(&mut DrawStream::new(), 400.0, 400.0);
+            assert!(sc.tris.len() >= 36);
+            (0..3).map(|i| [sc.tris[i * 6 + 3], sc.tris[i * 6 + 4], sc.tris[i * 6 + 5]]).collect()
+        };
+        let flat = corners(false);
+        assert!(flat[0] == flat[1] && flat[1] == flat[2], "{:?}", flat);
+        let smooth = corners(true);
+        assert!(smooth[0] != smooth[1], "{:?}", smooth);
     }
 
     #[test]

@@ -357,6 +357,11 @@ final class GlSphere {
      * red * 65280 / 65535 + green * 255 / 65535, so red holds h * 65535 / 65280.
      */
     private Tex texture(String src, boolean clamp, boolean flat, boolean height) {
+        return texture(src, clamp, flat, height, clamp);
+    }
+
+    /** later: decoded on the other thread, null until ready (a detail picture, or one the globe shows well without) */
+    private Tex texture(String src, boolean clamp, boolean flat, boolean height, boolean later) {
         String key = src + (clamp ? "|c" : "") + (flat ? "|f" : "") + (height ? "|h" : "");
         Tex t = textures.get(key);
         if (t != null) {
@@ -364,8 +369,10 @@ final class GlSphere {
             return t;
         }
         // a detail picture (clamped) is decoded on another thread: until it is ready the ball's own picture shows
-        // (decoding one on this thread stopped the frame for ~22 ms on the test tablet)
-        if (clamp) {
+        // (decoding one on this thread stopped the frame for ~22 ms on the test tablet);
+        // so are the night lights and the heights' pictures: four 2048×1024 of them
+        // at once stopped a frame ~0.35 s on the tablet when Earth came near
+        if (later) {
             java.util.concurrent.Future<Object[]> f = pending.get(key);
             if (f == null) {
                 byte[] bytes = src.startsWith("/") ? Engine.read(src) : null;
@@ -373,7 +380,9 @@ final class GlSphere {
                 pending.put(key, decoder.submit(() -> decode(bytes)));
                 return null;
             }
-            if (!f.isDone()) return null;
+            // one decoded picture sent to the GPU a frame, so they do not all land in one
+            if (!f.isDone() || laterSent == frameNo) return null;
+            laterSent = frameNo;
             pending.remove(key);
             Object[] d;
             try {
@@ -397,6 +406,8 @@ final class GlSphere {
     }
 
     private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
+    /** the frame the last decoded picture went to the GPU in */
+    private long laterSent = -1;
     private final HashMap<String, java.util.concurrent.Future<Object[]>> pending = new HashMap<>();
 
     /** A picture's bytes to RGBA pixels: {width, height, pixels}, or null. Any thread. */
@@ -617,11 +628,11 @@ final class GlSphere {
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
         if (tx == null) return false;
-        Tex lt = w32 && lsrc != null && !lsrc.isEmpty() ? texture(lsrc, false, false) : null;
+        Tex lt = w32 && lsrc != null && !lsrc.isEmpty() ? texture(lsrc, false, false, false, true) : null;
         Tex ht = null, gt = null;
         if (nx >= 40 && hs != null && gs != null) {
-            ht = texture(hs, false, false, true);
-            gt = texture(gs, false, true);
+            ht = texture(hs, false, false, true, true);
+            gt = texture(gs, false, true, false, true);
             if (ht == null || gt == null) ht = gt = null;
         }
         boolean w40 = ht != null;

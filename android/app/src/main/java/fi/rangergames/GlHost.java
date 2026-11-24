@@ -26,15 +26,53 @@ final class GlHost {
     private GlHost() {
     }
 
-    /** The picture at path into the bound TEXTURE_2D: its width << 16 | height, -2 when it does not decode. */
+    /** pictures being decoded off the game thread, by path (a 2048×1024 JPEG took
+     *  ~30 ms to decode there, four at once stalled a frame ~0.35 s on the tablet) */
+    private static final java.util.HashMap<String, java.util.concurrent.Future<Bitmap>> decoding = new java.util.HashMap<>();
+    private static final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor(r -> {
+        Thread t = new Thread(r, "rg-image");
+        t.setPriority(Thread.NORM_PRIORITY - 1);
+        return t;
+    });
+    /** one picture uploaded a frame, so several do not land in the same one */
+    private static boolean uploaded;
+
+    /** A new frame: another picture may be uploaded (MainActivity, after each GL frame). */
+    static void frameDone() {
+        uploaded = false;
+    }
+
+    /**
+     * The picture at path into the bound TEXTURE_2D: its width << 16 | height,
+     * -1 while it is still being decoded (on a thread of its own; asked again
+     * next frame), -2 when it does not decode.
+     */
     static int image(String path) {
         try {
-            byte[] bytes = path.startsWith("/") ? Engine.read(path) : null;
-            if (bytes == null) return -2;
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inPreferredConfig = Bitmap.Config.ARGB_8888;
-            Bitmap b = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+            java.util.concurrent.Future<Bitmap> f = decoding.get(path);
+            if (f == null) {
+                byte[] bytes = path.startsWith("/") ? Engine.read(path) : null;
+                if (bytes == null) return -2;
+                f = decoder.submit(() -> {
+                    BitmapFactory.Options o = new BitmapFactory.Options();
+                    o.inPreferredConfig = Bitmap.Config.ARGB_8888;
+                    return BitmapFactory.decodeByteArray(bytes, 0, bytes.length, o);
+                });
+                decoding.put(path, f);
+                // a short wait first: most pictures decode in ~30 ms, and one shown
+                // missing for a frame (a white Earth) flashed; a longer one waits
+                if (uploaded) return -1;
+                try {
+                    f.get(40, java.util.concurrent.TimeUnit.MILLISECONDS);
+                } catch (java.util.concurrent.TimeoutException e) {
+                    return -1;
+                }
+            }
+            if (!f.isDone() || uploaded) return -1;
+            decoding.remove(path);
+            Bitmap b = f.get();
             if (b == null) return -2;
+            uploaded = true;
             if (maxTex == 0) {
                 int[] m = new int[1];
                 GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, m, 0);
@@ -53,6 +91,7 @@ final class GlHost {
             b.recycle();
             return r;
         } catch (Throwable t) {
+            decoding.remove(path);
             Log.w(TAG, "GL image " + path + ": " + t);
             return -2;
         }
