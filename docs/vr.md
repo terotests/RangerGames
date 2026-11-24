@@ -43,6 +43,7 @@ Options:
 | `panel` | `false`, or `{ visible, distance (m), size (its longer side, m), drop (m below the eyes), follow (true: it comes back in front when the head turns away) }` |
 | `fov` | stereo: the field of view in degrees |
 | `ipd` | stereo: the distance between the eyes in metres (0.063) |
+| `stereo` | how far apart the eyes are against the real ones (1). 0: no depth; 1000: a world in kilometres looks like a model in metres. The head still moves `scale` units a metre |
 
 `rg.xr.state`, updated every frame:
 
@@ -76,10 +77,19 @@ panel, then the controllers' rays over everything.
 - stereo: inside the engine (both eyes into one triangle list, each cut to its
   half of the screen), so it works on every host.
 
+A scene with planets, stars or baked particle runs (`rg.three` `planet`,
+`space`, `splats`) is drawn per eye as a whole draw stream
+(`Engine::xr_eye` fills `xr_draw`, `Scene3d::render_eye_stream`): the host
+paints it like a frame, globes and splats with its own painters, into the
+eye's rectangle (`rg_gl::EyeStream`). Its view is symmetric around the eye
+(`Eye::symmetric`, so the middle is at w/2, h/2 as the globe painter wants);
+the eye's own part of it is `xr_view`. Positions stay in f64 up to the
+projection, relative to the eye, so real distances (a planet 10⁸ units away)
+keep their precision.
+
 Not yet in VR:
 
-- the globes, planets and stars of `rg.three` (`planet`, `stars`) are not
-  drawn in the eyes; meshes, boxes, spheres, glTF models and lights are.
+- the map globe (`rg.three("globe")`, flat on the screen).
 - the panel is drawn over the world without depth (a 3D object in front of it
   does not hide it).
 - stereo has no lens distortion correction.

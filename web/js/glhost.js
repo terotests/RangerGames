@@ -196,7 +196,8 @@
           x0 = Math.min(x0, nums[i + 1]); y0 = Math.min(y0, nums[i + 2]);
           x1 = Math.max(x1, nums[i + 1] + nums[i + 3]); y1 = Math.max(y1, nums[i + 2] + nums[i + 4]);
         }
-        var v = host.view;
+        // (a VR eye's own stream has its own view: xr.js sets globeView)
+        var v = host.globeView || host.view;
         // the game's area only
         x0 = Math.max(x0, 0); y0 = Math.max(y0, 0); x1 = Math.min(x1, v.w); y1 = Math.min(y1, v.h);
         if (!(x1 > x0 && y1 > y0)) return 0;
@@ -205,7 +206,7 @@
         if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
         if (!self.globePainter) self.globePainter = new RgPainter(c, host.images);
         var sub = nums.slice(from, to);
-        var dpr = host.dpr;
+        var dpr = host.globeView ? 1 : host.dpr;
         self.globePainter.paint(sub, strings, { scale: v.scale, x: -x0 * v.scale, y: -y0 * v.scale, w: v.w, h: v.h }, dpr, null);
         var gl = self.gl;
         if (!self.globeTex) self.globeTex = self.put(gl.createTexture());

@@ -131,6 +131,18 @@ impl Eye {
     pub fn centre(&self) -> (f64, f64) {
         (K * self.tan[0], K * self.tan[2])
     }
+    /// The same eye with a symmetric view that covers this one (for drawing
+    /// that puts the middle of the view at w/2, h/2: planets, stars).
+    pub fn symmetric(&self) -> Eye {
+        let (x, y) = (self.tan[0].max(self.tan[1]), self.tan[2].max(self.tan[3]));
+        Eye { tan: [x, x, y, y], ..*self }
+    }
+    /// Where this eye's view is in its symmetric one's units: x, y, w, h.
+    pub fn in_symmetric(&self) -> [f64; 4] {
+        let s = self.symmetric();
+        let (w, h) = self.size();
+        [K * (s.tan[0] - self.tan[0]), K * (s.tan[2] - self.tan[2]), w, h]
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -270,6 +282,9 @@ pub struct Xr {
     /// stereo: the vertical field of view (degrees) and the eyes' distance (metres)
     pub fov: f64,
     pub ipd: f64,
+    /// how far apart the eyes are against the real ones (1; 0: flat, both at
+    /// the head; more: a huge world looks like a model), with `scale`
+    pub stereo: f64,
     /// buttons held last frame, per hand
     held: Vec<[bool; 6]>,
     /// the game's events (onXR)
@@ -334,6 +349,7 @@ impl Xr {
             orient: None,
             fov: 90.0,
             ipd: 0.063,
+            stereo: 1.0,
             held: Vec::new(),
             events: Vec::new(),
             pointers: Vec::new(),
@@ -360,6 +376,10 @@ impl Xr {
         let i = o.get("ipd").as_num(self.ipd);
         if (0.0..0.2).contains(&i) {
             self.ipd = i;
+        }
+        let k = o.get("stereo").as_num(self.stereo);
+        if (0.0..=1000.0).contains(&k) {
+            self.stereo = k;
         }
         let p = o.get("panel");
         match &p {
@@ -397,6 +417,7 @@ impl Xr {
         self.rig = d.rig;
         self.fov = d.fov;
         self.ipd = d.ipd;
+        self.stereo = d.stereo;
         let aspect = self.panel.aspect;
         self.panel = d.panel;
         self.panel.aspect = aspect;
@@ -639,7 +660,12 @@ impl Xr {
     /// Eye `i` in a world whose camera (the rig) is at `pos` with axes r, u, f.
     pub fn eye(&self, i: usize, pos: V3, r: V3, u: V3, f: V3) -> Option<Eye> {
         let v = self.views.get(i)?;
-        let l = self.local(v.pose);
+        let mut l = self.local(v.pose);
+        if self.stereo != 1.0 {
+            // the eye's place from the head's, its offset times `stereo`
+            let h = self.local(self.head).p;
+            l.p = add(h, mul(sub(l.p, h), self.stereo));
+        }
         let (rr, ru, rb) = self.rig_axes(r, u, f);
         let to_world = |d: V3| add(add(mul(rr, d[0]), mul(ru, d[1])), mul(rb, d[2]));
         let p = add(pos, mul(to_world(l.p), self.scale));

@@ -156,7 +156,19 @@
     var n = x.rg_xr_eyes();
     for (var e = 0; e < n && e < vp.views.length; e++) {
       var port = layer.getViewport(vp.views[e]);
+      var kind = x.rg_xr_prepare(e, port.width);
+      if (!kind) continue;
+      if (kind === 2) {
+        // planets and stars: the eye is a stream of its own, whose globes
+        // glhost.js paints with painter.js (frameDraw, globeView)
+        host.frameDraw = [x.rg_xr_draw_ptr() >>> 0, x.rg_xr_draw_len()];
+        var strs = host.text(x.rg_result_ptr(), x.rg_result_len()).split("\u0000");
+        host.frameStrings = strs;
+        host.preload(new Float32Array(x.memory.buffer, host.frameDraw[0], host.frameDraw[1]), strs);
+        host.globeView = { scale: x.rg_xr_view(0), x: x.rg_xr_view(1), y: x.rg_xr_view(2), w: x.rg_xr_view(3), h: x.rg_xr_view(4) };
+      }
       x.rg_xr_eye(e, this.fb, port.x, port.y, port.width, port.height, r, g, bb);
+      host.globeView = null;
     }
   };
 

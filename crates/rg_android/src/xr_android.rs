@@ -362,7 +362,7 @@ mod quest {
             });
             // the panel: the game's 2D view, about 2.5 pixels a game unit
             {
-                let mut host = JniGlHost { env, strings: None };
+                let mut host = JniGlHost { env: &mut *env, strings: None };
                 with_ref(|e| {
                     let (gw, gh) = (e.ui.width.max(1.0), e.ui.height.max(1.0));
                     let k = (2048.0 / gw.max(gh)).min(2.5);
@@ -372,17 +372,35 @@ mod quest {
                 });
             }
             let n = with(|e| e.xr_eyes()).min(views.len()).min(self.eyes.len());
+            // each eye's part of its image with square pixels for its field of
+            // view (the painter has one scale for x and y)
+            let rects: Vec<(i32, i32)> = (0..n)
+                .map(|i| {
+                    let (f, e) = (views[i].fov, &self.eyes[i]);
+                    let a = ((f.angle_up.tan() - f.angle_down.tan()) / (f.angle_right.tan() - f.angle_left.tan())).max(1e-3) as f64;
+                    let h = (e.w as f64 * a).round() as i32;
+                    if h <= e.h { (e.w, h.max(1)) } else { (((e.h as f64 / a).round() as i32).max(1), e.h) }
+                })
+                .collect();
             for i in 0..n {
                 let eye = &mut self.eyes[i];
                 let idx = eye.chain.acquire_image().map_err(err("acquire"))? as usize;
                 eye.chain.wait_image(xr::Duration::INFINITE).map_err(err("wait image"))?;
-                let (fbo, w, h) = (eye.fbos[idx], eye.w, eye.h);
-                with(|e| {
-                    if e.xr_eye(i) {
+                let (fbo, (w, h)) = (eye.fbos[idx], rects[i]);
+                if with(|e| e.xr_eye(i)) {
+                    // read only while painting: the host's globes read files (Engine.read)
+                    let mut host = JniGlHost { env: &mut *env, strings: None };
+                    with_ref(|e| {
                         let (uw, uh) = e.xr_eye_size(i);
-                        GL.with(|gl| gl.borrow_mut().render_eye(fbo, [0, 0, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [0.0, 0.0, 0.0, 1.0]));
-                    }
-                });
+                        let stream = e.xr_eye_view(w).map(|v| rg_gl::EyeStream {
+                            host: &mut host,
+                            nums: &e.xr_draw.nums,
+                            strings: &e.xr_draw.strings,
+                            view: rg_gl::View { scale: v[0], x: v[1], y: v[2], w: v[3], h: v[4], density: 1.0, width: w, height: h },
+                        });
+                        GL.with(|gl| gl.borrow_mut().render_eye(fbo, [0, 0, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [0.0, 0.0, 0.0, 1.0], stream));
+                    });
+                }
                 eye.chain.release_image().map_err(err("release"))?;
             }
             if n == 0 {
@@ -396,7 +414,7 @@ mod quest {
                         xr::SwapchainSubImage::new()
                             .swapchain(&e.chain)
                             .image_array_index(0)
-                            .image_rect(xr::Rect2Di { offset: xr::Offset2Di { x: 0, y: 0 }, extent: xr::Extent2Di { width: e.w, height: e.h } }),
+                            .image_rect(xr::Rect2Di { offset: xr::Offset2Di { x: 0, y: 0 }, extent: xr::Extent2Di { width: rects[i].0, height: rects[i].1 } }),
                     )
                 })
                 .collect();

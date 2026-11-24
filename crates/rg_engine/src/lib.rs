@@ -362,6 +362,12 @@ pub struct Engine {
     /// the panel's corners in clip space
     pub xr_over: Vec<f32>,
     pub xr_panel: Option<[[f32; 4]; 4]>,
+    /// VR: an eye with planets, stars or particle runs is a whole draw stream
+    /// (`xr_eye` makes it): this, with its triangles in `scene.tris`, and
+    /// `xr_view` = its units' width and height and where the eye's own view
+    /// is in them (x, y, w, h); None: the eye is `scene.tris` alone
+    pub xr_draw: DrawStream,
+    pub xr_view: Option<[f64; 6]>,
 }
 
 impl Engine {
@@ -395,6 +401,8 @@ impl Engine {
             xr_ups: Vec::new(),
             xr_over: Vec::new(),
             xr_panel: None,
+            xr_draw: DrawStream::new(),
+            xr_view: None,
             commands: Vec::new(),
             error: String::new(),
             log: Vec::new(),
@@ -841,10 +849,29 @@ impl Engine {
         self.scene.tris.clear();
         self.xr_over.clear();
         self.xr_panel = None;
+        self.xr_view = None;
         if self.xr.eye_local(i).is_none() {
             return false;
         }
-        if self.xr.immersive() {
+        if self.xr.immersive() && self.scene.needs_stream() {
+            // planets and stars are drawn by the host from a stream: one for
+            // this eye, with a symmetric view around it
+            let (p, r, u, f) = self.scene.rig();
+            if let Some(e) = self.xr.eye(i, p, r, u, f) {
+                let s = e.symmetric();
+                self.xr_draw.clear();
+                self.scene.render_eye_stream(s, &mut self.xr_draw);
+                let rig = self.world.borrow().rig();
+                if let Some(we) = rig.and_then(|(p, r, u, f)| self.xr.eye(i, p, r, u, f)) {
+                    let t0 = self.scene.tris.len();
+                    self.world.borrow_mut().render_eye(&we.symmetric(), i == 0, &mut self.scene.tris);
+                    self.xr_draw.layer3d(t0, self.scene.tris.len());
+                }
+                let (w, h) = s.size();
+                let v = e.in_symmetric();
+                self.xr_view = Some([w, h, v[0], v[1], v[2], v[3]]);
+            }
+        } else if self.xr.immersive() {
             if self.scene.active {
                 let (p, r, u, f) = self.scene.rig();
                 if let Some(e) = self.xr.eye(i, p, r, u, f) {
@@ -866,6 +893,15 @@ impl Engine {
         self.xr_panel = self.xr.panel_clip(i);
         self.xr.pointer_tris(i, &mut self.xr_over);
         true
+    }
+
+    /// For an eye drawn from `xr_draw` into a rectangle of `pw` pixels wide:
+    /// the stream's view as the GL painter wants it, at 1 pixel a "dp":
+    /// scale, x and y offset (pixels), the stream's width and height (units).
+    pub fn xr_eye_view(&self, pw: i32) -> Option<[f32; 5]> {
+        let v = self.xr_view?;
+        let s = pw.max(1) as f64 / v[4].max(1e-6);
+        Some([s as f32, (-v[2] * s) as f32, (-v[3] * s) as f32, v[0] as f32, v[1] as f32])
     }
 
     /// stereo: both eyes side by side into `scene.tris`, in game units

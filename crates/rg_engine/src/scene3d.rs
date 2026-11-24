@@ -1018,6 +1018,31 @@ impl Scene {
         if self.eyes_only {
             return;
         }
+        self.draw_view(out, w, h);
+    }
+
+    /// Whether a VR eye needs its own draw stream (`render_eye_stream`):
+    /// planets, stars or baked particle runs, which the host draws.
+    pub fn needs_stream(&self) -> bool {
+        self.active && (!self.planets.is_empty() || !self.stars.is_empty() || self.objs.iter().any(|o| o.splats.is_some() && o.visible))
+    }
+
+    /// One VR eye as a whole draw stream into `out` (the sky, planets, stars,
+    /// particle runs, and the shapes as triangles in `tris`), for an eye with
+    /// a symmetric view (`Eye::symmetric`): its units are `eye.size()`.
+    pub fn render_eye_stream(&mut self, eye: crate::xr::Eye, out: &mut DrawStream) {
+        self.tris.clear();
+        if !self.active {
+            return;
+        }
+        let (w, h) = eye.size();
+        self.eye = Some(eye);
+        self.draw_view(out, w, h);
+        self.eye = None;
+    }
+
+    /// The scene into `out` from the camera (or `eye`), `w` x `h` units.
+    fn draw_view(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
@@ -1029,19 +1054,12 @@ impl Scene {
         if let Some((top, bottom)) = self.sky {
             out.raw(0, 0.0, 0.0, w, h, top, Some(bottom), &[]);
         }
-        if let Some(g) = self.globe.as_mut() {
+        // (the map globe is flat on the screen: not in VR)
+        if let Some(g) = self.globe.as_mut().filter(|_| self.eye.is_none()) {
             g.render(out, w, h);
         }
-        let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, self.up));
-        if dot(r, r) < 0.5 {
-            r = norm(cross(f, [1.0, 0.0, 0.0]));
-            if dot(r, r) < 0.5 {
-                r = [1.0, 0.0, 0.0];
-            }
-        }
-        let u = cross(r, f);
-        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        // the camera, or a VR eye (symmetric there: its middle is w/2, h/2)
+        let (eye, r, u, f, focal, _, _) = self.view_basis(w, h);
         let near = 0.05;
         if !self.stars.is_empty() {
             // tiny squares, in three brightnesses, each as one path
@@ -1071,9 +1089,9 @@ impl Scene {
             }
         }
         if !self.planets.is_empty() {
-            let cam3 = crate::globe::Cam3 { eye: self.cam, right: r, up: u, fwd: f, focal, w, h, near: near * 0.2 };
+            let cam3 = crate::globe::Cam3 { eye, right: r, up: u, fwd: f, focal, w, h, near: near * 0.2 };
             let mut order: Vec<(f64, usize)> = self.planets.iter().enumerate().map(|(i, p)| {
-                let d = sub(p.pos, self.cam);
+                let d = sub(p.pos, eye);
                 (dot(d, d).sqrt() - p.r, i)
             }).collect();
             order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -1093,7 +1111,7 @@ impl Scene {
             self.render_splats(out, w, h);
             return;
         }
-        let cam = self.cam;
+        let cam = eye;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -1314,18 +1332,9 @@ impl Scene {
         if !self.objs.iter().any(|o| o.splats.is_some() && o.visible) {
             return;
         }
-        let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, self.up));
-        if dot(r, r) < 0.5 {
-            r = norm(cross(f, [1.0, 0.0, 0.0]));
-            if dot(r, r) < 0.5 {
-                r = [1.0, 0.0, 0.0];
-            }
-        }
-        let u = cross(r, f);
-        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        // the camera, or a VR eye (symmetric: its middle is w/2, h/2)
+        let (cam, r, u, f, focal, _, _) = self.view_basis(w, h);
         let near = 0.05;
-        let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -1416,7 +1425,8 @@ impl Scene {
     }
 
     /// The scene's triangles for one VR eye (into `tris`, in the eye's units,
-    /// `Eye::size`). Globes, planets and stars are not drawn in VR yet.
+    /// `Eye::size`). A scene with planets or stars needs a whole stream
+    /// instead (`needs_stream`, `render_eye_stream`).
     pub fn render_eye(&mut self, eye: crate::xr::Eye) {
         self.tris.clear();
         if !self.active || self.globe.is_some() || !self.planets.is_empty() || !self.stars.is_empty() {

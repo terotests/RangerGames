@@ -251,7 +251,10 @@ var rg = {
   // floats as a panel the controllers point at (their trigger taps it).
   // opts: { scale (game units a metre, 1), rig ("yaw": the camera's heading
   // is ahead | "full": its whole turn, a cockpit | "fixed"), panel (false, or
-  // { visible, distance, size (its longer side, m), drop, follow }), fov (stereo, degrees), ipd }.
+  // { visible, distance, size (its longer side, m), drop, follow }), fov (stereo, degrees), ipd,
+  // stereo (the eyes' distance against the real one: 1; 0 flat; more makes a
+  // huge world look like a model) }. Planets, stars and particle runs show
+  // in the eyes too.
   // rg.xr.state: { mode, running, vr, headset, head: { position, quaternion },
   // hands: [{ hand, position, quaternion, ray: { origin, direction }, trigger,
   // squeeze, stick: [x, y], a, b, menu, onPanel }] }, every frame. Events come

@@ -111,6 +111,16 @@ pub trait Host {
     fn globes(&mut self, nums: &[f32], strings: &[String], from: usize, to: usize, px: f32) -> Option<Globes>;
 }
 
+/// VR: an eye painted from its own draw stream (`Renderer::render_eye`):
+/// the stream, its strings, the host for its pictures and globes, and its
+/// view (`width` and `height` become the eye's rectangle's).
+pub struct EyeStream<'a> {
+    pub host: &'a mut dyn Host,
+    pub nums: &'a [f32],
+    pub strings: &'a [String],
+    pub view: View,
+}
+
 /// Where and how big the game is: Engine.view in dp, and the surface.
 #[derive(Clone, Copy)]
 pub struct View {
@@ -203,6 +213,9 @@ pub struct Renderer {
     pub error: String,
     /// the framebuffer `render` paints into (0: the window; VR: the panel's)
     fbo: u32,
+    /// VR: the part of `fbo` that `render` paints (x, y, w, h from the bottom
+    /// left; None: all of it, `View::width` × `height`)
+    port: Option<[i32; 4]>,
     /// VR: the 2D view's panel (a texture with its framebuffer), its size,
     /// and the program and buffers that draw it into an eye
     panel: Option<(u32, u32, u32, i32, i32)>,
@@ -294,6 +307,7 @@ impl Renderer {
             vertex_count: 0,
             error: String::new(),
             fbo: 0,
+            port: None,
             panel: None,
             panel_prog: 0,
             panel_vao: 0,
@@ -887,8 +901,24 @@ impl Renderer {
         }
     }
 
-    fn set_clip(c: &Clip) {
-        gl::scissor(c[0], c[1], c[2], c[3]);
+    fn set_clip(&self, c: &Clip) {
+        match self.port {
+            None => gl::scissor(c[0], c[1], c[2], c[3]),
+            Some(p) => {
+                // moved into the port and cut to it
+                let (x0, y0) = ((c[0] + p[0]).max(p[0]), (c[1] + p[1]).max(p[1]));
+                let (x1, y1) = ((c[0] + p[0] + c[2]).min(p[0] + p[2]), (c[1] + p[1] + c[3]).min(p[1] + p[3]));
+                gl::scissor(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0));
+            }
+        }
+    }
+
+    /// The viewport `render` paints: the port, or the whole surface.
+    fn set_viewport(&self, v: &View) {
+        match self.port {
+            Some(p) => gl::viewport(p[0], p[1], p[2], p[3]),
+            None => gl::viewport(0, 0, v.width, v.height),
+        }
     }
 
     /// The 2D state: blending premultiplied, no depth, the shape program and buffers.
@@ -928,8 +958,15 @@ impl Renderer {
         let xf = [2.0 * s / wpx, -2.0 * s / hpx, 2.0 * v.x * v.density / wpx - 1.0, 1.0 - 2.0 * v.y * v.density / hpx];
 
         gl::bind_framebuffer(self.fbo);
-        gl::viewport(0, 0, v.width, v.height);
-        gl::disable(gl::SCISSOR_TEST);
+        self.set_viewport(v);
+        match self.port {
+            // only the port is cleared (the other eye shares the framebuffer)
+            Some(p) => {
+                gl::enable(gl::SCISSOR_TEST);
+                gl::scissor(p[0], p[1], p[2], p[3]);
+            }
+            None => gl::disable(gl::SCISSOR_TEST),
+        }
         gl::color_mask(true);
         gl::depth_mask(true);
         gl::stencil_mask(0xff);
@@ -961,7 +998,7 @@ impl Renderer {
         for st in steps.iter() {
             match st {
                 Step::Draw { tex, first, count, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if *tex != bound {
                         gl::bind_texture(gl::TEXTURE_2D, *tex);
                         bound = *tex;
@@ -970,7 +1007,7 @@ impl Renderer {
                     self.calls += 1;
                 }
                 Step::Fill { first, count, cover, even_odd, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if bound != self.white {
                         gl::bind_texture(gl::TEXTURE_2D, self.white);
                         bound = self.white;
@@ -993,7 +1030,7 @@ impl Renderer {
                     self.calls += 2;
                 }
                 Step::Once { first, count, cover, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if bound != self.white {
                         gl::bind_texture(gl::TEXTURE_2D, self.white);
                         bound = self.white;
@@ -1011,7 +1048,7 @@ impl Renderer {
                     self.calls += 2;
                 }
                 Step::Tris { first, count, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if depth_used {
                         // a second scene in one frame: its own depth
                         gl::depth_mask(true);
@@ -1037,11 +1074,11 @@ impl Renderer {
                     gl::bind_vertex_array(0);
                     let out = host.globes(nums, strings, *from, *to, s);
                     // the host drew into its own framebuffer: back to ours
-                    gl::viewport(0, 0, v.width, v.height);
+                    self.set_viewport(v);
                     self.shape_state(xf, aa);
                     bound = 0;
                     if let Some(gb) = out {
-                        Self::set_clip(clip);
+                        self.set_clip(clip);
                         let (v0, v1) = if gb.flip { (gb.v1, 0.0) } else { (0.0, gb.v1) };
                         self.verts.clear();
                         self.idx.clear();
@@ -1150,11 +1187,27 @@ impl Renderer {
     /// triangles in the eye's units, `units` = their width and height), the
     /// panel at its clip-space corners (top left, top right, bottom right,
     /// bottom left), then `over` (the controllers' rays) over everything.
+    ///
+    /// With `stream` (a scene with planets, stars or particle runs: the eye's
+    /// own draw stream, `tris` its triangles in it) the stream is painted
+    /// into `rect` through its view instead, then the panel and `over`.
     #[allow(clippy::too_many_arguments)]
-    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<[[f32; 4]; 4]>, over: &[f32], background: [f32; 4]) {
+    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<[[f32; 4]; 4]>, over: &[f32], background: [f32; 4], stream: Option<EyeStream>) {
         if !self.init() {
             return;
         }
+        let painted = match stream {
+            Some(es) => {
+                self.fbo = fbo;
+                self.port = Some(rect);
+                let v = View { width: rect[2], height: rect[3], ..es.view };
+                self.render(es.host, es.nums, es.strings, tris, &v, background);
+                self.port = None;
+                self.fbo = 0;
+                true
+            }
+            None => false,
+        };
         if self.panel_prog == 0 {
             let mut err = String::new();
             self.panel_prog = program(shaders::PANEL_VS, shaders::PANEL_FS, &mut err);
@@ -1178,9 +1231,11 @@ impl Renderer {
         gl::scissor(rect[0], rect[1], rect[2], rect[3]);
         gl::color_mask(true);
         gl::depth_mask(true);
-        gl::clear_color(background[0], background[1], background[2], background[3]);
-        gl::clear_depth(1.0);
-        gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        if !painted {
+            gl::clear_color(background[0], background[1], background[2], background[3]);
+            gl::clear_depth(1.0);
+            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
         gl::disable(gl::STENCIL_TEST);
         gl::disable(gl::CULL_FACE);
         gl::enable(gl::BLEND);
@@ -1207,7 +1262,9 @@ impl Renderer {
             gl::draw_arrays(gl::TRIANGLES, 0, (t.len() / 6) as i32);
             r.calls += 1;
         };
-        tris_pass(self, tris, true);
+        if !painted {
+            tris_pass(self, tris, true);
+        }
         if let (Some(c), Some((tex, _, _, _, _))) = (panel, self.panel) {
             if self.panel_prog != 0 {
                 gl::disable(gl::DEPTH_TEST);
