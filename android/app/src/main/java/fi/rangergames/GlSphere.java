@@ -152,10 +152,23 @@ final class GlSphere {
     private final Bitmap[] ring = new Bitmap[4];
     private int ringNext;
 
+    /**
+     * In the context the app paints everything with (GlCtx, current on this
+     * thread): no context of its own, and endTexture() leaves the picture in a
+     * texture for that painting, with no reading back.
+     */
+    private boolean shared;
+
+    boolean initShared(AssetManager assets) {
+        shared = true;
+        return init(assets);
+    }
+
     /** Makes the context current on this thread; false (and ok false) when the phone has no GLES 3.0. */
     boolean init(AssetManager assets) {
         try {
             String fs = readAsset(assets, "shaders/sphere.fs");
+            if (!shared) {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             int[] ver = new int[2];
             if (!EGL14.eglInitialize(display, ver, 0, ver, 1)) throw new IllegalStateException("eglInitialize");
@@ -168,6 +181,7 @@ final class GlSphere {
             if (context == EGL14.EGL_NO_CONTEXT) throw new IllegalStateException("eglCreateContext");
             surface = EGL14.eglCreatePbufferSurface(display, cfg[0], new int[] {EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE}, 0);
             if (!EGL14.eglMakeCurrent(display, surface, surface, context)) throw new IllegalStateException("eglMakeCurrent");
+            }
             prog = GLES30.glCreateProgram();
             GLES30.glAttachShader(prog, shader(GLES30.GL_VERTEX_SHADER, VS));
             GLES30.glAttachShader(prog, shader(GLES30.GL_FRAGMENT_SHADER, fs));
@@ -484,6 +498,8 @@ final class GlSphere {
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, fbW, fbH, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target, 0);
         // depth for the mesh close by (its hills cover each other)
@@ -501,6 +517,8 @@ final class GlSphere {
         GLES30.glTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, f2W, f2H, 0, GLES30.GL_RGBA, GLES30.GL_UNSIGNED_BYTE, null);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_NEAREST);
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_NEAREST);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
         GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
         GLES30.glFramebufferTexture2D(GLES30.GL_FRAMEBUFFER, GLES30.GL_COLOR_ATTACHMENT0, GLES30.GL_TEXTURE_2D, target2, 0);
         if (GLES30.glCheckFramebufferStatus(GLES30.GL_FRAMEBUFFER) != GLES30.GL_FRAMEBUFFER_COMPLETE) {
@@ -536,7 +554,7 @@ final class GlSphere {
 
     /** this context current on this thread (GlSplats draws in it too) */
     void current() {
-        EGL14.eglMakeCurrent(display, surface, surface, context);
+        if (!shared) EGL14.eglMakeCurrent(display, surface, surface, context);
     }
 
     /** Starts a picture covering x, y, w, h (game units) at k pixels per unit. */
@@ -549,7 +567,7 @@ final class GlSphere {
         bk = k;
         bpw = Math.max(1, Math.round(w * k));
         bph = Math.max(1, Math.round(h * k));
-        EGL14.eglMakeCurrent(display, surface, surface, context);
+        if (!shared) EGL14.eglMakeCurrent(display, surface, surface, context);
         // one row and column more, left clear: the smoothed bitmap reads past its edge
         target(bpw + 1, bph + 1);
         int want = Math.min(msaa, maxSamples);
@@ -765,6 +783,97 @@ final class GlSphere {
         GLES30.glDrawElements(GLES30.GL_TRIANGLES, meshCount, GLES30.GL_UNSIGNED_SHORT, 0);
         GLES30.glDisable(GLES30.GL_DEPTH_TEST);
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+    }
+
+    // the texture endTexture() left the picture in, its size and framebuffer
+    private int outTex, outW, outH, outFbo;
+
+    /**
+     * The shared context's end of a picture: the samples resolved and the
+     * edge pass drawn, the picture left in a texture (its first row the
+     * picture's top, premultiplied); 0 on a GL error.
+     */
+    int endTexture() {
+        if (ms) {
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glBindFramebuffer(GLES30.GL_READ_FRAMEBUFFER, msFbo);
+            GLES30.glBindFramebuffer(GLES30.GL_DRAW_FRAMEBUFFER, fbo);
+            GLES30.glBlitFramebuffer(0, 0, bpw + 1, bph + 1, 0, 0, bpw + 1, bph + 1, GLES30.GL_COLOR_BUFFER_BIT, GLES30.GL_NEAREST);
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo);
+        }
+        if (edge && progEdge != 0) target2(bpw + 1, bph + 1);
+        if (edge && progEdge != 0) {
+            GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, fbo2);
+            GLES30.glViewport(0, 0, bpw + 1, bph + 1);
+            GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+            GLES30.glDisable(GLES30.GL_BLEND);
+            GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+            GLES30.glUseProgram(progEdge);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE4);
+            GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, target);
+            GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+            GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
+            GLES30.glEnableVertexAttribArray(0);
+            GLES30.glVertexAttribPointer(0, 2, GLES30.GL_FLOAT, false, 0, 0);
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 6);
+            outTex = target2;
+            outW = f2W;
+            outH = f2H;
+            outFbo = fbo2;
+        } else {
+            outTex = target;
+            outW = fbW;
+            outH = fbH;
+            outFbo = fbo;
+        }
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        // drawn scaled on the screen: smoothed (the edge pass reads texels, so this does not change it)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, outTex);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        int err = GLES30.glGetError();
+        if (err != GLES30.GL_NO_ERROR) {
+            Log.w(TAG, "GL globes: error " + err + ", globes off from now on");
+            ok = false;
+            return 0;
+        }
+        if (++stN == 120) {
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL globes (shared): %d px, %.1f pictures a frame", (long) bpw * bph, stN / (float) Math.max(1, stFrames)));
+            stN = 0;
+            stFrames = 0;
+        }
+        evict();
+        return outTex;
+    }
+
+    /** the texture's size: the picture covers width() / texWidth() of it across */
+    int texWidth() {
+        return outW;
+    }
+
+    int texHeight() {
+        return outH;
+    }
+
+    /**
+     * The last picture copied into texture `tex` (made when 0) for keeping
+     * (a far globe drawn again only when it changes); returns its id.
+     */
+    int keep(int tex) {
+        if (tex == 0) {
+            int[] id = new int[1];
+            GLES30.glGenTextures(1, id, 0);
+            tex = id[0];
+        }
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, tex);
+        GLES30.glCopyTexImage2D(GLES30.GL_TEXTURE_2D, 0, GLES30.GL_RGBA, 0, 0, bpw + 1, bph + 1, 0);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MIN_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_MAG_FILTER, GLES30.GL_LINEAR);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_S, GLES30.GL_CLAMP_TO_EDGE);
+        GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
+        return tex;
     }
 
     /** Reads the picture back; null on a GL error (then the globes are left to the software path). */

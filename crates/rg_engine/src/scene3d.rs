@@ -527,6 +527,10 @@ pub struct Scene {
     pub drawn: usize,
     /// the host draws depth-tested triangles (set by the engine every frame)
     pub gl: bool,
+    /// the host draws the whole stream with GL (rg_gl): the scene's objects
+    /// are triangles even with globes and stars, and a layer command (kind 9)
+    /// in the stream says where they go
+    pub unified: bool,
     /// the host draws textured globes itself (draw kind 8, draw.rs `sphere`)
     pub textures: bool,
     /// the host draws a sphere command only inside a window (a planet's
@@ -640,6 +644,7 @@ impl Scene {
             fov: 50.0,
             drawn: 0,
             gl: false,
+            unified: false,
             textures: false,
             detail: false,
             terrain: false,
@@ -939,7 +944,11 @@ impl Scene {
             }
         }
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
-            self.render_gl(w, h);
+            self.render_gl(w, h, true);
+            if self.unified {
+                out.layer3d(0, self.tris.len());
+            }
+            self.render_splats(out, w, h);
             return;
         }
         if let Some((top, bottom)) = self.sky {
@@ -1001,6 +1010,13 @@ impl Scene {
                 p.globe.terrain_ok = self.terrain;
                 p.globe.render_3d(out, &cam3, &place, sun, p.glowing, self.textures);
             }
+        }
+        if self.gl && self.unified {
+            // the objects in front of the sky, the globes and the stars, depth-tested
+            self.render_gl(w, h, false);
+            out.layer3d(0, self.tris.len());
+            self.render_splats(out, w, h);
+            return;
         }
         let cam = self.cam;
         let to_view = |p: V3| -> V3 {
@@ -1210,8 +1226,31 @@ impl Scene {
             self.drawn += j - i;
             i = j;
         }
-        // baked particle runs, over the shapes: liquid splats (kind 10), or
-        // added squares where the host cannot draw them
+        self.render_splats(out, w, h);
+    }
+
+    /// Baked particle runs, over the shapes: liquid splats (kind 10), or
+    /// added squares where the host cannot draw them.
+    fn render_splats(&self, out: &mut DrawStream, w: f64, h: f64) {
+        if !self.objs.iter().any(|o| o.splats.is_some() && o.visible) {
+            return;
+        }
+        let f = norm(sub(self.look, self.cam));
+        let mut r = norm(cross(f, self.up));
+        if dot(r, r) < 0.5 {
+            r = norm(cross(f, [1.0, 0.0, 0.0]));
+            if dot(r, r) < 0.5 {
+                r = [1.0, 0.0, 0.0];
+            }
+        }
+        let u = cross(r, f);
+        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        let near = 0.05;
+        let cam = self.cam;
+        let to_view = |p: V3| -> V3 {
+            let d = sub(p, cam);
+            [dot(d, r), dot(d, u), dot(d, f)]
+        };
         for o in self.objs.iter() {
             let sp = match (&o.splats, o.visible) {
                 (Some(sp), true) => sp,
@@ -1276,12 +1315,12 @@ impl Scene {
     /// shapes get their real depth, as 1/z so that it is right everywhere on a
     /// face. A higher `layer` is pulled a hair nearer, so that a thing lying on a
     /// face (a window on a wall) wins over the face rather than flickering.
-    fn render_gl(&mut self, w: f64, h: f64) {
+    fn render_gl(&mut self, w: f64, h: f64, with_sky: bool) {
         let mut tris: Vec<f32> = Vec::new();
         let push = |tris: &mut Vec<f32>, x: f64, y: f64, d: f64, c: V3| {
             tris.extend_from_slice(&[x as f32, y as f32, d as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
         };
-        if let Some((top, bottom)) = self.sky {
+        if let Some((top, bottom)) = self.sky.filter(|_| with_sky) {
             for &(x, y, c) in [(0.0, 0.0, top), (w, 0.0, top), (w, h, bottom), (0.0, 0.0, top), (w, h, bottom), (0.0, h, bottom)].iter() {
                 push(&mut tris, x, y, 1.0, c);
             }

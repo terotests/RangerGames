@@ -64,6 +64,20 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private float density = 1;
     /** the GL view shows a 3D scene (game thread only) */
     private boolean glShown;
+    /**
+     * Everything painted with GLES 3 into the SurfaceView (crates/rg_gl,
+     * Engine.glRender): the default; the launcher's ⚙ → Piirto chooses
+     * Canvas (Painter on Android's 2D canvas, 3D in the GL view under it),
+     * as does a device where GL fails (saves "glFailed").
+     */
+    private boolean glPaint;
+    private GlCtx glCtx;
+    /** the window going away: the game thread lets go of it first (surfaceDestroyed waits) */
+    private final Object glLock = new Object();
+    private boolean glLetGo;
+    private int glFrames;
+    private long glStatsAt;
+    private static final String SETTINGS = "/save/_settings.json";
     /** touches and keys for the game thread: {kind, id, x, y} or a key name */
     private final ConcurrentLinkedQueue<Object> input = new ConcurrentLinkedQueue<>();
 
@@ -73,6 +87,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         density = getResources().getDisplayMetrics().density;
         saves = getSharedPreferences("saves", MODE_PRIVATE);
+        glPaint = !"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false);
         painter = new Painter(getAssets());
         sensors = new Sensors(this, input);
         mic = new Mic(this, input, sound);
@@ -81,14 +96,21 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         store = new Store(this, input);
         // the 3D scene (GLES, depth-tested) under the 2D view, which is
         // transparent where nothing is painted
-        glView = new GLSurfaceView(this);
-        glView.setEGLContextClientVersion(2);
-        glView.setEGLConfigChooser(new Gl3D.Config());
-        glView.setRenderer(gl3d);
-        glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+        // (GL painting: one opaque surface, no GL view)
+        if (!glPaint) {
+            glView = new GLSurfaceView(this);
+            glView.setEGLContextClientVersion(2);
+            glView.setEGLConfigChooser(new Gl3D.Config());
+            glView.setRenderer(gl3d);
+            glView.setRenderMode(GLSurfaceView.RENDERMODE_WHEN_DIRTY);
+        }
         view = new SurfaceView(this);
-        view.setZOrderMediaOverlay(true);
-        view.getHolder().setFormat(PixelFormat.TRANSLUCENT);
+        if (!glPaint) {
+            view.setZOrderMediaOverlay(true);
+            view.getHolder().setFormat(PixelFormat.TRANSLUCENT);
+        } else {
+            view.getHolder().setFormat(PixelFormat.RGBA_8888);
+        }
         view.getHolder().addCallback(this);
         view.setOnTouchListener(new View.OnTouchListener() {
             @Override
@@ -98,7 +120,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             }
         });
         FrameLayout root = new FrameLayout(this);
-        root.addView(glView);
+        if (glView != null) root.addView(glView);
         root.addView(view);
         setContentView(root);
         immersive();
@@ -149,7 +171,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onResume() {
         super.onResume();
         paused = false;
-        glView.onResume();
+        if (glView != null) glView.onResume();
         sound.start();
         sound.setPaused(false);
         sensors.resume();
@@ -180,7 +202,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onPause() {
         super.onPause();
         paused = true;
-        glView.onPause();
+        if (glView != null) glView.onPause();
         sound.setPaused(true);
         sound.stop();
         sensors.pause();
@@ -215,6 +237,47 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     @Override
     public void surfaceDestroyed(SurfaceHolder h) {
         surface = null;
+        if (!glPaint) return;
+        // EGL must let go of the window before it is gone
+        synchronized (glLock) {
+            glLetGo = false;
+            long until = System.currentTimeMillis() + 1000;
+            while (!glLetGo && running && thread != null && thread.isAlive()) {
+                long left = until - System.currentTimeMillis();
+                if (left <= 0) break;
+                try {
+                    glLock.wait(left);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
+    }
+
+    /** the launcher's choice of painting (settings "paint"): "gl", "canvas" or "" */
+    private String paintSetting() {
+        try {
+            return new JSONObject(saves.getString(SETTINGS, "{}")).optString("paint", "");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    /** GL painting failed on this device: Canvas from now on (until the ⚙ chooses GL again), started again. */
+    private void glFailed(String why) {
+        Log.w(TAG, "GL painting failed, Canvas from now on: " + why);
+        saves.edit().putBoolean("glFailed", true).commit();
+        restart();
+    }
+
+    private void restart() {
+        running = false;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                recreate();
+            }
+        });
     }
 
     private static byte[] asset(Context c, String name) throws Exception {
@@ -291,8 +354,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         Engine.seed(System.currentTimeMillis() % 2147483647L);
         Engine.textures(true);
         Engine.terrain(true);
-        // the globes on the GPU, with the detail pictures; else in software without them
-        Engine.detail(painter.startGl());
+        Engine.paints(true);
+        if (glPaint) {
+            glCtx = new GlCtx();
+            if (!glCtx.init()) {
+                glCtx = null;
+                glFailed("no GLES 3.0 context");
+                throw new IllegalStateException("GL painting: no context");
+            }
+            Engine.glAll(true);
+            GlHost.painter = painter;
+            // the globes on the GPU in the same context, drawn into textures
+            Engine.detail(painter.startGlShared());
+            Log.i(TAG, "GL painting on");
+        } else {
+            // the globes on the GPU, with the detail pictures; else in software without them
+            Engine.detail(painter.startGl());
+        }
         Engine.splats(painter.canSplats());
         Engine.start("");
         afterCall();
@@ -312,6 +390,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         while (running) {
             SurfaceHolder h = surface;
             int w = width, hgt = height;
+            if (glCtx != null && (paused || h == null)) {
+                // the window is going (or gone): back to the pbuffer, and say so
+                glCtx.detach();
+                synchronized (glLock) {
+                    glLetGo = true;
+                    glLock.notifyAll();
+                }
+            }
             if (paused || h == null || w == 0) {
                 sleep(16);
                 last = System.nanoTime();
@@ -347,6 +433,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             long t = System.nanoTime();
             double dt = Math.min(100, (t - last) / 1e6);
             last = t;
+            if (glPaint) {
+                Engine.frame(dt);
+                afterCall();
+                if (!running) break;
+                glPaintFrame(h, t);
+                continue;
+            }
             // the 3D scene as triangles for the GL view once its context works
             if (gl3d.ready != glOn) {
                 glOn = gl3d.ready;
@@ -383,9 +476,43 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                     }
                 }
             }
+            // frames a second, as the GL path logs them (comparing the two)
+            glFrames++;
+            long now = System.nanoTime();
+            if (glStatsAt == 0) glStatsAt = now;
+            if (now - glStatsAt > 5_000_000_000L) {
+                Log.i(TAG, String.format(java.util.Locale.ROOT, "Canvas paint: %.1f fps", glFrames * 1e9 / (now - glStatsAt)));
+                glFrames = 0;
+                glStatsAt = now;
+            }
             // the hardware canvas waits for the display's frame; keep to about 60 fps otherwise
             long spent = (System.nanoTime() - t) / 1000000;
             if (spent < 15) sleep(15 - spent);
+        }
+        if (glCtx != null) glCtx.release();
+    }
+
+    /** The frame painted with GL into the window, then shown (eglSwapBuffers keeps to the display's pace). */
+    private void glPaintFrame(SurfaceHolder h, long t) {
+        if (!glCtx.attach(h.getSurface())) {
+            sleep(16);
+            return;
+        }
+        int w = glCtx.width(), hgt = glCtx.height();
+        if (!Engine.glRender(w, hgt, density, 0, 0, 0)) {
+            glFailed(Engine.glStats());
+            return;
+        }
+        painter.glFrameDone();
+        glCtx.swap();
+        glFrames++;
+        long now = System.nanoTime();
+        if (glStatsAt == 0) glStatsAt = now;
+        if (now - glStatsAt > 5_000_000_000L) {
+            // logcat RangerGames: frames a second and the painter's numbers
+            Log.i(TAG, String.format(java.util.Locale.ROOT, "GL paint: %.1f fps, %s", glFrames * 1e9 / (now - glStatsAt), Engine.glStats()));
+            glFrames = 0;
+            glStatsAt = now;
         }
     }
 
@@ -433,6 +560,13 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             case "store": store.command(name, opts); break;
             case "persist":
                 saves.edit().putString(name, args instanceof String ? (String) args : String.valueOf(args)).apply();
+                if (SETTINGS.equals(name)) {
+                    // another way of painting chosen in the ⚙: started again with it
+                    String p = paintSetting();
+                    boolean gl = !"canvas".equals(p);
+                    if ("gl".equals(p)) saves.edit().remove("glFailed").commit();
+                    if (gl != glPaint && (p.equals("gl") || p.equals("canvas"))) restart();
+                }
                 break;
             case "quit":
                 runOnUiThread(new Runnable() {

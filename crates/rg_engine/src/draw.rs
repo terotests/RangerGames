@@ -7,7 +7,8 @@
 //!
 //! ```text
 //!  0 kind      0 rect, 1 border, 2 image, 3 text, 4 push clip, 5 pop clip, 6 path, 7 stroke,
-//!             8 sphere (a textured globe, see `DrawStream::sphere`)
+//!             8 sphere (a textured globe, see `DrawStream::sphere`),
+//!             9 the 3D layer (x, y: floats from..to of the scene's triangles; only for gl_all)
 //!  1 x  2 y  3 w  4 h
 //!  5 r  6 g  7 b  8 a           colour, 0-255 and 0-1
 //!  9-12 radii                   top-left, top-right, bottom-right, bottom-left
@@ -195,6 +196,14 @@ impl DrawStream {
     pub fn raw(&mut self, kind: u32, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], far: Option<[f64; 3]>, pts: &[f32]) {
         let ends = [pts.len() as f32];
         self.emit(kind, x, y, w, h, rgb, far, pts, if pts.is_empty() { &[] } else { &ends });
+    }
+
+    /// Where the 3D scene's triangles go in the stream's order (kind 9, for a
+    /// host that draws everything with GL): floats `from..to` of the tris.
+    pub fn layer3d(&mut self, from: usize, to: usize) {
+        if to > from {
+            self.raw(9, from as f64, to as f64, 0.0, 0.0, [0.0; 3], None, &[]);
+        }
     }
 
     /// A filled path of several rings (`ends`: where each ring's numbers end).

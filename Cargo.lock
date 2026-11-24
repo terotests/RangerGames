@@ -157,6 +157,7 @@ dependencies = [
  "jni",
  "rg_core",
  "rg_engine",
+ "rg_gl",
 ]
 
 [[package]]
@@ -193,6 +194,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "rg_gl"
+version = "0.1.0"
+
+[[package]]
 name = "rg_voice"
 version = "0.1.0"
 dependencies = [
@@ -206,6 +211,7 @@ version = "0.1.0"
 dependencies = [
  "rg_core",
  "rg_engine",
+ "rg_gl",
 ]
 
 [[package]]

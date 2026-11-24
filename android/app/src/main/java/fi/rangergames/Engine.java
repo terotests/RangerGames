@@ -64,4 +64,16 @@ final class Engine {
     static native double view(int i);
 
     static native byte[] read(String path);
+
+    /** on: the app paints everything with GL (glRender); 3D as triangles in the stream. */
+    static native void glAll(boolean on);
+
+    /** on: the app can paint either way (⚙ → Piirto: GL / Canvas, rg.paints). */
+    static native void paints(boolean on);
+
+    /** Paints the last frame into the current GL surface (w × h pixels); false when GL failed. */
+    static native boolean glRender(int w, int h, float density, float r, float g, float b);
+
+    /** The GL painter's numbers and last error, for the log. */
+    static native String glStats();
 }

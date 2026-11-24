@@ -169,15 +169,21 @@ final class GlSplats {
      * bitmap's pw × ph corner, rows from below. Null when the GPU failed.
      */
     Bitmap draw(float[] nums, int e, float w, float h, float px, float opac) {
+        gl.current();
+        if (!passes(nums, e, w, h, px, opac)) return null;
+        return readBack();
+    }
+
+    /** the two passes into the shown picture (out), pw × ph of it; false when there is nothing to draw */
+    private boolean passes(float[] nums, int e, float w, float h, float px, float opac) {
         int np = Math.max(1, Math.min(256, (int) nums[e]));
         int at = e + 1 + np * 3;
         float lx = nums[at], ly = nums[at + 1], lz = nums[at + 2];
         int m = (int) nums[at + 3];
         int p0 = at + 4;
-        if (m <= 0 || p0 + m * 4 > nums.length) return null;
+        if (m <= 0 || p0 + m * 4 > nums.length) return false;
         float k = px * 0.5f;
         int cw = Math.max(1, Math.min(2048, Math.round(w * k))), ch = Math.max(1, Math.min(2048, Math.round(h * k)));
-        gl.current();
         targets(cw, ch);
         pw = cw;
         ph = ch;
@@ -240,6 +246,35 @@ final class GlSplats {
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
         GLES30.glBindVertexArray(0);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+        return true;
+    }
+
+    /**
+     * As draw, for the GL painter (the context current, GlHost): the picture
+     * left in a texture, rows from below; 0 when nothing was drawn or the GPU
+     * failed. Its part of the texture: pw × ph of tw × th.
+     */
+    int texture(float[] nums, int e, float w, float h, float px, float opac) {
+        if (!passes(nums, e, w, h, px, opac)) return 0;
+        int err = GLES30.glGetError();
+        if (err != GLES30.GL_NO_ERROR) {
+            Log.w(TAG, "GL splats: error " + err + ", off from now on");
+            ok = false;
+            return 0;
+        }
+        return out;
+    }
+
+    int texWidth() {
+        return ow;
+    }
+
+    int texHeight() {
+        return oh;
+    }
+
+    private Bitmap readBack() {
+        int cw = pw, ch = ph;
         // read back
         int slot = ringNext;
         ringNext = (ringNext + 1) % ring.length;
