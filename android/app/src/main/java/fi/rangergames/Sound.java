@@ -35,6 +35,7 @@ final class Sound implements Runnable {
     private static final int RATE = 22050;
     private static final int SINE = 0, SQUARE = 1, TRIANGLE = 2, SAW = 3;
     private static final float MASTER = 0.5f;
+    private static final double KNEE = 0.8;
 
     /** One note or noise burst: starts at sample `at`, lasts `len` samples. */
     private static final class Voice {
@@ -760,6 +761,11 @@ final class Sound implements Runnable {
                             lim = st.avail;
                             v.pcm = st.buf;
                         }
+                        // nothing came out of the decoder: no samples to loop over
+                        if (lim == 0 && !more) {
+                            voices.remove(vi);
+                            continue;
+                        }
                         for (int s = 0; s < frames; s++) {
                             if (start + s < v.at) continue;
                             if (v.pos >= lim) {
@@ -831,7 +837,12 @@ final class Sound implements Runnable {
                 }
                 for (int s = 0; s < frames; s++) {
                     double m = mix[s] * MASTER;
-                    m = m > 1 ? 1 : m < -1 ? -1 : m;
+                    // loud music with speech and effects on top goes over full scale:
+                    // above KNEE the level bends towards 1 instead of clipping flat
+                    // (a NaN would cast to 0 and silence every sound: left out)
+                    if (m != m) m = 0;
+                    else if (m > KNEE) m = KNEE + (1 - KNEE) * Math.tanh((m - KNEE) / (1 - KNEE));
+                    else if (m < -KNEE) m = -KNEE - (1 - KNEE) * Math.tanh((-m - KNEE) / (1 - KNEE));
                     buf[s] = (short) (m * 32767);
                 }
             }
