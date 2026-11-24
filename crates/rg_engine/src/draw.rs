@@ -321,6 +321,8 @@ impl DrawStream {
         self.sphere_rings(x, y, w, h, src, lights, heights, "", params);
     }
 
+    /// (48 numbers: [44] how far a gas giant's fastest cloud band drifts in a
+    /// cycle, in picture widths, [45] where in the cycle it is, 0..1)
     /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"
     /// are string 4, header slot 21, read only with 44 numbers and 42 = 1).
     #[allow(clippy::too_many_arguments)]

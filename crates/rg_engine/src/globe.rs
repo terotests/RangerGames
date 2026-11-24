@@ -277,6 +277,11 @@ pub struct Globe {
     rings: String,
     ring_in: f64,
     ring_out: f64,
+    /// the cloud bands drift (a gas giant): `flow` times Jupiter's winds
+    /// (east and west jets by latitude, up to ~150 m/s), at `flow_time`
+    /// seconds of the planet's time (the game's clock, warp and all)
+    flow: f64,
+    flow_time: f64,
     air_color: V3,
     /// city lights on the night side of a textured ball, and how bright
     lights: String,
@@ -306,6 +311,21 @@ fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
 }
 
 impl Globe {
+    /// The drift of the cloud bands as the shader takes it: how far (in
+    /// the picture's widths) the fastest band moves in one cycle, and where
+    /// in the cycle the planet's time is. Two readings half a cycle apart are
+    /// cross-faded, so the bands never smear however long it runs.
+    fn flow_params(&self) -> Option<(f64, f64)> {
+        if self.flow <= 0.0 {
+            return None;
+        }
+        // Jupiter: 150 m/s round 2π · 71 492 km, in picture widths a second
+        let rate = self.flow * 150.0 / (std::f64::consts::TAU * 7.1492e7);
+        let amp = 0.012;
+        let cycle = amp / rate;
+        Some((amp, (self.flow_time / cycle).rem_euclid(1.0)))
+    }
+
     pub fn new() -> Globe {
         // the lines of longitude and latitude every 30 degrees
         let mut lines: Vec<Vec<V3>> = Vec::new();
@@ -352,6 +372,8 @@ impl Globe {
             rings: String::new(),
             ring_in: 0.0,
             ring_out: 0.0,
+            flow: 0.0,
+            flow_time: 0.0,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
             lights_gain: 1.0,
@@ -428,6 +450,9 @@ impl Globe {
             }
             _ => {}
         }
+        // flow: k (1 = Jupiter's winds, 0 = still), flowTime: the planet's time in seconds
+        self.flow = a.get("flow").as_num(self.flow).max(0.0);
+        self.flow_time = a.get("flowTime").as_num(self.flow_time);
         if !a.get("airColor").is_null() {
             self.air_color = color(&a.get("airColor"), self.air_color);
         }
@@ -1154,7 +1179,8 @@ impl Globe {
             cam.focal, w, h, self.night.clamp(0.0, 1.0), lit,
         ];
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings;
+        let flow = self.flow_params();
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some();
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1177,12 +1203,18 @@ impl Globe {
             params.extend(more(hole.unwrap_or([0.0, 0.0, 1.0, 1.0]), 0.0, self.air));
             if terrain {
                 params.extend_from_slice(&hparams);
-            } else if rings {
+            } else if rings || flow.is_some() {
                 params.extend_from_slice(&[0.0; 8]);
             }
             if rings {
                 // the 44-number form: the rings (draw.rs `sphere`)
                 params.extend_from_slice(&[self.ring_in as f32, self.ring_out as f32, 1.0, 0.0]);
+            } else if flow.is_some() {
+                params.extend_from_slice(&[0.0; 4]);
+            }
+            if let Some((amp, phase)) = flow {
+                // the 48-number form: the cloud bands' drift (draw.rs `sphere`)
+                params.extend_from_slice(&[amp as f32, phase as f32, 0.0, 0.0]);
             }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);

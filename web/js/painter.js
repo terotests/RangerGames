@@ -55,6 +55,11 @@
     "uniform float meshM;" +
     // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
     "uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;" +
+    // a gas giant's cloud bands drifting (48 numbers): flowA how far the fastest band goes in a cycle (picture
+    // widths), flowPh where in the cycle; jet(lat) the east (+) and west (-) winds by latitude, after Jupiter's:
+    // a fast equator, jets every ~15 degrees, quiet near the poles
+    "uniform float flowA, flowPh;" +
+    "float jet(float lat) { return (0.55 * cos(lat * 24.0) + 0.6 * exp(-lat * lat * 60.0) - 0.1) * (1.0 - smoothstep(1.0, 1.3, abs(lat))); }" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -277,6 +282,13 @@
     "    vec2 k = 1.0 / (win.zw - win.xy); u = (uw - win.x) * k.x; v = (v - win.y) * k.y; du *= k.x; dv *= k.y;" +
     "  }" +
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    // the bands drift: the picture read twice, half a cycle apart, each moved by its band's wind (an angle: the
+    // wind over the latitude's circle), and cross-faded so neither is seen while it jumps back
+    "  if (flowA > 0.0 && useWin < 0.5) { float lat = (0.5 - v) * 3.1415927, s = flowA * jet(lat) / max(cos(lat), 0.25);" +
+    "    float p1 = flowPh, p2 = fract(flowPh + 0.5), w1 = 1.0 - abs(2.0 * p1 - 1.0);" +
+    "    vec3 c1 = textureGrad(tex, vec2(u - s * (p1 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    "    vec3 c2 = textureGrad(tex, vec2(u - s * (p2 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
+    "    c = c1 * w1 + c2 * (1.0 - w1); }" +
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
     // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
@@ -388,7 +400,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -498,6 +510,9 @@
     gl.uniform1f(u.useR, wr ? 1 : 0);
     gl.uniform1f(u.rIn, wr ? p[40] : 0);
     gl.uniform1f(u.rOut, wr ? p[41] : 1);
+    var wf = p.length >= 48 && !w4;
+    gl.uniform1f(u.flowA, wf ? p[44] : 0);
+    gl.uniform1f(u.flowPh, wf ? p[45] : 0);
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -602,7 +617,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

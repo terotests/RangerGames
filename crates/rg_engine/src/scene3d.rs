@@ -47,6 +47,10 @@
 //!                                                 // longitude -180…180, north up): hosts that
 //!                                                 // can draw it (web, phone, screenshots) do,
 //!                                                 // others draw the regions
+//!                      flow: 1, flowTime: t       // the cloud bands drift: 1 = Jupiter's winds
+//!                                                 // (0.3 for a calmer giant), t the planet's
+//!                                                 // time in seconds (the game's clock, warp
+//!                                                 // and all), set each frame
 //! rg.three("space",  { sun: [x, y, z], stars })   // the light of the planets; a sky of `stars` stars
 //! ```
 //!
