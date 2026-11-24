@@ -333,8 +333,6 @@ impl DrawStream {
         self.sphere_rings(x, y, w, h, src, lights, heights, "", params);
     }
 
-    /// (48 numbers: [44] how far a gas giant's fastest cloud band drifts in a
-    /// cycle, in picture widths, [45] where in the cycle it is, 0..1)
     /// Liquid splats (kind 10, a baked particle run, splats.rs): the host
     /// adds soft round splats up into a density, and shows it as a liquid
     /// surface where it is thick enough, coloured from `palette` by the
@@ -365,6 +363,13 @@ impl DrawStream {
 
     /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"
     /// are string 4, header slot 21, read only with 44 numbers and 42 = 1).
+    /// (48 numbers: [44] how far a gas giant's fastest cloud band drifts in a
+    /// cycle, in picture widths, [45] where in the cycle it is, 0..1.)
+    /// (72 numbers: the clouds morphing and their storms turning, globe.rs
+    /// `vortex_params`: [48] the storms' count (up to 4), [49] where in their
+    /// cycle, 0..1, [50] how much the clouds morph, [51] the morph's time;
+    /// [52 + 5i..] storm i: the picture's u, v of its middle, its radius
+    /// (radians), width / height, how far its middle turns in a cycle.)
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
         let s = self.string(src);

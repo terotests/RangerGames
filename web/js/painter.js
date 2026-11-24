@@ -60,6 +60,34 @@
     // a fast equator, jets every ~15 degrees, quiet near the poles
     "uniform float flowA, flowPh;" +
     "float jet(float lat) { return (0.55 * cos(lat * 24.0) + 0.6 * exp(-lat * lat * 60.0) - 0.1) * (1.0 - smoothstep(1.0, 1.3, abs(lat))); }" +
+    // the clouds morphing and their storms turning (72 numbers, globe.rs vortex_params): vinfo = (storms, where in
+    // their cycle, how much the clouds morph, the morph's time), vtx[i] = (u, v, radius in radians, width / height),
+    // vamp[i] how far its middle turns in a cycle (radians)
+    "uniform vec4 vinfo; uniform vec4 vtx[4]; uniform float vamp[4];" +
+    // the morph is EVG's smoke: noise read at a place two other noises have moved (domain warping), on the ball
+    // (no seam), stretched along the bands, the two warps out of step so that it rolls instead of breathing
+    "float vh(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }" +
+    "float vn(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);" +
+    "  return mix(mix(mix(vh(i), vh(i + vec3(1.0, 0.0, 0.0)), f.x), mix(vh(i + vec3(0.0, 1.0, 0.0)), vh(i + vec3(1.0, 1.0, 0.0)), f.x), f.y)," +
+    "    mix(mix(vh(i + vec3(0.0, 0.0, 1.0)), vh(i + vec3(1.0, 0.0, 1.0)), f.x), mix(vh(i + vec3(0.0, 1.0, 1.0)), vh(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z); }" +
+    "float vf(vec3 x) { float s = 0.0, a = 0.5; for (int i = 0; i < 3; i++) { s += a * vn(x); x = x * 2.03 + vec3(1.7, 9.2, 3.1); a *= 0.5; } return s; }" +
+    // where the picture is read for a place (u, v; p on the ball): the morph's warp, mostly along the bands
+    "vec2 morph(vec2 st, vec3 p) { if (vinfo.z <= 0.0) return st; float t = vinfo.w;" +
+    "  vec3 q = p * vec3(5.0, 5.0, 14.0);" +
+    "  vec3 w1 = vec3(vf(q + vec3(0.0, 0.0, t * 0.31)), vf(q + vec3(5.2, 1.3, -t * 0.23)), vf(q + vec3(2.1, 7.7, t * 0.17)));" +
+    "  float dx = vf(q + 2.2 * w1 + vec3(1.7, 9.2, t * 0.5)) - 0.44, dy = vf(q + 2.2 * w1 + vec3(8.3, 2.8, -t * 0.4)) - 0.44;" +
+    "  float cl = max(sqrt(1.0 - p.z * p.z), 0.2);" +
+    "  return st + vec2(dx * 0.016 / cl, dy * 0.006) * vinfo.z; }" +
+    // a storm turns what is read inside it: by an angle that grows to the middle (ph: this reading's place in the
+    // cycle, -0.5..0.5), on its ellipse; tw: how much of the place is inside a storm
+    "vec2 storms(vec2 st, float ph, out float tw) { tw = 0.0;" +
+    "  for (int i = 0; i < 4; i++) { if (float(i) >= vinfo.x) break; vec4 V = vtx[i];" +
+    "    float cl = max(cos((0.5 - V.y) * 3.1415927), 0.05), dl = st.x - V.x; dl -= floor(dl + 0.5);" +
+    "    vec2 d = vec2(dl * 6.2831853 * cl / V.w, (V.y - st.y) * 3.1415927) / V.z; float r2 = dot(d, d);" +
+    "    if (r2 >= 1.0) continue; float pr = (1.0 - r2) * (1.0 - r2); tw = max(tw, pr);" +
+    "    float a = -vamp[i] * ph * pr, cs = cos(a), sn = sin(a); d = vec2(cs * d.x - sn * d.y, sn * d.x + cs * d.y);" +
+    "    st = vec2(V.x + d.x * V.z * V.w / (6.2831853 * cl), V.y - d.y * V.z / 3.1415927); }" +
+    "  return st; }" +
     // the glowing air seen along the ray: a = how much, col = its light. lo: the
     // ray's lowest point (on the ground for a ray that hits); len: its path in the air
     "vec4 airGlow(vec3 d, vec3 lo, float alt, float len, bool hit) {" +
@@ -284,11 +312,16 @@
     "  vec3 c = textureGrad(tex, vec2(u, v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
     // the bands drift: the picture read twice, half a cycle apart, each moved by its band's wind (an angle: the
     // wind over the latitude's circle), and cross-faded so neither is seen while it jumps back
-    "  if (flowA > 0.0 && useWin < 0.5) { float lat = (0.5 - v) * 3.1415927, s = flowA * jet(lat) / max(cos(lat), 0.25);" +
+    "  if ((flowA > 0.0 || vinfo.z > 0.0 || vinfo.x > 0.5) && useWin < 0.5) {" +
+    "    vec2 st = morph(vec2(u, v), p), gx = vec2(du.x, dv.x), gy = vec2(du.y, dv.y);" +
+    "    float lat = (0.5 - st.y) * 3.1415927, s = flowA * jet(lat) / max(cos(lat), 0.25);" +
     "    float p1 = flowPh, p2 = fract(flowPh + 0.5), w1 = 1.0 - abs(2.0 * p1 - 1.0);" +
-    "    vec3 c1 = textureGrad(tex, vec2(u - s * (p1 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
-    "    vec3 c2 = textureGrad(tex, vec2(u - s * (p2 - 0.5), v), vec2(du.x, dv.x), vec2(du.y, dv.y)).rgb;" +
-    "    c = c1 * w1 + c2 * (1.0 - w1); }" +
+    // inside a storm: each of its two readings (half its cycle apart) read with the bands' two
+    "    float tw, tw2; float q1 = vinfo.y, q2 = fract(q1 + 0.5), wq = 1.0 - abs(2.0 * q1 - 1.0);" +
+    "    vec2 sa = storms(st, q1 - 0.5, tw), sb = storms(st, q2 - 0.5, tw2);" +
+    "    c = textureGrad(tex, vec2(sa.x - s * (p1 - 0.5), sa.y), gx, gy).rgb * w1 + textureGrad(tex, vec2(sa.x - s * (p2 - 0.5), sa.y), gx, gy).rgb * (1.0 - w1);" +
+    "    if (tw > 0.0) { vec3 cb = textureGrad(tex, vec2(sb.x - s * (p1 - 0.5), sb.y), gx, gy).rgb * w1 + textureGrad(tex, vec2(sb.x - s * (p2 - 0.5), sb.y), gx, gy).rgb * (1.0 - w1);" +
+    "      c = c * wq + cb * (1.0 - wq); } }" +
     "  vec3 n = p;" +
     "  vec3 east = normalize(vec3(-p.y, p.x, 0.0) + vec3(1e-6, 0.0, 0.0)); vec3 north = cross(p, east);" +
     // far off (not close by) the heights add no slopes: the picture alone, as it is (the slopes fade in close by)
@@ -400,7 +433,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -513,6 +546,15 @@
     var wf = p.length >= 48 && !w4;
     gl.uniform1f(u.flowA, wf ? p[44] : 0);
     gl.uniform1f(u.flowPh, wf ? p[45] : 0);
+    // the clouds morphing and their storms (72 numbers)
+    var wv = p.length >= 72 && !w4;
+    gl.uniform4f(u.vinfo, wv ? p[48] : 0, wv ? p[49] : 0, wv ? p[50] : 0, wv ? p[51] : 0);
+    if (wv) {
+      var vt = new Float32Array(16), va = new Float32Array(4);
+      for (var vi = 0; vi < 4; vi++) { for (var vj = 0; vj < 4; vj++) vt[vi * 4 + vj] = p[52 + vi * 5 + vj]; va[vi] = p[56 + vi * 5]; }
+      gl.uniform4fv(u.vtx, vt);
+      gl.uniform1fv(u.vamp, va);
+    }
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -747,7 +789,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

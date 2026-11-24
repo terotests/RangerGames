@@ -97,8 +97,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -589,7 +589,12 @@ final class GlSphere {
     String rings;
     private boolean ringOn;
 
+    // the extra numbers' count of the globe being drawn (uniforms() reads the band flow from 48, the storms from 72)
+    private int flowNx;
+    private final float[] vtx = new float[16], vamp = new float[4];
+
     boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
+        flowNx = nx;
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
@@ -694,9 +699,20 @@ final class GlSphere {
         GLES30.glUniform1f(L[RIN], ringOn ? p[at + 40] : 0);
         GLES30.glUniform1f(L[ROUT], ringOn ? p[at + 41] : 1);
         // the cloud bands' drift (48 numbers), not in a detail window
-        boolean flowOn = nx >= 48 && !w4;
+        boolean flowOn = flowNx >= 48 && !w4;
         GLES30.glUniform1f(L[FLOWA], flowOn ? p[at + 44] : 0);
         GLES30.glUniform1f(L[FLOWPH], flowOn ? p[at + 45] : 0);
+        // the clouds morphing and their storms (72 numbers, painter.js)
+        boolean vOn = flowNx >= 72 && !w4;
+        GLES30.glUniform4f(L[VINFO], vOn ? p[at + 48] : 0, vOn ? p[at + 49] : 0, vOn ? p[at + 50] : 0, vOn ? p[at + 51] : 0);
+        if (vOn) {
+            for (int i = 0; i < 4; i++) {
+                for (int j = 0; j < 4; j++) vtx[i * 4 + j] = p[at + 52 + i * 5 + j];
+                vamp[i] = p[at + 56 + i * 5];
+            }
+            GLES30.glUniform4fv(L[VTX], 4, vtx, 0);
+            GLES30.glUniform1fv(L[VAMP], 4, vamp, 0);
+        }
     }
 
     /**
