@@ -7,10 +7,10 @@ package fi.rangergames;
  * running at 40–60 fps on a 90 Hz screen alternates 11 and 22 ms between
  * pictures while the game moves by the time its frames took: the motion
  * judders. The pacer picks how many display frames a picture stays (the swap
- * interval, 1–3) from the frame times, with hysteresis, and gives the game
- * that many display frames as its step, so every picture moves alike: 45 or
- * 30 even frames a second rather than an uneven 40–50. A real stall (a file
- * loading) still goes to the game as the time it took.
+ * interval, 1–3) from the frame times, with hysteresis, so pictures come
+ * evenly (45 or 30 a second rather than an uneven 40–50), and gives the game
+ * the time that passed rounded to whole display frames, as the pictures are
+ * shown. Where the driver does not keep the interval it stays 1.
  */
 final class FramePacer {
     /** the display's frame, ms */
@@ -25,6 +25,10 @@ final class FramePacer {
     private double upFor, downFor;
     /** ms of frames since the last shorter interval, and how long shorter ones are not tried */
     private double sinceDown = 1e9, holdDown;
+    /** the display does not keep a picture longer (the tablet's driver ignores
+     *  the swap interval: 89 fps at "swap 2"): interval stays 1 */
+    private boolean ignored;
+    private double fastFor;
 
     FramePacer(float refreshHz) {
         period = 1000.0 / (refreshHz > 20 && refreshHz < 250 ? refreshHz : 60.0);
@@ -68,9 +72,18 @@ final class FramePacer {
         } else {
             downFor = 0;
         }
-        slot = period * interval;
-        // a stall: the game hears the time it really took
-        if (real > slot * 1.3) return Math.min(100, real);
-        return slot;
+        // pictures coming faster than the interval: the swap interval is not
+        // kept, so a longer one only made the game run fast; back to 1 for good
+        if (interval > 1 && mean < period * interval * 0.75) {
+            fastFor += real;
+            if (fastFor > 600) ignored = true;
+        } else {
+            fastFor = 0;
+        }
+        if (ignored) interval = 1;
+        // the game's step: whole display frames, as the pictures are shown
+        // (never more than the time that passed, rounded to the nearest frame)
+        double frames = Math.max(1, Math.round(real / period));
+        return Math.min(100, frames * period);
     }
 }
