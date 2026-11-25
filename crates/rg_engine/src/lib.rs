@@ -301,6 +301,8 @@ pub struct Engine {
     pub waiting_pack: Option<String>,
     /// the game that lists the others (`launcher`)
     pub launcher: String,
+    /// an app of one game (/games/_app.json): `launcher` is that game
+    pub app: bool,
     saved: Json,
     /// settings shared by every game (/save/_settings.json): the language
     settings: Json,
@@ -363,6 +365,8 @@ pub struct Engine {
     xr_rays: Vec<(i64, xr::V3, xr::V3)>,
     /// pointers let go last frame (their rays are forgotten now)
     xr_ups: Vec<i64>,
+    /// the keys the controllers hold down (xr_keys)
+    xr_keys: Vec<&'static str>,
     /// the last eye drawn (`xr_eye`): the controllers' rays and cursor, and
     /// the panel's corners in clip space
     pub xr_over: Vec<f32>,
@@ -404,6 +408,7 @@ impl Engine {
             xr: xr::Xr::new(),
             xr_rays: Vec::new(),
             xr_ups: Vec::new(),
+            xr_keys: Vec::new(),
             xr_over: Vec::new(),
             xr_panel: None,
             xr_draw: DrawStream::new(),
@@ -415,6 +420,7 @@ impl Engine {
             pending: None,
             waiting_pack: None,
             launcher: "launcher".to_string(),
+            app: false,
             saved: Json::Obj(Vec::new()),
             settings: Json::Obj(Vec::new()),
             screen_w: 360.0,
@@ -439,6 +445,7 @@ impl Engine {
         let id = j.get("start").as_str();
         if !id.is_empty() && self.vfs.exists(&format!("/games/{}/game.json", id)) {
             self.launcher = id;
+            self.app = true;
         }
     }
 
@@ -806,6 +813,8 @@ impl Engine {
             member("voices", self.voices_json()),
             member("seed", Json::Num(self.seed as f64)),
             member("launcher", Json::Bool(info.id == self.launcher)),
+            // an app of one game: its ✕ closes the app
+            member("app", Json::Bool(self.app && info.id == self.launcher)),
             member("speech", Json::Bool(info.speech)),
             // the renderers this host has, and the one drawing (rg.renderer)
             member("renderers", Json::Arr(if self.dom.is_some() { vec![Json::Str("evg".into()), Json::Str("dom".into())] } else { vec![Json::Str("evg".into())] })),
@@ -975,6 +984,14 @@ impl Engine {
         let ups = std::mem::take(&mut self.xr_ups);
         self.xr_rays.retain(|r| !ups.contains(&r.0));
         self.xr.step(self.ui.width, self.ui.height);
+        // a controller's B / Y is the phone's Back (onBack, else rg.exit)
+        let backs = self.xr.events.iter().filter(|e| {
+            e.get("type").as_str() == "button" && e.get("button").as_str() == "b" && e.get("down").as_bool()
+        }).count();
+        for _ in 0..backs {
+            self.input.push(rg_core::input::event("back", "Back", 0, 0.0, 0.0));
+        }
+        self.xr_keys();
         let pointers = std::mem::take(&mut self.xr.pointers);
         for p in pointers.iter() {
             // a press that missed the panel stays a world ray until it is let go
@@ -994,6 +1011,39 @@ impl Engine {
         }
         // an up event still needs its ray this frame: forgotten next frame
         self.xr_ups = pointers.iter().filter(|p| p.kind == 2).map(|p| p.id).collect();
+    }
+
+    /// The controllers as keys, for games made for phones and keyboards: a
+    /// stick is the arrow keys, A / X and the grip are Space (the trigger
+    /// taps the panel, B / Y is Back).
+    fn xr_keys(&mut self) {
+        let mut want: Vec<&'static str> = Vec::new();
+        if self.xr.headset() {
+            for h in self.xr.hands.iter() {
+                let held = |k: &str| self.xr_keys.contains(&k);
+                let on = |v: f64, k: &str| v > 0.5 || (held(k) && v > 0.35);
+                let [x, y] = h.stick;
+                for (v, k) in [(-x, "ArrowLeft"), (x, "ArrowRight"), (y, "ArrowUp"), (-y, "ArrowDown")] {
+                    if on(v, k) && !want.contains(&k) {
+                        want.push(k);
+                    }
+                }
+                if (on(h.buttons[3], " ") || on(h.buttons[1], " ")) && !want.contains(&" ") {
+                    want.push(" ");
+                }
+            }
+        }
+        for k in self.xr_keys.clone() {
+            if !want.contains(&k) {
+                self.input.key_up(k);
+            }
+        }
+        for k in want.iter() {
+            if !self.xr_keys.contains(k) {
+                self.input.key_down(k);
+            }
+        }
+        self.xr_keys = want;
     }
 
     fn xr_state(&self) -> Json {
