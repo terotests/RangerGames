@@ -216,6 +216,10 @@ pub struct GameInfo {
     /// commit (`_built.json`, written by the build), a download's acceptance
     /// (`_store.json` "updated"); empty when unknown
     pub updated: String,
+    /// game.json "xr": rg.xr.enter's options ({"mode": "vr", "scale": …,
+    /// "panel": …}): on a headset the game starts in VR without asking
+    /// (Null: flat until the game calls rg.xr.enter)
+    pub xr: Json,
 }
 
 impl GameInfo {
@@ -251,6 +255,7 @@ impl GameInfo {
             replaces: s("replaces", ""),
             replaced_by: String::new(),
             updated: String::new(),
+            xr: j.get("xr"),
         }
     }
 
@@ -424,6 +429,17 @@ impl Engine {
 
     pub fn set_seed(&mut self, seed: i64) {
         self.seed = seed;
+    }
+
+    /// An app made of one game (scripts/build-android.sh RG_APP_START=<id>
+    /// writes /games/_app.json {"start": id}): that game is the app's first
+    /// and only screen, in the launcher's place (Back closes the app, no ✕).
+    fn app_start(&mut self) {
+        let j = json::parse(&self.vfs.read_text("/games/_app.json"));
+        let id = j.get("start").as_str();
+        if !id.is_empty() && self.vfs.exists(&format!("/games/{}/game.json", id)) {
+            self.launcher = id;
+        }
     }
 
     /// Whether the launcher game is there to go back to (a pack made for
@@ -638,6 +654,7 @@ impl Engine {
     }
 
     pub fn start(&mut self, id: &str) -> Result<(), String> {
+        self.app_start();
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
         self.scene = scene3d::Scene::new();
         *self.world.borrow_mut() = fiber::World::new();
@@ -665,6 +682,10 @@ impl Engine {
         };
         self.game = Some(info.clone());
         self.fit();
+        // game.json "xr": on a headset the game opens in VR at once
+        if self.xr.always && matches!(info.xr, Json::Obj(_)) {
+            self.xr_command("enter", &info.xr);
+        }
         self.time = 0.0;
         self.waiting_pack = None;
         // the game's files are a pack of their own that is not here yet: the
