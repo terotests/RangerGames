@@ -40,6 +40,10 @@
 //!   heightScale,                 // the bumps' coarsest size (same units, default r / 60)
 //!   heightRelief,                // how much the sharp picture tilts the ground (default 1: true)
 //!   heightCraters,               // made-up craters in the bumps: 0 none, 1 deep (a fifth of their width)
+//!   dust, glint, seaGlint,       // with a texture: light that changes with the eye, 0..1 (a headset's
+//!                                // two eyes see it differently): dust, regolith's light (no darker
+//!                                // limb, a bright halo opposite the sun); glint, close by grains that
+//!                                // glitter towards the eye; seaGlint, the sun mirrored on the sea
 //!   detail,                      // sharper pictures over parts of the map: [{ src, u0, v0, u1, v1,
 //!                                // sun, shade (the picture's own light), height }]: height, a picture
 //!                                // of the window's own heights (as `height`, from heightMin to
@@ -314,6 +318,10 @@ pub struct Globe {
     height_scale: f64,
     height_relief: f64,
     height_craters: f64,
+    // the light that changes with the eye (draw.rs `sphere` 76-78): dust, the grains' glints, the sea's glint (0..1)
+    dust: f64,
+    glint: f64,
+    sea_glint: f64,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -440,6 +448,9 @@ impl Globe {
             height_scale: 0.0,
             height_relief: 1.0,
             height_craters: 0.0,
+            dust: 0.0,
+            glint: 0.0,
+            sea_glint: 0.0,
         }
     }
 
@@ -585,6 +596,9 @@ impl Globe {
         self.height_scale = a.get("heightScale").as_num(self.height_scale).max(0.0);
         self.height_relief = a.get("heightRelief").as_num(self.height_relief);
         self.height_craters = a.get("heightCraters").as_num(self.height_craters).max(0.0);
+        self.dust = a.get("dust").as_num(self.dust).clamp(0.0, 1.0);
+        self.glint = a.get("glint").as_num(self.glint).clamp(0.0, 1.0);
+        self.sea_glint = a.get("seaGlint").as_num(self.sea_glint).clamp(0.0, 1.0);
         if let Json::Arr(v) = a.get("detail") {
             self.detail = v.iter().take(8).filter_map(|d| {
                 let src = d.get("src").as_str();
@@ -1293,7 +1307,15 @@ impl Globe {
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
         let flow = self.flow_params();
         let vort = self.vortex_params();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0) || self.star[2] > 0.0;
+        // the 124-number form (draw.rs `sphere`): close over real ground the eye's remainder past its 32 bits (two
+        // eyes 6 cm apart are then 6 cm apart on the Moon too), and the light that changes with the eye
+        let view_light = self.dust > 0.0 || self.glint > 0.0 || self.sea_glint > 0.0;
+        let w124 = (terrain && near) || view_light;
+        let tail: [f32; 8] = [
+            (e[0] - params[0] as f64) as f32, (e[1] - params[1] as f64) as f32, (e[2] - params[2] as f64) as f32, 0.0,
+            self.dust as f32, self.glint as f32, self.sea_glint as f32, 0.0,
+        ];
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0) || self.star[2] > 0.0 || w124;
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1360,6 +1382,11 @@ impl Globe {
                     }
                 }
             }
+            if w124 {
+                // the 124-number form: the eye's remainder and the light (the forms before it as zeros where unused)
+                params.resize(116, 0.0);
+                params.extend_from_slice(&tail);
+            }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
         params.truncate(20);
@@ -1424,6 +1451,11 @@ impl Globe {
                 }
             } else {
                 p.extend(win.iter().map(|v| *v as f32));
+            }
+            if w124 {
+                // the eye's remainder and the light (the rings, bands, storms, hot cap and star are the whole ball's)
+                p.resize(116, 0.0);
+                p.extend_from_slice(&tail);
             }
             // the window's own heights: a third name, "shading|shape|window heights"
             let wh = if terrain && !dh.is_empty() { format!("{}|{}", heights, dh) } else { heights.clone() };
@@ -2123,6 +2155,105 @@ mod tests {
         let n = &out.nums;
         assert_eq!(n[23 + 35], 1.0);
         assert_eq!((n[1], n[2]), (0.0, 0.0));
+    }
+
+    // a headset's two eyes 6.4 cm apart over the Moon (radius 1737.4 km, the game's units km): the 32-bit eye of a
+    // sphere command is only to ~6e-8 radii (10 cm), so close by the 124-number form carries the remainder; with it
+    // the eyes are 6.4 cm apart to a micrometre, and the shader's height of a point over the ball (painter.js altY,
+    // here in 32 bits as on the GPU) keeps the difference between the eyes
+    #[test]
+    fn close_by_the_eye_is_exact_past_its_32_bits_and_the_view_light_is_sent() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-9,"heightMax":10.7,
+            "dust":0.8,"glint":0.5,"seaGlint":0.25,
+            "detail":[{"src":"img/d/0_3.jpg","u0":0.0,"v0":0.0,"u1":1.0,"v1":1.0}]}"##);
+        g.command(&a);
+        g.texture_in("/games/x");
+        g.terrain_ok = true;
+        g.detail_ok = true;
+        let rr = 1737.4;
+        let place = Place3 { centre: [0.0; 3], radius: rr, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        // 2 m over the ground at an odd place, looking along it; the eyes 6.4 cm apart along the camera's right
+        let up = [0.48, -0.6, 0.64];
+        let fwd = { let f = [0.6, 0.8, 0.0]; let k = dot(f, up); let v = [f[0] - up[0] * k, f[1] - up[1] * k, f[2] - up[2] * k]; let l = dot(v, v).sqrt(); [v[0] / l, v[1] / l, v[2] / l] };
+        let head = [up[0] * (rr + 0.002), up[1] * (rr + 0.002), up[2] * (rr + 0.002)];
+        let mut eyes = Vec::new();
+        let mut cams = Vec::new();
+        for s in [-1.0, 1.0] {
+            let mut c = cam_at(head, fwd);
+            for i in 0..3 {
+                c.eye[i] += c.right[i] * 0.000032 * s;
+            }
+            let mut out = DrawStream::new();
+            g.render_3d(&mut out, &c, &place, Some([0.3, 0.2, 0.9]), false, true);
+            let n = out.nums.clone();
+            // every command (the ball and its window) has the 124 numbers
+            let mut i = 0;
+            let mut ps = Vec::new();
+            while i < n.len() {
+                let k = n[i + 22] as usize;
+                if n[i] == 8.0 {
+                    ps.push(n[i + 23..i + 23 + k].to_vec());
+                }
+                i += 23 + k;
+            }
+            assert_eq!(ps.len(), 2, "the ball and its window");
+            for p in &ps {
+                assert_eq!(p.len(), 124);
+                assert!((p[120] - 0.8).abs() < 1e-6 && (p[121] - 0.5).abs() < 1e-6 && (p[122] - 0.25).abs() < 1e-6, "{:?}", &p[116..124]);
+            }
+            assert_eq!(ps[1][24], 1.0, "the window is still a window");
+            eyes.push(ps[0].clone());
+            cams.push(c);
+        }
+        let exact = |p: &Vec<f32>| -> V3 { [p[0] as f64 + p[116] as f64, p[1] as f64 + p[117] as f64, p[2] as f64 + p[118] as f64] };
+        let sep = |a: V3, b: V3| -> f64 { let d = [a[0] - b[0], a[1] - b[1], a[2] - b[2]]; dot(d, d).sqrt() * rr * 1e5 };
+        let truth = 6.4;
+        let with = sep(exact(&eyes[0]), exact(&eyes[1]));
+        assert!((with - truth).abs() < 1e-4, "the eyes {} cm apart", with);
+        for (p, c) in eyes.iter().zip(cams.iter()) {
+            let e = exact(p);
+            for i in 0..3 {
+                assert!((e[i] - c.eye[i] / rr).abs() < 1e-12, "{} {}", e[i], c.eye[i] / rr);
+            }
+        }
+        // the shader's sums in 32 bits: a point 3 m ahead along the ray through the middle, its height over the ball
+        // (painter.js altY), from each eye, against the true one
+        let alt32 = |p: &Vec<f32>, d: [f32; 3], t: f32| -> f64 {
+            let eye = [p[0], p[1], p[2]];
+            let ek = (p[0] as f64 * p[0] as f64 + p[1] as f64 * p[1] as f64 + p[2] as f64 * p[2] as f64 - 1.0) as f32;
+            let y = [p[116] + d[0] * t, p[117] + d[1] * t, p[118] + d[2] * t];
+            let m = ek + 2.0 * (eye[0] * y[0] + eye[1] * y[1] + eye[2] * y[2]) + (y[0] * y[0] + y[1] * y[1] + y[2] * y[2]);
+            (m / ((1.0 + m).max(0.0).sqrt() + 1.0)) as f64
+        };
+        let old32 = |p: &Vec<f32>, d: [f32; 3], t: f32| -> f64 {
+            let x = [p[0] + d[0] * t, p[1] + d[1] * t, p[2] + d[2] * t];
+            ((x[0] * x[0] + x[1] * x[1] + x[2] * x[2]).sqrt() - 1.0) as f64
+        };
+        let t = 0.003 / rr;
+        let mut worst_new: f64 = 0.0;
+        let mut worst_old: f64 = 0.0;
+        for (p, c) in eyes.iter().zip(cams.iter()) {
+            // a little down from ahead, as a ray to the ground
+            let d = { let v = [c.fwd[0] - c.up[0] * 0.3, c.fwd[1] - c.up[1] * 0.3, c.fwd[2] - c.up[2] * 0.3]; let l = dot(v, v).sqrt(); [v[0] / l, v[1] / l, v[2] / l] };
+            let x = [c.eye[0] / rr + d[0] * t, c.eye[1] / rr + d[1] * t, c.eye[2] / rr + d[2] * t];
+            let truth = dot(x, x).sqrt() - 1.0;
+            let df = [d[0] as f32, d[1] as f32, d[2] as f32];
+            worst_new = worst_new.max((alt32(p, df, t as f32) - truth).abs() * rr * 1e5);
+            worst_old = worst_old.max((old32(p, df, t as f32) - truth).abs() * rr * 1e5);
+        }
+        assert!(worst_new < 0.05, "the height off by {} cm", worst_new);
+        assert!(worst_old > 1.0, "the 32-bit sum was off by {} cm (the test would not tell)", worst_old);
+        // far off, without the light options: as before (no 124 numbers)
+        let mut g2 = Globe::new();
+        g2.command(&rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-9,"heightMax":10.7}"##));
+        g2.texture_in("/games/x");
+        g2.terrain_ok = true;
+        let mut out = DrawStream::new();
+        g2.render_3d(&mut out, &cam_at([rr * 3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([1.0, 0.0, 0.0]), false, true);
+        assert_eq!(out.nums[22], 40.0);
     }
 
     #[test]

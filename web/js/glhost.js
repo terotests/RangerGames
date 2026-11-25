@@ -111,7 +111,20 @@
       stencil_op: function (a, b, c) { g().stencilOp(a, b, c); },
       stencil_op_separate: function (face, a, b, c) { g().stencilOpSeparate(face, a, b, c); },
       stencil_mask: function (m) { g().stencilMask(m); },
-      get_error: function () { return g().getError(); }
+      get_error: function () { return g().getError(); },
+      // VR: the panel's framebuffer (crates/rg_gl render_panel)
+      create_framebuffer: function () { return self.put(g().createFramebuffer()); },
+      delete_framebuffer: function (f) { var o = self.get(f); if (o) { g().deleteFramebuffer(o); self.objs[f] = null; self.free.push(f); } },
+      framebuffer_texture: function (t) { var gl = g(); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, self.get(t), 0); },
+      create_depth_stencil: function (w, h) {
+        var gl = g(), rb = gl.createRenderbuffer();
+        gl.bindRenderbuffer(gl.RENDERBUFFER, rb);
+        gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+        gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.RENDERBUFFER, rb);
+        return self.put(rb);
+      },
+      delete_renderbuffer: function (r) { var o = self.get(r); if (o) { g().deleteRenderbuffer(o); self.objs[r] = null; self.free.push(r); } },
+      framebuffer_ok: function () { var gl = g(); return gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE ? 1 : 0; }
     };
   };
 
@@ -183,7 +196,8 @@
           x0 = Math.min(x0, nums[i + 1]); y0 = Math.min(y0, nums[i + 2]);
           x1 = Math.max(x1, nums[i + 1] + nums[i + 3]); y1 = Math.max(y1, nums[i + 2] + nums[i + 4]);
         }
-        var v = host.view;
+        // (a VR eye's own stream has its own view: xr.js sets globeView)
+        var v = host.globeView || host.view;
         // the game's area only
         x0 = Math.max(x0, 0); y0 = Math.max(y0, 0); x1 = Math.min(x1, v.w); y1 = Math.min(y1, v.h);
         if (!(x1 > x0 && y1 > y0)) return 0;
@@ -192,7 +206,7 @@
         if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
         if (!self.globePainter) self.globePainter = new RgPainter(c, host.images);
         var sub = nums.slice(from, to);
-        var dpr = host.dpr;
+        var dpr = host.globeView ? 1 : host.dpr;
         self.globePainter.paint(sub, strings, { scale: v.scale, x: -x0 * v.scale, y: -y0 * v.scale, w: v.w, h: v.h }, dpr, null);
         var gl = self.gl;
         if (!self.globeTex) self.globeTex = self.put(gl.createTexture());

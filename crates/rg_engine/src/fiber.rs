@@ -342,14 +342,17 @@ struct Cam {
     focal: f32,
     w: f32,
     h: f32,
+    /// the point straight ahead on the screen (w / 2, h / 2 but in VR)
+    cx: f32,
+    cy: f32,
     near: f32,
     far: f32,
 }
 
 impl Cam {
     fn ray(&self, x: f32, y: f32) -> V3 {
-        let dx = (x - self.w / 2.0) / self.focal;
-        let dy = (self.h / 2.0 - y) / self.focal;
+        let dx = (x - self.cx) / self.focal;
+        let dy = (self.cy - y) / self.focal;
         norm([self.f[0] + self.r[0] * dx + self.u[0] * dy, self.f[1] + self.r[1] * dx + self.u[1] * dy, self.f[2] + self.r[2] * dx + self.u[2] * dy])
     }
 }
@@ -373,6 +376,12 @@ pub struct World {
     /// triangles drawn in the last frame
     pub drawn: usize,
     kept: HashMap<u64, Kept>,
+    /// VR in a headset: the frame walks the tree but draws only per eye (`render_eye`)
+    pub eyes_only: bool,
+    /// the last frame's walked tree, for the eyes
+    last: Option<Ctx>,
+    /// the game camera (the VR rig): position, right, up, forward, near, far
+    rig: Option<(V3, V3, V3, V3, f32, f32)>,
 }
 
 struct Ctx {
@@ -399,6 +408,9 @@ impl World {
             owners: Vec::new(),
             drawn: 0,
             kept: HashMap::new(),
+            eyes_only: false,
+            last: None,
+            rig: None,
         }
     }
 
@@ -482,8 +494,8 @@ impl World {
                         return Json::Null;
                     }
                     json::obj(vec![
-                        member("x", Json::Num((c.w / 2.0 + dot(d, c.r) / z * c.focal) as f64)),
-                        member("y", Json::Num((c.h / 2.0 - dot(d, c.u) / z * c.focal) as f64)),
+                        member("x", Json::Num((c.cx + dot(d, c.r) / z * c.focal) as f64)),
+                        member("y", Json::Num((c.cy - dot(d, c.u) / z * c.focal) as f64)),
                         member("depth", Json::Num(z as f64)),
                     ])
                 }
@@ -497,8 +509,10 @@ impl World {
     /// as three.js's intersections: {id, name, distance, point, normal}.
     pub fn raycast(&self, x: f32, y: f32) -> Vec<Json> {
         let cam = match self.cam { Some(c) => c, None => return Vec::new() };
-        let dir = cam.ray(x, y);
-        let o = cam.eye;
+        self.hits(cam.eye, cam.ray(x, y), cam.near)
+    }
+
+    fn hits(&self, o: V3, dir: V3, near: f32) -> Vec<Json> {
         let mut best: Vec<(f32, usize, V3)> = Vec::new();
         for (i, t) in self.pick.iter().enumerate() {
             // Möller–Trumbore
@@ -521,7 +535,7 @@ impl World {
                 continue;
             }
             let d = dot(e2, q) * inv;
-            if d <= cam.near {
+            if d <= near {
                 continue;
             }
             let mut n = norm(cross(e1, e2));
@@ -720,6 +734,8 @@ impl World {
         if !matches!(tree, Json::Obj(_)) {
             self.active = false;
             self.cam = None;
+            self.last = None;
+            self.rig = None;
             self.pick.clear();
             self.pick_owner.clear();
             self.owners.clear();
@@ -759,11 +775,62 @@ impl World {
         let focal = (h / 2.0) / (fov.to_radians() / 2.0).tan();
         let near = pnum(&ca, "near", 0.1).max(0.01);
         let far = pnum(&ca, "far", 1000.0);
-        let cam = Cam { eye, r, u, f, focal, w, h, near, far };
-        self.cam = Some(cam);
+        let cam = Cam { eye, r, u, f, focal, w, h, cx: w / 2.0, cy: h / 2.0, near, far };
         self.owners = std::mem::take(&mut ctx.owners);
+        self.rig = Some((eye, r, u, f, near, far));
+        if self.eyes_only {
+            self.last = Some(ctx);
+            return;
+        }
+        self.draw_view(&ctx, cam, gl, true, out, tris);
+        self.last = Some(ctx);
+    }
+
+    /// The game camera (the VR rig): position, right, up, forward.
+    pub fn rig(&self) -> Option<([f64; 3], [f64; 3], [f64; 3], [f64; 3])> {
+        let d = |v: V3| [v[0] as f64, v[1] as f64, v[2] as f64];
+        self.rig.map(|(e, r, u, f, _, _)| (d(e), d(r), d(u), d(f)))
+    }
+
+    /// The last frame's world for one VR eye: its triangles into `tris` (the
+    /// eye's units, `Eye::size`). The first eye's are what rays pick.
+    pub fn render_eye(&mut self, eye: &crate::xr::Eye, first: bool, tris: &mut Vec<f32>) {
+        let (near, far) = match self.rig { Some((_, _, _, _, n, f)) => (n, f), None => return };
+        let ctx = match self.last.take() { Some(c) => c, None => return };
+        let g = |v: [f64; 3]| [v[0] as f32, v[1] as f32, v[2] as f32];
+        let (w, h) = eye.size();
+        let (cx, cy) = eye.centre();
+        let cam = Cam { eye: g(eye.pos), r: g(eye.r), u: g(eye.u), f: g(eye.f), focal: crate::xr::K as f32, w: w as f32, h: h as f32, cx: cx as f32, cy: cy as f32, near, far };
+        let mut out = DrawStream::new();
+        if first {
+            self.draw_view(&ctx, cam, true, false, &mut out, tris);
+        } else {
+            // the second eye picks nothing (the first eye's picks stay)
+            let (pick, owners) = (std::mem::take(&mut self.pick), std::mem::take(&mut self.pick_owner));
+            let c0 = self.cam;
+            self.draw_view(&ctx, cam, true, false, &mut out, tris);
+            self.pick = pick;
+            self.pick_owner = owners;
+            self.cam = c0;
+        }
+        self.last = Some(ctx);
+    }
+
+    /// The objects a ray of the world meets, nearest first (as `raycast`).
+    pub fn raycast_ray(&self, o: [f64; 3], d: [f64; 3]) -> Vec<Json> {
+        let g = |v: [f64; 3]| [v[0] as f32, v[1] as f32, v[2] as f32];
+        let near = self.rig.map(|r| r.4).unwrap_or(0.01);
+        self.hits(g(o), norm(g(d)), near.min(0.01))
+    }
+
+    /// Draws the walked tree for one camera: triangles into `tris` (GL) or
+    /// sorted polygons into `out`; picks for raycasts. `keep`: kept models'
+    /// triangles may be reused (a still camera).
+    fn draw_view(&mut self, ctx: &Ctx, cam: Cam, gl: bool, keep: bool, out: &mut DrawStream, tris: &mut Vec<f32>) {
+        self.cam = Some(cam);
         self.pick.clear();
         self.pick_owner.clear();
+        let Cam { eye, r, u, f, focal, w, h, cx, cy, near, far } = cam;
 
         // background
         if let Some(bg) = ctx.background {
@@ -780,7 +847,7 @@ impl World {
         const DN: f32 = 0.2;
         const DF: f32 = 2000.0;
         let depth = |z: f32| ((1.0 / DN - 1.0 / z.max(DN)) / (1.0 / DN - 1.0 / DF)).clamp(0.0, 1.0);
-        let lights = ctx.lights.clone();
+        let lights = &ctx.lights;
         let fog = ctx.fog;
         let shade = |p: V3, n: V3, base: V3, em: V3, kind: u8| -> V3 {
             let lit = match kind {
@@ -886,7 +953,7 @@ impl World {
                 let mut scr: [(f32, f32, f32, V3); 4] = [(0.0, 0.0, 0.0, [0.0; 3]); 4];
                 for i in 0..np {
                     let (p, c) = poly[i];
-                    scr[i] = (w / 2.0 + p[0] / p[2] * focal, h / 2.0 - p[1] / p[2] * focal, p[2], c);
+                    scr[i] = (cx + p[0] / p[2] * focal, cy - p[1] / p[2] * focal, p[2], c);
                 }
                 let scr = &scr[..np];
                 let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
@@ -938,7 +1005,7 @@ impl World {
         // the view's sides as cones around the camera: a sphere (centre and
         // radius in the model, placed by m) is in view unless it is wholly
         // behind, beyond `far` or outside a side
-        let (tx, ty) = ((w / 2.0) / focal, (h / 2.0) / focal);
+        let (tx, ty) = (cx.max(w - cx) / focal, cy.max(h - cy) / focal);
         let (kx, ky) = ((1.0 + tx * tx).sqrt(), (1.0 + ty * ty).sqrt());
         let in_view = |b: &([f32; 3], f32), m: &M4| -> bool {
             if b.1 <= 0.0 {
@@ -971,7 +1038,7 @@ impl World {
             if !in_view(&mi.asset.bound, &mi.m) {
                 continue;
             }
-            if gl {
+            if gl && keep {
                 if let Some(k) = kept.remove(&it.key) {
                     if k.frame == frame_key {
                         tris.extend_from_slice(&k.tris);
@@ -992,11 +1059,15 @@ impl World {
                 s.order = it.order;
                 drawn += draw(s, tris, &mut polys, &mut pick, &mut pick_owner);
             }
-            if gl {
+            if gl && keep {
                 kept_now.insert(it.key, Kept { frame: frame_key, tris: tris[t0..].to_vec(), pick: pick[p0..].to_vec(), drawn: drawn - d0 });
             }
         }
-        self.kept = kept_now;
+        if keep {
+            self.kept = kept_now;
+        } else {
+            self.kept = kept;
+        }
         self.pick = pick;
         self.pick_owner = pick_owner;
         if !gl {

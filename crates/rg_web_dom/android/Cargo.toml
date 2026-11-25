@@ -18,3 +18,7 @@ rg_engine = { path = "../../rg_engine" }
 rg_gl = { path = "../../rg_gl" }
 rg_core = { path = "../../rg_core" }
 jni = { version = "0.21", default-features = false }
+
+# VR headsets (Meta Quest): OpenXR through the Khronos loader in the APK (xr_android.rs)
+[target.'cfg(target_os = "android")'.dependencies]
+openxr = { version = "0.22", default-features = false, features = ["loaded"] }

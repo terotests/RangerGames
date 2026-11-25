@@ -244,6 +244,39 @@ var rg = {
   // whether the host draws real heights on rg.three("planet") (`height`): the
   // ground's shape close by; a game stands on that ground only when true
   terrain: false,
+  // VR (docs/vr.md): rg.xr.enter("vr" | "stereo", opts) puts the game's 3D
+  // around the player: "vr" in a headset (Meta Quest: the app itself or the
+  // Quest browser), "stereo" on a phone in a cardboard viewer (the phone's
+  // turn looks around). The game camera is where the head is; the 2D view
+  // floats as a panel the controllers point at (their trigger taps it).
+  // opts: { scale (game units a metre, 1), rig ("yaw": the camera's heading
+  // is ahead | "full": its whole turn, a cockpit | "fixed"), panel (false, or
+  // { visible, distance, size (its longer side, m), drop, follow }), fov (stereo, degrees), ipd,
+  // stereo (the eyes' distance against the real one: 1; 0 flat; more makes a
+  // huge world look like a model) }. Planets, stars and particle runs show
+  // in the eyes too.
+  // rg.xr.state: { mode, running, vr, headset, head: { position, quaternion },
+  // hands: [{ hand, position, quaternion, ray: { origin, direction }, trigger,
+  // squeeze, stick: [x, y], a, b, menu, onPanel }] }, every frame. Events come
+  // to onXR(e): { type: "start" | "end" | "error" | "button", mode, hand,
+  // button, down, reason }. A trigger that misses the panel taps the 3D object
+  // it points at (onClick, as a finger would).
+  xr: {
+    state: { mode: "", running: false, vr: false, headset: false, head: null, hands: [] },
+    enter: function (mode, opts) {
+      var a = {};
+      if (opts && typeof opts === "object") for (var k in opts) a[k] = opts[k];
+      a.mode = mode === "stereo" ? "stereo" : "vr";
+      __cmds.push(["xr", "enter", a]);
+    },
+    exit: function () { __cmds.push(["xr", "exit", null]); },
+    recenter: function () { __cmds.push(["xr", "recenter", null]); },
+    set: function (opts) { __cmds.push(["xr", "set", opts || {}]); },
+    // a controller's buzz: hand "left" | "right" | "both", strength 0…1, ms
+    pulse: function (hand, strength, ms) { __cmds.push(["xr", "pulse", { hand: hand || "both", strength: strength === undefined ? 0.6 : +strength, ms: ms === undefined ? 60 : +ms }]); },
+    // whether this device can show a headset session (else "stereo" only)
+    supported: function () { return { vr: !!rg.xr.state.vr, stereo: true }; }
+  },
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
   // a path in the game's folder, for <img src>
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
@@ -521,6 +554,12 @@ function __frame(arg) {
   __input.pointers = a.input.pointers;
   __input.time = a.time;
   rg.simState = a.sim === undefined ? null : a.sim;
+  if (a.xr) {
+    var xev = a.xr.events || [];
+    delete a.xr.events;
+    rg.xr.state = a.xr;
+    for (var xi = 0; xi < xev.length; xi++) if (typeof onXR === "function") onXR(xev[xi]);
+  }
   __boxes = a.boxes || {};
   var ev = a.events;
   for (var i = 0; i < ev.length; i++) {

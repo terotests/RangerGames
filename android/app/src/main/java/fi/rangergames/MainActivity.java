@@ -83,13 +83,31 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     /** touches and keys for the game thread: {kind, id, x, y} or a key name */
     private final ConcurrentLinkedQueue<Object> input = new ConcurrentLinkedQueue<>();
 
+    /** XrActivity: the game shows in a VR headset (OpenXR), on a panel in a room or around the player (rg.xr). */
+    protected boolean xrMode() {
+        return false;
+    }
+
+    /** A VR headset (Meta Quest and others with head tracking). */
+    static boolean headset(Context c) {
+        String m = Build.MANUFACTURER == null ? "" : Build.MANUFACTURER;
+        return c.getPackageManager().hasSystemFeature("android.hardware.vr.headtracking") || m.equalsIgnoreCase("Oculus") || m.equalsIgnoreCase("Meta");
+    }
+
     @Override
     protected void onCreate(Bundle state) {
         super.onCreate(state);
+        // on a headset the app runs in VR (XrActivity), unless started flat
+        // (adb shell am start -n fi.rangergames/.MainActivity --ez flat true)
+        if (!xrMode() && headset(this) && !getIntent().getBooleanExtra("flat", false)) {
+            startActivity(new Intent(this, XrActivity.class));
+            finish();
+            return;
+        }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         density = getResources().getDisplayMetrics().density;
         saves = getSharedPreferences("saves", MODE_PRIVATE);
-        glPaint = !"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false);
+        glPaint = xrMode() || (!"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false));
         painter = new Painter(getAssets());
         sensors = new Sensors(this, input);
         mic = new Mic(this, input, sound);
@@ -215,7 +233,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onDestroy() {
         super.onDestroy();
         running = false;
-        bluetooth.destroy();
+        // (null: the activity handed over to XrActivity at once)
+        if (bluetooth != null) bluetooth.destroy();
         if (thread != null) {
             try {
                 thread.join(1000);
@@ -386,6 +405,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             Log.e(TAG, "boot failed", t);
             return;
         }
+        if (xrMode()) {
+            xrLoop();
+            if (glCtx != null) glCtx.release();
+            return;
+        }
         int lastW = 0, lastH = 0;
         boolean glOn = false;
         long last = System.nanoTime();
@@ -410,28 +434,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                 lastW = w;
                 lastH = hgt;
             }
-            Object in;
-            while ((in = input.poll()) != null) {
-                if (in instanceof Runnable) {
-                    // the download list's results, done on this thread (Store)
-                    ((Runnable) in).run();
-                    afterCall();
-                } else if (in instanceof Object[] && !(in instanceof String[])) {
-                    // a file for the virtual directory (a photo), then its event
-                    Object[] f = (Object[]) in;
-                    Engine.put((String) f[0], (byte[]) f[1]);
-                } else if (in instanceof String[]) {
-                    String[] sv = (String[]) in;
-                    Engine.sensor(sv[0], sv[1]);
-                } else if (in instanceof String) {
-                    // the Back button is one key down, as the web host sends it
-                    Engine.key(true, (String) in);
-                    afterCall();
-                } else {
-                    float[] p = (float[]) in;
-                    Engine.pointer((int) p[0], (int) p[1], p[2], p[3]);
-                }
-            }
+            takeInput();
             long t = System.nanoTime();
             double dt = Math.min(100, (t - last) / 1e6);
             last = t;
@@ -495,6 +498,80 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             if (spent < 15) sleep(15 - spent);
         }
         if (glCtx != null) glCtx.release();
+    }
+
+    /** Touches, keys, sensors and other threads' results to the engine (game thread). */
+    private void takeInput() {
+        Object in;
+        while ((in = input.poll()) != null) {
+            if (in instanceof Runnable) {
+                // the download list's results, done on this thread (Store)
+                ((Runnable) in).run();
+                afterCall();
+            } else if (in instanceof Object[] && !(in instanceof String[])) {
+                // a file for the virtual directory (a photo), then its event
+                Object[] f = (Object[]) in;
+                Engine.put((String) f[0], (byte[]) f[1]);
+            } else if (in instanceof String[]) {
+                String[] sv = (String[]) in;
+                Engine.sensor(sv[0], sv[1]);
+            } else if (in instanceof String) {
+                // the Back button is one key down, as the web host sends it
+                Engine.key(true, (String) in);
+                afterCall();
+            } else {
+                float[] p = (float[]) in;
+                Engine.pointer((int) p[0], (int) p[1], p[2], p[3]);
+            }
+        }
+    }
+
+    /**
+     * XrActivity's loop: OpenXR draws the game into the headset (Engine.xrFrame
+     * runs the game's frame and waits for the headset's display); without a
+     * headset the app starts again flat.
+     */
+    private void xrLoop() {
+        // the game's view on the panel: a phone held upright
+        Engine.resize(405, 720);
+        if (!Engine.xrStart(this)) {
+            afterCall();
+            Log.w(TAG, "VR: no headset session, the flat app instead");
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    startActivity(new Intent(MainActivity.this, MainActivity.class).putExtra("flat", true));
+                    finish();
+                }
+            });
+            return;
+        }
+        afterCall();
+        Log.i(TAG, "VR on");
+        while (running) {
+            takeInput();
+            int r = Engine.xrFrame();
+            afterCall();
+            if (r < 0) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        finish();
+                    }
+                });
+                break;
+            }
+            if (r == 0) {
+                sleep(10);
+                continue;
+            }
+            // a headset frame painted (both eyes): the same end of a frame as glPaintFrame's, so that the next
+            // decoded picture may be uploaded (GlHost, GlSphere: one a frame) and unused globe textures let go;
+            // without it only the first picture ever came and the textures were never freed in VR
+            painter.glFrameDone();
+            GlHost.frameDone();
+        }
+        Engine.xrStop();
     }
 
     /** The frame painted with GL into the window, then shown (eglSwapBuffers keeps to the display's pace). */

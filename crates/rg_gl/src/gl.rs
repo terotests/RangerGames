@@ -51,6 +51,11 @@ pub const FRONT: u32 = 0x0404;
 pub const BACK: u32 = 0x0405;
 pub const FRAMEBUFFER: u32 = 0x8D40;
 pub const UNPACK_ALIGNMENT: u32 = 0x0CF5;
+pub const RENDERBUFFER: u32 = 0x8D41;
+pub const COLOR_ATTACHMENT0: u32 = 0x8CE0;
+pub const DEPTH_STENCIL_ATTACHMENT: u32 = 0x821A;
+pub const DEPTH24_STENCIL8: u32 = 0x88F0;
+pub const FRAMEBUFFER_COMPLETE: u32 = 0x8CD5;
 
 #[cfg(target_os = "android")]
 mod sys {
@@ -106,6 +111,15 @@ mod sys {
         pub fn glStencilOpSeparate(face: u32, a: u32, b: u32, c: u32);
         pub fn glStencilMask(m: u32);
         pub fn glGetError() -> u32;
+        pub fn glGenFramebuffers(n: i32, out: *mut u32);
+        pub fn glDeleteFramebuffers(n: i32, f: *const u32);
+        pub fn glFramebufferTexture2D(t: u32, att: u32, tt: u32, tex: u32, level: i32);
+        pub fn glGenRenderbuffers(n: i32, out: *mut u32);
+        pub fn glDeleteRenderbuffers(n: i32, r: *const u32);
+        pub fn glBindRenderbuffer(t: u32, r: u32);
+        pub fn glRenderbufferStorage(t: u32, fmt: u32, w: i32, h: i32);
+        pub fn glFramebufferRenderbuffer(t: u32, att: u32, rt: u32, r: u32);
+        pub fn glCheckFramebufferStatus(t: u32) -> u32;
     }
 }
 
@@ -209,6 +223,28 @@ mod api {
     pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) { unsafe { glStencilOpSeparate(face, a, b, c) } }
     pub fn stencil_mask(m: u32) { unsafe { glStencilMask(m) } }
     pub fn get_error() -> u32 { unsafe { glGetError() } }
+    pub fn create_framebuffer() -> u32 {
+        let mut f = 0;
+        unsafe { glGenFramebuffers(1, &mut f) };
+        f
+    }
+    pub fn delete_framebuffer(f: u32) { unsafe { glDeleteFramebuffers(1, &f) } }
+    pub fn framebuffer_texture(tex: u32) { unsafe { glFramebufferTexture2D(super::FRAMEBUFFER, super::COLOR_ATTACHMENT0, super::TEXTURE_2D, tex, 0) } }
+    /// a depth + stencil renderbuffer of w × h attached to the bound framebuffer
+    pub fn create_depth_stencil(w: i32, h: i32) -> u32 {
+        let mut r = 0;
+        unsafe {
+            glGenRenderbuffers(1, &mut r);
+            glBindRenderbuffer(super::RENDERBUFFER, r);
+            glRenderbufferStorage(super::RENDERBUFFER, super::DEPTH24_STENCIL8, w, h);
+            glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r);
+        }
+        r
+    }
+    pub fn delete_renderbuffer(r: u32) { unsafe { glDeleteRenderbuffers(1, &r) } }
+    /// renderbuffer `r` (create_depth_stencil's) attached to the bound framebuffer too (Android only: OpenXR's eye images share one)
+    pub fn attach_depth_stencil(r: u32) { unsafe { glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r) } }
+    pub fn framebuffer_ok() -> bool { unsafe { glCheckFramebufferStatus(super::FRAMEBUFFER) == super::FRAMEBUFFER_COMPLETE } }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -263,6 +299,12 @@ mod sys {
         pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32);
         pub fn stencil_mask(m: u32);
         pub fn get_error() -> u32;
+        pub fn create_framebuffer() -> u32;
+        pub fn delete_framebuffer(f: u32);
+        pub fn framebuffer_texture(tex: u32);
+        pub fn create_depth_stencil(w: i32, h: i32) -> u32;
+        pub fn delete_renderbuffer(r: u32);
+        pub fn framebuffer_ok() -> u32;
     }
 }
 
@@ -325,6 +367,12 @@ mod api {
     pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) { unsafe { sys::stencil_op_separate(face, a, b, c) } }
     pub fn stencil_mask(m: u32) { unsafe { sys::stencil_mask(m) } }
     pub fn get_error() -> u32 { unsafe { sys::get_error() } }
+    pub fn create_framebuffer() -> u32 { unsafe { sys::create_framebuffer() } }
+    pub fn delete_framebuffer(f: u32) { unsafe { sys::delete_framebuffer(f) } }
+    pub fn framebuffer_texture(tex: u32) { unsafe { sys::framebuffer_texture(tex) } }
+    pub fn create_depth_stencil(w: i32, h: i32) -> u32 { unsafe { sys::create_depth_stencil(w, h) } }
+    pub fn delete_renderbuffer(r: u32) { unsafe { sys::delete_renderbuffer(r) } }
+    pub fn framebuffer_ok() -> bool { unsafe { sys::framebuffer_ok() != 0 } }
 }
 
 /// No GL here (tests, a desktop cargo check): every call does nothing.
@@ -384,6 +432,13 @@ mod api {
     pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) {}
     pub fn stencil_mask(m: u32) {}
     pub fn get_error() -> u32 { 0 }
+    pub fn create_framebuffer() -> u32 { 1 }
+    pub fn delete_framebuffer(f: u32) {}
+    pub fn framebuffer_texture(tex: u32) {}
+    pub fn create_depth_stencil(w: i32, h: i32) -> u32 { 1 }
+    pub fn delete_renderbuffer(r: u32) {}
+    pub fn attach_depth_stencil(r: u32) {}
+    pub fn framebuffer_ok() -> bool { true }
 }
 
 pub use api::*;

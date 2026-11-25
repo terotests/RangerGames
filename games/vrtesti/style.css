@@ -1,0 +1,10 @@
+.screen { width: 360px; height: 640px; }
+.hud { position: absolute; left: 0px; top: 0px; width: 360px; height: 640px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 24px; }
+.title { position: absolute; left: 0px; top: 18px; width: 360px; align-items: center; text-align: center; color: #ffffff; font-size: 26px; font-weight: 700; }
+.info { position: absolute; left: 16px; top: 60px; width: 328px; align-items: center; text-align: center; color: #e8f0ff; font-size: 15px; text-align: center; }
+.status { width: 328px; align-items: center; text-align: center; color: #e8f0ff; font-size: 15px; margin-bottom: 4px; }
+.row { display: flex; flex-direction: row; justify-content: center; margin-top: 10px; }
+.btn { width: 150px; height: 64px; margin-left: 6px; margin-right: 6px; border-radius: 18px; background-color: #ffcf33; color: #2a2a2a; font-size: 22px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: 0px 4px 0px #b8901a; }
+.btn.off { background-color: #8a96b0; box-shadow: 0px 4px 0px #5a6680; }
+.btn.exit { background-color: #ff7a6b; box-shadow: 0px 4px 0px #b84a3e; }
+.score { position: absolute; left: 0px; top: 100px; width: 360px; align-items: center; text-align: center; color: #ffffff; font-size: 40px; font-weight: 700; }

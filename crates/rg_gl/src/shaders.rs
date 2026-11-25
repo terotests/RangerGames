@@ -100,6 +100,21 @@ in vec4 v;
 out vec4 o;
 void main() { o = v; }";
 
+/// VR: the 2D view's panel, its corners already in clip space (x, y, z, w:
+/// the GPU interpolates the picture in perspective); premultiplied.
+pub const PANEL_VS: &str = "#version 300 es
+layout(location = 0) in vec4 p;
+layout(location = 1) in vec2 uv;
+out vec2 t;
+void main() { t = uv; gl_Position = vec4(p.xy, 0.0, p.w); }";
+
+pub const PANEL_FS: &str = "#version 300 es
+precision mediump float;
+uniform sampler2D tex;
+in vec2 t;
+out vec4 o;
+void main() { o = texture(tex, t); }";
+
 /// Smooth lit meshes with their light a pixel (scene3d.rs `ptris`, 18 floats a
 /// corner): the directional lights in `lt` (2 vec4 each: way to the light +
 /// intensity, colour + glint strength), Blinn-Phong power 24 as the engine's

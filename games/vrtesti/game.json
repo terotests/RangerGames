@@ -1,0 +1,1 @@
+{ "name": "VR-testi", "description": "Moottorin VR-tuen testi: katso ympärillesi lasit päässä tai puhelin pahvilaseissa", "icon": "🥽", "color": "#3a5a9a", "players": "1", "width": 360, "height": 640, "hidden": true, "order": 999 }

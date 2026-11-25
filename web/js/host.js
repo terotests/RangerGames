@@ -33,10 +33,14 @@
     // WebGL the engine paints it into the draw stream as before
     // ?gl=1: the whole frame (2D, globes, 3D) painted by the engine with
     // WebGL2 (crates/rg_gl, glhost.js) into one canvas
-    this.glhost = params.get("gl") === "1" && global.RgGlHost && opts.canvasGl ? new RgGlHost(opts.canvasGl, this) : null;
+    // (VR needs it: ?xr=1, and the Meta Quest browser by default)
+    var wantGl = params.get("gl") === "1" || (params.get("gl") !== "0" && (params.get("xr") === "1" || /OculusBrowser|Quest/.test(navigator.userAgent || "")));
+    this.glhost = wantGl && global.RgGlHost && opts.canvasGl ? new RgGlHost(opts.canvasGl, this) : null;
     if (this.glhost && !this.glhost.ok) this.glhost = null;
     this.gl3d = !this.glhost && global.RgGl3D && opts.canvasGl ? new RgGl3D(opts.canvasGl) : null;
     this.net = global.RgNet ? new RgNet(function (ev) { self.sendSensor("net", ev); }) : null;
+    // rg.xr "vr": a WebXR session (xr.js)
+    this.xr = global.RgXr ? new RgXr(this) : null;
   }
 
   Host.prototype.boot = function (wasmUrl, packUrl) {
@@ -62,6 +66,7 @@
           if (self.x.rg_gl_all) {
             self.x.rg_gl_all(1);
             gh.canvas.style.visibility = "visible";
+            if (self.xr && self.x.rg_xr_input) self.xr.caps();
           } else {
             self.glhost = null;
           }
@@ -662,6 +667,12 @@
       case "camera": this.camera(name); break;
       case "photo-delete": try { localStorage.removeItem("rgimg:/save/photos/" + name + ".jpg"); localStorage.removeItem("rgimg:/save/photos/" + name + "_t.jpg"); } catch (e) { } break;
       case "quit": if (global.RgAndroid && global.RgAndroid.quit) global.RgAndroid.quit(); break;
+      case "xr":
+        if (!this.xr) break;
+        if (name === "enter") this.xr.start();
+        else if (name === "exit") this.xr.end();
+        else if (name === "pulse") this.xr.pulse(args);
+        break;
       default: break;
     }
   };
@@ -692,6 +703,9 @@
 
   Host.prototype.loop = function (t) {
     var self = this;
+    // a headset session runs the frames itself (xr.js)
+    if (this.xr && this.xr.session) { this.looping = false; return; }
+    this.looping = true;
     global.requestAnimationFrame(function (n) { self.loop(n); });
     var dt = this.last ? t - this.last : 16.7;
     this.last = t;
@@ -702,7 +716,47 @@
     this.readView();
     var nums = new Float32Array(x.memory.buffer, x.rg_draw_ptr() >>> 0, x.rg_draw_len());
     var strings = this.text(x.rg_strings_ptr(), x.rg_strings_len()).split("\u0000");
-    // images the frame names that are not loaded yet
+    this.preload(nums, strings);
+    this.three.render(this.view, this.dpr);
+    if (this.glhost) {
+      this.frameStrings = strings;
+      this.frameDraw = [x.rg_draw_ptr() >>> 0, x.rg_draw_len()];
+      var bg = this.background, br = parseInt(bg.slice(1, 3), 16) / 255, bgn = parseInt(bg.slice(3, 5), 16) / 255, bb = parseInt(bg.slice(5, 7), 16) / 255;
+      if (!(br >= 0)) { br = 0; bgn = 0; bb = 0; }
+      x.rg_gl_frame(this.glhost.canvas.width, this.glhost.canvas.height, this.dpr, br, bgn, bb);
+      this.frameTime(t0, nums);
+      return;
+    }
+    var gl = false;
+    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background);
+    if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
+    this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
+    this.frameTime(t0, nums);
+  };
+
+  // the page's frames again after a headset session
+  Host.prototype.resumeLoop = function () {
+    var self = this;
+    if (this.looping) return;
+    this.last = 0;
+    global.requestAnimationFrame(function (t) { self.loop(t); });
+  };
+
+  // one game frame inside a headset session (xr.js paints it)
+  Host.prototype.xrFrame = function (dt) {
+    var x = this.x;
+    x.rg_frame(dt);
+    this.afterCall();
+    this.readView();
+    var nums = new Float32Array(x.memory.buffer, x.rg_draw_ptr() >>> 0, x.rg_draw_len());
+    var strings = this.text(x.rg_strings_ptr(), x.rg_strings_len()).split("\u0000");
+    this.preload(nums, strings);
+    this.frameStrings = strings;
+    this.frameDraw = [x.rg_draw_ptr() >>> 0, x.rg_draw_len()];
+  };
+
+  // images the frame names that are not loaded yet
+  Host.prototype.preload = function (nums, strings) {
     for (var i = 0; i < nums.length;) {
       if ((nums[i] === 2 || nums[i] === 8) && nums[i + 18] >= 0) {
         var src = strings[nums[i + 18]];
@@ -725,21 +779,6 @@
       }
       i += 23 + (nums[i + 22] | 0);
     }
-    this.three.render(this.view, this.dpr);
-    if (this.glhost) {
-      this.frameStrings = strings;
-      this.frameDraw = [x.rg_draw_ptr() >>> 0, x.rg_draw_len()];
-      var bg = this.background, br = parseInt(bg.slice(1, 3), 16) / 255, bgn = parseInt(bg.slice(3, 5), 16) / 255, bb = parseInt(bg.slice(5, 7), 16) / 255;
-      if (!(br >= 0)) { br = 0; bgn = 0; bb = 0; }
-      x.rg_gl_frame(this.glhost.canvas.width, this.glhost.canvas.height, this.dpr, br, bgn, bb);
-      this.frameTime(t0, nums);
-      return;
-    }
-    var gl = false;
-    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background);
-    if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
-    this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
-    this.frameTime(t0, nums);
   };
 
   Host.prototype.frameTime = function (t0, nums) {

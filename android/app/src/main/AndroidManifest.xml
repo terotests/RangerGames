@@ -21,6 +21,9 @@
     <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
     <!-- photos into the phone's photo folder (Android 9 and older need this) -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    <!-- VR headsets (Meta Quest): XrActivity with OpenXR; the loader's AAR adds its
+         permissions and queries. Phones don't need it. -->
+    <uses-feature android:name="android.hardware.vr.headtracking" android:required="false" android:version="1" />
 
     <queries>
         <intent>
@@ -46,5 +49,20 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <!-- on a headset MainActivity starts this one: the games in VR (docs/vr.md) -->
+        <activity
+            android:name=".XrActivity"
+            android:exported="true"
+            android:screenOrientation="landscape"
+            android:configChanges="density|orientation|screenSize|screenLayout|uiMode|keyboardHidden|keyboard|navigation"
+            android:resizeableActivity="false"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="com.oculus.intent.category.VR" />
+                <category android:name="org.khronos.openxr.intent.category.IMMERSIVE_HMD" />
+            </intent-filter>
+        </activity>
+        <meta-data android:name="com.oculus.supportedDevices" android:value="quest2|questpro|quest3|quest3s" />
     </application>
 </manifest>

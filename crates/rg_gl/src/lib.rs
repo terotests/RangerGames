@@ -111,6 +111,16 @@ pub trait Host {
     fn globes(&mut self, nums: &[f32], strings: &[String], from: usize, to: usize, px: f32) -> Option<Globes>;
 }
 
+/// VR: an eye painted from its own draw stream (`Renderer::render_eye`):
+/// the stream, its strings, the host for its pictures and globes, and its
+/// view (`width` and `height` become the eye's rectangle's).
+pub struct EyeStream<'a> {
+    pub host: &'a mut dyn Host,
+    pub nums: &'a [f32],
+    pub strings: &'a [String],
+    pub view: View,
+}
+
 /// Where and how big the game is: Engine.view in dp, and the surface.
 #[derive(Clone, Copy)]
 pub struct View {
@@ -210,6 +220,17 @@ pub struct Renderer {
     pub vertex_count: u32,
     /// the shaders' compile errors, when !ok
     pub error: String,
+    /// the framebuffer `render` paints into (0: the window; VR: the panel's)
+    fbo: u32,
+    /// VR: the part of `fbo` that `render` paints (x, y, w, h from the bottom
+    /// left; None: all of it, `View::width` × `height`)
+    port: Option<[i32; 4]>,
+    /// VR: the 2D view's panel (a texture with its framebuffer), its size,
+    /// and the program and buffers that draw it into an eye
+    panel: Option<(u32, u32, u32, i32, i32)>,
+    panel_prog: u32,
+    panel_vao: u32,
+    panel_vbo: u32,
 }
 
 impl Default for Renderer {
@@ -301,6 +322,12 @@ impl Renderer {
             calls: 0,
             vertex_count: 0,
             error: String::new(),
+            fbo: 0,
+            port: None,
+            panel: None,
+            panel_prog: 0,
+            panel_vao: 0,
+            panel_vbo: 0,
         }
     }
 
@@ -914,13 +941,29 @@ impl Renderer {
         }
     }
 
-    fn set_clip(c: &Clip) {
-        gl::scissor(c[0], c[1], c[2], c[3]);
+    fn set_clip(&self, c: &Clip) {
+        match self.port {
+            None => gl::scissor(c[0], c[1], c[2], c[3]),
+            Some(p) => {
+                // moved into the port and cut to it
+                let (x0, y0) = ((c[0] + p[0]).max(p[0]), (c[1] + p[1]).max(p[1]));
+                let (x1, y1) = ((c[0] + p[0] + c[2]).min(p[0] + p[2]), (c[1] + p[1] + c[3]).min(p[1] + p[3]));
+                gl::scissor(x0, y0, (x1 - x0).max(0), (y1 - y0).max(0));
+            }
+        }
+    }
+
+    /// The viewport `render` paints: the port, or the whole surface.
+    fn set_viewport(&self, v: &View) {
+        match self.port {
+            Some(p) => gl::viewport(p[0], p[1], p[2], p[3]),
+            None => gl::viewport(0, 0, v.width, v.height),
+        }
     }
 
     /// The 2D state: blending premultiplied, no depth, the shape program and buffers.
     fn shape_state(&self, xf: [f32; 4], aa: f32) {
-        gl::bind_framebuffer(0);
+        gl::bind_framebuffer(self.fbo);
         gl::disable(gl::DEPTH_TEST);
         gl::disable(gl::CULL_FACE);
         gl::disable(gl::STENCIL_TEST);
@@ -956,9 +999,16 @@ impl Renderer {
         let (wpx, hpx) = (v.width.max(1) as f32, v.height.max(1) as f32);
         let xf = [2.0 * s / wpx, -2.0 * s / hpx, 2.0 * v.x * v.density / wpx - 1.0, 1.0 - 2.0 * v.y * v.density / hpx];
 
-        gl::bind_framebuffer(0);
-        gl::viewport(0, 0, v.width, v.height);
-        gl::disable(gl::SCISSOR_TEST);
+        gl::bind_framebuffer(self.fbo);
+        self.set_viewport(v);
+        match self.port {
+            // only the port is cleared (the other eye shares the framebuffer)
+            Some(p) => {
+                gl::enable(gl::SCISSOR_TEST);
+                gl::scissor(p[0], p[1], p[2], p[3]);
+            }
+            None => gl::disable(gl::SCISSOR_TEST),
+        }
         gl::color_mask(true);
         gl::depth_mask(true);
         gl::stencil_mask(0xff);
@@ -997,7 +1047,7 @@ impl Renderer {
         for st in steps.iter() {
             match st {
                 Step::Draw { tex, first, count, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if *tex != bound {
                         gl::bind_texture(gl::TEXTURE_2D, *tex);
                         bound = *tex;
@@ -1006,7 +1056,7 @@ impl Renderer {
                     self.calls += 1;
                 }
                 Step::Fill { first, count, cover, even_odd, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if bound != self.white {
                         gl::bind_texture(gl::TEXTURE_2D, self.white);
                         bound = self.white;
@@ -1029,7 +1079,7 @@ impl Renderer {
                     self.calls += 2;
                 }
                 Step::Once { first, count, cover, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if bound != self.white {
                         gl::bind_texture(gl::TEXTURE_2D, self.white);
                         bound = self.white;
@@ -1047,7 +1097,7 @@ impl Renderer {
                     self.calls += 2;
                 }
                 Step::Tris { first, count, phong, clip } => {
-                    Self::set_clip(clip);
+                    self.set_clip(clip);
                     if depth_used {
                         // a second scene in one frame: its own depth
                         gl::depth_mask(true);
@@ -1091,11 +1141,11 @@ impl Renderer {
                     gl::bind_vertex_array(0);
                     let out = host.globes(nums, strings, *from, *to, s);
                     // the host drew into its own framebuffer: back to ours
-                    gl::viewport(0, 0, v.width, v.height);
+                    self.set_viewport(v);
                     self.shape_state(xf, aa);
                     bound = 0;
                     if let Some(gb) = out {
-                        Self::set_clip(clip);
+                        self.set_clip(clip);
                         let (v0, v1) = if gb.flip { (gb.v1, 0.0) } else { (0.0, gb.v1) };
                         self.verts.clear();
                         self.idx.clear();
@@ -1156,6 +1206,159 @@ impl Renderer {
         gl::bind_vertex_array(self.vao);
         gl::bind_buffer(gl::ARRAY_BUFFER, self.vbo);
         gl::bind_buffer(gl::ELEMENT_ARRAY_BUFFER, self.ibo);
+    }
+
+    // ---- VR (crates/rg_engine/src/xr.rs) ----
+
+    /// VR: paints the frame's draw stream (the game's 2D view, and its 3D
+    /// when the game is not in VR) into the panel's texture, transparent
+    /// where nothing is: `v.width` × `v.height` pixels.
+    pub fn render_panel(&mut self, host: &mut dyn Host, nums: &[f32], strings: &[String], tris: &[f32], v: &View) -> bool {
+        if !self.init() {
+            return false;
+        }
+        let (w, h) = (v.width.max(1), v.height.max(1));
+        match self.panel {
+            Some((_, _, _, pw, ph)) if pw == w && ph == h => {}
+            old => {
+                if let Some((tex, fbo, rb, _, _)) = old {
+                    gl::delete_texture(tex);
+                    gl::delete_framebuffer(fbo);
+                    gl::delete_renderbuffer(rb);
+                }
+                let tex = gl::create_texture();
+                gl::bind_texture(gl::TEXTURE_2D, tex);
+                gl::tex_image(w, h, None);
+                Self::tex_params();
+                let fbo = gl::create_framebuffer();
+                gl::bind_framebuffer(fbo);
+                gl::framebuffer_texture(tex);
+                let rb = gl::create_depth_stencil(w, h);
+                if !gl::framebuffer_ok() {
+                    self.error = "VR panel framebuffer".to_string();
+                }
+                gl::bind_framebuffer(0);
+                self.panel = Some((tex, fbo, rb, w, h));
+            }
+        }
+        let (_, fbo, _, _, _) = self.panel.unwrap();
+        self.fbo = fbo;
+        self.render(host, nums, strings, tris, &[], &[], v, [0.0, 0.0, 0.0, 0.0]);
+        self.fbo = 0;
+        gl::bind_framebuffer(0);
+        true
+    }
+
+    /// VR: paints one eye into framebuffer `fbo` at `rect` (x, y, w, h in
+    /// pixels, from the bottom left): `tris` depth-tested (the engine's
+    /// triangles in the eye's units, `units` = their width and height), the
+    /// panel at its clip-space corners (top left, top right, bottom right,
+    /// bottom left), then `over` (the controllers' rays) over everything.
+    ///
+    /// With `stream` (a scene with planets, stars or particle runs: the eye's
+    /// own draw stream, `tris` its triangles in it) the stream is painted
+    /// into `rect` through its view instead, then the panel and `over`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<[[f32; 4]; 4]>, over: &[f32], background: [f32; 4], stream: Option<EyeStream>) {
+        if !self.init() {
+            return;
+        }
+        let painted = match stream {
+            Some(es) => {
+                self.fbo = fbo;
+                self.port = Some(rect);
+                let v = View { width: rect[2], height: rect[3], ..es.view };
+                self.render(es.host, es.nums, es.strings, tris, &[], &[], &v, background);
+                self.port = None;
+                self.fbo = 0;
+                true
+            }
+            None => false,
+        };
+        if self.panel_prog == 0 {
+            let mut err = String::new();
+            self.panel_prog = program(shaders::PANEL_VS, shaders::PANEL_FS, &mut err);
+            if self.panel_prog == 0 {
+                self.error = err;
+            }
+            self.panel_vao = gl::create_vertex_array();
+            gl::bind_vertex_array(self.panel_vao);
+            self.panel_vbo = gl::create_buffer();
+            gl::bind_buffer(gl::ARRAY_BUFFER, self.panel_vbo);
+            gl::enable_attrib(0);
+            gl::attrib_pointer(0, 4, gl::FLOAT, false, 24, 0);
+            gl::enable_attrib(1);
+            gl::attrib_pointer(1, 2, gl::FLOAT, false, 24, 16);
+            gl::bind_vertex_array(0);
+        }
+        self.calls = 0;
+        gl::bind_framebuffer(fbo);
+        gl::viewport(rect[0], rect[1], rect[2], rect[3]);
+        gl::enable(gl::SCISSOR_TEST);
+        gl::scissor(rect[0], rect[1], rect[2], rect[3]);
+        gl::color_mask(true);
+        gl::depth_mask(true);
+        if !painted {
+            gl::clear_color(background[0], background[1], background[2], background[3]);
+            gl::clear_depth(1.0);
+            gl::clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+        }
+        gl::disable(gl::STENCIL_TEST);
+        gl::disable(gl::CULL_FACE);
+        gl::enable(gl::BLEND);
+        gl::blend_func(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
+        let xf = [2.0 / units.0.max(1e-3), -2.0 / units.1.max(1e-3), -1.0, 1.0];
+        let tris_pass = |r: &mut Renderer, t: &[f32], depth: bool| {
+            if t.len() < 18 {
+                return;
+            }
+            if depth {
+                gl::enable(gl::DEPTH_TEST);
+                gl::depth_func(gl::LEQUAL);
+                gl::depth_mask(true);
+            } else {
+                gl::disable(gl::DEPTH_TEST);
+                gl::depth_mask(false);
+            }
+            gl::use_program(r.tris_prog);
+            gl::uniform4f(r.tris_xf, xf[0], xf[1], xf[2], xf[3]);
+            gl::bind_vertex_array(r.tris_vao);
+            gl::bind_buffer(gl::ARRAY_BUFFER, r.tris_vbo);
+            let tb = unsafe { std::slice::from_raw_parts(t.as_ptr() as *const u8, t.len() * 4) };
+            gl::buffer_data(gl::ARRAY_BUFFER, tb, gl::STREAM_DRAW);
+            gl::draw_arrays(gl::TRIANGLES, 0, (t.len() / 6) as i32);
+            r.calls += 1;
+        };
+        if !painted {
+            tris_pass(self, tris, true);
+        }
+        if let (Some(c), Some((tex, _, _, _, _))) = (panel, self.panel) {
+            if self.panel_prog != 0 {
+                gl::disable(gl::DEPTH_TEST);
+                gl::depth_mask(false);
+                // two triangles, texture v = 1 at the top (a framebuffer's rows go up)
+                let uv = [[0.0f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
+                let mut q: Vec<f32> = Vec::with_capacity(36);
+                for &k in [0usize, 1, 2, 0, 2, 3].iter() {
+                    q.extend_from_slice(&c[k]);
+                    q.extend_from_slice(&uv[k]);
+                }
+                gl::use_program(self.panel_prog);
+                gl::active_texture(gl::TEXTURE0);
+                gl::bind_texture(gl::TEXTURE_2D, tex);
+                gl::bind_vertex_array(self.panel_vao);
+                gl::bind_buffer(gl::ARRAY_BUFFER, self.panel_vbo);
+                let qb = unsafe { std::slice::from_raw_parts(q.as_ptr() as *const u8, q.len() * 4) };
+                gl::buffer_data(gl::ARRAY_BUFFER, qb, gl::STREAM_DRAW);
+                gl::draw_arrays(gl::TRIANGLES, 0, 6);
+                self.calls += 1;
+            }
+        }
+        tris_pass(self, over, false);
+        gl::disable(gl::DEPTH_TEST);
+        gl::disable(gl::SCISSOR_TEST);
+        gl::depth_mask(true);
+        gl::bind_vertex_array(0);
     }
 
     /// One line for the log: draw calls, vertices, pictures and text runs kept.

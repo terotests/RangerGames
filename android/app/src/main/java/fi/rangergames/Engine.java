@@ -76,4 +76,15 @@ final class Engine {
 
     /** The GL painter's numbers and last error, for the log. */
     static native String glStats();
+
+    // ---- VR headsets (Meta Quest): OpenXR, XrActivity (crates/rg_android/src/xr_android.rs) ----
+
+    /** Starts OpenXR in the game thread's GL context; false when there is no headset (log() says why). */
+    static native boolean xrStart(android.app.Activity activity);
+
+    /** One headset frame with the game's frame in it: 1 drawn, 0 waiting (not shown), -1 the headset ended the app. */
+    static native int xrFrame();
+
+    /** Lets go of OpenXR. */
+    static native void xrStop();
 }

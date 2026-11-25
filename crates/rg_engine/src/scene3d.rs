@@ -593,6 +593,11 @@ pub struct Scene {
     /// blending); a host that does not know this clips them away.
     /// Empty when the scene is off or drawn with the painter.
     pub tris: Vec<f32>,
+    /// VR: the eye the triangles are drawn for (xr.rs), else the game camera
+    pub eye: Option<crate::xr::Eye>,
+    /// VR in a headset: the frame's own picture of the scene is not drawn
+    /// (each eye's is, by `render_eye`)
+    pub eyes_only: bool,
     /// Smooth lit meshes for per-pixel (Phong) light, only for a host that
     /// draws everything with GL (`unified`): 18 floats a corner, x, y, depth
     /// (as `tris`), the face's own colour r, g, b, the light that is the same
@@ -747,6 +752,8 @@ impl Scene {
             splats_ok: false,
             splat_bytes: None,
             tris: Vec::new(),
+            eye: None,
+            eyes_only: false,
             globe: None,
             planets: Vec::new(),
             sun: None,
@@ -1093,6 +1100,34 @@ impl Scene {
                 b.advance();
             }
         }
+        if self.eyes_only {
+            return;
+        }
+        self.draw_view(out, w, h);
+    }
+
+    /// Whether a VR eye needs its own draw stream (`render_eye_stream`):
+    /// planets, stars or baked particle runs, which the host draws.
+    pub fn needs_stream(&self) -> bool {
+        self.active && (!self.planets.is_empty() || !self.stars.is_empty() || self.objs.iter().any(|o| o.splats.is_some() && o.visible))
+    }
+
+    /// One VR eye as a whole draw stream into `out` (the sky, planets, stars,
+    /// particle runs, and the shapes as triangles in `tris`), for an eye with
+    /// a symmetric view (`Eye::symmetric`): its units are `eye.size()`.
+    pub fn render_eye_stream(&mut self, eye: crate::xr::Eye, out: &mut DrawStream) {
+        self.tris.clear();
+        if !self.active {
+            return;
+        }
+        let (w, h) = eye.size();
+        self.eye = Some(eye);
+        self.draw_view(out, w, h);
+        self.eye = None;
+    }
+
+    /// The scene into `out` from the camera (or `eye`), `w` x `h` units.
+    fn draw_view(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
@@ -1104,19 +1139,12 @@ impl Scene {
         if let Some((top, bottom)) = self.sky {
             out.raw(0, 0.0, 0.0, w, h, top, Some(bottom), &[]);
         }
-        if let Some(g) = self.globe.as_mut() {
+        // (the map globe is flat on the screen: not in VR)
+        if let Some(g) = self.globe.as_mut().filter(|_| self.eye.is_none()) {
             g.render(out, w, h);
         }
-        let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, self.up));
-        if dot(r, r) < 0.5 {
-            r = norm(cross(f, [1.0, 0.0, 0.0]));
-            if dot(r, r) < 0.5 {
-                r = [1.0, 0.0, 0.0];
-            }
-        }
-        let u = cross(r, f);
-        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        // the camera, or a VR eye (symmetric there: its middle is w/2, h/2)
+        let (eye, r, u, f, focal, _, _) = self.view_basis(w, h);
         let near = 0.05;
         if !self.stars.is_empty() {
             // tiny squares, in three brightnesses, each as one path
@@ -1146,9 +1174,9 @@ impl Scene {
             }
         }
         if !self.planets.is_empty() {
-            let cam3 = crate::globe::Cam3 { eye: self.cam, right: r, up: u, fwd: f, focal, w, h, near: near * 0.2 };
+            let cam3 = crate::globe::Cam3 { eye, right: r, up: u, fwd: f, focal, w, h, near: near * 0.2 };
             let mut order: Vec<(f64, usize)> = self.planets.iter().enumerate().map(|(i, p)| {
-                let d = sub(p.pos, self.cam);
+                let d = sub(p.pos, eye);
                 (dot(d, d).sqrt() - p.r, i)
             }).collect();
             order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
@@ -1168,7 +1196,7 @@ impl Scene {
             self.render_splats(out, w, h);
             return;
         }
-        let cam = self.cam;
+        let cam = eye;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -1389,18 +1417,9 @@ impl Scene {
         if !self.objs.iter().any(|o| o.splats.is_some() && o.visible) {
             return;
         }
-        let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, self.up));
-        if dot(r, r) < 0.5 {
-            r = norm(cross(f, [1.0, 0.0, 0.0]));
-            if dot(r, r) < 0.5 {
-                r = [1.0, 0.0, 0.0];
-            }
-        }
-        let u = cross(r, f);
-        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        // the camera, or a VR eye (symmetric: its middle is w/2, h/2)
+        let (cam, r, u, f, focal, _, _) = self.view_basis(w, h);
         let near = 0.05;
-        let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -1464,6 +1483,46 @@ impl Scene {
         }
     }
 
+    /// The camera: position, right, up, forward, focal length and the point
+    /// straight ahead on the screen. In VR (`eye` set) the eye's.
+    fn view_basis(&self, w: f64, h: f64) -> (V3, V3, V3, V3, f64, f64, f64) {
+        if let Some(e) = self.eye {
+            let (cx, cy) = e.centre();
+            return (e.pos, e.r, e.u, e.f, crate::xr::K, cx, cy);
+        }
+        let (cam, r, u, f) = self.rig();
+        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        (cam, r, u, f, focal, w / 2.0, h / 2.0)
+    }
+
+    /// The game camera (the VR rig): position, right, up, forward.
+    pub fn rig(&self) -> (V3, V3, V3, V3) {
+        let f = norm(sub(self.look, self.cam));
+        let mut r = norm(cross(f, self.up));
+        if dot(r, r) < 0.5 {
+            r = norm(cross(f, [1.0, 0.0, 0.0]));
+            if dot(r, r) < 0.5 {
+                r = [1.0, 0.0, 0.0];
+            }
+        }
+        let u = cross(r, f);
+        (self.cam, r, u, f)
+    }
+
+    /// The scene's triangles for one VR eye (into `tris`, in the eye's units,
+    /// `Eye::size`). A scene with planets or stars needs a whole stream
+    /// instead (`needs_stream`, `render_eye_stream`).
+    pub fn render_eye(&mut self, eye: crate::xr::Eye) {
+        self.tris.clear();
+        if !self.active || self.globe.is_some() || !self.planets.is_empty() || !self.stars.is_empty() {
+            return;
+        }
+        let (w, h) = eye.size();
+        self.eye = Some(eye);
+        self.render_gl(w, h, true);
+        self.eye = None;
+    }
+
     /// The scene as depth-tested triangles into `self.tris` (see `tris`).
     /// The sky and the floor are the background (depth 1, drawn in order); the
     /// shapes get their real depth, as 1/z so that it is right everywhere on a
@@ -1472,7 +1531,8 @@ impl Scene {
     fn render_gl(&mut self, w: f64, h: f64, with_sky: bool) {
         let mut tris: Vec<f32> = Vec::new();
         let mut ptris: Vec<f32> = Vec::new();
-        let phong = self.unified;
+        // (a VR eye takes only triangles: its smooth meshes are lit at the corners)
+        let phong = self.unified && self.eye.is_none();
         let mut plights: Vec<f32> = Vec::new();
         if phong {
             for l in self.lights.iter().filter(|l| l.kind == "directional").take(4) {
@@ -1487,22 +1547,24 @@ impl Scene {
             tris.extend_from_slice(&[x as f32, y as f32, d as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
         };
         if let Some((top, bottom)) = self.sky.filter(|_| with_sky) {
+            // in VR the gradient goes by how high each corner looks, not by the screen
+            let sky_at = |x: f64, y: f64, c: V3| -> V3 {
+                match self.eye {
+                    Some(e) => {
+                        let (ex, ey) = e.centre();
+                        let d = norm(add(add(e.f, mul(e.r, (x - ex) / crate::xr::K)), mul(e.u, (ey - y) / crate::xr::K)));
+                        let k = (d[1] * 0.5 + 0.5).clamp(0.0, 1.0);
+                        add(mul(bottom, 1.0 - k), mul(top, k))
+                    }
+                    None => c,
+                }
+            };
             for &(x, y, c) in [(0.0, 0.0, top), (w, 0.0, top), (w, h, bottom), (0.0, 0.0, top), (w, h, bottom), (0.0, h, bottom)].iter() {
-                push(&mut tris, x, y, 1.0, c);
+                push(&mut tris, x, y, 1.0, sky_at(x, y, c));
             }
         }
-        let f = norm(sub(self.look, self.cam));
-        let mut r = norm(cross(f, self.up));
-        if dot(r, r) < 0.5 {
-            r = norm(cross(f, [1.0, 0.0, 0.0]));
-            if dot(r, r) < 0.5 {
-                r = [1.0, 0.0, 0.0];
-            }
-        }
-        let u = cross(r, f);
-        let focal = (h / 2.0) / (self.fov.to_radians() / 2.0).tan();
+        let (cam, r, u, f, focal, cx, cy) = self.view_basis(w, h);
         let near = 0.05;
-        let cam = self.cam;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -1555,7 +1617,7 @@ impl Scene {
                     clipped.push(add(a, mul(sub(b, a), t)));
                 }
             }
-            clipped.iter().map(|p| [w / 2.0 + p[0] / p[2] * focal, h / 2.0 - p[1] / p[2] * focal, p[2]]).collect()
+            clipped.iter().map(|p| [cx + p[0] / p[2] * focal, cy - p[1] / p[2] * focal, p[2]]).collect()
         };
         let fan = |tris: &mut Vec<f32>, pts: &[V3], d: &dyn Fn(f64) -> f64, c: V3| {
             for k in 1..pts.len().saturating_sub(1) {
@@ -1598,7 +1660,7 @@ impl Scene {
                 let c = add(o.pos, [pf[0], pf[1], pf[2]]);
                 let v = to_view(c);
                 let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
-                let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
+                let rings = if o.dust { dust_rings(v, pf, focal, cx * 2.0, cy * 2.0, near) } else { puff_rings(v, pf[3], focal, cx * 2.0, cy * 2.0, near) };
                 for (pts, k) in rings {
                     let a = (pf[4] * k * o.opacity).clamp(0.0, 1.0);
                     let dz = d(v[2]) + 2.0;
@@ -1617,7 +1679,7 @@ impl Scene {
                         return;
                     }
                     let vt = if streak > 0.0 { Some(to_view(sub(wp, mul(lv, streak)))) } else { None };
-                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, w, h, near) {
+                    let (pts, wts, k) = match spark_shape(v, vt, size, focal, cx * 2.0, cy * 2.0, near) {
                         Some(s) => s,
                         None => return,
                     };

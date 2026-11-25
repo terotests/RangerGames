@@ -83,3 +83,93 @@ pub extern "C" fn rg_gl_stats() -> usize {
     RESULT.with(|b| *b.borrow_mut() = s.into_bytes());
     n
 }
+
+// ---- VR (crates/rg_engine/src/xr.rs, web/js/xr.js) ----
+
+/// The headset's frame from WebXR (JSON, see xr.rs `Xr::input`), before rg_frame.
+#[no_mangle]
+pub unsafe extern "C" fn rg_xr_input(p: *const u8, n: usize) {
+    let data = text(p, n);
+    with(|e| e.xr_input(&data));
+}
+
+/// How many eyes to draw this frame (0: no headset frame).
+#[no_mangle]
+pub extern "C" fn rg_xr_eyes() -> i32 {
+    with(|e| e.xr_eyes() as i32)
+}
+
+/// Paints the frame's draw stream (the 2D view) into the panel's texture,
+/// `width` × `height` pixels. 1 when it worked.
+#[no_mangle]
+pub extern "C" fn rg_xr_panel(width: i32, height: i32) -> i32 {
+    with(|e| {
+        GL.with(|gl| {
+            let mut gl = gl.borrow_mut();
+            let (gw, gh) = (e.ui.width.max(1.0), e.ui.height.max(1.0));
+            let v = rg_gl::View { scale: 1.0, x: 0.0, y: 0.0, w: gw as f32, h: gh as f32, density: width as f32 / gw as f32, width, height };
+            gl.render_panel(&mut WebGlHost, &e.draw.nums, &e.draw.strings, &e.scene.tris, &v) as i32
+        })
+    })
+}
+
+/// Draws eye `i` (after the panel): 0 none, 1 its triangles, 2 a whole
+/// draw stream (planets, stars): then rg_xr_draw_ptr/len is the stream, its
+/// strings are in the result (NUL separated) and rg_xr_view(0…4) its view for
+/// an eye `width` pixels wide (scale, x, y, w, h), for glhost.js's globes.
+#[no_mangle]
+pub extern "C" fn rg_xr_prepare(i: i32, width: i32) -> i32 {
+    with(|e| {
+        if !e.xr_eye(i.max(0) as usize) {
+            return 0;
+        }
+        match e.xr_eye_view(width) {
+            Some(v) => {
+                XR_VIEW.with(|c| c.set(v));
+                RESULT.with(|b| *b.borrow_mut() = e.xr_draw.strings_joined().into_bytes());
+                2
+            }
+            None => 1,
+        }
+    })
+}
+
+thread_local! {
+    static XR_VIEW: std::cell::Cell<[f32; 5]> = const { std::cell::Cell::new([1.0, 0.0, 0.0, 1.0, 1.0]) };
+}
+
+#[no_mangle]
+pub extern "C" fn rg_xr_view(k: i32) -> f32 {
+    XR_VIEW.with(|c| c.get()[(k.clamp(0, 4)) as usize])
+}
+
+#[no_mangle]
+pub extern "C" fn rg_xr_draw_ptr() -> *const f32 {
+    with(|e| e.xr_draw.nums.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_xr_draw_len() -> usize {
+    with(|e| e.xr_draw.nums.len())
+}
+
+/// Paints eye `i` (rg_xr_prepare first) into framebuffer `fbo` (a handle of
+/// glhost.js; 0: the canvas) at x, y, w, h pixels (WebXR's viewport), over r, g, b.
+#[no_mangle]
+pub extern "C" fn rg_xr_eye(i: i32, fbo: u32, x: i32, y: i32, w: i32, h: i32, r: f32, g: f32, b: f32) -> i32 {
+    with(|e| {
+        let (uw, uh) = e.xr_eye_size(i.max(0) as usize);
+        let mut host = WebGlHost;
+        let stream = e.xr_eye_view(w).map(|v| rg_gl::EyeStream {
+            host: &mut host,
+            nums: &e.xr_draw.nums,
+            strings: &e.xr_draw.strings,
+            view: rg_gl::View { scale: v[0], x: v[1], y: v[2], w: v[3], h: v[4], density: 1.0, width: w, height: h },
+        });
+        GL.with(|gl| {
+            let mut gl = gl.borrow_mut();
+            gl.render_eye(fbo, [x, y, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [r, g, b, 1.0], stream);
+            gl.ok() as i32
+        })
+    })
+}
