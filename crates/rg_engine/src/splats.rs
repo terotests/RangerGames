@@ -12,6 +12,9 @@
 //! bytes: x, y, z i16, vx, vy, vz i8, temperature u8 (0 = tMin, 255 = tMax).
 //! A particle absent in a frame has x = y = z = -32768. Between frames the
 //! places are Hermite curves through both frames' places and velocities.
+//! A particle that comes or goes shrinks to nothing over the half step next
+//! to its absent frame (Halley's coma: hundreds of splats popping in and out
+//! at once every frame step of the bake read as a jerk every 0.2 s).
 
 type V3 = [f64; 3];
 
@@ -98,22 +101,25 @@ impl Splats {
         for i in 0..self.n {
             let a = self.at(k, i);
             let b = if s > 0.0 { self.at(k + 1, i) } else { None };
-            let (p, t) = match (a, b) {
+            let (p, t, g) = match (a, b) {
                 (Some((p0, v0, t0)), Some((p1, v1, t1))) => {
                     let mut p = [0.0; 3];
                     for c in 0..3 {
                         p[c] = h00 * p0[c] + h10 * dt * v0[c] + h01 * p1[c] + h11 * dt * v1[c];
                     }
-                    (p, t0 + (t1 - t0) * s)
+                    (p, t0 + (t1 - t0) * s, 1.0)
                 }
-                (Some((p0, v0, t0)), None) if s < 0.5 => ([p0[0] + v0[0] * s * dt, p0[1] + v0[1] * s * dt, p0[2] + v0[2] * s * dt], t0),
+                (Some((p0, v0, t0)), None) if s < 0.5 => ([p0[0] + v0[0] * s * dt, p0[1] + v0[1] * s * dt, p0[2] + v0[2] * s * dt], t0, 1.0 - 2.0 * s),
                 (None, Some((p1, v1, t1))) if s >= 0.5 => {
                     let back = (1.0 - s) * dt;
-                    ([p1[0] - v1[0] * back, p1[1] - v1[1] * back, p1[2] - v1[2] * back], t1)
+                    ([p1[0] - v1[0] * back, p1[1] - v1[1] * back, p1[2] - v1[2] * back], t1, 2.0 * s - 1.0)
                 }
                 _ => continue,
             };
-            let r = self.radius * self.data[self.rads + i] as f64 / 64.0;
+            if g < 0.02 {
+                continue;
+            }
+            let r = g * self.radius * self.data[self.rads + i] as f64 / 64.0;
             f(p, r, t, self.data[self.mats + i]);
         }
     }
@@ -179,5 +185,29 @@ mod tests {
         });
         assert_eq!(n, 1);
         assert!(Splats::new(b"RGPX".to_vec()).is_none());
+    }
+
+    #[test]
+    fn a_particle_that_comes_or_goes_shrinks_instead_of_popping() {
+        // particle 0 is absent in frame 1 (goes), particle 1 absent in frame 0 (comes)
+        let f = test_file(2, 2, 1.0, |k, i| if (i == 0 && k == 1) || (i == 1 && k == 0) { ([i16::MIN; 3], [0; 3], 0) } else { ([0, 0, 0], [0; 3], 0) });
+        let mut s = Splats::new(f).expect("rgps");
+        let r_at = |s: &Splats, want: usize| {
+            let mut r = None;
+            let mut n = 0;
+            s.each(|_, rr, _, _| {
+                if n == want { r = Some(rr); }
+                n += 1;
+            });
+            r
+        };
+        s.time = 0.0;
+        assert!((r_at(&s, 0).unwrap() - 0.05).abs() < 1e-9);
+        s.time = 0.25;
+        assert!((r_at(&s, 0).unwrap() - 0.025).abs() < 1e-9, "half way to gone: half size");
+        s.time = 0.75;
+        assert!((r_at(&s, 0).unwrap() - 0.025).abs() < 1e-9, "half way from coming: half size");
+        s.time = 0.999;
+        assert!((r_at(&s, 0).unwrap() - 0.05).abs() < 1e-3);
     }
 }
