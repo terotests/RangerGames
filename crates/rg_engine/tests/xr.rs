@@ -193,3 +193,42 @@ fn a_headset_draws_planets_and_stars_from_each_eyes_stream() {
     assert!(e.xr_eye(0));
     assert!(e.xr_view.is_none());
 }
+
+#[test]
+fn an_app_of_one_game_opens_it_in_vr_on_a_headset() {
+    // scripts/build-android.sh RG_APP_START=t: /games/_app.json names the
+    // game, which then stands in the launcher's place; its game.json "xr"
+    // takes it into VR at once on a headset
+    let mut e = Engine::new();
+    e.vfs.add_text("/games/_app.json", r#"{"start":"t"}"#);
+    e.vfs.add_text("/games/t/game.json", r#"{ "name": "T", "width": 200, "height": 200, "xr": { "mode": "vr", "panel": false } }"#);
+    e.vfs.add_text("/games/t/game.tsx", GAME);
+    e.vfs.add_text("/games/t/style.css", ".s { width: 200px; height: 200px; }");
+    e.resize(200.0, 200.0);
+    e.gl3d = true;
+    e.gl_all = true;
+    e.xr_input(r#"{"event":"caps","vr":true,"always":true}"#);
+    e.xr_input(&hands(0.0, "[0,0,0,1]", "[0.0,1.6,0.0]"));
+    e.start("").unwrap();
+    assert!(e.has_launcher(), "the app's game is its launcher");
+    e.frame(16.0).unwrap();
+    e.frame(16.0).unwrap();
+    assert!(log(&mut e).contains("start:vr"), "{}", log(&mut e));
+    assert!(e.xr_panel.is_none(), "the world around, no panel");
+    // Back closes the app (no launcher behind it)
+    e.key(true, "Back");
+    e.frame(16.0).unwrap();
+    assert!(e.take_host_commands().iter().any(|c| c.kind == "quit"));
+
+    // a flat phone: the same game starts flat
+    let mut f = Engine::new();
+    f.vfs.add_text("/games/_app.json", r#"{"start":"t"}"#);
+    f.vfs.add_text("/games/t/game.json", r#"{ "name": "T", "xr": { "mode": "vr" } }"#);
+    f.vfs.add_text("/games/t/game.tsx", GAME);
+    f.vfs.add_text("/games/t/style.css", "");
+    f.resize(200.0, 200.0);
+    f.start("").unwrap();
+    f.frame(16.0).unwrap();
+    f.frame(16.0).unwrap();
+    assert!(!log(&mut f).contains("start"), "{}", log(&mut f));
+}

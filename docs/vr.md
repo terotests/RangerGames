@@ -145,3 +145,17 @@ adb shell am start -n fi.rangergames/.MainActivity --ez flat true
 Controllers: the trigger taps the panel or clicks a 3D object, the stick
 press, A/B and X/Y come to `onXR` as buttons, the Meta button recentres (the
 system's own).
+
+## An app of one game
+
+The same code builds a headset app of its own, beside RangerGames (fixes go to both):
+
+    RG_APP_ID=fi.rangergames.solarpilot RG_APP_NAME="Solar Pilot" \
+    RG_GAMES=/path/to/folder-with-the-game RG_APP_START=solarpilot \
+      scripts/build-android.sh
+
+The game takes the launcher's place (Back closes the app, no ✕). With an
+`"xr"` block in its game.json, e.g. `"xr": { "mode": "vr", "scale": 0.001 }`
+(rg.xr.enter's options), it opens straight in VR on a headset; on a phone
+it starts flat. A single game in RangerGames starts with
+`adb shell am start -n fi.rangergames/.MainActivity --es game vrtesti`.

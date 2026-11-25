@@ -8,6 +8,17 @@
 # The APK is android/app/build/outputs/apk/release/app-release.apk; install it
 # on the phone with `adb install -r <apk>`, or copy it over and open it
 # (allow "install unknown apps" for the file manager once).
+#
+# An app of its own from the same code (fixes go to both), e.g. one game for
+# a VR headset; it installs beside RangerGames:
+#   RG_APP_ID=fi.rangergames.solarpilot  the Android package (default fi.rangergames)
+#   RG_APP_NAME="Solar Pilot"            the name under the icon (default RangerGames)
+#   RG_GAMES=/path/to/games              the folder of games to pack (default games/;
+#                                        its voice clips are not rendered, _voice is
+#                                        taken as it is)
+#   RG_APP_START=solarpilot              the app opens this game in the launcher's
+#                                        place (/games/_app.json; Back closes the app);
+#                                        with game.json "xr" it opens in VR on a headset
 set -euo pipefail
 cd "$(dirname "$0")/.."
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
@@ -45,15 +56,20 @@ build aarch64-linux-android aarch64-linux-android arm64-v8a
 build armv7-linux-androideabi armv7a-linux-androideabi armeabi-v7a
 
 cargo build -p rg_cli --release
+GAMES="${RG_GAMES:-games}"
 # the voice clips of rg.say (voice/fi.json and voice/<lang>/ → games/_voice/<lang>; only changed clips are rendered)
-scripts/build-voice.sh
+if [[ -z "${RG_GAMES:-}" ]]; then scripts/build-voice.sh; fi
 # the clips go to the APK as assets (assets/voice/<lang>/<id>.wav), read when said;
 # the pack keeps only each language's index.json (which clips exist), since the
 # whole pack is read into memory at boot and the clips would not fit there
 rm -rf "$ASSETS/voice" && mkdir -p "$ASSETS/voice"
 STAGE=$(mktemp -d)
 trap 'rm -rf "$STAGE"' EXIT
-cp -RL games "$STAGE/games"
+cp -RL "$GAMES" "$STAGE/games"
+if [[ -n "${RG_APP_START:-}" ]]; then
+  [[ -f "$STAGE/games/$RG_APP_START/game.json" ]] || { echo "no game $RG_APP_START in $GAMES" >&2; exit 1; }
+  printf '{"start":"%s"}' "$RG_APP_START" > "$STAGE/games/_app.json"
+fi
 # each game's last commit date: the launcher compares it with a downloaded
 # copy's (game.json "replaces") to show the newer one
 for d in "$STAGE"/games/*/; do
@@ -62,6 +78,7 @@ for d in "$STAGE"/games/*/; do
   if [[ -f "$d/game.json" && -n "$up" ]]; then printf '{"updated":"%s"}' "$up" > "$d/_built.json"; fi
 done
 for d in "$STAGE"/games/_voice/*/; do
+  [[ -d "$d" ]] || continue
   lang=$(basename "$d")
   mkdir -p "$ASSETS/voice/$lang"
   find "$d" -maxdepth 1 -name '*.wav' -exec mv {} "$ASSETS/voice/$lang/" \;
@@ -76,5 +93,5 @@ if [[ ! -f "$ASSETS/fonts/Fredoka.ttf" ]]; then
     || echo "note: Fredoka not downloaded (offline?): the app uses the system font"
 fi
 cd android
-gradle --no-daemon assembleRelease
+gradle --no-daemon assembleRelease -PappId="${RG_APP_ID:-fi.rangergames}" -PappName="${RG_APP_NAME:-RangerGames}"
 ls -la app/build/outputs/apk/release/
