@@ -12,6 +12,13 @@ Sliqtly Games screenshot tool, `?nogl`). This is the same split as M-Files'
 
 The older `rg.three("add", …)` commands keep working; a game may use both.
 
+A name in the world: `rg.three("add", { id, shape: "label", text, x, y, z,
+size: 14, color, opacity, align: "center" | "left" | "right", dx, dy, weight })`
+draws `text` where (x, y, z) falls in the view, facing the viewer and the
+same size on the screen whatever the distance (`set` changes text, place
+and look; `visible: false` hides it). In VR each eye draws it at its place
+(1.4× bigger), so a planet's name sits next to the planet when the head turns.
+
 Code: `crates/rg_engine/src/fiber.rs` (the world), `gltf.rs` (models, skins,
 clips), `js/three.js` (`THREE`, serialization, taps, orbit controls).
 Demo: `games/nappulasota`. Tests: `crates/rg_engine/tests/three_world.rs`.

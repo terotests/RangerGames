@@ -374,9 +374,61 @@ fn heightfield(size: &[f64], heights: &[f64]) -> Mesh {
     Mesh::plain(verts, faces)
 }
 
+fn label_shape(shape: &str) -> bool {
+    shape == "label"
+}
+
+/// A label's text and look (shape "label": text, size in px, color,
+/// opacity, align "center" | "left" | "right", dx/dy px from its place,
+/// weight)
+struct Label {
+    text: String,
+    size: f64,
+    color: V3,
+    opacity: f64,
+    align: u8,
+    dx: f64,
+    dy: f64,
+    weight: String,
+}
+
+impl Label {
+    fn new(a: &Json) -> Label {
+        let mut l = Label { text: String::new(), size: 14.0, color: [1.0; 3], opacity: 1.0, align: 0, dx: 0.0, dy: 0.0, weight: "600".into() };
+        l.set(a);
+        l
+    }
+
+    fn set(&mut self, a: &Json) {
+        if !a.get("text").is_null() {
+            self.text = a.get("text").as_str();
+        }
+        self.size = a.get("size").as_num(self.size).max(1.0);
+        if !a.get("color").is_null() {
+            self.color = color(&a.get("color"), self.color);
+        }
+        self.opacity = a.get("opacity").as_num(self.opacity).clamp(0.0, 1.0);
+        match a.get("align").as_str().as_str() {
+            "center" => self.align = 0,
+            "left" => self.align = 1,
+            "right" => self.align = 2,
+            _ => {}
+        }
+        self.dx = a.get("dx").as_num(self.dx);
+        self.dy = a.get("dy").as_num(self.dy);
+        if !a.get("weight").is_null() {
+            self.weight = a.get("weight").as_str();
+        }
+    }
+}
+
 struct Obj {
     id: String,
     mesh: Mesh,
+    /// shape "label": a name at `pos`, always facing the viewer and the same
+    /// size on the screen (a planet's or a landmark's name; in VR each eye
+    /// sees it at its place in the world)
+    label: Option<Label>,
     /// a heightfield's size, kept for new heights
     hf: Option<Vec<f64>>,
     color: V3,
@@ -849,10 +901,14 @@ impl Scene {
                 let id = a.get("id").as_str();
                 let size: Vec<f64> = a.get("size").items().iter().map(|v| v.as_num(1.0)).collect();
                 let shape = a.get("shape").as_str();
+                let label = if shape == "label" { Some(Label::new(a)) } else { None };
                 let hf = shape == "heightfield";
                 let o = Obj {
                     id: id.clone(),
-                    mesh: if hf {
+                    label,
+                    mesh: if label_shape(&shape) {
+                        Mesh::plain(Vec::new(), Vec::new())
+                    } else if hf {
                         let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
                         heightfield(&size, &hs)
                     } else if shape == "mesh" {
@@ -916,6 +972,9 @@ impl Scene {
                     }
                     if let Some(sp) = o.splats.as_mut() {
                         sp.set(a);
+                    }
+                    if let Some(l) = o.label.as_mut() {
+                        l.set(a);
                     }
                     if let Some(b) = o.burst.as_mut() {
                         b.time = a.get("time").as_num(b.time);
@@ -1109,7 +1168,7 @@ impl Scene {
     /// Whether a VR eye needs its own draw stream (`render_eye_stream`):
     /// planets, stars or baked particle runs, which the host draws.
     pub fn needs_stream(&self) -> bool {
-        self.active && (!self.planets.is_empty() || !self.stars.is_empty() || self.objs.iter().any(|o| o.splats.is_some() && o.visible))
+        self.active && (!self.planets.is_empty() || !self.stars.is_empty() || self.objs.iter().any(|o| (o.splats.is_some() || o.label.is_some()) && o.visible))
     }
 
     /// One VR eye as a whole draw stream into `out` (the sky, planets, stars,
@@ -1126,8 +1185,43 @@ impl Scene {
         self.eye = None;
     }
 
-    /// The scene into `out` from the camera (or `eye`), `w` x `h` units.
+    /// The scene into `out` from the camera (or `eye`), `w` x `h` units,
+    /// the labels on top.
     fn draw_view(&mut self, out: &mut DrawStream, w: f64, h: f64) {
+        self.draw_shapes(out, w, h);
+        self.draw_labels(out, w, h);
+    }
+
+    /// The labels (shape "label") where their places fall in the view.
+    fn draw_labels(&self, out: &mut DrawStream, w: f64, h: f64) {
+        let (eye, r, u, f, focal, cx, cy) = self.view_basis(w, h);
+        // an eye's units are finer than a phone's: the same angle on the screen
+        let k = if self.eye.is_some() { 1.4 } else { 1.0 };
+        for o in self.objs.iter() {
+            let l = match o.label.as_ref() {
+                Some(l) if o.visible && !l.text.is_empty() => l,
+                _ => continue,
+            };
+            let d = sub(o.pos, eye);
+            let z = dot(d, f);
+            if z <= 0.0 {
+                continue;
+            }
+            let x = cx + dot(d, r) / z * focal;
+            let y = cy - dot(d, u) / z * focal;
+            let size = l.size * k;
+            let tw = size * 0.6 * l.text.chars().count() as f64;
+            let (x, y) = (x + l.dx * k, y + l.dy * k);
+            let left = match l.align { 0 => x - tw / 2.0, 1 => x, _ => x - tw };
+            if left > w || left + tw < 0.0 || y - size > h || y + size < 0.0 {
+                continue;
+            }
+            out.text(left, y - size * 0.6, tw, size * 1.2, l.color, l.opacity * o.opacity, size, &l.text, &l.weight);
+        }
+    }
+
+    /// The scene without the labels.
+    fn draw_shapes(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
