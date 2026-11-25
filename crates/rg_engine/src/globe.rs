@@ -289,6 +289,11 @@ pub struct Globe {
     /// a glowing hot cap (Solar Pilot: the heat spreading from a giant impact):
     /// lat, lon (degrees), radius, soft edge (degrees), gain; gain 0 = none
     hot: [f64; 5],
+    /// a star's own surface drawn by the shader (Solar Pilot: the Sun close up): granules' count across
+    /// a radius, limb darkening (0..1), on (1) or off (0); with `star_spots`: lat, lon, the umbra's
+    /// radius (degrees), up to 8
+    star: [f64; 3],
+    star_spots: Vec<[f64; 3]>,
     /// the clouds morph (a gas giant): their picture read through a slowly
     /// rolling warp (EVG's smoke), 0 still; None: as much as `flow`
     turbulence: Option<f64>,
@@ -420,6 +425,8 @@ impl Globe {
             flow_time: 0.0,
             vortices: Vec::new(),
             hot: [0.0; 5],
+            star: [300.0, 0.6, 0.0],
+            star_spots: Vec::new(),
             turbulence: None,
             air_color: [0.35, 0.6, 1.0],
             lights: String::new(),
@@ -518,6 +525,26 @@ impl Globe {
                     h.get("soft").as_num(8.0).clamp(0.1, 90.0),
                     h.get("gain").as_num(1.0).clamp(0.0, 4.0),
                 ];
+            }
+            _ => {}
+        }
+        // star: { gran, limb, spots: [{ lat, lon, r }] } (degrees): a star's surface drawn by the shader (granules,
+        // limb darkening, sunspots with their umbra, filaments and the Wilson depression), moving with `flowTime`;
+        // false: none
+        match a.get("star") {
+            Json::Bool(false) => self.star[2] = 0.0,
+            Json::Obj(_) => {
+                let h = a.get("star");
+                self.star[0] = h.get("gran").as_num(self.star[0]).clamp(1.0, 5000.0);
+                self.star[1] = h.get("limb").as_num(self.star[1]).clamp(0.0, 1.0);
+                self.star[2] = 1.0;
+                if let Json::Arr(v) = h.get("spots") {
+                    self.star_spots = v
+                        .iter()
+                        .take(8)
+                        .map(|x| [x.get("lat").as_num(0.0).clamp(-90.0, 90.0), x.get("lon").as_num(0.0), x.get("r").as_num(1.0).clamp(0.01, 30.0)])
+                        .collect();
+                }
             }
             _ => {}
         }
@@ -1266,7 +1293,7 @@ impl Globe {
         let mut params: Vec<f32> = params.iter().map(|v| *v as f32).collect();
         let flow = self.flow_params();
         let vort = self.vortex_params();
-        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0);
+        let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0) || self.star[2] > 0.0;
         // the 32-number form: [20..24] the window (here the whole map), then the air,
         // the city lights and the relief (draw.rs `sphere`)
         let more = |win: [f64; 4], use_win: f64, air: f64| -> Vec<f32> {
@@ -1317,6 +1344,21 @@ impl Globe {
                     c[0] as f32, c[1] as f32, c[2] as f32, self.hot[2].to_radians() as f32,
                     self.hot[3].to_radians() as f32, self.hot[4] as f32, 0.0, 0.0,
                 ]);
+            }
+            if self.star[2] > 0.0 {
+                // the 116-number form: a star's surface: (spots, time, granules across a radius, limb darkening),
+                // then 8 × (the spot's middle on the ball, its umbra's radius in radians); unused forms as zeros
+                params.resize(80, 0.0);
+                let n = self.star_spots.len();
+                params.extend_from_slice(&[n as f32, (self.flow_time.rem_euclid(4096.0)) as f32, self.star[0] as f32, self.star[1] as f32]);
+                for i in 0..8 {
+                    if let Some(sp) = self.star_spots.get(i) {
+                        let c = unit(sp[1], sp[0]);
+                        params.extend_from_slice(&[c[0] as f32, c[1] as f32, c[2] as f32, sp[2].to_radians() as f32]);
+                    } else {
+                        params.extend_from_slice(&[0.0, 0.0, 1.0, 0.0]);
+                    }
+                }
             }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
@@ -1933,6 +1975,35 @@ mod tests {
         g.command(&rg_core::json::parse(r#"{"hot":false}"#));
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, false, true);
+        assert_eq!(sphere(&out).0, 20);
+    }
+
+    #[test]
+    fn a_star_is_the_116_number_form_with_its_spots() {
+        fn sphere(out: &DrawStream) -> (usize, Vec<f32>) {
+            let n = &out.nums;
+            let i = (0..n.len().saturating_sub(23)).find(|&i| n[i] == 8.0 && [20.0, 24.0, 32.0, 80.0, 116.0].contains(&n[i + 22]) && n[i + 18] >= 0.0).unwrap();
+            let c = n[i + 22] as usize;
+            (c, n[i + 23..i + 23 + c].to_vec())
+        }
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r#"{"texture":"/sun.jpg","grid":false,"border":false,"flowTime":12}"#));
+        let place = Place3 { centre: [0.0; 3], radius: 1.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        g.command(&rg_core::json::parse(r#"{"star":{"gran":400,"limb":0.5,"spots":[{"lat":0,"lon":90,"r":2},{"lat":90,"lon":0,"r":1}]}}"#));
+        let mut out = DrawStream::new();
+        // drawn as a light itself (a star): no sun, still the shader's ball
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, true, true);
+        let (c, p) = sphere(&out);
+        assert_eq!(c, 116);
+        assert_eq!(p[19], 0.0);
+        assert!(p[80] == 2.0 && p[81] == 12.0 && p[82] == 400.0 && p[83] == 0.5);
+        assert!(p[84].abs() < 1e-6 && (p[85] - 1.0).abs() < 1e-6 && (p[87] - 2f32.to_radians()).abs() < 1e-6);
+        assert!((p[90] - 1.0).abs() < 1e-6 && p[95] == 0.0);
+        // the hot cap's numbers between stay zero (off)
+        assert!(p[77] == 0.0);
+        g.command(&rg_core::json::parse(r#"{"star":false}"#));
+        let mut out = DrawStream::new();
+        g.render_3d(&mut out, &cam_at([3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, None, true, true);
         assert_eq!(sphere(&out).0, 20);
     }
 

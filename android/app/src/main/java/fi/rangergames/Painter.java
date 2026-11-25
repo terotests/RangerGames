@@ -387,6 +387,8 @@ final class Painter {
             if (nq >= 72 && (nums[aq + 48] > 0 || nums[aq + 50] > 0)) moving = true;
             // a hot cap (80 numbers) grows from frame to frame
             if (nq >= 80 && nums[aq + 77] > 0) moving = true;
+            // a star's granules move (116 numbers)
+            if (nq >= 116 && nums[aq + 82] > 0) moving = true;
         }
         boolean same = !moving && (b.bm != null || b.kept) && k.equals(b.key) && count == b.count && System.currentTimeMillis() - b.at < 1000;
         if (same) {
