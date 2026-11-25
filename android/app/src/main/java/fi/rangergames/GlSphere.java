@@ -97,8 +97,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "eyeL", "eyeK", "dust", "glint", "seaG"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, EYEL = 47, EYEK = 48, DUST = 49, GLINT = 50, SEAG = 51;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -405,6 +405,11 @@ final class GlSphere {
         return texture(src, true, false) != null;
     }
 
+    /** the same for a detail window's own heights */
+    boolean readyHeights(String src) {
+        return texture(src, true, false, true) != null;
+    }
+
     private final java.util.concurrent.ExecutorService decoder = java.util.concurrent.Executors.newSingleThreadExecutor();
     /** the frame the last decoded picture went to the GPU in */
     private long laterSent = -1;
@@ -620,7 +625,7 @@ final class GlSphere {
 
     // the extra numbers' count of the globe being drawn (uniforms() reads the band flow from 48, the storms from 72)
     private int flowNx;
-    private final float[] vtx = new float[16], vamp = new float[4];
+    private final float[] vtx = new float[16], vamp = new float[4], spots = new float[32];
 
     boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
         flowNx = nx;
@@ -638,6 +643,8 @@ final class GlSphere {
         boolean w40 = ht != null;
         // the window's heights (decoded on the other thread, as its picture; until then the ball's shape)
         Tex dt = w40 && w4 && ds != null ? texture(ds, true, false, true) : null;
+        // a window without its own heights would show other ground than the ball beside it: left out until they arrive
+        if (w40 && w4 && ds != null && dt == null) return false;
         // the rings (decoded on the other thread; until then none)
         Tex rc = null, ra = null;
         if (nx >= 44 && p[at + 42] > 0.5f && rings != null && !rings.isEmpty()) {
@@ -711,14 +718,14 @@ final class GlSphere {
         GLES30.glUniform1f(L[USEHOLE], ho ? 1 : 0);
         GLES30.glUniform4f(L[HOLE], ho ? p[at + 20] : 0, ho ? p[at + 21] : 0, ho ? p[at + 22] : 0, ho ? p[at + 23] : 0);
         GLES30.glUniform3f(L[EYE], p[at], p[at + 1], p[at + 2]);
-        // the eye's remainder and the light that changes with the eye (80 numbers, painter.js), |eye|² - 1 in 64 bits
-        boolean w80 = flowNx >= 80;
-        GLES30.glUniform3f(L[EYEL], w80 ? p[at + 72] : 0, w80 ? p[at + 73] : 0, w80 ? p[at + 74] : 0);
+        // the eye's remainder and the light that changes with the eye (124 numbers, painter.js), |eye|² - 1 in 64 bits
+        boolean w124 = flowNx >= 124;
+        GLES30.glUniform3f(L[EYEL], w124 ? p[at + 116] : 0, w124 ? p[at + 117] : 0, w124 ? p[at + 118] : 0);
         double ex = p[at], ey = p[at + 1], ez = p[at + 2];
         GLES30.glUniform1f(L[EYEK], (float) (ex * ex + ey * ey + ez * ez - 1.0));
-        GLES30.glUniform1f(L[DUST], w80 ? p[at + 76] : 0);
-        GLES30.glUniform1f(L[GLINT], w80 ? p[at + 77] : 0);
-        GLES30.glUniform1f(L[SEAG], w80 ? p[at + 78] : 0);
+        GLES30.glUniform1f(L[DUST], w124 ? p[at + 120] : 0);
+        GLES30.glUniform1f(L[GLINT], w124 ? p[at + 121] : 0);
+        GLES30.glUniform1f(L[SEAG], w124 ? p[at + 122] : 0);
         GLES30.glUniform3f(L[RGT], p[at + 3], p[at + 4], p[at + 5]);
         GLES30.glUniform3f(L[UPV], p[at + 6], p[at + 7], p[at + 8]);
         GLES30.glUniform3f(L[FWD], p[at + 9], p[at + 10], p[at + 11]);
@@ -739,6 +746,17 @@ final class GlSphere {
         boolean flowOn = flowNx >= 48 && !w4;
         GLES30.glUniform1f(L[FLOWA], flowOn ? p[at + 44] : 0);
         GLES30.glUniform1f(L[FLOWPH], flowOn ? p[at + 45] : 0);
+        // the hot cap (124 numbers, painter.js), not in a detail window
+        boolean hOn = flowNx >= 80 && !w4;
+        GLES30.glUniform4f(L[HOT], hOn ? p[at + 72] : 0, hOn ? p[at + 73] : 0, hOn ? p[at + 74] : 1, hOn ? p[at + 75] : 0);
+        GLES30.glUniform2f(L[HOTK], hOn ? p[at + 76] : 0, hOn ? p[at + 77] : 0);
+        // a star's surface (116 numbers, painter.js): granules, limb darkening, sunspots
+        boolean sOn = flowNx >= 116 && !w4;
+        GLES30.glUniform4f(L[STAR], sOn ? p[at + 80] : 0, sOn ? p[at + 81] : 0, sOn ? p[at + 82] : 0, sOn ? p[at + 83] : 0);
+        if (sOn) {
+            System.arraycopy(p, at + 84, spots, 0, 32);
+            GLES30.glUniform4fv(L[SPOTS], 8, spots, 0);
+        }
         // the clouds morphing and their storms (72 numbers, painter.js)
         boolean vOn = flowNx >= 72 && !w4;
         GLES30.glUniform4f(L[VINFO], vOn ? p[at + 48] : 0, vOn ? p[at + 49] : 0, vOn ? p[at + 50] : 0, vOn ? p[at + 51] : 0);
@@ -778,7 +796,12 @@ final class GlSphere {
         double ffx = fx - cx * fd, ffy = fy - cy * fd, ffz = fz - cz * fd;
         double fl = Math.sqrt(ffx * ffx + ffy * ffy + ffz * ffz);
         double az = Math.atan2(ffx * bx0 + ffy * by0 + ffz * bz0, ffx * ax0 + ffy * ay0);
-        double half = fl < 0.3 || -fd > 0.85 ? Math.PI : Math.min(Math.PI, Math.atan(p[at + 16] * 0.5 / p[at + 15]) + 1.0);
+        // the fan's half width from the view's diagonal (a tall portrait view sees farther up and down than across), and all
+        // round when the lower edge of the view reaches past the point under the eye: with the width alone the ground behind
+        // the nadir was missing at the bottom of a tablet's portrait view when the camera looked steeply down
+        double diag = Math.atan(Math.hypot(p[at + 16], p[at + 17]) * 0.5 / p[at + 15]);
+        double down = Math.asin(Math.max(-1, Math.min(1, -fd)));
+        double half = fl < 0.3 || -fd > 0.85 || down + diag > Math.PI / 2 - 0.15 ? Math.PI : Math.min(Math.PI, diag + 1.0);
         double near = Math.max(alt * 0.2, 1e-8), far = 2.5 * reach + alt;
         GLES30.glUseProgram(progMesh);
         uniforms(um, p, at, w32, w4, w40, useL, ho, x, y, w, h);

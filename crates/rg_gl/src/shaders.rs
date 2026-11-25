@@ -114,3 +114,40 @@ uniform sampler2D tex;
 in vec2 t;
 out vec4 o;
 void main() { o = texture(tex, t); }";
+
+/// Smooth lit meshes with their light a pixel (scene3d.rs `ptris`, 18 floats a
+/// corner): the directional lights in `lt` (2 vec4 each: way to the light +
+/// intensity, colour + glint strength), Blinn-Phong power 24 as the engine's
+/// `shade_shiny`, then the fog
+pub const PHONG_VS: &str = "#version 300 es
+layout(location = 0) in vec2 p;
+layout(location = 1) in float d;
+layout(location = 2) in vec3 base;
+layout(location = 3) in vec3 rest;
+layout(location = 4) in vec3 nrm;
+layout(location = 5) in vec3 eye;
+layout(location = 6) in vec2 sf;
+uniform vec4 xf;
+out vec3 vb; out vec3 vr; out vec3 vn; out vec3 ve; out vec2 vs;
+void main() { vb = base; vr = rest; vn = nrm; ve = eye; vs = sf; gl_Position = vec4(p * xf.xy + xf.zw, d * 2.0 - 1.0, 1.0); }";
+
+pub const PHONG_FS: &str = "#version 300 es
+precision highp float;
+in vec3 vb; in vec3 vr; in vec3 vn; in vec3 ve; in vec2 vs;
+uniform vec4 lt[8];
+uniform int nl;
+uniform vec4 fogc;
+out vec4 o;
+void main() {
+  vec3 n = normalize(vn), e = normalize(ve);
+  vec3 light = vr, glint = vec3(0.0);
+  for (int i = 0; i < 4; i++) {
+    if (i >= nl) break;
+    vec4 a = lt[2 * i], b = lt[2 * i + 1];
+    float k = max(dot(n, a.xyz), 0.0) * a.w;
+    light += b.rgb * k;
+    if (vs.x > 0.0 && k > 0.0) glint += b.rgb * pow(max(dot(n, normalize(a.xyz + e)), 0.0), 24.0) * vs.x * b.w;
+  }
+  vec3 c = vb * light + glint;
+  o = vec4(mix(c, fogc.rgb, vs.y), 1.0);
+}";

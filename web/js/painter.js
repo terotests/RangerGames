@@ -53,8 +53,8 @@
     // meshM (a phone's GPU, android GlSphere): 1 = the ground close by as a mesh (wpos: the point on it, in radii),
     // 2 = only the air round it (drawn first); 0 = as here, a ray cast for each pixel
     "uniform float meshM;" +
-    // the eye's remainder (draw.rs `sphere` 72-74: the eye minus its 32-bit 0-2), |eye|² - 1 (the host, in 64 bits), and the
-    // light that changes with the eye (76 dust, 77 grains' glints, 78 the sea's glint)
+    // the eye's remainder (draw.rs `sphere` 116-118: the eye minus its 32-bit 0-2), |eye|² - 1 (the host, in 64 bits), and the
+    // light that changes with the eye (120 dust, 121 grains' glints, 122 the sea's glint)
     "uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;" +
     // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
     "uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;" +
@@ -67,6 +67,12 @@
     // their cycle, how much the clouds morph, the morph's time), vtx[i] = (u, v, radius in radians, width / height),
     // vamp[i] how far its middle turns in a cycle (radians)
     "uniform vec4 vinfo; uniform vec4 vtx[4]; uniform float vamp[4];" +
+    // a glowing hot cap (80 numbers, globe.rs `hot`): hot = (its middle on the ball, radius in radians),
+    // hotk = (soft edge in radians, gain); lit by its own heat
+    "uniform vec4 hot; uniform vec2 hotk;" +
+    // a star's own surface (116 numbers, globe.rs `star`): star = (spots, time, granules across a radius, limb
+    // darkening), spots[i] = (the spot's middle on the ball, its umbra's radius in radians)
+    "uniform vec4 star; uniform vec4 spots[8];" +
     // the morph is EVG's smoke: noise read at a place two other noises have moved (domain warping), on the ball
     // (no seam), stretched along the bands, the two warps out of step so that it rolls instead of breathing
     "float vh(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }" +
@@ -133,6 +139,62 @@
     "  float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);" +
     "  float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);" +
     "  return mix(mix(a, b, t.y), mix(e, g, t.y), t.z); }" +
+    // three octaves of value noise, 0..1 (the hot cap's swirling heat)
+    "float hfb(vec3 x) { return (vnoise(x) * 0.5 + vnoise(x * 2.03) * 0.25 + vnoise(x * 4.11) * 0.125) / 0.875; }" +
+    // the granules: cellular noise, the nearest two cell points (F1, F2) of the 27 cells round x
+    "vec2 cells(vec3 x) { vec3 i = floor(x), f = x - i; float d1 = 8.0, d2 = 8.0;" +
+    "  for (int k = 0; k < 27; k++) { ivec3 o = ivec3(k % 3 - 1, (k / 3) % 3 - 1, k / 9 - 1); uint h = hsh(ivec3(i) + o);" +
+    "    vec3 r = vec3(o) + vec3(float(h & 255u), float((h >> 8u) & 255u), float((h >> 16u) & 255u)) / 255.0 * 0.8 + 0.1 - f;" +
+    "    float dd = dot(r, r); if (dd < d1) { d2 = d1; d1 = dd; } else if (dd < d2) d2 = dd; }" +
+    "  return sqrt(vec2(d1, d2)); }" +
+    // a star's surface at p (seen along d, a pixel fp radians): light, rising granules with dark lanes between
+    // (each size only where it is a few pixels across, else its mean), darker and redder towards the limb (the
+    // eye sees higher, cooler gas there), and the sunspots: a dark umbra with bright dots, a penumbra of
+    // radial filaments with bright heads, ragged edges, and the Wilson depression (the spot is a dip: seen at a
+    // slant, its wall on the disc's middle side hides, so the umbra moves that way and that side's penumbra narrows)
+    "vec3 starSurf(vec3 c, vec3 p, vec3 d, float fp) { float mu = clamp(dot(p, -d), 0.0, 1.0), tm = star.y;" +
+    "  float g = 1.0; float ga = 1.0 / star.z;" +
+    "  float w1 = smoothstep(2.0, 6.0, ga / fp), w0 = smoothstep(2.0, 6.0, 6.0 * ga / fp);" +
+    "  vec3 wq = vec3(vnoise(p * star.z * 0.5 + vec3(0.0, 0.0, tm * 0.011)), vnoise(p * star.z * 0.5 + vec3(5.2, 1.3, tm * 0.009)), 0.0) - 0.5;" +
+    // (the map's own blotches calmed where the granules show: they are the light's real texture)
+    "  c = mix(c, vec3(1.0, 0.78, 0.4), 0.3 + 0.4 * w1);" +
+    "  if (w1 > 0.0) { vec3 x = p * star.z + wq * 1.6 + vec3(0.0, 0.0, tm * 0.004); vec2 f = cells(x); float aa = fp * star.z;" +
+    "    float lane = smoothstep(0.0, 0.24 + aa, f.y - f.x), core = 1.0 - f.x * f.x;" +
+    "    float gr = mix(0.5, 0.7 + 0.34 * core + 0.18 * (vnoise(x * 2.7) - 0.5) + 0.16 * (vnoise(x * 0.7) - 0.5), lane); g = mix(0.92, gr, w1 * (0.55 + 0.45 * mu)); }" +
+    "  if (w0 > 0.0) g *= mix(1.0, 0.86 + 0.28 * vnoise(p * star.z / 6.0 + vec3(tm * 0.002)), w0);" +
+    "  float sh = 1.0, pmx = 0.0; vec3 tint = vec3(1.0); float fac = 0.0;" +
+    "  for (int i = 0; i < 8; i++) { if (float(i) >= star.x) break; vec3 cs = spots[i].xyz; float ru = spots[i].w, rp = ru * 2.3;" +
+    "    float ca = dot(p, cs); if (ca < cos(min(rp * 2.6, 1.5))) continue;" +
+    "    vec3 e1 = normalize(cross(abs(cs.z) < 0.9 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0), cs)), e2 = cross(cs, e1);" +
+    "    vec3 vt = p - cs * ca; vec2 xy = vec2(dot(vt, e1), dot(vt, e2));" +
+    // the Wilson depression: towards the foot of the eye (the disc's middle), more at a slant
+    "    vec3 ev = normalize(eye); vec3 tv = ev - cs * dot(ev, cs); vec2 wo = vec2(dot(tv, e1), dot(tv, e2)) * 0.45 * ru;" +
+    "    float r = length(xy), th = atan(xy.y, xy.x), sd = float(i) * 7.31;" +
+    "    vec3 ang = vec3(cos(th), sin(th), sd);" +
+    "    float ruE = ru * (0.78 + 0.4 * vnoise(ang * 2.2) + 0.12 * vnoise(ang * 7.0)), rpE = rp * (0.82 + 0.3 * vnoise(ang * 1.7 + 3.1) + 0.08 * vnoise(ang * 9.0));" +
+    "    float ru2 = length(xy - wo), soft = max(fp, ru * 0.05);" +
+    "    float um = 1.0 - smoothstep(ruE - soft, ruE + soft, ru2), rw = r - 0.35 * dot(xy / max(r, 1e-9), wo), pm = 1.0 - smoothstep(rpE * 1.14 - 1.5 * soft, rpE * 1.14 + 1.5 * soft, rw);" +
+    "    if (pm <= 0.0) { fac += (1.0 - mu) * exp(-pow((r - rpE) / rpE, 2.0) * 1.5); continue; }" +
+    // filaments: noise stretched along the radius, about 70 round the spot, slowly flowing out (Evershed);
+    // only where they are a couple of pixels wide, else their mean
+    "    float s = clamp((r - ruE) / max(rpE - ruE, 1e-9), 0.0, 1.0), K = 70.0;" +
+    "    float fw = smoothstep(1.5, 4.0, 6.2831853 * r / K / fp);" +
+    "    float fl = vnoise(vec3(th * K / 6.2831853 * 1.0, s * 2.2 - tm * 0.01, sd)) * 0.65 + vnoise(vec3(th * K / 3.14159 , s * 4.0, sd + 2.0)) * 0.35;" +
+    "    fl = mix(0.5, smoothstep(0.38, 0.68, fl), fw);" +
+    // finer threads close by (about 230 round the spot)
+    "    float fw2 = smoothstep(1.5, 4.0, 6.2831853 * r / (K * 3.3) / fp);" +
+    "    if (fw2 > 0.0) fl = mix(fl, fl * (0.55 + 0.9 * smoothstep(0.25, 0.8, 1.0 - abs(2.0 * vnoise(vec3(th * K * 3.3 / 6.2831853, s * 6.0 - tm * 0.02, sd + 5.0)) - 1.0))), fw2);" +
+    // the outer edge ragged: the filaments reach out between the granules
+    "    float re = rpE * (0.86 + 0.28 * fl); pm = min(pm, 1.0 - smoothstep(re - 1.5 * soft, re + 1.5 * soft, rw));" +
+    "    float pb = 0.36 + 0.46 * fl + 0.28 * fl * exp(-s * 5.0) * fw;" +
+    // the umbra: dark, deep red, with bright umbral dots where they can be seen
+    "    float dw = smoothstep(1.5, 4.0, ru * 0.08 / fp); float dots = pow(vnoise(p / (ru * 0.07) + vec3(sd)), 6.0) * 1.6 * dw;" +
+    "    float ub = 0.07 + 0.05 * vnoise(p / (ru * 0.3) + vec3(sd)) + 0.2 * dots;" +
+    "    float b = mix(pb, ub, um); sh = min(sh, mix(1.0, b, pm)); pmx = max(pmx, pm);" +
+    "    tint = mix(tint, mix(vec3(1.0, 0.72, 0.48), vec3(0.95, 0.42, 0.22), um), pm); }" +
+    "  float ld = 1.0 - star.w * (1.0 - pow(mu, 0.8));" +
+    "  vec3 lc = mix(vec3(1.0, 0.62, 0.32), vec3(1.0), smoothstep(0.0, 0.7, mu));" +
+    "  return c * mix(g, 1.0, pmx) * ld * lc * sh * tint * (1.0 + 0.35 * min(fac, 1.0)); }" +
     // craters: at most one in each lattice cell, inside it (so only the point's own cell is read)
     "float crater(vec3 p, float f, int o) { vec3 x = p * f + vec3(0.37, 0.61, 0.19) * float(o & 1); vec3 fc = floor(x); ivec3 c = ivec3(fc);" +
     "  uint h = hsh(ivec3(c.x + 1000 * (o + 1), c.y, c.z)); if ((h & 255u) >= 170u) return 0.0;" +
@@ -257,7 +319,7 @@
     "    sp = clamp(sp, 0.0, 1.0) * dust; vec3 sc = mix(col, vec3(1.0), 0.35) * lt * 1.5;" +
     "    res = vec4(min(sc, vec3(1.0)) * sp, sp) + res * (1.0 - sp); }" +
     "  return res; }" +
-    // the grains' glints (draw.rs `sphere` 77): the ground's grains, on cells a few pixels wide (two sizes blended by the
+    // the grains' glints (draw.rs `sphere` 121): the ground's grains, on cells a few pixels wide (two sizes blended by the
     // pixel's size, as the rings' specks), each a small facet tilted at random; one shines where its normal is the half
     // way hw between the sun and the eye, so each eye sees its own (in a headset the ground glitters like real dust or
     // snow). The cells are counted from the eye's 32 bits split at 1/1024 radii (exact) plus y: the same grains from
@@ -404,7 +466,7 @@
     "    c *= mix(1.0 - night, 1.0, min(k, 1.25));" +
     "  } else if (lit > 0.5) { float sn = dot(n, sun); float k = smoothstep(-0.06, 0.3, s); if (relief != 0.0) k *= smoothstep(-0.25, 0.2, sn) * (0.55 + 0.45 * smoothstep(0.0, 0.6, sn / max(s, 0.05)));" +
     "    c *= mix(1.0 - night, 1.0, k) * (0.8 + 0.2 * max(sn, 0.0)); kl = k; }" +
-    // the light that changes with where the eye is (draw.rs `sphere` 76-78), so that a headset's two eyes see the
+    // the light that changes with where the eye is (draw.rs `sphere` 120-122), so that a headset's two eyes see the
     // ground a little differently, as real ground: ve towards the eye, hw half way between the sun and ve
     "  vec3 ve = -d, hw = normalize(sun + ve);" +
     // dust (the Moon's regolith): Lommel-Seeliger against Lambert (no darker limb; a slope turned from the eye is not
@@ -425,6 +487,25 @@
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // the rings' shadow on the ball
     "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
+    "  if (star.z > 0.0 && useWin < 0.5) c = starSurf(c, p, d, fp);" +
+    // the hot cap: molten rock glowing by its own heat (the same by day and by night). v60 (Tero: the seam
+    // between the Earth and Theia should melt together, red and yellow mixed like a hot gas, yellow rising
+    // from the ground like veins or a volcano): the heat is turbulent noise (domain-warped, so it swirls)
+    // added to the distance from the middle, mapped through dark red, orange, yellow and white-hot, and the
+    // cap's edge breaks up with it; past the edge, glowing cracks run out into the cold ground
+    "  if (hotk.y > 0.0 && useWin < 0.5) { float ha = acos(clamp(dot(p, hot.xyz), -1.0, 1.0));" +
+    "    float hw = 1.0 - smoothstep(hot.w - hotk.x, hot.w, ha), hx = 1.0 - smoothstep(hot.w - hotk.x, hot.w + 0.8 * hotk.x + 0.05, ha);" +
+    "    if (hx > 0.0) { float hl = lum(vec2(u, v)); vec3 q = p * 5.0;" +
+    "      vec2 wq = vec2(hfb(q + vec3(1.7, 9.2, 3.1)), hfb(q + vec3(8.3, 2.8, 5.4))) - 0.5;" +
+    "      float n = hfb(q * 1.7 + vec3(wq * 2.4, wq.x - wq.y));" +
+    "      float rv = 1.0 - abs(2.0 * vnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0), vein = rv * rv * rv * rv; vein *= vein;" +
+    "      float h = clamp(hw * 0.82 + (n - 0.5) * 1.15 + 0.25 * hl * hw + vein * 0.8 * hx * (1.0 - 0.5 * hw), 0.0, 1.5);" +
+    "      vec3 g = mix(vec3(0.42, 0.05, 0.02), vec3(0.86, 0.22, 0.04), smoothstep(0.0, 0.35, h));" +
+    "      g = mix(g, vec3(1.0, 0.55, 0.12), smoothstep(0.28, 0.62, h)); g = mix(g, vec3(1.0, 0.84, 0.4), smoothstep(0.58, 0.95, h));" +
+    "      g = mix(g, vec3(1.0, 0.96, 0.82), smoothstep(0.95, 1.35, h)) + vec3(1.0, 0.86, 0.55) * 0.7 * exp(-ha / (0.18 * hot.w + 0.03));" +
+    "      g += vec3(1.0, 0.68, 0.24) * 0.5 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));" +
+    "      float ca = clamp(hw * (0.7 + 0.6 * n) + vein * hx * (1.0 - hw) * 1.2, 0.0, 1.0);" +
+    "      c = mix(c, g * hotk.y, ca); } }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
@@ -472,7 +553,7 @@
     this.prog = prog;
     this.u = {};
     var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "eyeL", "eyeK", "dust", "glint", "seaG"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
+    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
     var buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
@@ -594,6 +675,14 @@
       gl.uniform4fv(u.vtx, vt);
       gl.uniform1fv(u.vamp, va);
     }
+    // the hot cap (124 numbers)
+    var wh = p.length >= 80 && !w4;
+    gl.uniform4f(u.hot, wh ? p[72] : 0, wh ? p[73] : 0, wh ? p[74] : 1, wh ? p[75] : 0);
+    gl.uniform2f(u.hotk, wh ? p[76] : 0, wh ? p[77] : 0);
+    // a star's surface (116 numbers)
+    var ws = p.length >= 116 && !w4;
+    gl.uniform4f(u.star, ws ? p[80] : 0, ws ? p[81] : 0, ws ? p[82] : 0, ws ? p[83] : 0);
+    if (ws) gl.uniform4fv(u.spots, new Float32Array(Array.prototype.slice.call(p, 84, 116)));
     gl.activeTexture(gl.TEXTURE0);
     gl.uniform1f(u.useH, w40 ? 1 : 0);
     gl.uniform1f(u.hlo, w40 ? p[32] : 0);
@@ -609,13 +698,13 @@
     gl.uniform1f(u.useHole, ho ? 1 : 0);
     gl.uniform4f(u.hole, ho ? p[20] : 0, ho ? p[21] : 0, ho ? p[22] : 0, ho ? p[23] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
-    // the eye's remainder and the light that changes with the eye (80 numbers), |eye|² - 1 here in 64 bits
-    var w80 = p.length >= 80;
-    gl.uniform3f(u.eyeL, w80 ? p[72] : 0, w80 ? p[73] : 0, w80 ? p[74] : 0);
+    // the eye's remainder and the light that changes with the eye (124 numbers), |eye|² - 1 here in 64 bits
+    var w124 = p.length >= 124;
+    gl.uniform3f(u.eyeL, w124 ? p[116] : 0, w124 ? p[117] : 0, w124 ? p[118] : 0);
     gl.uniform1f(u.eyeK, p[0] * p[0] + p[1] * p[1] + p[2] * p[2] - 1);
-    gl.uniform1f(u.dust, w80 ? p[76] : 0);
-    gl.uniform1f(u.glint, w80 ? p[77] : 0);
-    gl.uniform1f(u.seaG, w80 ? p[78] : 0);
+    gl.uniform1f(u.dust, w124 ? p[120] : 0);
+    gl.uniform1f(u.glint, w124 ? p[121] : 0);
+    gl.uniform1f(u.seaG, w124 ? p[122] : 0);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
     gl.uniform3f(u.fwd, p[9], p[10], p[11]);
@@ -864,7 +953,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 124 ? 124 : nx >= 116 ? 116 : nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

@@ -10,6 +10,9 @@
 //!                      ground: { y, color } })            // an endless floor at height y
 //! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
+//!                    type "env": a still surrounding that objects with env > 0 mirror
+//!                    (a polished hull over a moon): x, y, z the way up, color the ground
+//!                    below the horizon, sky the colour above it (black), intensity
 //! rg.three("add",    { id, shape: "box" | "sphere" | "cylinder" | "cone" | "plane" | "torus" | "star"
 //!                             | "prism" | "roof" | "dome"     // prism: size [length (x), height, width (z)], base at y 0;
 //!                             | "mesh"         // verts: [x, y, z, ...], tris: [a, b, c, ...] (counter-
@@ -52,6 +55,8 @@
 //!                      layer,                            // -1: flat on the floor, drawn first
 //!                      shiny,                            // 0..1: a glint of each light off the faces
 //!                                                        // that turn it towards the camera
+//!                      env,                              // 0..1: how much it mirrors the "env" light's
+//!                                                        // ground and sky (polished metal)
 //!                      opacity,                          // 0..1 (1): below 1 a see-through light, a flame
 //!                      wy,                               // a turn round world y after rx, ry, rz
 //!                      group })                          // objects of one group (a house) are sorted
@@ -383,6 +388,8 @@ struct Obj {
     double: bool,
     /// 0..1: how strongly the lights glint off it (a polished hull)
     shiny: f64,
+    /// 0..1: how much it mirrors the "env" lights (polished metal)
+    env: f64,
     /// "mesh" with smooth: true: lit a corner, with each corner's normal the
     /// mean of its faces' and each corner's colour the mean of its faces', so
     /// that light bends round a rounded rock instead of showing flat facets
@@ -540,6 +547,8 @@ struct Light {
     intensity: f64,
     pos: V3,
     range: f64,
+    /// "env": the colour above the horizon
+    sky: V3,
 }
 
 pub struct Scene {
@@ -589,6 +598,19 @@ pub struct Scene {
     /// VR in a headset: the frame's own picture of the scene is not drawn
     /// (each eye's is, by `render_eye`)
     pub eyes_only: bool,
+    /// Smooth lit meshes for per-pixel (Phong) light, only for a host that
+    /// draws everything with GL (`unified`): 18 floats a corner, x, y, depth
+    /// (as `tris`), the face's own colour r, g, b, the light that is the same
+    /// everywhere on the face (ambient and point lights, worked out at the
+    /// corner) r, g, b, the normal x, y, z and the way to the camera x, y, z
+    /// (world, unit), shiny, fog 0…1, 0. The host adds the directional lights
+    /// of `plights` a pixel (Blinn-Phong, power 24, as `shade_shiny`).
+    pub ptris: Vec<f32>,
+    /// the directional lights for `ptris` (at most 4), 8 floats each: the way
+    /// to the light x, y, z (unit), intensity, colour r, g, b, the glint's
+    /// strength (intensity, at most 1.5); then the fog's colour r, g, b and 0
+    /// as the last 4 floats
+    pub plights: Vec<f32>,
     /// a globe of map outlines (rg.three("globe", …)), drawn over the sky
     pub globe: Option<crate::globe::Globe>,
     planets: Vec<Planet>,
@@ -721,6 +743,8 @@ impl Scene {
             drawn: 0,
             gl: false,
             unified: false,
+            ptris: Vec::new(),
+            plights: Vec::new(),
             textures: false,
             detail: false,
             terrain: false,
@@ -741,8 +765,8 @@ impl Scene {
 
     fn default_lights(&mut self) {
         self.lights = vec![
-            Light { id: "ambient".into(), kind: "ambient".into(), color: [1.0, 1.0, 1.0], intensity: 0.55, pos: [0.0; 3], range: 0.0 },
-            Light { id: "sun".into(), kind: "directional".into(), color: [1.0, 1.0, 1.0], intensity: 0.75, pos: [3.0, 6.0, 4.0], range: 0.0 },
+            Light { id: "ambient".into(), kind: "ambient".into(), color: [1.0, 1.0, 1.0], intensity: 0.55, pos: [0.0; 3], range: 0.0, sky: [0.0; 3] },
+            Light { id: "sun".into(), kind: "directional".into(), color: [1.0, 1.0, 1.0], intensity: 0.75, pos: [3.0, 6.0, 4.0], range: 0.0, sky: [0.0; 3] },
         ];
     }
 
@@ -812,6 +836,7 @@ impl Scene {
                     intensity: a.get("intensity").as_num(1.0),
                     pos: get3(a, ["x", "y", "z"], [0.0, 5.0, 0.0]),
                     range: a.get("range").as_num(10.0),
+                    sky: color(&a.get("sky"), [0.0; 3]),
                 };
                 if let Some(old) = self.lights.iter_mut().find(|x| x.id == id) {
                     *old = l;
@@ -846,6 +871,7 @@ impl Scene {
                     emissive: a.get("emissive").as_bool(),
                     double: a.get("double").as_bool() || shape == "plane",
                     shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
+                    env: a.get("env").as_num(0.0).clamp(0.0, 1.0),
                     smooth: a.get("smooth").as_bool(),
                     opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
@@ -878,6 +904,9 @@ impl Scene {
                     }
                     if !a.get("shiny").is_null() {
                         o.shiny = a.get("shiny").as_num(0.0).clamp(0.0, 1.0);
+                    }
+                    if !a.get("env").is_null() {
+                        o.env = a.get("env").as_num(0.0).clamp(0.0, 1.0);
                     }
                     if !a.get("opacity").is_null() {
                         o.opacity = a.get("opacity").as_num(1.0).clamp(0.0, 1.0);
@@ -968,19 +997,35 @@ impl Scene {
     }
 
     fn shade(&self, n: V3, centre: V3, base: V3) -> V3 {
-        self.shade_shiny(n, centre, base, 0.0, centre)
+        self.shade_shiny(n, centre, base, 0.0, centre, 0.0)
+    }
+
+    /// What a mirror with the normal n shows towards the eye (unit, to the
+    /// camera) of the "env" lights: the ground below their horizon, the sky
+    /// above it, with a soft edge
+    fn env_light(&self, n: V3, eye: V3) -> V3 {
+        let mut c = [0.0, 0.0, 0.0];
+        for l in self.lights.iter().filter(|l| l.kind == "env") {
+            let r = sub(mul(n, 2.0 * dot(n, eye)), eye);
+            let t = dot(r, norm(l.pos));
+            let x = ((0.08 - t) / 0.2).clamp(0.0, 1.0);
+            let g = x * x * (3.0 - 2.0 * x);
+            c = add(c, mul(add(mul(l.sky, 1.0 - g), mul(l.color, g)), l.intensity));
+        }
+        c
     }
 
     /// `shade` with a glint: each directional or point light adds white of
     /// its colour where the face's normal is near the half-way direction
     /// between the light and the camera (Blinn-Phong, one value per face)
-    fn shade_shiny(&self, n: V3, centre: V3, base: V3, shiny: f64, cam: V3) -> V3 {
+    fn shade_shiny(&self, n: V3, centre: V3, base: V3, shiny: f64, cam: V3, env: f64) -> V3 {
         let mut light = [0.0, 0.0, 0.0];
         let mut glint = [0.0, 0.0, 0.0];
         let eye = norm(sub(cam, centre));
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
+                "env" => 0.0,
                 "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity,
                 _ => {
                     let d = sub(l.pos, centre);
@@ -990,14 +1035,45 @@ impl Scene {
                 }
             };
             light = add(light, mul(l.color, k));
-            if shiny > 0.0 && l.kind != "ambient" && k > 0.0 {
+            if shiny > 0.0 && l.kind != "ambient" && l.kind != "env" && k > 0.0 {
                 let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
                 let h = norm(add(to, eye));
                 let s = dot(n, h).max(0.0).powi(24) * shiny * l.intensity.min(1.5);
                 glint = add(glint, mul(l.color, s));
             }
         }
+        if env > 0.0 {
+            light = add(light, mul(self.env_light(n, eye), env));
+        }
         [base[0] * light[0] + glint[0], base[1] * light[1] + glint[1], base[2] * light[2] + glint[2]]
+    }
+
+    /// The part of `shade` that the host's per-pixel light leaves out: the
+    /// ambient and the point lights (no glint), times nothing yet
+    fn rest_light(&self, n: V3, at: V3) -> V3 {
+        let mut light = [0.0, 0.0, 0.0];
+        for l in self.lights.iter() {
+            let k = match l.kind.as_str() {
+                "ambient" => l.intensity,
+                "directional" | "env" => 0.0,
+                _ => {
+                    let d = sub(l.pos, at);
+                    let dist = dot(d, d).sqrt();
+                    let fall = (1.0 - dist / l.range.max(0.01)).max(0.0);
+                    dot(n, norm(d)).max(0.0) * l.intensity * fall * fall
+                }
+            };
+            light = add(light, mul(l.color, k));
+        }
+        light
+    }
+
+    /// How much of the fog's colour a point `dist` away takes (0…1).
+    fn fog_k(&self, dist: f64) -> f64 {
+        match self.fog {
+            Some((near, far)) if far > near => ((dist - near) / (far - near)).clamp(0.0, 1.0),
+            _ => 0.0,
+        }
     }
 
     fn fogged(&self, c: V3, dist: f64) -> V3 {
@@ -1014,6 +1090,8 @@ impl Scene {
     pub fn render(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         self.drawn = 0;
         self.tris.clear();
+        self.ptris.clear();
+        self.plights.clear();
         if !self.active {
             return;
         }
@@ -1053,7 +1131,7 @@ impl Scene {
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
-                out.layer3d(0, self.tris.len());
+                out.scene_layer3d(0, self.tris.len(), !self.ptris.is_empty());
             }
             self.render_splats(out, w, h);
             return;
@@ -1114,7 +1192,7 @@ impl Scene {
         if self.gl && self.unified {
             // the objects in front of the sky, the globes and the stars, depth-tested
             self.render_gl(w, h, false);
-            out.layer3d(0, self.tris.len());
+            out.scene_layer3d(0, self.tris.len(), !self.ptris.is_empty());
             self.render_splats(out, w, h);
             return;
         }
@@ -1288,7 +1366,7 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
-                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam, o.env) };
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
@@ -1452,6 +1530,19 @@ impl Scene {
     /// face (a window on a wall) wins over the face rather than flickering.
     fn render_gl(&mut self, w: f64, h: f64, with_sky: bool) {
         let mut tris: Vec<f32> = Vec::new();
+        let mut ptris: Vec<f32> = Vec::new();
+        // (a VR eye takes only triangles: its smooth meshes are lit at the corners)
+        let phong = self.unified && self.eye.is_none();
+        let mut plights: Vec<f32> = Vec::new();
+        if phong {
+            for l in self.lights.iter().filter(|l| l.kind == "directional").take(4) {
+                let d = norm(l.pos);
+                let c = l.color;
+                plights.extend_from_slice(&[d[0] as f32, d[1] as f32, d[2] as f32, l.intensity as f32, c[0] as f32, c[1] as f32, c[2] as f32, l.intensity.min(1.5) as f32]);
+            }
+            let f = self.fog_color;
+            plights.extend_from_slice(&[f[0] as f32, f[1] as f32, f[2] as f32, 0.0]);
+        }
         let push = |tris: &mut Vec<f32>, x: f64, y: f64, d: f64, c: V3| {
             tris.extend_from_slice(&[x as f32, y as f32, d as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
         };
@@ -1664,8 +1755,29 @@ impl Scene {
                 if !vn.is_empty() && !unlit && o.opacity >= 1.0 && pts.len() == face.len() && view.iter().all(|p| p[2] >= near) {
                     // a colour a corner; the back of a double mesh turns its normals round
                     let flip = if dot(norm(cross(sub(b, a), sub(c, a))), towards) > 0.0 { -1.0 } else { 1.0 };
+                    if phong {
+                        // per-pixel light (see `ptris`): what a corner needs for it
+                        let corner: Vec<[f32; 15]> = face.iter().map(|&i| {
+                            let n = mul(vn[i], flip);
+                            let e = norm(sub(cam, world[i]));
+                            // the mirrored surroundings a corner (polished metal, see `env_light`)
+                            let r = if o.env > 0.0 { add(self.rest_light(n, world[i]), mul(self.env_light(n, e), o.env)) } else { self.rest_light(n, world[i]) };
+                            let fk = self.fog_k(dot(sub(world[i], cam), sub(world[i], cam)).sqrt());
+                            [vc[i][0] as f32, vc[i][1] as f32, vc[i][2] as f32, r[0] as f32, r[1] as f32, r[2] as f32,
+                             n[0] as f32, n[1] as f32, n[2] as f32, e[0] as f32, e[1] as f32, e[2] as f32, o.shiny as f32, fk as f32, 0.0]
+                        }).collect();
+                        for k in 1..pts.len() - 1 {
+                            for &j in [0, k, k + 1].iter() {
+                                let p = pts[j];
+                                ptris.extend_from_slice(&[p[0] as f32, p[1] as f32, d(p[2]) as f32]);
+                                ptris.extend_from_slice(&corner[j][..15]);
+                            }
+                        }
+                        drawn += 1;
+                        continue;
+                    }
                     let cols: Vec<V3> = face.iter().map(|&i| {
-                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam);
+                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam, o.env);
                         self.fogged(lit, dist)
                     }).collect();
                     for k in 1..pts.len() - 1 {
@@ -1678,7 +1790,7 @@ impl Scene {
                     drawn += 1;
                     continue;
                 }
-                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam) };
+                let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam, o.env) };
                 let c = self.fogged(lit, dist);
                 if o.opacity < 1.0 {
                     // see-through: added over what is behind, after the solid
@@ -1700,6 +1812,8 @@ impl Scene {
         tris.extend_from_slice(&sparks);
         self.drawn = drawn;
         self.tris = tris;
+        self.ptris = ptris;
+        self.plights = plights;
     }
 }
 
@@ -1756,17 +1870,37 @@ mod mesh_tests {
     }
 
     #[test]
+    fn a_mirroring_face_shows_the_ground_below_the_horizon_and_the_sky_above() {
+        let mut sc = Scene::new();
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "ambient", "type": "ambient", "intensity": 0 }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "sun", "type": "directional", "intensity": 0 }"#));
+        sc.command("light", &rg_core::json::parse(r##"{ "id": "e", "type": "env", "x": 0, "y": 1, "z": 0, "color": "#ffffff", "sky": "#000000", "intensity": 1 }"##));
+        let grey = [0.5, 0.5, 0.5];
+        // a wall facing the camera, tilted down: the eye's ray mirrors to the ground
+        let down = norm([0.0, -0.5, 1.0]);
+        let g = sc.shade_shiny(down, [0.0; 3], grey, 0.0, [0.0, 0.0, 10.0], 1.0);
+        assert!(g[0] > 0.45, "{:?}", g);
+        // tilted up: it mirrors the black sky
+        let up = norm([0.0, 0.5, 1.0]);
+        let s = sc.shade_shiny(up, [0.0; 3], grey, 0.0, [0.0, 0.0, 10.0], 1.0);
+        assert!(s[0] < 0.01, "{:?}", s);
+        // without env the env light adds nothing (and is no point light)
+        let none = sc.shade_shiny(down, [0.0; 3], grey, 0.0, [0.0, 0.0, 10.0], 0.0);
+        assert_eq!(none, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
     fn a_shiny_face_glints_where_it_mirrors_the_light_to_the_camera() {
         let mut sc = Scene::new();
         sc.command("light", &rg_core::json::parse(r#"{ "id": "a", "type": "ambient", "intensity": 0 }"#));
         sc.command("light", &rg_core::json::parse(r#"{ "id": "s", "type": "directional", "x": 0, "y": 1, "z": 1, "intensity": 1 }"#));
         let grey = [0.5, 0.5, 0.5];
         let up = [0.0, 1.0, 0.0];
-        let dull = sc.shade_shiny(up, [0.0; 3], grey, 0.0, [0.0, 10.0, -10.0]);
+        let dull = sc.shade_shiny(up, [0.0; 3], grey, 0.0, [0.0, 10.0, -10.0], 0.0);
         // the camera opposite the light: the face mirrors the light into it
-        let lit = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, -10.0]);
+        let lit = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, -10.0], 0.0);
         // the camera beside the light: no glint
-        let off = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, 10.0]);
+        let off = sc.shade_shiny(up, [0.0; 3], grey, 1.0, [0.0, 10.0, 10.0], 0.0);
         assert!(lit[0] > dull[0] + 0.5, "{:?} {:?}", lit, dull);
         assert!((off[0] - dull[0]).abs() < 0.02, "{:?} {:?}", off, dull);
         assert_eq!(sc.shade(up, [0.0; 3], grey), dull);
@@ -1791,6 +1925,39 @@ mod mesh_tests {
         assert!(flat[0] == flat[1] && flat[1] == flat[2], "{:?}", flat);
         let smooth = corners(true);
         assert!(smooth[0] != smooth[1], "{:?}", smooth);
+    }
+
+    #[test]
+    fn a_smooth_mesh_goes_to_the_per_pixel_light_on_an_all_gl_host() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "amb", "type": "ambient", "intensity": 0.2 }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "sun", "type": "directional", "x": 1, "y": 0, "z": 1, "intensity": 0.9 }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "ridge", "shape": "mesh", "color": "#ff8000", "smooth": true, "shiny": 0.5,
+            "verts": [-1,0,0, 0,-1,1, 0,1,1, 1,0,0], "tris": [0,1,2, 2,1,3] }"##));
+        sc.gl = true;
+        sc.unified = true;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        // two triangles, 18 floats a corner, none in the plain triangles
+        assert_eq!(sc.ptris.len(), 2 * 3 * 18);
+        assert!(sc.tris.is_empty());
+        let c = &sc.ptris[..18];
+        // the face's own colour, the ambient as the rest, a unit normal and eye, shiny
+        assert!((c[3] - 1.0).abs() < 1e-3 && (c[4] - 0.502).abs() < 0.01 && c[5].abs() < 1e-3, "{:?}", c);
+        let amb = sc.rest_light([0.0, 0.0, 1.0], [0.0; 3]);
+        assert!((c[6] as f64 - amb[0]).abs() < 1e-3 && c[6] == c[7] && c[7] == c[8], "{:?} {:?}", c, amb);
+        assert!(((c[9] * c[9] + c[10] * c[10] + c[11] * c[11]) - 1.0).abs() < 1e-3);
+        assert!((c[15] - 0.5).abs() < 1e-6);
+        // one directional light (way, intensity, colour, glint) and the fog colour
+        assert_eq!(sc.plights.len(), 12);
+        assert!((sc.plights[3] - 0.9).abs() < 1e-6 && (sc.plights[7] - 0.9).abs() < 1e-6);
+        // the layer is there although the plain triangles are empty (w 1)
+        assert!(out.nums.chunks(23).any(|h| h[0] == 9.0 && h[3] == 1.0));
+        // a host that is not all GL keeps the corners' light
+        sc.unified = false;
+        sc.render(&mut DrawStream::new(), 400.0, 400.0);
+        assert!(sc.ptris.is_empty() && sc.tris.len() == 36);
     }
 
     #[test]

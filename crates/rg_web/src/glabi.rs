@@ -69,7 +69,7 @@ pub extern "C" fn rg_gl_frame(width: i32, height: i32, dpr: f64, r: f32, g: f32,
         GL.with(|gl| {
             let mut gl = gl.borrow_mut();
             let v = rg_gl::View { scale: e.scale as f32, x: e.off_x as f32, y: e.off_y as f32, w: e.ui.width as f32, h: e.ui.height as f32, density: dpr as f32, width, height };
-            gl.render(&mut WebGlHost, &e.draw.nums, &e.draw.strings, &e.scene.tris, &v, [r, g, b, 1.0]);
+            gl.render(&mut WebGlHost, &e.draw.nums, &e.draw.strings, &e.scene.tris, &e.scene.ptris, &e.scene.plights, &v, [r, g, b, 1.0]);
             gl.ok() as i32
         })
     })
