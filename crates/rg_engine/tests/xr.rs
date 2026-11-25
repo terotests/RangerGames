@@ -225,6 +225,13 @@ fn an_app_of_one_game_opens_it_in_vr_on_a_headset() {
     e.frame(16.0).unwrap();
     let k = e.eval("JSON.stringify(__input.keys)").unwrap_or_default();
     assert!(!k.contains("ArrowLeft") || k.contains("\"ArrowLeft\":false"), "{}", k);
+    // the trigger pointed away from the panel is Space too (behind the head)
+    e.xr_input(&hands(1.0, "[0,1,0,0]", "[0.0,1.6,0.0]"));
+    e.frame(16.0).unwrap();
+    let k = e.eval("JSON.stringify(__input.keys)").unwrap_or_default();
+    assert!(k.contains("\" \":true"), "{}", k);
+    e.xr_input(&hands(0.0, "[0,1,0,0]", "[0.0,1.6,0.0]"));
+    e.frame(16.0).unwrap();
     // the ✕ is there (it closes the app)
     assert!(e.ui.id_at(190.0, 20.0).contains("close"), "{}", e.ui.id_at(190.0, 20.0));
     // the controller's B is Back, which closes the app (no launcher behind it)
