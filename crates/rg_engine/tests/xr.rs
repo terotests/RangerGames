@@ -267,3 +267,52 @@ fn an_app_of_one_game_opens_it_in_vr_on_a_headset() {
     f.frame(16.0).unwrap();
     assert!(!log(&mut f).contains("start"), "{}", log(&mut f));
 }
+
+#[test]
+fn a_label_faces_the_viewer_in_the_flat_view_and_in_each_eye() {
+    let game = r##"
+        rg.three("camera", { x: 0, y: 0, z: 10, lookAt: [0, 0, 0], fov: 60 });
+        rg.three("add", { id: "m", shape: "label", text: "Mars", x: 1, y: 0, z: 0, size: 16, color: "#ffcc66" });
+        rg.three("add", { id: "b", shape: "label", text: "Takana", x: 0, y: 0, z: 20 });
+        function view() { return <div class="s"></div>; }
+    "##;
+    let mut e = Engine::new();
+    e.vfs.add_text("/games/l/game.json", r#"{ "name": "L", "width": 200, "height": 200 }"#);
+    e.vfs.add_text("/games/l/game.tsx", game);
+    e.vfs.add_text("/games/l/style.css", ".s { width: 200px; height: 200px; }");
+    e.resize(200.0, 200.0);
+    e.gl3d = true;
+    e.gl_all = true;
+    e.start("l").unwrap();
+    e.frame(16.0).unwrap();
+    let texts = |s: &rg_engine::draw::DrawStream| -> Vec<(String, f32)> {
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i + rg_engine::draw::HEADER <= s.nums.len() {
+            if s.nums[i] as i32 == 3 {
+                out.push((s.strings[s.nums[i + 18] as usize].clone(), s.nums[i + 1]));
+            }
+            i += rg_engine::draw::HEADER + s.nums[i + 22] as usize;
+        }
+        out
+    };
+    // flat: Mars right of the middle, the one behind the camera not drawn
+    let t = texts(&e.draw);
+    assert!(t.iter().any(|(s, x)| s == "Mars" && *x > 90.0), "{:?}", t);
+    assert!(!t.iter().any(|(s, _)| s == "Takana"), "{:?}", t);
+    // a headset: each eye draws it, a little apart (stereo)
+    e.xr_input(r#"{"event":"caps","vr":true,"always":true}"#);
+    e.eval("rg.xr.enter('vr', { panel: false, rig: 'full' })").unwrap();
+    let views = r#"{"views":[{"p":[-0.03,0,0],"q":[0,0,0,1],"t":[1,1,1,1]},{"p":[0.03,0,0],"q":[0,0,0,1],"t":[1,1,1,1]}],"head":{"p":[0,0,0],"q":[0,0,0,1]},"hands":[]}"#;
+    for _ in 0..2 {
+        e.xr_input(views);
+        e.frame(16.0).unwrap();
+    }
+    assert!(e.xr_eye(0));
+    let l = texts(&e.xr_draw);
+    assert!(e.xr_eye(1));
+    let r = texts(&e.xr_draw);
+    let lx = l.iter().find(|(s, _)| s == "Mars").expect("left eye").1;
+    let rx = r.iter().find(|(s, _)| s == "Mars").expect("right eye").1;
+    assert!(lx > rx, "the left eye sees it further right: {} {}", lx, rx);
+}

@@ -419,6 +419,19 @@ impl DrawStream {
         self.count += 1;
     }
 
+    /// A text of the engine's own (a 3D label): kind 3 in the box x, y, w, h,
+    /// `size` its font size, colour 0..1 channels.
+    pub fn text(&mut self, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], alpha: f64, size: f64, text: &str, weight: &str) {
+        let s0 = self.string(text);
+        let s2 = self.string(weight);
+        self.nums.extend_from_slice(&[
+            3.0, x as f32, y as f32, w as f32, h as f32,
+            (rgb[0] * 255.0) as f32, (rgb[1] * 255.0) as f32, (rgb[2] * 255.0) as f32, alpha as f32,
+            0.0, 0.0, 0.0, 0.0, size as f32, 0.0, 0.0, 0.0, 0.0, s0, -1.0, s2, 0.0, 0.0,
+        ]);
+        self.count += 1;
+    }
+
     fn emit(&mut self, kind: u32, x: f64, y: f64, w: f64, h: f64, rgb: [f64; 3], far: Option<[f64; 3]>, pts: &[f32], ends: &[f32]) {
         let mut flags = 0u32;
         let mut extra: Vec<f32> = Vec::new();
