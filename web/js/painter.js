@@ -133,6 +133,8 @@
     "  float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);" +
     "  float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);" +
     "  return mix(mix(a, b, t.y), mix(e, g, t.y), t.z); }" +
+    // three octaves of value noise, 0..1 (the hot cap's swirling heat)
+    "float hfb(vec3 x) { return (vnoise(x) * 0.5 + vnoise(x * 2.03) * 0.25 + vnoise(x * 4.11) * 0.125) / 0.875; }" +
     // craters: at most one in each lattice cell, inside it (so only the point's own cell is read)
     "float crater(vec3 p, float f, int o) { vec3 x = p * f + vec3(0.37, 0.61, 0.19) * float(o & 1); vec3 fc = floor(x); ivec3 c = ivec3(fc);" +
     "  uint h = hsh(ivec3(c.x + 1000 * (o + 1), c.y, c.z)); if ((h & 255u) >= 170u) return 0.0;" +
@@ -389,15 +391,24 @@
     "    c *= (1.0 - smoothstep(ah - w, ah, a) * (1.0 - smoothstep(ah, ah + w, a))) * (1.0 - 0.5 * smoothstep(0.5 * dh, 1.5 * dh, th)); }" +
     // the rings' shadow on the ball
     "  if (useR > 0.5 && lit > 0.5 && abs(sun.z) > 1e-4) { float ts = -p.z / sun.z; if (ts > 0.0) c *= 1.0 - 0.9 * ringA(length((p + sun * ts).xy), 0.5); }" +
-    // the hot cap: molten rock glowing by its own heat (the same by day and by night): mostly bright
-    // orange to yellow (the map's light parts the hottest), dark red only at its cooling edge, white-hot
-    // round its middle, a brighter front where it is still spreading
-    "  if (hotk.y > 0.0 && useWin < 0.5) { float ha = acos(clamp(dot(p, hot.xyz), -1.0, 1.0)); float hw = 1.0 - smoothstep(hot.w - hotk.x, hot.w, ha);" +
-    "    if (hw > 0.0) { float hl = lum(vec2(u, v));" +
-    "      vec3 g = mix(vec3(0.78, 0.2, 0.04), vec3(1.0, 0.6, 0.16), smoothstep(0.0, 0.55, hw));" +
-    "      g = mix(g, vec3(1.0, 0.86, 0.48), clamp(hl * 1.4, 0.0, 1.0) * smoothstep(0.3, 1.0, hw)) + vec3(1.0, 0.86, 0.55) * 0.8 * exp(-ha / (0.18 * hot.w + 0.03));" +
-    "      g += vec3(1.0, 0.68, 0.24) * 0.6 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));" +
-    "      c = mix(c, g * hotk.y, hw); } }" +
+    // the hot cap: molten rock glowing by its own heat (the same by day and by night). v60 (Tero: the seam
+    // between the Earth and Theia should melt together, red and yellow mixed like a hot gas, yellow rising
+    // from the ground like veins or a volcano): the heat is turbulent noise (domain-warped, so it swirls)
+    // added to the distance from the middle, mapped through dark red, orange, yellow and white-hot, and the
+    // cap's edge breaks up with it; past the edge, glowing cracks run out into the cold ground
+    "  if (hotk.y > 0.0 && useWin < 0.5) { float ha = acos(clamp(dot(p, hot.xyz), -1.0, 1.0));" +
+    "    float hw = 1.0 - smoothstep(hot.w - hotk.x, hot.w, ha), hx = 1.0 - smoothstep(hot.w - hotk.x, hot.w + 0.8 * hotk.x + 0.05, ha);" +
+    "    if (hx > 0.0) { float hl = lum(vec2(u, v)); vec3 q = p * 5.0;" +
+    "      vec2 wq = vec2(hfb(q + vec3(1.7, 9.2, 3.1)), hfb(q + vec3(8.3, 2.8, 5.4))) - 0.5;" +
+    "      float n = hfb(q * 1.7 + vec3(wq * 2.4, wq.x - wq.y));" +
+    "      float rv = 1.0 - abs(2.0 * vnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0), vein = rv * rv * rv * rv; vein *= vein;" +
+    "      float h = clamp(hw * 0.82 + (n - 0.5) * 1.15 + 0.25 * hl * hw + vein * 0.8 * hx * (1.0 - 0.5 * hw), 0.0, 1.5);" +
+    "      vec3 g = mix(vec3(0.42, 0.05, 0.02), vec3(0.86, 0.22, 0.04), smoothstep(0.0, 0.35, h));" +
+    "      g = mix(g, vec3(1.0, 0.55, 0.12), smoothstep(0.28, 0.62, h)); g = mix(g, vec3(1.0, 0.84, 0.4), smoothstep(0.58, 0.95, h));" +
+    "      g = mix(g, vec3(1.0, 0.96, 0.82), smoothstep(0.95, 1.35, h)) + vec3(1.0, 0.86, 0.55) * 0.7 * exp(-ha / (0.18 * hot.w + 0.03));" +
+    "      g += vec3(1.0, 0.68, 0.24) * 0.5 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));" +
+    "      float ca = clamp(hw * (0.7 + 0.6 * n) + vein * hx * (1.0 - hw) * 1.2, 0.0, 1.0);" +
+    "      c = mix(c, g * hotk.y, ca); } }" +
     // city lights on the night side (the map read at the point itself, also under a detail window)
     "  if (useL > 0.5 && lit > 0.5) {" +
     "    vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));" +
