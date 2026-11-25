@@ -100,7 +100,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         // on a headset the app runs in VR (XrActivity), unless started flat
         // (adb shell am start -n fi.rangergames/.MainActivity --ez flat true)
         if (!xrMode() && headset(this) && !getIntent().getBooleanExtra("flat", false)) {
-            startActivity(new Intent(this, XrActivity.class));
+            // (the extras go along: --es game <id> starts that game, also a hidden one such as vrtesti)
+            startActivity(new Intent(this, XrActivity.class).putExtras(getIntent()));
             finish();
             return;
         }
@@ -393,7 +394,9 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             Engine.detail(painter.startGl());
         }
         Engine.splats(painter.canSplats());
-        Engine.start("");
+        // adb shell am start -n fi.rangergames/.MainActivity --es game vrtesti: that game at once
+        String first = getIntent().getStringExtra("game");
+        if (first == null || first.isEmpty() || Engine.start(first) != 0) Engine.start("");
         afterCall();
     }
 
