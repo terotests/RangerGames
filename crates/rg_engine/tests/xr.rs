@@ -215,8 +215,21 @@ fn an_app_of_one_game_opens_it_in_vr_on_a_headset() {
     e.frame(16.0).unwrap();
     assert!(log(&mut e).contains("start:vr"), "{}", log(&mut e));
     assert!(e.xr_panel.is_none(), "the world around, no panel");
-    // Back closes the app (no launcher behind it)
-    e.key(true, "Back");
+    // the stick is the arrow keys, the grip Space
+    let st = hands(0.0, "[0,0,0,1]", "[0.0,1.6,0.0]").replace("[0,0,0,0,0,0]", "[0,1,0,0,0,0]").replace("\"stick\":[0,0]", "\"stick\":[-0.9,0.8]");
+    e.xr_input(&st);
+    e.frame(16.0).unwrap();
+    let k = e.eval("JSON.stringify(__input.keys)").unwrap_or_default();
+    assert!(k.contains("ArrowLeft") && k.contains("ArrowUp") && k.contains("\" \""), "{}", k);
+    e.xr_input(&hands(0.0, "[0,0,0,1]", "[0.0,1.6,0.0]"));
+    e.frame(16.0).unwrap();
+    let k = e.eval("JSON.stringify(__input.keys)").unwrap_or_default();
+    assert!(!k.contains("ArrowLeft") || k.contains("\"ArrowLeft\":false"), "{}", k);
+    // the ✕ is there (it closes the app)
+    assert!(e.ui.id_at(190.0, 20.0).contains("close"), "{}", e.ui.id_at(190.0, 20.0));
+    // the controller's B is Back, which closes the app (no launcher behind it)
+    let b = hands(0.0, "[0,0,0,1]", "[0.0,1.6,0.0]").replace("[0,0,0,0,0,0]", "[0,0,0,0,1,0]");
+    e.xr_input(&b);
     e.frame(16.0).unwrap();
     assert!(e.take_host_commands().iter().any(|c| c.kind == "quit"));
 
