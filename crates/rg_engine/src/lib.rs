@@ -1014,13 +1014,15 @@ impl Engine {
     }
 
     /// The controllers as keys, for games made for phones and keyboards: a
-    /// stick is the arrow keys, A / X and the grip are Space (the trigger
-    /// taps the panel, B / Y is Back).
+    /// stick is the arrow keys, A / X, the grip and the trigger pointed away
+    /// from the panel are Space (on the panel the trigger taps; B / Y is Back).
     fn xr_keys(&mut self) {
         let mut want: Vec<&'static str> = Vec::new();
         if self.xr.headset() {
-            for h in self.xr.hands.iter() {
+            for (i, h) in self.xr.hands.iter().enumerate() {
                 let held = |k: &str| self.xr_keys.contains(&k);
+                // the trigger pointed away from the panel is Space too (thrust)
+                let off_panel = self.xr.hits.get(i).map(|x| x.is_none()).unwrap_or(true);
                 let on = |v: f64, k: &str| v > 0.5 || (held(k) && v > 0.35);
                 let [x, y] = h.stick;
                 for (v, k) in [(-x, "ArrowLeft"), (x, "ArrowRight"), (y, "ArrowUp"), (-y, "ArrowDown")] {
@@ -1028,7 +1030,7 @@ impl Engine {
                         want.push(k);
                     }
                 }
-                if (on(h.buttons[3], " ") || on(h.buttons[1], " ")) && !want.contains(&" ") {
+                if (on(h.buttons[3], " ") || on(h.buttons[1], " ") || (off_panel && on(h.buttons[0], " "))) && !want.contains(&" ") {
                     want.push(" ");
                 }
             }

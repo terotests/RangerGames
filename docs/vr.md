@@ -161,6 +161,7 @@ it starts flat. A single game in RangerGames starts with
 `adb shell am start -n fi.rangergames/.MainActivity --es game vrtesti`.
 
 On a headset the controllers also work in games made for phones: a stick is
-the arrow keys, A / X and the grip are Space, B / Y is Back (onBack, else
+the arrow keys, A / X, the grip and the trigger pointed away from the panel are
+Space, B / Y is Back (onBack, else
 rg.exit), and the trigger taps the panel. A one-game app shows a ✕ that
 closes it.
