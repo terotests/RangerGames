@@ -567,6 +567,11 @@ impl Xr {
         }).collect();
         if !self.views.is_empty() && !self.running && self.always {
             self.running = true;
+            // entered before the headset's first frame: the world around from now
+            if self.mode == Mode::Vr {
+                self.recentre = true;
+                self.events.push(json::obj(vec![member("type", Json::Str("start".into())), member("mode", Json::Str("vr".into()))]));
+            }
         }
     }
 

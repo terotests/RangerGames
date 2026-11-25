@@ -682,10 +682,7 @@ impl Engine {
         };
         self.game = Some(info.clone());
         self.fit();
-        // game.json "xr": on a headset the game opens in VR at once
-        if self.xr.always && matches!(info.xr, Json::Obj(_)) {
-            self.xr_command("enter", &info.xr);
-        }
+        self.xr_auto();
         self.time = 0.0;
         self.waiting_pack = None;
         // the game's files are a pack of their own that is not here yet: the
@@ -850,7 +847,24 @@ impl Engine {
     /// controllers in its tracking space, or an event. See xr.rs `Xr::input`.
     pub fn xr_input(&mut self, data: &str) {
         let aspect = if self.ui.width > 0.0 { self.ui.height / self.ui.width } else { 1.0 };
+        let was = self.xr.always;
         self.xr.input(&json::parse(data), aspect);
+        // the headset told of itself after the game started (the Quest app
+        // starts OpenXR after booting the game)
+        if self.xr.always && !was {
+            self.xr_auto();
+        }
+    }
+
+    /// game.json "xr": on a headset the game goes into VR without asking
+    fn xr_auto(&mut self) {
+        let opts = match self.game.as_ref().map(|g| g.xr.clone()) {
+            Some(o @ Json::Obj(_)) => o,
+            _ => return,
+        };
+        if self.xr.always && self.xr.mode == xr::Mode::Off {
+            self.xr_command("enter", &opts);
+        }
     }
 
     /// The headset's eyes: how many the host gave this frame.

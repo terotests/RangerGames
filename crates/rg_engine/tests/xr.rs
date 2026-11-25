@@ -220,6 +220,21 @@ fn an_app_of_one_game_opens_it_in_vr_on_a_headset() {
     e.frame(16.0).unwrap();
     assert!(e.take_host_commands().iter().any(|c| c.kind == "quit"));
 
+    // the Quest app: OpenXR starts after the game has (caps comes late)
+    let mut q = Engine::new();
+    q.vfs.add_text("/games/_app.json", r#"{"start":"t"}"#);
+    q.vfs.add_text("/games/t/game.json", r#"{ "name": "T", "width": 200, "height": 200, "xr": { "mode": "vr" } }"#);
+    q.vfs.add_text("/games/t/game.tsx", GAME);
+    q.vfs.add_text("/games/t/style.css", "");
+    q.resize(200.0, 200.0);
+    q.start("").unwrap();
+    q.frame(16.0).unwrap();
+    q.xr_input(r#"{"event":"caps","vr":true,"always":true}"#);
+    q.xr_input(&hands(0.0, "[0,0,0,1]", "[0.0,1.6,0.0]"));
+    q.frame(16.0).unwrap();
+    q.frame(16.0).unwrap();
+    assert!(log(&mut q).contains("start:vr"), "{}", log(&mut q));
+
     // a flat phone: the same game starts flat
     let mut f = Engine::new();
     f.vfs.add_text("/games/_app.json", r#"{"start":"t"}"#);
