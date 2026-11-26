@@ -418,7 +418,11 @@ mod quest {
                             strings: &e.xr_draw.strings,
                             view: rg_gl::View { scale: v[0], x: v[1], y: v[2], w: v[3], h: v[4], density: 1.0, width: w, height: h },
                         });
-                        GL.with(|gl| gl.borrow_mut().render_eye(fbo, [0, 0, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [0.0, 0.0, 0.0, 1.0], stream));
+                        GL.with(|gl| {
+                            let mut gl = gl.borrow_mut();
+                            gl.meshes.set(&e.scene.mtris, &e.scene.mbatches, &e.scene.menv);
+                            gl.render_eye(fbo, [0, 0, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [0.0, 0.0, 0.0, 1.0], stream)
+                        });
                     });
                     // the samples are averaged into the image as the framebuffer is left
                     rg_gl::gl::bind_framebuffer(fbo);

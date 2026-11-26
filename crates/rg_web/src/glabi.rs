@@ -69,6 +69,7 @@ pub extern "C" fn rg_gl_frame(width: i32, height: i32, dpr: f64, r: f32, g: f32,
         GL.with(|gl| {
             let mut gl = gl.borrow_mut();
             let v = rg_gl::View { scale: e.scale as f32, x: e.off_x as f32, y: e.off_y as f32, w: e.ui.width as f32, h: e.ui.height as f32, density: dpr as f32, width, height };
+            gl.meshes.set(&e.scene.mtris, &e.scene.mbatches, &e.scene.menv);
             gl.render(&mut WebGlHost, &e.draw.nums, &e.draw.strings, &e.scene.tris, &e.scene.ptris, &e.scene.plights, &v, [r, g, b, 1.0]);
             gl.ok() as i32
         })
@@ -168,6 +169,7 @@ pub extern "C" fn rg_xr_eye(i: i32, fbo: u32, x: i32, y: i32, w: i32, h: i32, r:
         });
         GL.with(|gl| {
             let mut gl = gl.borrow_mut();
+            gl.meshes.set(&e.scene.mtris, &e.scene.mbatches, &e.scene.menv);
             gl.render_eye(fbo, [x, y, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [r, g, b, 1.0], stream);
             gl.ok() as i32
         })

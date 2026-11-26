@@ -67,6 +67,8 @@
 //!                                                        // ground and sky (polished metal)
 //!                      opacity,                          // 0..1 (1): below 1 a see-through light, a flame
 //!                      wy,                               // a turn round world y after rx, ry, rz
+//!                      material: { shader, u },          // a game's mesh() hook per pixel (rg.shader kind
+//!                                                        // "mesh", shaders/README.md; `mtris`)
 //!                      group })                          // objects of one group (a house) are sorted
 //!                                                        // as one thing by the group's middle, and by
 //!                                                        // layer only among themselves
@@ -127,6 +129,11 @@ fn norm(a: V3) -> V3 {
     let l = dot(a, a).sqrt();
     if l < 1e-12 { [0.0, 0.0, 0.0] } else { mul(a, 1.0 / l) }
 }
+
+/// Floats a corner of `Scene::mtris`.
+pub const MSTRIDE: usize = 22;
+/// Floats of `Scene::menv`.
+pub const MENV: usize = 24;
 
 /// A material's `u` ({ heat: 0.8, tint: [1, 0.5, 0.2] }) as the draw stream
 /// carries it: "heat=0.8;tint=1,0.5,0.2" (names of letters, digits and _,
@@ -509,6 +516,23 @@ struct Obj {
     burst: Option<Box<crate::burst::Burst>>,
     /// a "splats" object: its baked run and how it lies in the world
     splats: Option<Box<SplatRun>>,
+    /// material.shader: a game's mesh() hook (rg.shader kind "mesh"), "" for the engine's look
+    shader: String,
+    /// material.u as "name=1;tint=1,0.5,0.2" (u_ + name in the GLSL)
+    uniforms: String,
+}
+
+/// An object's `material: { shader, u }` into its shader name and uniforms.
+fn read_material(a: &Json, shader: &mut String, uniforms: &mut String) {
+    let m = a.get("material");
+    if let Json::Obj(_) = m {
+        if let Json::Str(sh) = m.get("shader") {
+            *shader = sh.clone();
+        }
+        if let Json::Obj(u) = m.get("u") {
+            *uniforms = uniforms_text(&u);
+        }
+    }
 }
 
 /// A "splats" object's run (splats.rs): the file's x, y, z axes in the world,
@@ -935,6 +959,25 @@ pub struct Scene {
     /// (world, unit), shiny, fog 0…1, 0. The host adds the directional lights
     /// of `plights` a pixel (Blinn-Phong, power 24, as `shade_shiny`).
     pub ptris: Vec<f32>,
+    /// the host draws meshes through a game's mesh() hook (rg.shader kind
+    /// "mesh"; set by the engine every frame)
+    pub mesh_ok: bool,
+    /// Meshes with a game's mesh() hook (`material: { shader }`, when
+    /// `mesh_ok`): 22 floats a corner, x, y, depth (as `tris`), the view
+    /// depth z, the place in the world x, y, z, the normal x, y, z (unit,
+    /// towards the eye's side), the engine's colour (lit, fogged) r, g, b, the
+    /// object's own colour r, g, b, the light that is not the sun r, g, b and
+    /// the sun's light without caustics r, g, b (shaders/mesh/mesh.vs).
+    /// Solid: drawn with the scene's depth, before `tris`.
+    pub mtris: Vec<f32>,
+    /// the hooks of `mtris`: rg_shader key, uniforms ("a=1;b=2,3"), first
+    /// corner and corners
+    pub mbatches: Vec<(String, String, usize, usize)>,
+    /// what every hook gets (MENV floats): the eye x, y, z, the water's time,
+    /// water 0/1, its surface, colour r, g, b, absorb r, g, b, scatter, the
+    /// sun's way x, y, z, its colour r, g, b, the sky r, g, b, caustics,
+    /// caustic scale
+    pub menv: Vec<f32>,
     /// the directional lights for `ptris` (at most 4), 8 floats each: the way
     /// to the light x, y, z (unit), intensity, colour r, g, b, the glint's
     /// strength (intensity, at most 1.5); then the fog's colour r, g, b and 0
@@ -1079,6 +1122,10 @@ impl Scene {
             drawn: 0,
             gl: false,
             unified: false,
+            mesh_ok: false,
+            mtris: Vec::new(),
+            mbatches: Vec::new(),
+            menv: Vec::new(),
             ptris: Vec::new(),
             plights: Vec::new(),
             textures: false,
@@ -1239,7 +1286,13 @@ impl Scene {
                     } else {
                         None
                     },
+                    shader: String::new(),
+                    uniforms: String::new(),
                 };
+                let mut o = o;
+                if o.burst.is_none() && o.splats.is_none() {
+                    read_material(a, &mut o.shader, &mut o.uniforms);
+                }
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
             }
@@ -1270,6 +1323,8 @@ impl Scene {
                     }
                     if let Some(sp) = o.splats.as_mut() {
                         sp.set(a);
+                    } else if o.burst.is_none() {
+                        read_material(a, &mut o.shader, &mut o.uniforms);
                     }
                     if let Some(l) = o.label.as_mut() {
                         l.set(a);
@@ -1390,19 +1445,34 @@ impl Scene {
     /// its colour where the face's normal is near the half-way direction
     /// between the light and the camera (Blinn-Phong, one value per face)
     fn shade_shiny(&self, n: V3, centre: V3, base: V3, shiny: f64, cam: V3, env: f64) -> V3 {
+        let (rest, sun, glint) = self.light_parts(n, centre, shiny, cam, env);
+        let net = match &self.water {
+            Some(w) => w.caustic(centre[0], centre[1], centre[2]),
+            None => 1.0,
+        };
+        let light = add(rest, mul(sun, net));
+        [base[0] * light[0] + glint[0], base[1] * light[1] + glint[1], base[2] * light[2] + glint[2]]
+    }
+
+    /// The light on a point split for `shade_shiny` and the mesh() hooks:
+    /// what is not the sun (ambient, lamps, env), the directional lights'
+    /// (n . l, without the caustics), and the glints; under water each has
+    /// lost colour on its way
+    fn light_parts(&self, n: V3, centre: V3, shiny: f64, cam: V3, env: f64) -> (V3, V3, V3) {
         let mut light = [0.0, 0.0, 0.0];
+        let mut sunl = [0.0, 0.0, 0.0];
         let mut glint = [0.0, 0.0, 0.0];
         let eye = norm(sub(cam, centre));
         // under water the light from above has lost colour on its way down
-        let (down, net) = match &self.water {
-            Some(w) => (w.down(centre[1]), w.caustic(centre[0], centre[1], centre[2])),
-            None => ([1.0; 3], 1.0),
+        let down = match &self.water {
+            Some(w) => w.down(centre[1]),
+            None => [1.0; 3],
         };
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
                 "env" => 0.0,
-                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity * net,
+                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity,
                 _ => {
                     let d = sub(l.pos, centre);
                     let dist = dot(d, d).sqrt();
@@ -1425,7 +1495,11 @@ impl Scene {
                 let dist = dot(d, d).sqrt();
                 [l.color[0] * (-w.absorb[0] * dist).exp(), l.color[1] * (-w.absorb[1] * dist).exp(), l.color[2] * (-w.absorb[2] * dist).exp()]
             } else if l.kind == "ambient" || l.kind == "directional" { [l.color[0] * down[0], l.color[1] * down[1], l.color[2] * down[2]] } else { l.color };
-            light = add(light, mul(lc, k));
+            if l.kind == "directional" {
+                sunl = add(sunl, mul(lc, k));
+            } else {
+                light = add(light, mul(lc, k));
+            }
             if shiny > 0.0 && l.kind != "ambient" && l.kind != "env" && k > 0.0 {
                 let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
                 let h = norm(add(to, eye));
@@ -1436,7 +1510,7 @@ impl Scene {
         if env > 0.0 {
             light = add(light, mul(self.env_light(n, eye), env));
         }
-        [base[0] * light[0] + glint[0], base[1] * light[1] + glint[1], base[2] * light[2] + glint[2]]
+        (light, sunl, glint)
     }
 
     /// The part of `shade` that the host's per-pixel light leaves out: the
@@ -1502,6 +1576,8 @@ impl Scene {
         self.tris.clear();
         self.ptris.clear();
         self.plights.clear();
+        self.mtris.clear();
+        self.mbatches.clear();
         if !self.active {
             return;
         }
@@ -1527,6 +1603,8 @@ impl Scene {
     /// a symmetric view (`Eye::symmetric`): its units are `eye.size()`.
     pub fn render_eye_stream(&mut self, eye: crate::xr::Eye, out: &mut DrawStream) {
         self.tris.clear();
+        self.mtris.clear();
+        self.mbatches.clear();
         if !self.active {
             return;
         }
@@ -2011,6 +2089,8 @@ impl Scene {
     /// instead (`needs_stream`, `render_eye_stream`).
     pub fn render_eye(&mut self, eye: crate::xr::Eye) {
         self.tris.clear();
+        self.mtris.clear();
+        self.mbatches.clear();
         if !self.active || self.globe.is_some() || !self.planets.is_empty() || !self.stars.is_empty() {
             return;
         }
@@ -2028,6 +2108,8 @@ impl Scene {
     fn render_gl(&mut self, w: f64, h: f64, with_sky: bool) {
         let mut tris: Vec<f32> = Vec::new();
         let mut ptris: Vec<f32> = Vec::new();
+        let mut mtris: Vec<f32> = Vec::new();
+        let mut mbatches: Vec<(String, String, usize, usize)> = Vec::new();
         // (a VR eye takes only triangles: its smooth meshes are lit at the corners)
         let phong = self.unified && self.eye.is_none() && self.water.is_none();
         let mut plights: Vec<f32> = Vec::new();
@@ -2238,6 +2320,8 @@ impl Scene {
             // a smooth corner's light is the same for every face round it (shiny
             // glints aside, which use the corner too): worked out once
             let mut vlit: Vec<Option<V3>> = vec![None; vn.len()];
+            // a game's mesh() hook (rg.shader kind "mesh")
+            let mkey = if self.mesh_ok && !o.shader.is_empty() { self.shader_key(&o.shader) } else { "" };
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -2272,6 +2356,39 @@ impl Scene {
                     continue;
                 }
                 let (fc, unlit) = o.mesh.face_paint(fi, o.color, o.emissive);
+                if !mkey.is_empty() && o.opacity >= 1.0 && pts.len() == face.len() && view.iter().all(|p| p[2] >= near) {
+                    // per pixel by the hook (see `mtris`); a face cut by the near plane is drawn below
+                    let flip = if dot(norm(cross(sub(b, a), sub(c, a))), towards) > 0.0 { -1.0 } else { 1.0 };
+                    let corner: Vec<[f32; 18]> = face.iter().map(|&i| {
+                        let p = world[i];
+                        let (nn, base) = if vn.is_empty() { (n, fc) } else { (mul(vn[i], flip), vc[i]) };
+                        let col = match (&self.water, o.wsurf && !vn.is_empty()) {
+                            (Some(wt), true) => self.fogged_at(wt.surface_color(vn[i], p, cam), p),
+                            _ => self.fogged_at(if unlit { base } else { self.shade_shiny(nn, p, base, o.shiny, cam, o.env) }, p),
+                        };
+                        let (rest, sun) = if unlit { ([1.0; 3], [0.0; 3]) } else { let (r, s, _) = self.light_parts(nn, p, 0.0, cam, o.env); (r, s) };
+                        let mut v = [0f32; 18];
+                        for (k, x) in [p, nn, col, base, rest, sun].iter().flatten().enumerate() {
+                            v[k] = *x as f32;
+                        }
+                        v
+                    }).collect();
+                    let start = mtris.len() / MSTRIDE;
+                    for k in 1..pts.len() - 1 {
+                        for &j in [0, k, k + 1].iter() {
+                            let q = pts[j];
+                            mtris.extend_from_slice(&[q[0] as f32, q[1] as f32, d(q[2]) as f32, q[2] as f32]);
+                            mtris.extend_from_slice(&corner[j]);
+                        }
+                    }
+                    let cnt = (pts.len() - 2) * 3;
+                    match mbatches.last_mut() {
+                        Some(bt) if bt.0 == mkey && bt.1 == o.uniforms && bt.2 + bt.3 == start => bt.3 += cnt,
+                        _ => mbatches.push((mkey.to_string(), o.uniforms.clone(), start, cnt)),
+                    }
+                    drawn += 1;
+                    continue;
+                }
                 let dist = dot(towards, towards).sqrt();
                 if !vn.is_empty() && !unlit && o.opacity >= 1.0 && pts.len() == face.len() && view.iter().all(|p| p[2] >= near) {
                     // a colour a corner; the back of a double mesh turns its normals round
@@ -2354,6 +2471,26 @@ impl Scene {
         self.tris = tris;
         self.ptris = ptris;
         self.plights = plights;
+        self.menv = if mtris.is_empty() { Vec::new() } else { self.mesh_env(cam) };
+        self.mtris = mtris;
+        self.mbatches = mbatches;
+    }
+
+    /// What every mesh() hook gets (see `menv`).
+    fn mesh_env(&self, eye: V3) -> Vec<f32> {
+        let w = self.water.unwrap_or(Water::from(&Json::Null, None));
+        let on = if self.water.is_some() { 1.0 } else { 0.0 };
+        let mut v: Vec<f64> = Vec::with_capacity(MENV);
+        v.extend_from_slice(&eye);
+        v.extend_from_slice(&[if self.water.is_some() { w.time } else { 0.0 }, on, w.surface]);
+        v.extend_from_slice(&w.color);
+        v.extend_from_slice(&w.absorb);
+        v.push(w.scatter);
+        v.extend_from_slice(&w.sun);
+        v.extend_from_slice(&w.sun_color);
+        v.extend_from_slice(&w.sky);
+        v.extend_from_slice(&[w.caustics, w.scale]);
+        v.iter().map(|x| *x as f32).collect()
     }
 }
 
@@ -2465,6 +2602,46 @@ mod mesh_tests {
         assert!(flat[0] == flat[1] && flat[1] == flat[2], "{:?}", flat);
         let smooth = corners(true);
         assert!(smooth[0] != smooth[1], "{:?}", smooth);
+    }
+
+    #[test]
+    fn a_mesh_hook_gets_world_corners_and_its_uniforms() {
+        let mut sc = Scene::new();
+        sc.command("scene", &rg_core::json::parse(r##"{ "water": { "surface": 2, "color": "#0d4050", "time": 1.5 } }"##));
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "amb", "type": "ambient", "intensity": 0.2 }"#));
+        sc.command("light", &rg_core::json::parse(r#"{ "id": "sun", "type": "directional", "x": 0, "y": 1, "z": 1, "intensity": 0.9 }"#));
+        sc.command("add", &rg_core::json::parse(r##"{ "id": "floor", "shape": "mesh", "color": "#ffffff",
+            "verts": [-1,-1,0, 1,-1,0, 1,1,0, -1,1,0], "tris": [0,1,2, 0,2,3],
+            "material": { "shader": "sea", "u": { "glow": 2, "tint": [1, 0.5, 0] } } }"##));
+        sc.gl = true;
+        let mut out = DrawStream::new();
+        // no host for it, or the shader not registered: plain triangles
+        sc.render(&mut out, 400.0, 400.0);
+        let plain = sc.tris.len();
+        assert!(sc.mtris.is_empty());
+        sc.mesh_ok = true;
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(sc.mtris.is_empty() && sc.tris.len() == plain);
+        sc.set_shader("sea", "sea#1");
+        sc.render(&mut out, 400.0, 400.0);
+        assert_eq!(sc.mtris.len(), 2 * 3 * MSTRIDE);
+        assert_eq!(sc.tris.len(), plain - 2 * 3 * 6);
+        assert_eq!(sc.mbatches, vec![("sea#1".to_string(), "glow=2;tint=1,0.5,0".to_string(), 0, 6)]);
+        assert_eq!(sc.menv.len(), MENV);
+        // eye, the water's time, water on, its surface
+        assert_eq!(&sc.menv[..6], &[0.0, 0.0, 10.0, 1.5, 1.0, 2.0]);
+        for c in sc.mtris.chunks_exact(MSTRIDE) {
+            // the view depth is the eye's distance along its way; the corner is one of the floor's
+            assert!((c[3] - 10.0).abs() < 1e-4, "{:?}", c);
+            assert!((c[4].abs() - 1.0).abs() < 1e-6 && (c[5].abs() - 1.0).abs() < 1e-6 && c[6] == 0.0, "{:?}", c);
+            // the normal towards the eye, white as its own colour, the sun apart from the rest
+            assert_eq!(&c[7..10], &[0.0, 0.0, 1.0]);
+            assert_eq!(&c[13..16], &[1.0, 1.0, 1.0]);
+            // under water both lights have lost more red than blue
+            assert!(c[19] > 0.0 && c[21] > c[19] * 1.2, "{:?}", c);
+            assert!(c[16] > 0.0 && c[18] > c[16] * 1.2, "{:?}", c);
+        }
     }
 
     #[test]

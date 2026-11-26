@@ -12,6 +12,7 @@
 
 pub mod atlas;
 pub mod gl;
+pub mod meshes;
 pub mod shaders;
 pub mod tess;
 
@@ -231,6 +232,10 @@ pub struct Renderer {
     panel_prog: u32,
     panel_vao: u32,
     panel_vbo: u32,
+    /// meshes through a game's mesh() hook: the host sets them (rg_engine
+    /// scene3d.rs `mtris`, `mbatches`, `menv`) before `render` or `render_eye`;
+    /// drawn with the scene's triangles, before them
+    pub meshes: meshes::Meshes,
 }
 
 impl Default for Renderer {
@@ -328,6 +333,7 @@ impl Renderer {
             panel_prog: 0,
             panel_vao: 0,
             panel_vbo: 0,
+            meshes: meshes::Meshes::default(),
         }
     }
 
@@ -1052,6 +1058,7 @@ impl Renderer {
         let steps = std::mem::take(&mut self.steps);
         let mut bound = 0u32;
         let mut depth_used = false;
+        let mut meshes_drawn = false;
         for st in steps.iter() {
             match st {
                 Step::Draw { tex, first, count, clip } => {
@@ -1118,6 +1125,11 @@ impl Renderer {
                     gl::enable(gl::DEPTH_TEST);
                     gl::depth_func(gl::LEQUAL);
                     gl::depth_mask(true);
+                    if !meshes_drawn {
+                        // (one scene's: the first 3D layer)
+                        meshes_drawn = true;
+                        self.calls += self.meshes.draw(xf);
+                    }
                     if *phong {
                         gl::use_program(self.phong);
                         gl::uniform4f(self.phong_xf, xf[0], xf[1], xf[2], xf[3]);
@@ -1338,6 +1350,10 @@ impl Renderer {
             r.calls += 1;
         };
         if !painted {
+            gl::enable(gl::DEPTH_TEST);
+            gl::depth_func(gl::LEQUAL);
+            gl::depth_mask(true);
+            self.calls += self.meshes.draw(xf);
             tris_pass(self, tris, true);
         }
         if let (Some(c), Some((tex, _, _, _, _))) = (panel, self.panel) {

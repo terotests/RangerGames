@@ -76,6 +76,22 @@
         if (n < 0) throw new Error("the games pack is not a pack");
         self.restoreSaves();
         self.x.rg_seed(Date.now() % 2147483647);
+        var shaderSource = function (path, defs) {
+            var a = self.put(path), b = self.put(defs);
+            var r = self.x.rg_shader(a[0], a[1], b[0], b[1]);
+            self.free(a); self.free(b);
+            var t = self.text(self.x.rg_result_ptr(), self.x.rg_result_len());
+            if (r !== 0) { console.warn("shader " + path + ": " + t); return null; }
+            return t;
+        };
+        var shaderExplain = function (path, defs, log) {
+            if (!self.x.rg_shader_explain) return log;
+            var a = self.put(path), b = self.put(defs), c = self.put(log);
+            self.x.rg_shader_explain(a[0], a[1], b[0], b[1], c[0], c[1]);
+            self.free(a); self.free(b); self.free(c);
+            return self.text(self.x.rg_result_ptr(), self.x.rg_result_len());
+        };
+        if (self.x.rg_shader && self.gl3d && self.gl3d.ok) self.gl3d.setShaderSource(shaderSource, shaderExplain);
         if (self.x.rg_shader && global.RgPainter && global.RgPainter.setShaderSource) {
           global.RgPainter.setShaderSource(function (path, defs) {
             var a = self.put(path), b = self.put(defs);
@@ -100,8 +116,11 @@
           if (self.x.rg_splats && global.RgPainter.canDrawSplats && !params.has("nosplats") && global.RgPainter.canDrawSplats()) self.x.rg_splats(1);
         }
         // ?nogl: the old painter-sorted 3D, for comparing
-        if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) self.x.rg_gl3d(1);
-        else self.gl3d = null;
+        if (self.gl3d && self.gl3d.ok && self.x.rg_gl3d && !params.has("nogl")) {
+          self.x.rg_gl3d(1);
+          // ?nomesh: a game's mesh() hooks off (the engine's corners' light)
+          if (self.gl3d.webgl2 && self.x.rg_meshes && self.x.rg_shader && !params.has("nomesh")) self.x.rg_meshes(1);
+        } else self.gl3d = null;
         // rg.store: games installed from the download list, kept in IndexedDB
         if (self.x.rg_store && global.indexedDB) self.x.rg_store(1);
         return self.storeRestore().then(function () {
@@ -748,7 +767,18 @@
       return;
     }
     var gl = false;
-    if (this.gl3d && this.gl3d.ok) gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background);
+    if (this.gl3d && this.gl3d.ok) {
+      var meshes = null;
+      if (x.rg_mtris_len && x.rg_mtris_len() > 0) {
+        var nb = x.rg_mbatches(), lines = this.text(x.rg_result_ptr(), x.rg_result_len()).split("\n"), batches = [];
+        for (var bi = 0; bi < nb; bi++) {
+          var f = lines[bi].split("\t");
+          batches.push([f[0], f[1], +f[2], +f[3]]);
+        }
+        meshes = { tris: new Float32Array(x.memory.buffer, x.rg_mtris_ptr() >>> 0, x.rg_mtris_len()), env: new Float32Array(x.memory.buffer, x.rg_menv_ptr() >>> 0, x.rg_menv_len()), batches: batches };
+      }
+      gl = this.gl3d.render(new Float32Array(x.memory.buffer, x.rg_tris_ptr() >>> 0, x.rg_tris_len()), this.view, this.dpr, this.background, meshes);
+    }
     if (!this.painter) this.painter = new RgPainter(this.canvas, this.images);
     this.painter.paint(nums, strings, this.view, this.dpr, this.three.active || gl ? null : this.background);
     this.frameTime(t0, nums);

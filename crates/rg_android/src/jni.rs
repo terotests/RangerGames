@@ -544,6 +544,7 @@ pub extern "system" fn Java_fi_rangergames_Engine_glRender(
                 width: w,
                 height: h,
             };
+            gl.meshes.set(&e.scene.mtris, &e.scene.mbatches, &e.scene.menv);
             gl.render(&mut host, &e.draw.nums, &e.draw.strings, &e.scene.tris, &e.scene.ptris, &e.scene.plights, &v, [r, g, b, 1.0]);
             gl.ok() as jboolean
         })

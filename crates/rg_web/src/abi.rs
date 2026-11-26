@@ -213,6 +213,46 @@ pub extern "C" fn rg_splats(on: i32) {
     with(|e| e.splats = on != 0)
 }
 
+/// The host draws meshes through a game's mesh() hook (web/js/gl3d.js on WebGL2).
+#[no_mangle]
+pub extern "C" fn rg_meshes(on: i32) {
+    with(|e| e.meshes = on != 0)
+}
+
+#[no_mangle]
+pub extern "C" fn rg_mtris_ptr() -> *const f32 {
+    with(|e| e.scene.mtris.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_mtris_len() -> usize {
+    with(|e| e.scene.mtris.len())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_menv_ptr() -> *const f32 {
+    with(|e| e.scene.menv.as_ptr())
+}
+
+#[no_mangle]
+pub extern "C" fn rg_menv_len() -> usize {
+    with(|e| e.scene.menv.len())
+}
+
+/// The mesh hooks' batches into the result buffer, a line each:
+/// key, uniforms, first corner, corners (tab between); returns how many.
+#[no_mangle]
+pub extern "C" fn rg_mbatches() -> usize {
+    with(|e| {
+        let mut t = String::new();
+        for (k, u, first, n) in e.scene.mbatches.iter() {
+            t.push_str(&format!("{}\t{}\t{}\t{}\n", k, u, first, n));
+        }
+        RESULT.with(|b| *b.borrow_mut() = t.into_bytes());
+        e.scene.mbatches.len()
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tris_ptr() -> *const f32 {
     with(|e| e.scene.tris.as_ptr())

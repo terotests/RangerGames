@@ -27,6 +27,11 @@ What differs between hosts is passed as a define, not written twice:
   - `lib/heat.glsl`: `heat(t)`, black-body colour for anything hot
   - `lib/light.glsl`: `fresnel`, `toksvigPower`, `aaStep`
   - `lib/sprite.glsl`: `softSprite`, `spriteColor`
+- `lib/water.glsl`: the scene's water per pixel (`water_seen`, `water_surface`,
+  `water_caustic`, `water_down`, `water_inscatter`, `water_backdrop`, `water_sun`);
+  needs the `rg_` uniforms of `mesh/mesh.fs`
+- `mesh/`: 3D meshes through the `mesh()` hook (`mesh.vs`, `mesh.fs`, the engine's own `mesh.glsl`);
+  rg_gl `meshes.rs` and web/js/gl3d.js (WebGL2)
 - `globe/globe.fs`: textured globes (draw kind 8), ray cast per pixel, with the `surface()` hook
   (`globe/surface.glsl` the engine's own); painter.js `Spheres` and
   GlSphere.java (its mesh vertex shader is made from this file's declarations: keep
@@ -73,6 +78,7 @@ vec4 liquid(Fluid f) {
 | `liquid` | `vec4 liquid(Fluid f)` | `shape: "splats"` (not `look: "gas"`) | `splat/liquid.fs`, `splat/liquid.glsl` |
 | `sprite` | `vec4 sprite(Sprite s)` | `shape: "burst"` with `look: "glow"` | `splat/sprite.fs`, `splat/sprite.glsl` |
 | `surface` | `vec3 surface(Surface s)` | `rg.three("planet", { texture, material })` | `globe/globe.fs`, `globe/surface.glsl` |
+| `mesh` | `vec4 mesh(Mesh m)` | `rg.three("add", { shape, material })` (meshes, boxes, heightfields, ...) | `mesh/mesh.fs`, `mesh/mesh.glsl` |
 
 `Fluid`: `n` normal, `thick` density, `temp` 0..1, `view`, `sun`, `t` the
 run's time (rewinds with it), `uv`, `pal` the object's palette at `temp`,
@@ -104,6 +110,33 @@ vec3 surface(Surface s) {
 }
 ```
 
+`Mesh`: `p` the pixel's place in the world, `n` its normal (unit, towards the
+eye's side; smooth meshes: the corners' normals blended), `col` the colour the
+engine worked out at the corners (lit, fogged: return it for the engine's
+look), `base` the object's own colour, `amb` the light that is not the sun
+(ambient, lamps), `sun` the sun's light on it without caustics (n . l), `eye`,
+`view` (unit, eye to `p`), `t` the water's time. Under water `amb` and `sun`
+have already lost colour on their way down. The hook returns the colour seen
+(alpha is not used: meshes are solid), so it does the fog itself:
+`water_seen(c, m.p)` under water. Faces cut by the near plane, see-through
+objects and hosts without the hook (the Canvas painter, WebGL1, desktop stereo)
+take the engine's corners. `lib/water.glsl` is included:
+
+```ts
+rg.shader("sand", { src: "shaders/sand.glsl", kind: "mesh" });
+rg.three("add", { id: "floor", shape: "heightfield", size: [120, 120, 96, 96], heights,
+  color: "#d8c8a0", material: { shader: "sand", u: { ripple: 0.6 } } });
+```
+
+```glsl
+uniform float u_ripple;
+vec4 mesh(Mesh m) {
+  float r = 1.0 + u_ripple * 0.15 * sin(m.p.x * 3.0 + vnoise(m.p * 0.7) * 4.0);
+  vec3 lit = m.base * r * (m.amb + m.sun * water_caustic(m.p));
+  return vec4(rg_water > 0.5 ? water_seen(lit, m.p) : lit, 1.0);
+}
+```
+
 `Sprite`: `uv` the quad (-1..1, the middle 0), `r` = |uv|, `temp` the
 particle's 0..1 (a burst: how far through its life), `pal` the palette at
 `temp` (a burst: its colours over a life, fading at the end), `t` the run's
@@ -129,7 +162,8 @@ vec4 sprite(Sprite s) {
 - A game file cannot replace a built-in path (`lib/...`).
 - Reserved names: `liquid`: `den`, `pal`, `texel`, `light`, `npal`, `gain`, `opac`,
   `uv`, `o`, `main`, `Fluid`, `liquid`; `sprite`: `lq`, `tt`, `sd`, `pal`, `npal`,
-  `opac`, `o`, `main`, `Sprite`, `sprite`; `surface`: the uniforms and functions of
+  `opac`, `o`, `main`, `Sprite`, `sprite`; `mesh`: `v_p`, `v_n`, `v_col`, `v_base`,
+  `v_amb`, `v_sun`, `o`, `main`, `Mesh`, `mesh` and the `water_` functions; `surface`: the uniforms and functions of
   `globe/globe.fs`, `Surface`, `surface`; both: anything starting `rg_`.
 - A file that does not assemble (missing include, unknown kind, `#version`)
   is told in the game's log when `rg.shader` runs; one that does not compile

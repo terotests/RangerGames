@@ -69,6 +69,11 @@
       uniform1i: function (l, v) { if (l >= 0) g().uniform1i(self.get(l), v); },
       uniform1f: function (l, v) { if (l >= 0) g().uniform1f(self.get(l), v); },
       uniform4f: function (l, a, b, c, d) { if (l >= 0) g().uniform4f(self.get(l), a, b, c, d); },
+      uniformn: function (l, n, a, b, c, d) {
+        if (l < 0) return;
+        var u = self.get(l), x = g();
+        if (n === 1) x.uniform1f(u, a); else if (n === 2) x.uniform2f(u, a, b); else if (n === 3) x.uniform3f(u, a, b, c); else x.uniform4f(u, a, b, c, d);
+      },
       create_buffer: function () { return self.put(g().createBuffer()); },
       bind_buffer: function (t, b) { g().bindBuffer(t, self.get(b)); },
       buffer_data: function (t, p, n, usage) { g().bufferData(t, self.bytes(p, n), usage); },

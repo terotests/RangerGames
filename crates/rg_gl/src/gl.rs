@@ -76,6 +76,8 @@ mod sys {
         pub fn glUniform1i(l: i32, v: i32);
         pub fn glUniform1f(l: i32, v: f32);
         pub fn glUniform4f(l: i32, a: f32, b: f32, c: f32, d: f32);
+        pub fn glUniform2f(l: i32, a: f32, b: f32);
+        pub fn glUniform3f(l: i32, a: f32, b: f32, c: f32);
         pub fn glGenBuffers(n: i32, out: *mut u32);
         pub fn glBindBuffer(t: u32, b: u32);
         pub fn glBufferData(t: u32, size: isize, data: *const u8, usage: u32);
@@ -176,6 +178,18 @@ mod api {
     pub fn uniform1i(l: i32, v: i32) { unsafe { glUniform1i(l, v) } }
     pub fn uniform1f(l: i32, v: f32) { unsafe { glUniform1f(l, v) } }
     pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) { unsafe { glUniform4f(l, a, b, c, d) } }
+    /// a float, vec2, vec3 or vec4 uniform from 1 to 4 numbers
+    pub fn uniformn(l: i32, v: &[f32]) {
+        unsafe {
+            match v.len() {
+                1 => glUniform1f(l, v[0]),
+                2 => glUniform2f(l, v[0], v[1]),
+                3 => glUniform3f(l, v[0], v[1], v[2]),
+                4 => glUniform4f(l, v[0], v[1], v[2], v[3]),
+                _ => {}
+            }
+        }
+    }
     pub fn create_buffer() -> u32 {
         let mut b = 0;
         unsafe { glGenBuffers(1, &mut b) };
@@ -335,6 +349,7 @@ mod sys {
         pub fn uniform1i(l: i32, v: i32);
         pub fn uniform1f(l: i32, v: f32);
         pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32);
+        pub fn uniformn(l: i32, n: u32, a: f32, b: f32, c: f32, d: f32);
         pub fn create_buffer() -> u32;
         pub fn bind_buffer(t: u32, b: u32);
         pub fn buffer_data(t: u32, p: *const u8, n: usize, usage: u32);
@@ -398,6 +413,12 @@ mod api {
     pub fn uniform1i(l: i32, v: i32) { unsafe { sys::uniform1i(l, v) } }
     pub fn uniform1f(l: i32, v: f32) { unsafe { sys::uniform1f(l, v) } }
     pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) { unsafe { sys::uniform4f(l, a, b, c, d) } }
+    pub fn uniformn(l: i32, v: &[f32]) {
+        let g = |i: usize| v.get(i).copied().unwrap_or(0.0);
+        if (1..=4).contains(&v.len()) {
+            unsafe { sys::uniformn(l, v.len() as u32, g(0), g(1), g(2), g(3)) }
+        }
+    }
     pub fn create_buffer() -> u32 { unsafe { sys::create_buffer() } }
     pub fn bind_buffer(t: u32, b: u32) { unsafe { sys::bind_buffer(t, b) } }
     pub fn buffer_data(t: u32, data: &[u8], usage: u32) { unsafe { sys::buffer_data(t, data.as_ptr(), data.len(), usage) } }
@@ -465,6 +486,7 @@ mod api {
     pub fn uniform1i(l: i32, v: i32) {}
     pub fn uniform1f(l: i32, v: f32) {}
     pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) {}
+    pub fn uniformn(l: i32, v: &[f32]) {}
     pub fn create_buffer() -> u32 { 1 }
     pub fn bind_buffer(t: u32, b: u32) {}
     pub fn buffer_data(t: u32, data: &[u8], usage: u32) {}

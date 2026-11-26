@@ -236,6 +236,9 @@ dependencies = [
 [[package]]
 name = "rg_gl"
 version = "0.1.0"
+dependencies = [
+ "rg_shader",
+]
 
 [[package]]
 name = "rg_shader"

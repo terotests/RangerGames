@@ -346,6 +346,9 @@ pub struct Engine {
     pub terrain: bool,
     /// the host draws baked particle runs as liquid splats (draw kind 10)
     pub splats: bool,
+    /// the host draws meshes through a game's mesh() hook (`scene.mtris`;
+    /// rg_gl does, the web's gl3d.js on WebGL2)
+    pub meshes: bool,
     /// the game's `<scene3d>`: three.js's names, read as React Three Fiber
     /// reads JSX (fiber.rs), drawn with the scene above
     pub world: Rc<RefCell<fiber::World>>,
@@ -402,6 +405,7 @@ impl Engine {
             detail: false,
             terrain: false,
             splats: false,
+            meshes: false,
             world: Rc::new(RefCell::new(fiber::World::new())),
             fluid: fluid::Sim::new(),
             measure: Vec::new(),
@@ -1377,6 +1381,8 @@ impl Engine {
                 self.scene.splats_ok = self.splats;
                 // VR: the 3D is drawn per eye (stereo here, a headset's by xr_eye)
                 let stereo = self.xr.mode == xr::Mode::Stereo && self.xr.eyes_on() && self.gl3d;
+                // (the stereo picture is one list of triangles: no hooks there)
+                self.scene.mesh_ok = self.gl3d && (self.gl_all || self.meshes) && !stereo;
                 let eyes = stereo || self.xr.immersive();
                 self.scene.eyes_only = eyes;
                 self.world.borrow_mut().eyes_only = eyes;

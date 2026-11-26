@@ -9,3 +9,4 @@ license.workspace = true
 publish = false
 
 [dependencies]
+rg_shader = { path = "../rg_shader" }
