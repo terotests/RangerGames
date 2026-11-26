@@ -174,6 +174,12 @@ final class Painter {
      * units), the texture's part across and down, 0 (its first row is the
      * top). False when nothing is to be shown.
      */
+    /** string i of the draw stream's table, "" for -1 or out of range */
+    private static String str(String[] strings, float i) {
+        int k = (int) i;
+        return strings != null && k >= 0 && k < strings.length ? strings[k] : "";
+    }
+
     boolean glGlobes(float[] nums, String[] strings, float px, float[] out) {
         if (gl == null || !gl.ok) return false;
         out[0] = 0;
@@ -181,6 +187,7 @@ final class Painter {
             // liquid splats over the game's box: their picture as a texture, rows from below (flipped)
             float w = nums[3], h = nums[4];
             if (splats == null || !splats.ok || w <= 0 || h <= 0) return false;
+            splats.game(str(strings, nums[18]), str(strings, nums[19]), nums[11]);
             int tex = splats.texture(nums, extras(nums, 0), w, h, px, nums[8], nums[9], nums[10]);
             if (tex == 0) return false;
             put(out, tex, 0, 0, w, h, splats.pw / (float) splats.texWidth(), splats.ph / (float) splats.texHeight());
@@ -634,6 +641,7 @@ final class Painter {
                 int nx = (int) nums[i + 22], e = extras(nums, i);
                 float w = nums[i + 3], h = nums[i + 4];
                 if (splats != null && splats.ok && gl.ok && w > 0 && h > 0 && e + nx <= n) {
+                    splats.game(str(strings, nums[i + 18]), str(strings, nums[i + 19]), nums[i + 11]);
                     Bitmap bm = splats.draw(nums, e, w, h, scale, nums[i + 8], nums[i + 9], nums[i + 10]);
                     if (bm != null) {
                         // GL's rows from below: flipped into place

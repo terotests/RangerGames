@@ -104,6 +104,11 @@ fn is_name(s: &str) -> bool {
 /// engine's library files. `defines` as in [`parse_defines`].
 pub fn assemble(path: &str, defines: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<Built, String> {
     let main = read(path, lookup).ok_or_else(|| format!("shader {}: no such file", path))?;
+    assemble_text(path, &main, defines, lookup)
+}
+
+/// [`assemble`] for a stage whose text is given (`path` names it in errors and origins).
+pub fn assemble_text(path: &str, main: &str, defines: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Result<Built, String> {
     let mut lines = main.lines();
     let first = lines.next().unwrap_or("").trim();
     if first != "#version 300 es" {
@@ -118,7 +123,7 @@ pub fn assemble(path: &str, defines: &str, lookup: &dyn Fn(&str) -> Option<Strin
         push(&mut b, &format!("#define {} {}", k, v), "<defines>", 0);
     }
     let mut seen: Vec<String> = Vec::new();
-    expand(&mut b, path, &main, 2, lookup, &mut seen, 0)?;
+    expand(&mut b, path, main, 2, lookup, &mut seen, 0)?;
     Ok(b)
 }
 
@@ -180,9 +185,134 @@ fn expand(
     Ok(())
 }
 
-/// Assembles a built-in stage with no game files.
+/// Assembles a built-in stage with no game files. A kind's stage (KINDS)
+/// gets its default hook, the engine's own look for that kind.
 pub fn assemble_builtin(path: &str, defines: &str) -> Result<Built, String> {
-    assemble(path, defines, &|_| None)
+    let dflt = KINDS.iter().find(|k| k.1 == path).and_then(|k| builtin(k.2));
+    assemble(path, defines, &|p| if p == "<hook>" { dflt.map(|s| s.to_string()) } else { None })
+}
+
+// ---------------------------------------------------------------------------
+// Game shaders: rg.shader(name, { src, kind }) in a game. The engine reads the
+// game's file (and the game files it includes) and registers them here under
+// a key that changes with their text; the draw stream names the key, and a
+// host asks for "game:<key>" as for a built-in. Kept in a process-wide table
+// (not in the engine) so the Android painter can ask from any thread.
+
+/// What a game's hook plugs into: its kind and the engine stage that wraps it.
+/// The stage has a line `#include "<hook>"` where the game's file goes; the
+/// third file is the engine's own hook for that kind (its default look and an
+/// example to start a game's own from).
+pub const KINDS: &[(&str, &str, &str)] = &[("liquid", "splat/liquid.fs", "splat/liquid.glsl")];
+
+struct GameShader {
+    name: String,
+    key: String,
+    template: &'static str,
+    /// the game's files by their path in the game's folder, the hook first
+    files: Vec<(String, String)>,
+}
+
+static GAME: std::sync::Mutex<Vec<GameShader>> = std::sync::Mutex::new(Vec::new());
+static ERRORS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+fn fnv(h: &mut u64, s: &str) {
+    for b in s.bytes() {
+        *h ^= b as u64;
+        *h = h.wrapping_mul(0x100000001b3);
+    }
+    *h ^= 0xff;
+    *h = h.wrapping_mul(0x100000001b3);
+}
+
+/// Registers a game's shader: `src` read with `read` (a path in the game's
+/// folder), its `#include`s of game files too (built-in library paths stay
+/// built-ins). Checks that it assembles into its kind's stage and gives the
+/// key the draw stream names (`name#hash`): the same text gives the same key,
+/// a changed file a new one, so a host compiles it again.
+pub fn register_game(name: &str, kind: &str, src: &str, read: &dyn Fn(&str) -> Option<String>) -> Result<String, String> {
+    let template = KINDS
+        .iter()
+        .find(|k| k.0 == kind)
+        .and_then(|k| builtin(k.1))
+        .ok_or_else(|| format!("shader {}: kind {:?} is not one of {}", name, kind, KINDS.iter().map(|k| k.0).collect::<Vec<_>>().join(", ")))?;
+    let mut files: Vec<(String, String)> = Vec::new();
+    let mut todo = vec![src.to_string()];
+    while let Some(p) = todo.pop() {
+        if files.iter().any(|f| f.0 == p) || builtin(&p).is_some() {
+            continue;
+        }
+        let text = read(&p).ok_or_else(|| format!("shader {}: no file {}", name, p))?;
+        if text.trim_start().starts_with("#version") {
+            return Err(format!("{}:1: a game shader is functions only (no #version, no main); the engine adds them", p));
+        }
+        for l in text.lines() {
+            if let Some(inc) = include_of(l) {
+                todo.push(inc.to_string());
+            }
+        }
+        files.push((p, text));
+        if files.len() > 32 {
+            return Err(format!("shader {}: more than 32 files", name));
+        }
+    }
+    let mut h: u64 = 0xcbf29ce484222325;
+    fnv(&mut h, kind);
+    for (p, t) in &files {
+        fnv(&mut h, p);
+        fnv(&mut h, t);
+    }
+    let key = format!("{}#{:012x}", name, h & 0xffff_ffff_ffff);
+    let g = GameShader { name: name.to_string(), key: key.clone(), template, files };
+    game_built(&g, "RG_YS=1.0")?;
+    let mut t = GAME.lock().unwrap();
+    t.retain(|e| e.name != name);
+    t.push(g);
+    Ok(key)
+}
+
+fn game_built(g: &GameShader, defines: &str) -> Result<Built, String> {
+    let main = g.files[0].0.clone();
+    let text = g.template.replace("#include \"<hook>\"", &format!("#include \"{}\"", main));
+    let stage = KINDS.iter().find(|k| builtin(k.1) == Some(g.template)).map(|k| k.1).unwrap_or("stage");
+    assemble_text(stage, &text, defines, &|p| g.files.iter().find(|f| f.0 == p).map(|f| f.1.clone()))
+}
+
+/// A stage for a host: a built-in path, or `game:<key>` for a registered game shader.
+pub fn stage(path: &str, defines: &str) -> Result<Built, String> {
+    match path.strip_prefix("game:") {
+        Some(key) => {
+            let t = GAME.lock().unwrap();
+            let g = t.iter().find(|g| g.key == key).ok_or_else(|| format!("shader {}: not registered", key))?;
+            game_built(g, defines)
+        }
+        None => assemble_builtin(path, defines),
+    }
+}
+
+/// A host's compile log for the stage `path` told in the source's own files
+/// and lines; kept for the engine to show in the game's log ([`take_errors`]).
+pub fn explain(path: &str, defines: &str, log: &str) -> String {
+    let text = match stage(path, defines) {
+        Ok(b) => b.explain(log),
+        Err(e) => format!("{}\n{}", e, log),
+    };
+    let name = path.strip_prefix("game:").map(|k| k.split('#').next().unwrap_or(k)).unwrap_or(path);
+    report(&format!("shader {} did not compile (the engine's own is used):\n{}", name, text.trim_end()));
+    text
+}
+
+/// Keeps a message for the game's log.
+pub fn report(msg: &str) {
+    let mut e = ERRORS.lock().unwrap();
+    if e.len() < 32 {
+        e.push(msg.to_string());
+    }
+}
+
+/// The messages kept since the last call (the engine puts them in the game's log).
+pub fn take_errors() -> Vec<String> {
+    std::mem::take(&mut *ERRORS.lock().unwrap())
 }
 
 #[cfg(test)]
@@ -245,6 +375,34 @@ mod tests {
         };
         let b = assemble("s.fs", "", &cyc).unwrap();
         assert_eq!(b.src.matches("float y;").count(), 1);
+    }
+
+    #[test]
+    fn game_shader() {
+        let files = |p: &str| -> Option<String> {
+            match p {
+                "shaders/magma.glsl" => Some("#include \"lib/heat.glsl\"\n#include \"shaders/util.glsl\"\nuniform float u_heat;\nvec4 liquid(Fluid f) {\n  return vec4(heat(f.temp * u_heat) * k(), f.edge);\n}\n".into()),
+                "shaders/util.glsl" => Some("float k() { return 1.0; }\n".into()),
+                "shaders/bad.glsl" => Some("#version 300 es\nvoid main() {}\n".into()),
+                _ => None,
+            }
+        };
+        let key = register_game("magma", "liquid", "shaders/magma.glsl", &files).unwrap();
+        assert!(key.starts_with("magma#"));
+        assert_eq!(register_game("magma", "liquid", "shaders/magma.glsl", &files).unwrap(), key);
+        let b = stage(&format!("game:{}", key), "RG_YS=-1.0").unwrap();
+        assert!(b.src.contains("#define RG_YS -1.0"));
+        assert!(b.src.contains("uniform float u_heat;"));
+        assert!(b.src.contains("float k()"));
+        assert_eq!(b.src.matches("vec3 heat(").count(), 1);
+        let at = b.src.lines().position(|l| l.contains("return vec4(heat")).unwrap();
+        assert_eq!(b.origin[at], ("shaders/magma.glsl".to_string(), 5));
+        let log = explain(&format!("game:{}", key), "RG_YS=1.0", &format!("ERROR: 0:{}: 'heat' : no matching overloaded function", at + 1));
+        assert!(log.contains("shaders/magma.glsl:5:"), "{}", log);
+        assert!(take_errors().iter().any(|e| e.contains("shader magma did not compile")));
+        assert!(register_game("x", "liquid", "shaders/bad.glsl", &files).is_err());
+        assert!(register_game("x", "liquid", "shaders/none.glsl", &files).is_err());
+        assert!(register_game("x", "nope", "shaders/magma.glsl", &files).is_err());
     }
 
     #[test]

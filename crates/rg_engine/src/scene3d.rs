@@ -117,6 +117,35 @@ fn norm(a: V3) -> V3 {
     if l < 1e-12 { [0.0, 0.0, 0.0] } else { mul(a, 1.0 / l) }
 }
 
+/// A material's `u` ({ heat: 0.8, tint: [1, 0.5, 0.2] }) as the draw stream
+/// carries it: "heat=0.8;tint=1,0.5,0.2" (names of letters, digits and _,
+/// 1 to 4 numbers; anything else is left out).
+fn uniforms_text(u: &[rg_core::json::JsonMember]) -> String {
+    let mut out = String::new();
+    for m in u {
+        let name = &m.key;
+        if name.is_empty() || name.len() > 32 || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            continue;
+        }
+        let nums: Vec<f64> = match &m.value {
+            Json::Num(n) => vec![*n],
+            Json::Bool(b) => vec![if *b { 1.0 } else { 0.0 }],
+            Json::Arr(v) => v.iter().map(|x| x.as_num(0.0)).collect(),
+            _ => continue,
+        };
+        if nums.is_empty() || nums.len() > 4 || !nums.iter().all(|n| n.is_finite()) {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push(';');
+        }
+        out.push_str(name);
+        out.push('=');
+        out.push_str(&nums.iter().map(|n| format!("{}", *n as f32)).collect::<Vec<_>>().join(","));
+    }
+    out
+}
+
 /// "#rgb", "#rrggbb", a number 0xrrggbb, or "rgb(r,g,b)" as 0..1 channels.
 pub fn color(v: &Json, fallback: V3) -> V3 {
     if let Json::Num(n) = v {
@@ -484,11 +513,15 @@ struct SplatRun {
     gas: bool,
     /// how thick the gas is a splat (1.5)
     density: f64,
+    /// material.shader: a game shader's name (rg.shader), "" for the engine's look
+    shader: String,
+    /// material.u: its uniforms as "name=1;tint=1,0.5,0.2" (u_ + name in the GLSL)
+    uniforms: String,
 }
 
 impl SplatRun {
     fn new(run: crate::splats::Splats, a: &Json) -> SplatRun {
-        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new(), res: 0.5, max: 80.0, gas: false, density: 1.5 };
+        let mut s = SplatRun { run, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], scale: 1.0, palette: Vec::new(), res: 0.5, max: 80.0, gas: false, density: 1.5, shader: String::new(), uniforms: String::new() };
         s.set(a);
         if s.palette.is_empty() {
             s.palette = vec![[0.25, 0.08, 0.05], [0.65, 0.12, 0.04], [1.0, 0.42, 0.08], [1.0, 0.72, 0.3], [1.0, 0.9, 0.6]];
@@ -519,6 +552,15 @@ impl SplatRun {
             self.gas = l == "gas";
         }
         self.density = a.get("density").as_num(self.density).clamp(0.01, 50.0);
+        let m = a.get("material");
+        if let Json::Obj(_) = m {
+            if let Json::Str(sh) = m.get("shader") {
+                self.shader = sh.clone();
+            }
+            if let Json::Obj(u) = m.get("u") {
+                self.uniforms = uniforms_text(&u);
+            }
+        }
     }
 
     /// a place in the file into the world, from the object's place
@@ -637,6 +679,8 @@ pub struct Scene {
     pub splats_ok: bool,
     /// the bytes of the "splats" file the next add reads (lib.rs reads them)
     pub splat_bytes: Option<Vec<u8>>,
+    /// the game's shaders (rg.shader): name and rg_shader key ("" when it failed)
+    shaders: Vec<(String, String)>,
     /// the last frame's triangles when `gl`: 6 floats a corner, x, y (the
     /// game's units, as the draw stream), depth 0 (near) … 1 (far), r, g, b (0…1).
     /// See-through faces (`opacity` below 1) come last, far ones first, with
@@ -803,6 +847,7 @@ impl Scene {
             dir: String::new(),
             splats_ok: false,
             splat_bytes: None,
+            shaders: Vec::new(),
             tris: Vec::new(),
             eye: None,
             eyes_only: false,
@@ -1505,6 +1550,19 @@ impl Scene {
         self.render_splats(out, w, h);
     }
 
+    /// A game shader's key (rg.shader), or "" (lib.rs).
+    pub fn set_shader(&mut self, name: &str, key: &str) {
+        self.shaders.retain(|s| s.0 != name);
+        self.shaders.push((name.to_string(), key.to_string()));
+    }
+
+    fn shader_key(&self, name: &str) -> &str {
+        if name.is_empty() {
+            return "";
+        }
+        self.shaders.iter().find(|s| s.0 == name).map(|s| s.1.as_str()).unwrap_or("")
+    }
+
     /// Baked particle runs, over the shapes: liquid splats (kind 10), or
     /// added squares where the host cannot draw them.
     fn render_splats(&self, out: &mut DrawStream, w: f64, h: f64) {
@@ -1568,7 +1626,11 @@ impl Scene {
                     Some(s) => norm(sub(s, c)),
                     None => norm(sub(cam, c)),
                 };
-                out.splats(w, h, o.opacity, sp.res, if sp.gas { sp.density } else { 0.0 }, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+                let key = if sp.gas { "" } else { self.shader_key(&sp.shader) };
+                let at = out.splats(w, h, o.opacity, sp.res, if sp.gas { sp.density } else { 0.0 }, pal, [dot(l, r), -dot(l, u), -dot(l, f)], &pts);
+                if let (Some(at), false) = (at, key.is_empty()) {
+                    out.splats_shader(at, key, &sp.uniforms, sp.run.time);
+                }
             } else {
                 for (_, c, p, e) in squares {
                     out.rings_added(c, (o.opacity * 0.6).min(0.999), &p, &e);
@@ -2147,6 +2209,35 @@ mod mesh_tests {
         sc.render(&mut out, 400.0, 400.0);
         assert!(!out.nums.contains(&10.0) || out.nums.windows(23).all(|w| w[0] != 10.0 || w[17] != 0.0));
         assert!(out.count > 0);
+    }
+
+    #[test]
+    fn splats_with_a_game_shader_name_its_key_uniforms_and_time() {
+        let f = crate::splats::test_file(20, 2, 1.0, |_, i| ([(i as i16 - 10) * 10, 0, 0], [0; 3], 200));
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.splat_bytes = Some(f);
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "splats", "src": "x.rgps", "time": 0.25,
+            "material": { "shader": "magma", "u": { "heat": 0.8, "tint": [1, 0.5, 0.25], "bad name": 1, "s": "x" } } }"#));
+        sc.splats_ok = true;
+        // not registered yet: the engine's own look
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        assert_eq!(out.nums[k + 18], -1.0);
+        sc.set_shader("magma", "magma#abc");
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        assert_eq!(out.strings[out.nums[k + 18] as usize], "magma#abc");
+        assert_eq!(out.strings[out.nums[k + 19] as usize], "heat=0.8;tint=1,0.5,0.25");
+        assert!((out.nums[k + 11] - 0.25).abs() < 1e-6);
+        // gas keeps the engine's look
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "s", "look": "gas" }"#));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
+        assert_eq!(out.nums[k + 18], -1.0);
     }
 
     #[test]

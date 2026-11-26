@@ -8,6 +8,7 @@ import android.util.Log;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.util.HashMap;
 
 /**
  * Liquid splats (draw kind 10, a baked particle run; painter.js Splats): each
@@ -31,6 +32,12 @@ final class GlSplats {
         if (s == null) throw new RuntimeException("shader " + path + " missing");
         return s;
     }
+
+    /** the next command's game shader (rg.shader; draw.rs splats_shader): key, uniforms, the run's time */
+    private String gameKey = "", gameUnis = "";
+    private float gameTime;
+    /** compiled game shaders by key; 0 when one did not compile (the engine's own look is drawn) */
+    private final HashMap<String, Integer> games = new HashMap<>();
 
     private final GlSphere gl;
     boolean ok;
@@ -139,6 +146,80 @@ final class GlSplats {
         GLES30.glTexParameteri(GLES30.GL_TEXTURE_2D, GLES30.GL_TEXTURE_WRAP_T, GLES30.GL_CLAMP_TO_EDGE);
     }
 
+    /** The game shader the next draw or texture uses ("" for the engine's own look). */
+    void game(String key, String unis, float time) {
+        gameKey = key == null ? "" : key;
+        gameUnis = unis == null ? "" : unis;
+        gameTime = time;
+    }
+
+    /** a game's liquid stage compiled once by key; 0 (and its error in the game's log) when it fails */
+    private int gameProgram(String key) {
+        Integer have = games.get(key);
+        if (have != null) return have;
+        String path = "game:" + key;
+        int prog = 0;
+        String fs = Engine.shader(path, DEFS);
+        if (fs != null) {
+            int p = GLES30.glCreateProgram();
+            int vs = GLES30.glCreateShader(GLES30.GL_VERTEX_SHADER);
+            GLES30.glShaderSource(vs, src("splat/show.vs"));
+            GLES30.glCompileShader(vs);
+            int f = GLES30.glCreateShader(GLES30.GL_FRAGMENT_SHADER);
+            GLES30.glShaderSource(f, fs);
+            GLES30.glCompileShader(f);
+            int[] st = new int[1];
+            GLES30.glGetShaderiv(f, GLES30.GL_COMPILE_STATUS, st, 0);
+            if (st[0] == 0) {
+                Log.w(TAG, Engine.shaderError(path, DEFS, GLES30.glGetShaderInfoLog(f)));
+            } else {
+                GLES30.glAttachShader(p, vs);
+                GLES30.glAttachShader(p, f);
+                GLES30.glLinkProgram(p);
+                GLES30.glGetProgramiv(p, GLES30.GL_LINK_STATUS, st, 0);
+                if (st[0] != 0) prog = p;
+                else Log.w(TAG, Engine.shaderError(path, DEFS, GLES30.glGetProgramInfoLog(p)));
+            }
+            GLES30.glDeleteShader(vs);
+            GLES30.glDeleteShader(f);
+            if (prog == 0) GLES30.glDeleteProgram(p);
+        }
+        // a changed file comes with a new key: the old ones of the same name go
+        String name = key.split("#")[0];
+        java.util.Iterator<java.util.Map.Entry<String, Integer>> it = games.entrySet().iterator();
+        while (it.hasNext()) {
+            java.util.Map.Entry<String, Integer> en = it.next();
+            if (en.getKey().split("#")[0].equals(name)) {
+                if (en.getValue() != 0) GLES30.glDeleteProgram(en.getValue());
+                it.remove();
+            }
+        }
+        games.put(key, prog);
+        return prog;
+    }
+
+    /** uniforms "heat=0.8;tint=1,0.5,0.2" into u_heat, u_tint (1 to 4 floats) */
+    private static void uniforms(int prog, String text) {
+        if (text.isEmpty()) return;
+        for (String kv : text.split(";")) {
+            int i = kv.indexOf('=');
+            if (i <= 0) continue;
+            int loc = GLES30.glGetUniformLocation(prog, "u_" + kv.substring(0, i));
+            if (loc < 0) continue;
+            String[] p = kv.substring(i + 1).split(",");
+            float[] v = new float[p.length];
+            try {
+                for (int k = 0; k < p.length; k++) v[k] = Float.parseFloat(p[k]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            if (v.length == 1) GLES30.glUniform1f(loc, v[0]);
+            else if (v.length == 2) GLES30.glUniform2f(loc, v[0], v[1]);
+            else if (v.length == 3) GLES30.glUniform3f(loc, v[0], v[1], v[2]);
+            else if (v.length >= 4) GLES30.glUniform4f(loc, v[0], v[1], v[2], v[3]);
+        }
+    }
+
     /** the density and the shown picture at least w × h */
     private void targets(int w, int h) {
         if (w > dw || h > dh) {
@@ -235,20 +316,35 @@ final class GlSplats {
         GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
         GLES30.glDisable(GLES30.GL_BLEND);
         boolean g = kd > 0;
-        GLES30.glUseProgram(g ? gas : show);
+        int game = g || gameKey.isEmpty() ? 0 : gameProgram(gameKey);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, den);
-        GLES30.glUniform1i(g ? gDen : uDen, 0);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
         GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pal);
-        GLES30.glUniform1i(g ? gPal : uPal, 1);
         GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
-        GLES30.glUniform2f(g ? gTexel : uTexel, 1f / dw, 1f / dh);
-        GLES30.glUniform3f(g ? gLight : uLight, lx, ly, lz);
-        GLES30.glUniform1f(g ? gNpal : uNpal, np);
-        GLES30.glUniform1f(g ? gGain : uSGain, gain);
-        GLES30.glUniform1f(g ? gOpac : uOpac, opac);
-        if (g) GLES30.glUniform1f(gKd, kd);
+        if (game != 0) {
+            // a game's shader: the same inputs by name, its time and uniforms
+            GLES30.glUseProgram(game);
+            GLES30.glUniform1i(GLES30.glGetUniformLocation(game, "den"), 0);
+            GLES30.glUniform1i(GLES30.glGetUniformLocation(game, "pal"), 1);
+            GLES30.glUniform2f(GLES30.glGetUniformLocation(game, "texel"), 1f / dw, 1f / dh);
+            GLES30.glUniform3f(GLES30.glGetUniformLocation(game, "light"), lx, ly, lz);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(game, "npal"), np);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(game, "gain"), gain);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(game, "opac"), opac);
+            GLES30.glUniform1f(GLES30.glGetUniformLocation(game, "rg_time"), gameTime);
+            uniforms(game, gameUnis);
+        } else {
+            GLES30.glUseProgram(g ? gas : show);
+            GLES30.glUniform1i(g ? gDen : uDen, 0);
+            GLES30.glUniform1i(g ? gPal : uPal, 1);
+            GLES30.glUniform2f(g ? gTexel : uTexel, 1f / dw, 1f / dh);
+            GLES30.glUniform3f(g ? gLight : uLight, lx, ly, lz);
+            GLES30.glUniform1f(g ? gNpal : uNpal, np);
+            GLES30.glUniform1f(g ? gGain : uSGain, gain);
+            GLES30.glUniform1f(g ? gOpac : uOpac, opac);
+            if (g) GLES30.glUniform1f(gKd, kd);
+        }
         // the density's corner: uv runs 0..sx, 0..sy (the show pass's quad stretched by the viewport)
         GLES30.glViewport(0, 0, dw, dh);
         GLES30.glDrawArrays(GLES30.GL_TRIANGLE_STRIP, 0, 4);
