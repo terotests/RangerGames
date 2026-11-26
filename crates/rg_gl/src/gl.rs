@@ -82,15 +82,42 @@ mod sys {
         pub fn glGenVertexArrays(n: i32, out: *mut u32);
         pub fn glBindVertexArray(a: u32);
         pub fn glEnableVertexAttribArray(i: u32);
-        pub fn glVertexAttribPointer(i: u32, size: i32, t: u32, norm: u8, stride: i32, off: *const u8);
+        pub fn glVertexAttribPointer(
+            i: u32,
+            size: i32,
+            t: u32,
+            norm: u8,
+            stride: i32,
+            off: *const u8,
+        );
         pub fn glDrawElements(mode: u32, count: i32, t: u32, off: *const u8);
         pub fn glDrawArrays(mode: u32, first: i32, count: i32);
         pub fn glGenTextures(n: i32, out: *mut u32);
         pub fn glDeleteTextures(n: i32, t: *const u32);
         pub fn glBindTexture(t: u32, tex: u32);
         pub fn glActiveTexture(u: u32);
-        pub fn glTexImage2D(t: u32, level: i32, ifmt: i32, w: i32, h: i32, border: i32, fmt: u32, ty: u32, px: *const u8);
-        pub fn glTexSubImage2D(t: u32, level: i32, x: i32, y: i32, w: i32, h: i32, fmt: u32, ty: u32, px: *const u8);
+        pub fn glTexImage2D(
+            t: u32,
+            level: i32,
+            ifmt: i32,
+            w: i32,
+            h: i32,
+            border: i32,
+            fmt: u32,
+            ty: u32,
+            px: *const u8,
+        );
+        pub fn glTexSubImage2D(
+            t: u32,
+            level: i32,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            fmt: u32,
+            ty: u32,
+            px: *const u8,
+        );
         pub fn glTexParameteri(t: u32, p: u32, v: i32);
         pub fn glPixelStorei(p: u32, v: i32);
         pub fn glBindFramebuffer(t: u32, f: u32);
@@ -120,19 +147,30 @@ mod sys {
         pub fn glRenderbufferStorage(t: u32, fmt: u32, w: i32, h: i32);
         pub fn glFramebufferRenderbuffer(t: u32, att: u32, rt: u32, r: u32);
         pub fn glCheckFramebufferStatus(t: u32) -> u32;
+        pub fn glGetString(name: u32) -> *const u8;
+        pub fn glGetIntegerv(name: u32, out: *mut i32);
+        pub fn glInvalidateFramebuffer(t: u32, n: i32, att: *const u32);
+    }
+    #[link(name = "EGL")]
+    extern "C" {
+        pub fn eglGetProcAddress(name: *const u8) -> *const core::ffi::c_void;
     }
 }
 
 #[cfg(target_os = "android")]
 mod api {
     use super::sys::*;
-    pub fn create_shader(t: u32) -> u32 { unsafe { glCreateShader(t) } }
+    pub fn create_shader(t: u32) -> u32 {
+        unsafe { glCreateShader(t) }
+    }
     pub fn shader_source(s: u32, src: &str) {
         let p = src.as_ptr();
         let n = src.len() as i32;
         unsafe { glShaderSource(s, 1, &p, &n) }
     }
-    pub fn compile_shader(s: u32) { unsafe { glCompileShader(s) } }
+    pub fn compile_shader(s: u32) {
+        unsafe { glCompileShader(s) }
+    }
     pub fn shader_ok(s: u32) -> bool {
         let mut v = 0;
         unsafe { glGetShaderiv(s, 0x8B81, &mut v) };
@@ -145,9 +183,15 @@ mod api {
         buf.truncate(n.max(0) as usize);
         String::from_utf8_lossy(&buf).into_owned()
     }
-    pub fn create_program() -> u32 { unsafe { glCreateProgram() } }
-    pub fn attach_shader(p: u32, s: u32) { unsafe { glAttachShader(p, s) } }
-    pub fn link_program(p: u32) { unsafe { glLinkProgram(p) } }
+    pub fn create_program() -> u32 {
+        unsafe { glCreateProgram() }
+    }
+    pub fn attach_shader(p: u32, s: u32) {
+        unsafe { glAttachShader(p, s) }
+    }
+    pub fn link_program(p: u32) {
+        unsafe { glLinkProgram(p) }
+    }
     pub fn program_ok(p: u32) -> bool {
         let mut v = 0;
         unsafe { glGetProgramiv(p, 0x8B82, &mut v) };
@@ -165,71 +209,174 @@ mod api {
         z.push(0);
         unsafe { glGetUniformLocation(p, z.as_ptr()) }
     }
-    pub fn use_program(p: u32) { unsafe { glUseProgram(p) } }
-    pub fn uniform1i(l: i32, v: i32) { unsafe { glUniform1i(l, v) } }
-    pub fn uniform1f(l: i32, v: f32) { unsafe { glUniform1f(l, v) } }
-    pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) { unsafe { glUniform4f(l, a, b, c, d) } }
+    pub fn use_program(p: u32) {
+        unsafe { glUseProgram(p) }
+    }
+    pub fn uniform1i(l: i32, v: i32) {
+        unsafe { glUniform1i(l, v) }
+    }
+    pub fn uniform1f(l: i32, v: f32) {
+        unsafe { glUniform1f(l, v) }
+    }
+    pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) {
+        unsafe { glUniform4f(l, a, b, c, d) }
+    }
     pub fn create_buffer() -> u32 {
         let mut b = 0;
         unsafe { glGenBuffers(1, &mut b) };
         b
     }
-    pub fn bind_buffer(t: u32, b: u32) { unsafe { glBindBuffer(t, b) } }
-    pub fn buffer_data(t: u32, data: &[u8], usage: u32) { unsafe { glBufferData(t, data.len() as isize, data.as_ptr(), usage) } }
+    pub fn bind_buffer(t: u32, b: u32) {
+        unsafe { glBindBuffer(t, b) }
+    }
+    pub fn buffer_data(t: u32, data: &[u8], usage: u32) {
+        unsafe { glBufferData(t, data.len() as isize, data.as_ptr(), usage) }
+    }
     pub fn create_vertex_array() -> u32 {
         let mut a = 0;
         unsafe { glGenVertexArrays(1, &mut a) };
         a
     }
-    pub fn bind_vertex_array(a: u32) { unsafe { glBindVertexArray(a) } }
-    pub fn enable_attrib(i: u32) { unsafe { glEnableVertexAttribArray(i) } }
+    pub fn bind_vertex_array(a: u32) {
+        unsafe { glBindVertexArray(a) }
+    }
+    pub fn enable_attrib(i: u32) {
+        unsafe { glEnableVertexAttribArray(i) }
+    }
     pub fn attrib_pointer(i: u32, size: i32, t: u32, norm: bool, stride: i32, off: usize) {
         unsafe { glVertexAttribPointer(i, size, t, norm as u8, stride, off as *const u8) }
     }
-    pub fn draw_elements(mode: u32, count: i32, off: usize) { unsafe { glDrawElements(mode, count, super::UNSIGNED_INT, off as *const u8) } }
-    pub fn draw_arrays(mode: u32, first: i32, count: i32) { unsafe { glDrawArrays(mode, first, count) } }
+    pub fn draw_elements(mode: u32, count: i32, off: usize) {
+        unsafe { glDrawElements(mode, count, super::UNSIGNED_INT, off as *const u8) }
+    }
+    pub fn draw_arrays(mode: u32, first: i32, count: i32) {
+        unsafe { glDrawArrays(mode, first, count) }
+    }
     pub fn create_texture() -> u32 {
         let mut t = 0;
         unsafe { glGenTextures(1, &mut t) };
         t
     }
-    pub fn delete_texture(t: u32) { unsafe { glDeleteTextures(1, &t) } }
-    pub fn bind_texture(t: u32, tex: u32) { unsafe { glBindTexture(t, tex) } }
-    pub fn active_texture(u: u32) { unsafe { glActiveTexture(u) } }
+    pub fn delete_texture(t: u32) {
+        unsafe { glDeleteTextures(1, &t) }
+    }
+    pub fn bind_texture(t: u32, tex: u32) {
+        unsafe { glBindTexture(t, tex) }
+    }
+    pub fn active_texture(u: u32) {
+        unsafe { glActiveTexture(u) }
+    }
     pub fn tex_image(w: i32, h: i32, px: Option<&[u8]>) {
         let p = px.map(|p| p.as_ptr()).unwrap_or(std::ptr::null());
-        unsafe { glTexImage2D(super::TEXTURE_2D, 0, super::RGBA8 as i32, w, h, 0, super::RGBA, super::UNSIGNED_BYTE, p) }
+        unsafe {
+            glTexImage2D(
+                super::TEXTURE_2D,
+                0,
+                super::RGBA8 as i32,
+                w,
+                h,
+                0,
+                super::RGBA,
+                super::UNSIGNED_BYTE,
+                p,
+            )
+        }
     }
     pub fn tex_sub_image(x: i32, y: i32, w: i32, h: i32, px: &[u8]) {
-        unsafe { glTexSubImage2D(super::TEXTURE_2D, 0, x, y, w, h, super::RGBA, super::UNSIGNED_BYTE, px.as_ptr()) }
+        unsafe {
+            glTexSubImage2D(
+                super::TEXTURE_2D,
+                0,
+                x,
+                y,
+                w,
+                h,
+                super::RGBA,
+                super::UNSIGNED_BYTE,
+                px.as_ptr(),
+            )
+        }
     }
-    pub fn tex_parameter(p: u32, v: i32) { unsafe { glTexParameteri(super::TEXTURE_2D, p, v) } }
-    pub fn pixel_store(p: u32, v: i32) { unsafe { glPixelStorei(p, v) } }
-    pub fn bind_framebuffer(f: u32) { unsafe { glBindFramebuffer(super::FRAMEBUFFER, f) } }
-    pub fn viewport(x: i32, y: i32, w: i32, h: i32) { unsafe { glViewport(x, y, w, h) } }
-    pub fn scissor(x: i32, y: i32, w: i32, h: i32) { unsafe { glScissor(x, y, w, h) } }
-    pub fn enable(c: u32) { unsafe { glEnable(c) } }
-    pub fn disable(c: u32) { unsafe { glDisable(c) } }
-    pub fn blend_func(s: u32, d: u32) { unsafe { glBlendFunc(s, d) } }
-    pub fn clear_color(r: f32, g: f32, b: f32, a: f32) { unsafe { glClearColor(r, g, b, a) } }
-    pub fn clear_depth(d: f32) { unsafe { glClearDepthf(d) } }
-    pub fn clear_stencil(s: i32) { unsafe { glClearStencil(s) } }
-    pub fn clear(m: u32) { unsafe { glClear(m) } }
-    pub fn color_mask(on: bool) { let v = on as u8; unsafe { glColorMask(v, v, v, v) } }
-    pub fn depth_mask(on: bool) { unsafe { glDepthMask(on as u8) } }
-    pub fn depth_func(f: u32) { unsafe { glDepthFunc(f) } }
-    pub fn stencil_func(f: u32, r: i32, m: u32) { unsafe { glStencilFunc(f, r, m) } }
-    pub fn stencil_op(a: u32, b: u32, c: u32) { unsafe { glStencilOp(a, b, c) } }
-    pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) { unsafe { glStencilOpSeparate(face, a, b, c) } }
-    pub fn stencil_mask(m: u32) { unsafe { glStencilMask(m) } }
-    pub fn get_error() -> u32 { unsafe { glGetError() } }
+    pub fn tex_parameter(p: u32, v: i32) {
+        unsafe { glTexParameteri(super::TEXTURE_2D, p, v) }
+    }
+    pub fn pixel_store(p: u32, v: i32) {
+        unsafe { glPixelStorei(p, v) }
+    }
+    pub fn bind_framebuffer(f: u32) {
+        unsafe { glBindFramebuffer(super::FRAMEBUFFER, f) }
+    }
+    pub fn viewport(x: i32, y: i32, w: i32, h: i32) {
+        unsafe { glViewport(x, y, w, h) }
+    }
+    pub fn scissor(x: i32, y: i32, w: i32, h: i32) {
+        unsafe { glScissor(x, y, w, h) }
+    }
+    pub fn enable(c: u32) {
+        unsafe { glEnable(c) }
+    }
+    pub fn disable(c: u32) {
+        unsafe { glDisable(c) }
+    }
+    pub fn blend_func(s: u32, d: u32) {
+        unsafe { glBlendFunc(s, d) }
+    }
+    pub fn clear_color(r: f32, g: f32, b: f32, a: f32) {
+        unsafe { glClearColor(r, g, b, a) }
+    }
+    pub fn clear_depth(d: f32) {
+        unsafe { glClearDepthf(d) }
+    }
+    pub fn clear_stencil(s: i32) {
+        unsafe { glClearStencil(s) }
+    }
+    pub fn clear(m: u32) {
+        unsafe { glClear(m) }
+    }
+    pub fn color_mask(on: bool) {
+        let v = on as u8;
+        unsafe { glColorMask(v, v, v, v) }
+    }
+    pub fn depth_mask(on: bool) {
+        unsafe { glDepthMask(on as u8) }
+    }
+    pub fn depth_func(f: u32) {
+        unsafe { glDepthFunc(f) }
+    }
+    pub fn stencil_func(f: u32, r: i32, m: u32) {
+        unsafe { glStencilFunc(f, r, m) }
+    }
+    pub fn stencil_op(a: u32, b: u32, c: u32) {
+        unsafe { glStencilOp(a, b, c) }
+    }
+    pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) {
+        unsafe { glStencilOpSeparate(face, a, b, c) }
+    }
+    pub fn stencil_mask(m: u32) {
+        unsafe { glStencilMask(m) }
+    }
+    pub fn get_error() -> u32 {
+        unsafe { glGetError() }
+    }
     pub fn create_framebuffer() -> u32 {
         let mut f = 0;
         unsafe { glGenFramebuffers(1, &mut f) };
         f
     }
-    pub fn delete_framebuffer(f: u32) { unsafe { glDeleteFramebuffers(1, &f) } }
-    pub fn framebuffer_texture(tex: u32) { unsafe { glFramebufferTexture2D(super::FRAMEBUFFER, super::COLOR_ATTACHMENT0, super::TEXTURE_2D, tex, 0) } }
+    pub fn delete_framebuffer(f: u32) {
+        unsafe { glDeleteFramebuffers(1, &f) }
+    }
+    pub fn framebuffer_texture(tex: u32) {
+        unsafe {
+            glFramebufferTexture2D(
+                super::FRAMEBUFFER,
+                super::COLOR_ATTACHMENT0,
+                super::TEXTURE_2D,
+                tex,
+                0,
+            )
+        }
+    }
     /// a depth + stencil renderbuffer of w × h attached to the bound framebuffer
     pub fn create_depth_stencil(w: i32, h: i32) -> u32 {
         let mut r = 0;
@@ -237,14 +384,115 @@ mod api {
             glGenRenderbuffers(1, &mut r);
             glBindRenderbuffer(super::RENDERBUFFER, r);
             glRenderbufferStorage(super::RENDERBUFFER, super::DEPTH24_STENCIL8, w, h);
-            glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r);
+            glFramebufferRenderbuffer(
+                super::FRAMEBUFFER,
+                super::DEPTH_STENCIL_ATTACHMENT,
+                super::RENDERBUFFER,
+                r,
+            );
         }
         r
     }
-    pub fn delete_renderbuffer(r: u32) { unsafe { glDeleteRenderbuffers(1, &r) } }
+    pub fn delete_renderbuffer(r: u32) {
+        unsafe { glDeleteRenderbuffers(1, &r) }
+    }
     /// renderbuffer `r` (create_depth_stencil's) attached to the bound framebuffer too (Android only: OpenXR's eye images share one)
-    pub fn attach_depth_stencil(r: u32) { unsafe { glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r) } }
-    pub fn framebuffer_ok() -> bool { unsafe { glCheckFramebufferStatus(super::FRAMEBUFFER) == super::FRAMEBUFFER_COMPLETE } }
+    pub fn attach_depth_stencil(r: u32) {
+        unsafe {
+            glFramebufferRenderbuffer(
+                super::FRAMEBUFFER,
+                super::DEPTH_STENCIL_ATTACHMENT,
+                super::RENDERBUFFER,
+                r,
+            )
+        }
+    }
+    pub fn framebuffer_ok() -> bool {
+        unsafe { glCheckFramebufferStatus(super::FRAMEBUFFER) == super::FRAMEBUFFER_COMPLETE }
+    }
+
+    // GL_EXT_multisampled_render_to_texture (Quest's Adreno, most phone GPUs):
+    // a framebuffer that draws with several samples a pixel into a plain
+    // texture; the samples live in the GPU's tile memory and are averaged
+    // as the tile is written out, so the edges are smooth at almost no cost.
+    type FbTexMs = unsafe extern "C" fn(u32, u32, u32, u32, i32, i32);
+    type RbStoreMs = unsafe extern "C" fn(u32, i32, u32, i32, i32);
+    fn ms_fns() -> Option<(FbTexMs, RbStoreMs)> {
+        unsafe {
+            let ext = glGetString(0x1F03); // GL_EXTENSIONS
+            if ext.is_null() {
+                return None;
+            }
+            let all = core::ffi::CStr::from_ptr(ext as *const core::ffi::c_char).to_bytes();
+            let name: &[u8] = b"GL_EXT_multisampled_render_to_texture";
+            if !all.split(|c| *c == b' ').any(|w| w == name) {
+                return None;
+            }
+            let a = eglGetProcAddress(b"glFramebufferTexture2DMultisampleEXT\0".as_ptr());
+            let b = eglGetProcAddress(b"glRenderbufferStorageMultisampleEXT\0".as_ptr());
+            if a.is_null() || b.is_null() {
+                return None;
+            }
+            Some((
+                core::mem::transmute::<*const core::ffi::c_void, FbTexMs>(a),
+                core::mem::transmute::<*const core::ffi::c_void, RbStoreMs>(b),
+            ))
+        }
+    }
+    /// how many samples a pixel `framebuffer_texture_ms` can give, up to
+    /// `want` (0 when the GPU lacks GL_EXT_multisampled_render_to_texture)
+    pub fn ms_samples(want: i32) -> i32 {
+        if want < 2 || ms_fns().is_none() {
+            return 0;
+        }
+        let mut max = 0;
+        unsafe { glGetIntegerv(0x8D57, &mut max) }; // GL_MAX_SAMPLES_EXT
+        want.min(max).max(0)
+    }
+    /// texture `tex` as the bound framebuffer's colour, drawn with `samples` a pixel
+    pub fn framebuffer_texture_ms(tex: u32, samples: i32) -> bool {
+        match ms_fns() {
+            Some((f, _)) => {
+                unsafe {
+                    f(
+                        super::FRAMEBUFFER,
+                        super::COLOR_ATTACHMENT0,
+                        super::TEXTURE_2D,
+                        tex,
+                        0,
+                        samples,
+                    )
+                };
+                true
+            }
+            None => false,
+        }
+    }
+    /// create_depth_stencil with `samples` a pixel (for framebuffer_texture_ms)
+    pub fn create_depth_stencil_ms(w: i32, h: i32, samples: i32) -> u32 {
+        let Some((_, store)) = ms_fns() else {
+            return create_depth_stencil(w, h);
+        };
+        let mut r = 0;
+        unsafe {
+            glGenRenderbuffers(1, &mut r);
+            glBindRenderbuffer(super::RENDERBUFFER, r);
+            store(super::RENDERBUFFER, samples, super::DEPTH24_STENCIL8, w, h);
+            glFramebufferRenderbuffer(
+                super::FRAMEBUFFER,
+                super::DEPTH_STENCIL_ATTACHMENT,
+                super::RENDERBUFFER,
+                r,
+            );
+        }
+        r
+    }
+    /// the bound framebuffer's depth and stencil are not needed after the
+    /// frame: the GPU need not write them out of its tiles
+    pub fn discard_depth_stencil() {
+        let a = [super::DEPTH_STENCIL_ATTACHMENT];
+        unsafe { glInvalidateFramebuffer(super::FRAMEBUFFER, 1, a.as_ptr()) }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -311,93 +559,221 @@ mod sys {
 #[cfg(target_arch = "wasm32")]
 mod api {
     use super::sys;
-    pub fn create_shader(t: u32) -> u32 { unsafe { sys::create_shader(t) } }
-    pub fn shader_source(s: u32, src: &str) { unsafe { sys::shader_source(s, src.as_ptr(), src.len()) } }
-    pub fn compile_shader(s: u32) { unsafe { sys::compile_shader(s) } }
-    pub fn shader_ok(s: u32) -> bool { unsafe { sys::shader_ok(s) != 0 } }
+    pub fn create_shader(t: u32) -> u32 {
+        unsafe { sys::create_shader(t) }
+    }
+    pub fn shader_source(s: u32, src: &str) {
+        unsafe { sys::shader_source(s, src.as_ptr(), src.len()) }
+    }
+    pub fn compile_shader(s: u32) {
+        unsafe { sys::compile_shader(s) }
+    }
+    pub fn shader_ok(s: u32) -> bool {
+        unsafe { sys::shader_ok(s) != 0 }
+    }
     /// (the browser's console shows the log: glhost.js writes it there)
-    pub fn shader_log(_s: u32) -> String { String::new() }
-    pub fn create_program() -> u32 { unsafe { sys::create_program() } }
-    pub fn attach_shader(p: u32, s: u32) { unsafe { sys::attach_shader(p, s) } }
-    pub fn link_program(p: u32) { unsafe { sys::link_program(p) } }
-    pub fn program_ok(p: u32) -> bool { unsafe { sys::program_ok(p) != 0 } }
-    pub fn program_log(_p: u32) -> String { String::new() }
-    pub fn uniform_location(p: u32, name: &str) -> i32 { unsafe { sys::uniform_location(p, name.as_ptr(), name.len()) } }
-    pub fn use_program(p: u32) { unsafe { sys::use_program(p) } }
-    pub fn uniform1i(l: i32, v: i32) { unsafe { sys::uniform1i(l, v) } }
-    pub fn uniform1f(l: i32, v: f32) { unsafe { sys::uniform1f(l, v) } }
-    pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) { unsafe { sys::uniform4f(l, a, b, c, d) } }
-    pub fn create_buffer() -> u32 { unsafe { sys::create_buffer() } }
-    pub fn bind_buffer(t: u32, b: u32) { unsafe { sys::bind_buffer(t, b) } }
-    pub fn buffer_data(t: u32, data: &[u8], usage: u32) { unsafe { sys::buffer_data(t, data.as_ptr(), data.len(), usage) } }
-    pub fn create_vertex_array() -> u32 { unsafe { sys::create_vertex_array() } }
-    pub fn bind_vertex_array(a: u32) { unsafe { sys::bind_vertex_array(a) } }
-    pub fn enable_attrib(i: u32) { unsafe { sys::enable_attrib(i) } }
-    pub fn attrib_pointer(i: u32, size: i32, t: u32, norm: bool, stride: i32, off: usize) { unsafe { sys::attrib_pointer(i, size, t, norm as u32, stride, off) } }
-    pub fn draw_elements(mode: u32, count: i32, off: usize) { unsafe { sys::draw_elements(mode, count, off) } }
-    pub fn draw_arrays(mode: u32, first: i32, count: i32) { unsafe { sys::draw_arrays(mode, first, count) } }
-    pub fn create_texture() -> u32 { unsafe { sys::create_texture() } }
-    pub fn delete_texture(t: u32) { unsafe { sys::delete_texture(t) } }
-    pub fn bind_texture(t: u32, tex: u32) { unsafe { sys::bind_texture(t, tex) } }
-    pub fn active_texture(u: u32) { unsafe { sys::active_texture(u) } }
+    pub fn shader_log(_s: u32) -> String {
+        String::new()
+    }
+    pub fn create_program() -> u32 {
+        unsafe { sys::create_program() }
+    }
+    pub fn attach_shader(p: u32, s: u32) {
+        unsafe { sys::attach_shader(p, s) }
+    }
+    pub fn link_program(p: u32) {
+        unsafe { sys::link_program(p) }
+    }
+    pub fn program_ok(p: u32) -> bool {
+        unsafe { sys::program_ok(p) != 0 }
+    }
+    pub fn program_log(_p: u32) -> String {
+        String::new()
+    }
+    pub fn uniform_location(p: u32, name: &str) -> i32 {
+        unsafe { sys::uniform_location(p, name.as_ptr(), name.len()) }
+    }
+    pub fn use_program(p: u32) {
+        unsafe { sys::use_program(p) }
+    }
+    pub fn uniform1i(l: i32, v: i32) {
+        unsafe { sys::uniform1i(l, v) }
+    }
+    pub fn uniform1f(l: i32, v: f32) {
+        unsafe { sys::uniform1f(l, v) }
+    }
+    pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) {
+        unsafe { sys::uniform4f(l, a, b, c, d) }
+    }
+    pub fn create_buffer() -> u32 {
+        unsafe { sys::create_buffer() }
+    }
+    pub fn bind_buffer(t: u32, b: u32) {
+        unsafe { sys::bind_buffer(t, b) }
+    }
+    pub fn buffer_data(t: u32, data: &[u8], usage: u32) {
+        unsafe { sys::buffer_data(t, data.as_ptr(), data.len(), usage) }
+    }
+    pub fn create_vertex_array() -> u32 {
+        unsafe { sys::create_vertex_array() }
+    }
+    pub fn bind_vertex_array(a: u32) {
+        unsafe { sys::bind_vertex_array(a) }
+    }
+    pub fn enable_attrib(i: u32) {
+        unsafe { sys::enable_attrib(i) }
+    }
+    pub fn attrib_pointer(i: u32, size: i32, t: u32, norm: bool, stride: i32, off: usize) {
+        unsafe { sys::attrib_pointer(i, size, t, norm as u32, stride, off) }
+    }
+    pub fn draw_elements(mode: u32, count: i32, off: usize) {
+        unsafe { sys::draw_elements(mode, count, off) }
+    }
+    pub fn draw_arrays(mode: u32, first: i32, count: i32) {
+        unsafe { sys::draw_arrays(mode, first, count) }
+    }
+    pub fn create_texture() -> u32 {
+        unsafe { sys::create_texture() }
+    }
+    pub fn delete_texture(t: u32) {
+        unsafe { sys::delete_texture(t) }
+    }
+    pub fn bind_texture(t: u32, tex: u32) {
+        unsafe { sys::bind_texture(t, tex) }
+    }
+    pub fn active_texture(u: u32) {
+        unsafe { sys::active_texture(u) }
+    }
     pub fn tex_image(w: i32, h: i32, px: Option<&[u8]>) {
         match px {
             Some(p) => unsafe { sys::tex_image(w, h, p.as_ptr(), p.len()) },
             None => unsafe { sys::tex_image(w, h, std::ptr::null(), 0) },
         }
     }
-    pub fn tex_sub_image(x: i32, y: i32, w: i32, h: i32, px: &[u8]) { unsafe { sys::tex_sub_image(x, y, w, h, px.as_ptr(), px.len()) } }
-    pub fn tex_parameter(p: u32, v: i32) { unsafe { sys::tex_parameter(p, v) } }
-    pub fn pixel_store(p: u32, v: i32) { unsafe { sys::pixel_store(p, v) } }
-    pub fn bind_framebuffer(f: u32) { unsafe { sys::bind_framebuffer(f) } }
-    pub fn viewport(x: i32, y: i32, w: i32, h: i32) { unsafe { sys::viewport(x, y, w, h) } }
-    pub fn scissor(x: i32, y: i32, w: i32, h: i32) { unsafe { sys::scissor(x, y, w, h) } }
-    pub fn enable(c: u32) { unsafe { sys::enable(c) } }
-    pub fn disable(c: u32) { unsafe { sys::disable(c) } }
-    pub fn blend_func(s: u32, d: u32) { unsafe { sys::blend_func(s, d) } }
-    pub fn clear_color(r: f32, g: f32, b: f32, a: f32) { unsafe { sys::clear_color(r, g, b, a) } }
-    pub fn clear_depth(d: f32) { unsafe { sys::clear_depth(d) } }
-    pub fn clear_stencil(s: i32) { unsafe { sys::clear_stencil(s) } }
-    pub fn clear(m: u32) { unsafe { sys::clear(m) } }
-    pub fn color_mask(on: bool) { unsafe { sys::color_mask(on as u32) } }
-    pub fn depth_mask(on: bool) { unsafe { sys::depth_mask(on as u32) } }
-    pub fn depth_func(f: u32) { unsafe { sys::depth_func(f) } }
-    pub fn stencil_func(f: u32, r: i32, m: u32) { unsafe { sys::stencil_func(f, r, m) } }
-    pub fn stencil_op(a: u32, b: u32, c: u32) { unsafe { sys::stencil_op(a, b, c) } }
-    pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) { unsafe { sys::stencil_op_separate(face, a, b, c) } }
-    pub fn stencil_mask(m: u32) { unsafe { sys::stencil_mask(m) } }
-    pub fn get_error() -> u32 { unsafe { sys::get_error() } }
-    pub fn create_framebuffer() -> u32 { unsafe { sys::create_framebuffer() } }
-    pub fn delete_framebuffer(f: u32) { unsafe { sys::delete_framebuffer(f) } }
-    pub fn framebuffer_texture(tex: u32) { unsafe { sys::framebuffer_texture(tex) } }
-    pub fn create_depth_stencil(w: i32, h: i32) -> u32 { unsafe { sys::create_depth_stencil(w, h) } }
-    pub fn delete_renderbuffer(r: u32) { unsafe { sys::delete_renderbuffer(r) } }
-    pub fn framebuffer_ok() -> bool { unsafe { sys::framebuffer_ok() != 0 } }
+    pub fn tex_sub_image(x: i32, y: i32, w: i32, h: i32, px: &[u8]) {
+        unsafe { sys::tex_sub_image(x, y, w, h, px.as_ptr(), px.len()) }
+    }
+    pub fn tex_parameter(p: u32, v: i32) {
+        unsafe { sys::tex_parameter(p, v) }
+    }
+    pub fn pixel_store(p: u32, v: i32) {
+        unsafe { sys::pixel_store(p, v) }
+    }
+    pub fn bind_framebuffer(f: u32) {
+        unsafe { sys::bind_framebuffer(f) }
+    }
+    pub fn viewport(x: i32, y: i32, w: i32, h: i32) {
+        unsafe { sys::viewport(x, y, w, h) }
+    }
+    pub fn scissor(x: i32, y: i32, w: i32, h: i32) {
+        unsafe { sys::scissor(x, y, w, h) }
+    }
+    pub fn enable(c: u32) {
+        unsafe { sys::enable(c) }
+    }
+    pub fn disable(c: u32) {
+        unsafe { sys::disable(c) }
+    }
+    pub fn blend_func(s: u32, d: u32) {
+        unsafe { sys::blend_func(s, d) }
+    }
+    pub fn clear_color(r: f32, g: f32, b: f32, a: f32) {
+        unsafe { sys::clear_color(r, g, b, a) }
+    }
+    pub fn clear_depth(d: f32) {
+        unsafe { sys::clear_depth(d) }
+    }
+    pub fn clear_stencil(s: i32) {
+        unsafe { sys::clear_stencil(s) }
+    }
+    pub fn clear(m: u32) {
+        unsafe { sys::clear(m) }
+    }
+    pub fn color_mask(on: bool) {
+        unsafe { sys::color_mask(on as u32) }
+    }
+    pub fn depth_mask(on: bool) {
+        unsafe { sys::depth_mask(on as u32) }
+    }
+    pub fn depth_func(f: u32) {
+        unsafe { sys::depth_func(f) }
+    }
+    pub fn stencil_func(f: u32, r: i32, m: u32) {
+        unsafe { sys::stencil_func(f, r, m) }
+    }
+    pub fn stencil_op(a: u32, b: u32, c: u32) {
+        unsafe { sys::stencil_op(a, b, c) }
+    }
+    pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) {
+        unsafe { sys::stencil_op_separate(face, a, b, c) }
+    }
+    pub fn stencil_mask(m: u32) {
+        unsafe { sys::stencil_mask(m) }
+    }
+    pub fn get_error() -> u32 {
+        unsafe { sys::get_error() }
+    }
+    pub fn create_framebuffer() -> u32 {
+        unsafe { sys::create_framebuffer() }
+    }
+    pub fn delete_framebuffer(f: u32) {
+        unsafe { sys::delete_framebuffer(f) }
+    }
+    pub fn framebuffer_texture(tex: u32) {
+        unsafe { sys::framebuffer_texture(tex) }
+    }
+    pub fn create_depth_stencil(w: i32, h: i32) -> u32 {
+        unsafe { sys::create_depth_stencil(w, h) }
+    }
+    pub fn delete_renderbuffer(r: u32) {
+        unsafe { sys::delete_renderbuffer(r) }
+    }
+    pub fn framebuffer_ok() -> bool {
+        unsafe { sys::framebuffer_ok() != 0 }
+    }
 }
 
 /// No GL here (tests, a desktop cargo check): every call does nothing.
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 #[allow(unused_variables)]
 mod api {
-    pub fn create_shader(t: u32) -> u32 { 1 }
+    pub fn create_shader(t: u32) -> u32 {
+        1
+    }
     pub fn shader_source(s: u32, src: &str) {}
     pub fn compile_shader(s: u32) {}
-    pub fn shader_ok(s: u32) -> bool { true }
-    pub fn shader_log(s: u32) -> String { String::new() }
-    pub fn create_program() -> u32 { 1 }
+    pub fn shader_ok(s: u32) -> bool {
+        true
+    }
+    pub fn shader_log(s: u32) -> String {
+        String::new()
+    }
+    pub fn create_program() -> u32 {
+        1
+    }
     pub fn attach_shader(p: u32, s: u32) {}
     pub fn link_program(p: u32) {}
-    pub fn program_ok(p: u32) -> bool { true }
-    pub fn program_log(p: u32) -> String { String::new() }
-    pub fn uniform_location(p: u32, name: &str) -> i32 { 0 }
+    pub fn program_ok(p: u32) -> bool {
+        true
+    }
+    pub fn program_log(p: u32) -> String {
+        String::new()
+    }
+    pub fn uniform_location(p: u32, name: &str) -> i32 {
+        0
+    }
     pub fn use_program(p: u32) {}
     pub fn uniform1i(l: i32, v: i32) {}
     pub fn uniform1f(l: i32, v: f32) {}
     pub fn uniform4f(l: i32, a: f32, b: f32, c: f32, d: f32) {}
-    pub fn create_buffer() -> u32 { 1 }
+    pub fn create_buffer() -> u32 {
+        1
+    }
     pub fn bind_buffer(t: u32, b: u32) {}
     pub fn buffer_data(t: u32, data: &[u8], usage: u32) {}
-    pub fn create_vertex_array() -> u32 { 1 }
+    pub fn create_vertex_array() -> u32 {
+        1
+    }
     pub fn bind_vertex_array(a: u32) {}
     pub fn enable_attrib(i: u32) {}
     pub fn attrib_pointer(i: u32, size: i32, t: u32, norm: bool, stride: i32, off: usize) {}
@@ -431,14 +807,22 @@ mod api {
     pub fn stencil_op(a: u32, b: u32, c: u32) {}
     pub fn stencil_op_separate(face: u32, a: u32, b: u32, c: u32) {}
     pub fn stencil_mask(m: u32) {}
-    pub fn get_error() -> u32 { 0 }
-    pub fn create_framebuffer() -> u32 { 1 }
+    pub fn get_error() -> u32 {
+        0
+    }
+    pub fn create_framebuffer() -> u32 {
+        1
+    }
     pub fn delete_framebuffer(f: u32) {}
     pub fn framebuffer_texture(tex: u32) {}
-    pub fn create_depth_stencil(w: i32, h: i32) -> u32 { 1 }
+    pub fn create_depth_stencil(w: i32, h: i32) -> u32 {
+        1
+    }
     pub fn delete_renderbuffer(r: u32) {}
     pub fn attach_depth_stencil(r: u32) {}
-    pub fn framebuffer_ok() -> bool { true }
+    pub fn framebuffer_ok() -> bool {
+        true
+    }
 }
 
 pub use api::*;

@@ -29,6 +29,18 @@ mod quest {
         fn eglQueryContext(dpy: *mut c_void, ctx: *mut c_void, attr: i32, value: *mut i32) -> u32;
         fn eglChooseConfig(dpy: *mut c_void, attrs: *const i32, configs: *mut *mut c_void, size: i32, n: *mut i32) -> u32;
     }
+    extern "C" {
+        fn __system_property_get(name: *const u8, value: *mut u8) -> i32;
+    }
+    /// samples a pixel in the eyes: 4, or `adb shell setprop debug.rg.xrsamples N` (0 = off)
+    fn eye_samples_wanted() -> i32 {
+        let mut v = [0u8; 92];
+        let n = unsafe { __system_property_get(b"debug.rg.xrsamples\0".as_ptr(), v.as_mut_ptr()) };
+        if n <= 0 {
+            return 4;
+        }
+        std::str::from_utf8(&v[..n as usize]).ok().and_then(|s| s.trim().parse::<i32>().ok()).map_or(4, |x| x.clamp(0, 8))
+    }
     const EGL_CONFIG_ID: i32 = 0x3028;
     const EGL_NONE: i32 = 0x3038;
     const GL_RGBA8: u32 = 0x8058;
@@ -145,6 +157,10 @@ mod quest {
             let formats = session.enumerate_swapchain_formats().unwrap_or_default();
             let format = [GL_RGBA8, GL_SRGB8_ALPHA8].into_iter().find(|f| formats.contains(f)).or(formats.first().copied()).ok_or("no swapchain format")?;
             let mut eyes = Vec::new();
+            // the eyes draw with 4 samples a pixel where the GPU can (Quest: on
+            // the chip, resolved as each tile is written): smooth edges on the
+            // ships and shapes against space; the swapchain images stay 1 sample
+            let samples = rg_gl::gl::ms_samples(eye_samples_wanted());
             for v in instance.enumerate_view_configuration_views(system, VIEW).map_err(err("views"))? {
                 let (w, h) = (v.recommended_image_rect_width, v.recommended_image_rect_height);
                 let chain = session
@@ -166,9 +182,13 @@ mod quest {
                 for img in images {
                     let f = rg_gl::gl::create_framebuffer();
                     rg_gl::gl::bind_framebuffer(f);
-                    rg_gl::gl::framebuffer_texture(img);
+                    if samples > 1 {
+                        rg_gl::gl::framebuffer_texture_ms(img, samples);
+                    } else {
+                        rg_gl::gl::framebuffer_texture(img);
+                    }
                     if depth == 0 {
-                        depth = rg_gl::gl::create_depth_stencil(w as i32, h as i32);
+                        depth = if samples > 1 { rg_gl::gl::create_depth_stencil_ms(w as i32, h as i32, samples) } else { rg_gl::gl::create_depth_stencil(w as i32, h as i32) };
                     } else {
                         rg_gl::gl::attach_depth_stencil(depth);
                     }
@@ -400,6 +420,10 @@ mod quest {
                         });
                         GL.with(|gl| gl.borrow_mut().render_eye(fbo, [0, 0, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [0.0, 0.0, 0.0, 1.0], stream));
                     });
+                    // the samples are averaged into the image as the framebuffer is left
+                    rg_gl::gl::bind_framebuffer(fbo);
+                    rg_gl::gl::discard_depth_stencil();
+                    rg_gl::gl::bind_framebuffer(0);
                 }
                 eye.chain.release_image().map_err(err("release"))?;
             }
