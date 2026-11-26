@@ -11,6 +11,7 @@ scripts/dev.sh ~/games/solarpilot      # one game's folder → /games/solarpilot
 scripts/dev.sh solarpilot=~/sp --full  # under another id, all its files sent first
 scripts/dev.sh --game kello            # start that game in the app
 scripts/dev.sh --off                   # dev link off again
+scripts/dev.sh --app fi.rangergames.solarpilot ~/games/solarpilot   # a one-game app (Quest)
 ```
 
 It needs a device on adb (USB, or `adb connect <ip>:5555` over Wi-Fi; phones,
@@ -32,6 +33,15 @@ What a save does in the running app:
 The engine's log (console.log, errors with file and line) comes to the
 terminal. A typo shows its error on the screen; the next save starts the game
 again.
+
+## Quest
+
+The headset's VR view (XrActivity) boots like the phone, so the dev link works
+there too; files go in between VR frames. Over Wi-Fi: once with the cable
+`adb tcpip 5555`, then `adb connect <quest-ip>:5555`. A one-game app built with
+`RG_APP_ID` (Solar Pilot: `fi.rangergames.solarpilot`) needs `--app <id>`
+(or `RG_APP_ID=<id>`), since its files folder and package differ. Its game
+folder there is /games/<id> as in the build (solarpilot).
 
 ## Keeping the state: rg.onHot / rg.hot
 
