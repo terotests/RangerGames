@@ -33,8 +33,15 @@ final class GlCtx {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             int[] ver = new int[2];
             if (!EGL14.eglInitialize(display, ver, 0, ver, 1)) throw new IllegalStateException("eglInitialize");
-            config = choose(24);
-            if (config == null) config = choose(16);
+            // 4 samples a pixel where the GPU has them (on a tiled phone GPU the
+            // resolve stays on the chip, nearly free): the edges of the 3D ships and
+            // shapes against space are smooth instead of stairs; adb shell setprop
+            // debug.rg.glsamples 0 (or 2) to compare
+            int ms = samplesWanted();
+            config = ms > 0 ? choose(24, ms) : null;
+            if (config == null && ms > 0) config = choose(16, ms);
+            if (config == null) config = choose(24, 0);
+            if (config == null) config = choose(16, 0);
             if (config == null) throw new IllegalStateException("no GLES 3 config with a stencil");
             context = EGL14.eglCreateContext(display, config, EGL14.EGL_NO_CONTEXT, new int[] {EGL14.EGL_CONTEXT_CLIENT_VERSION, 3, EGL14.EGL_NONE}, 0);
             if (context == EGL14.EGL_NO_CONTEXT) throw new IllegalStateException("eglCreateContext");
@@ -49,11 +56,21 @@ final class GlCtx {
         }
     }
 
-    private EGLConfig choose(int depth) {
+    private static int samplesWanted() {
+        try {
+            Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glsamples", "4");
+            return Math.max(0, Math.min(8, Integer.parseInt((String) v)));
+        } catch (Throwable t) {
+            return 4;
+        }
+    }
+
+    private EGLConfig choose(int depth, int samples) {
         int[] attrs = {EGL14.EGL_RENDERABLE_TYPE, EGLExt.EGL_OPENGL_ES3_BIT_KHR,
                 EGL14.EGL_SURFACE_TYPE, EGL14.EGL_WINDOW_BIT | EGL14.EGL_PBUFFER_BIT,
                 EGL14.EGL_RED_SIZE, 8, EGL14.EGL_GREEN_SIZE, 8, EGL14.EGL_BLUE_SIZE, 8, EGL14.EGL_ALPHA_SIZE, 8,
-                EGL14.EGL_DEPTH_SIZE, depth, EGL14.EGL_STENCIL_SIZE, 8, EGL14.EGL_NONE};
+                EGL14.EGL_DEPTH_SIZE, depth, EGL14.EGL_STENCIL_SIZE, 8,
+                EGL14.EGL_SAMPLE_BUFFERS, samples > 0 ? 1 : 0, EGL14.EGL_SAMPLES, samples, EGL14.EGL_NONE};
         EGLConfig[] cfg = new EGLConfig[1];
         int[] n = new int[1];
         if (!EGL14.eglChooseConfig(display, attrs, 0, cfg, 0, 1, n, 0) || n[0] < 1) return null;

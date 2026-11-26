@@ -120,6 +120,13 @@ mod sys {
         pub fn glRenderbufferStorage(t: u32, fmt: u32, w: i32, h: i32);
         pub fn glFramebufferRenderbuffer(t: u32, att: u32, rt: u32, r: u32);
         pub fn glCheckFramebufferStatus(t: u32) -> u32;
+        pub fn glGetString(name: u32) -> *const u8;
+        pub fn glGetIntegerv(name: u32, out: *mut i32);
+        pub fn glInvalidateFramebuffer(t: u32, n: i32, att: *const u32);
+    }
+    #[link(name = "EGL")]
+    extern "C" {
+        pub fn eglGetProcAddress(name: *const u8) -> *const core::ffi::c_void;
     }
 }
 
@@ -245,6 +252,70 @@ mod api {
     /// renderbuffer `r` (create_depth_stencil's) attached to the bound framebuffer too (Android only: OpenXR's eye images share one)
     pub fn attach_depth_stencil(r: u32) { unsafe { glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r) } }
     pub fn framebuffer_ok() -> bool { unsafe { glCheckFramebufferStatus(super::FRAMEBUFFER) == super::FRAMEBUFFER_COMPLETE } }
+
+    // GL_EXT_multisampled_render_to_texture (Quest's Adreno, most phone GPUs):
+    // a framebuffer that draws with several samples a pixel into a plain
+    // texture; the samples live in the GPU's tile memory and are averaged
+    // as the tile is written out, so the edges are smooth at almost no cost.
+    type FbTexMs = unsafe extern "C" fn(u32, u32, u32, u32, i32, i32);
+    type RbStoreMs = unsafe extern "C" fn(u32, i32, u32, i32, i32);
+    fn ms_fns() -> Option<(FbTexMs, RbStoreMs)> {
+        unsafe {
+            let ext = glGetString(0x1F03); // GL_EXTENSIONS
+            if ext.is_null() {
+                return None;
+            }
+            let all = core::ffi::CStr::from_ptr(ext as *const core::ffi::c_char).to_bytes();
+            let name: &[u8] = b"GL_EXT_multisampled_render_to_texture";
+            if !all.split(|c| *c == b' ').any(|w| w == name) {
+                return None;
+            }
+            let a = eglGetProcAddress(b"glFramebufferTexture2DMultisampleEXT\0".as_ptr());
+            let b = eglGetProcAddress(b"glRenderbufferStorageMultisampleEXT\0".as_ptr());
+            if a.is_null() || b.is_null() {
+                return None;
+            }
+            Some((core::mem::transmute::<*const core::ffi::c_void, FbTexMs>(a), core::mem::transmute::<*const core::ffi::c_void, RbStoreMs>(b)))
+        }
+    }
+    /// how many samples a pixel `framebuffer_texture_ms` can give, up to
+    /// `want` (0 when the GPU lacks GL_EXT_multisampled_render_to_texture)
+    pub fn ms_samples(want: i32) -> i32 {
+        if want < 2 || ms_fns().is_none() {
+            return 0;
+        }
+        let mut max = 0;
+        unsafe { glGetIntegerv(0x8D57, &mut max) }; // GL_MAX_SAMPLES_EXT
+        want.min(max).max(0)
+    }
+    /// texture `tex` as the bound framebuffer's colour, drawn with `samples` a pixel
+    pub fn framebuffer_texture_ms(tex: u32, samples: i32) -> bool {
+        match ms_fns() {
+            Some((f, _)) => {
+                unsafe { f(super::FRAMEBUFFER, super::COLOR_ATTACHMENT0, super::TEXTURE_2D, tex, 0, samples) };
+                true
+            }
+            None => false,
+        }
+    }
+    /// create_depth_stencil with `samples` a pixel (for framebuffer_texture_ms)
+    pub fn create_depth_stencil_ms(w: i32, h: i32, samples: i32) -> u32 {
+        let Some((_, store)) = ms_fns() else { return create_depth_stencil(w, h) };
+        let mut r = 0;
+        unsafe {
+            glGenRenderbuffers(1, &mut r);
+            glBindRenderbuffer(super::RENDERBUFFER, r);
+            store(super::RENDERBUFFER, samples, super::DEPTH24_STENCIL8, w, h);
+            glFramebufferRenderbuffer(super::FRAMEBUFFER, super::DEPTH_STENCIL_ATTACHMENT, super::RENDERBUFFER, r);
+        }
+        r
+    }
+    /// the bound framebuffer's depth and stencil are not needed after the
+    /// frame: the GPU need not write them out of its tiles
+    pub fn discard_depth_stencil() {
+        let a = [super::DEPTH_STENCIL_ATTACHMENT];
+        unsafe { glInvalidateFramebuffer(super::FRAMEBUFFER, 1, a.as_ptr()) }
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
