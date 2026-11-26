@@ -27,6 +27,10 @@
 //!   air, airColor,               // with a texture: glowing air this many radii high (0.02 is
 //!                                // ~130 km on the Earth), lit by the sun, brightest looking
 //!                                // towards it past the rim (a sunrise); replaces `glow`'s layers
+//!   scatter: true | gain | { gain, mie },  // the air lit after O'Neil (GPU Gems 2 ch. 16) instead of
+//!                                // the glow: airColor is the Rayleigh colour (the Earth's blue,
+//!                                // Mars' red-brown), mie the dust and haze against the Earth's (1);
+//!                                // gain the sunlight's strength (1)
 //!   lights, lightsGain,          // with a texture: a picture of city lights read on the night side
 //!   relief,                      // with a texture: its brightness read as height tilts the
 //!                                // ground for the sun, so hills and craters get shadows
@@ -275,6 +279,9 @@ pub struct Globe {
     pub terrain_ok: bool,
     /// glowing air round a textured ball: its height in radii and colour
     air: f64,
+    /// the air lit after O'Neil: the sunlight's strength (0: the older glow) and the dust (Mie, the Earth = 1)
+    scatter: f64,
+    scatter_mie: f64,
     /// rings in the ball's equator plane, drawn by the host's ball shader
     /// (draw.rs `sphere`, 44 numbers): "colour|opacity" pictures (a strip,
     /// inner edge on the left) and the inner and outer edge in radii
@@ -426,6 +433,8 @@ impl Globe {
             terrain_ok: false,
             drawn: 0,
             air: 0.0,
+            scatter: 0.0,
+            scatter_mie: 1.0,
             rings: String::new(),
             ring_in: 0.0,
             ring_out: 0.0,
@@ -504,6 +513,16 @@ impl Globe {
             self.texture = t;
         }
         self.air = a.get("air").as_num(self.air).clamp(0.0, 0.5);
+        match a.get("scatter") {
+            Json::Bool(b) => self.scatter = if b { 1.0 } else { 0.0 },
+            Json::Num(g) => self.scatter = g.clamp(0.0, 20.0),
+            Json::Obj(_) => {
+                let o = a.get("scatter");
+                self.scatter = o.get("gain").as_num(1.0).clamp(0.0, 20.0);
+                self.scatter_mie = o.get("mie").as_num(1.0).clamp(0.0, 50.0);
+            }
+            _ => {}
+        }
         // rings: { src: "colour.png|opacity.png", inner, outer } (radii); false: none
         match a.get("rings") {
             Json::Bool(false) => self.rings.clear(),
@@ -1310,10 +1329,12 @@ impl Globe {
         // the 124-number form (draw.rs `sphere`): close over real ground the eye's remainder past its 32 bits (two
         // eyes 6 cm apart are then 6 cm apart on the Moon too), and the light that changes with the eye
         let view_light = self.dust > 0.0 || self.glint > 0.0 || self.sea_glint > 0.0;
-        let w124 = (terrain && near) || view_light;
+        let scatter = self.air > 0.0 && self.scatter > 0.0;
+        let w124 = (terrain && near) || view_light || scatter;
         let tail: [f32; 8] = [
-            (e[0] - params[0] as f64) as f32, (e[1] - params[1] as f64) as f32, (e[2] - params[2] as f64) as f32, 0.0,
-            self.dust as f32, self.glint as f32, self.sea_glint as f32, 0.0,
+            (e[0] - params[0] as f64) as f32, (e[1] - params[1] as f64) as f32, (e[2] - params[2] as f64) as f32,
+            if scatter { self.scatter as f32 } else { 0.0 },
+            self.dust as f32, self.glint as f32, self.sea_glint as f32, self.scatter_mie as f32,
         ];
         let extra = self.air > 0.0 || !self.lights.is_empty() || self.relief != 0.0 || terrain || rings || flow.is_some() || vort.is_some() || (self.hot[4] > 0.0 && self.hot[2] > 0.0) || self.star[2] > 0.0 || w124;
         // the 32-number form: [20..24] the window (here the whole map), then the air,

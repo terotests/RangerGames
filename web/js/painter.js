@@ -70,7 +70,7 @@
     this.ok = true;
   }
 
-  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "rg_time"];
+  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rg_time"];
   // a globe stage's program ({ prog, u: its uniforms' locations }), or null (why(log) told)
   Spheres.prototype.link = function (fsrc, why) {
     var gl = this.gl, prog = gl.createProgram(), ok = true;
@@ -248,6 +248,9 @@
     gl.uniform1f(u.dust, w124 ? p[120] : 0);
     gl.uniform1f(u.glint, w124 ? p[121] : 0);
     gl.uniform1f(u.seaG, w124 ? p[122] : 0);
+    // the air lit after O'Neil (shaders/lib/scatter.glsl): the sun's strength (0: the glow) and the dust
+    gl.uniform1f(u.scat, w124 ? p[119] : 0);
+    gl.uniform1f(u.smie, w124 ? p[123] : 1);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
     gl.uniform3f(u.fwd, p[9], p[10], p[11]);
