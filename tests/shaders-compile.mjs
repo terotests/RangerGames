@@ -13,7 +13,7 @@ const { chromium } = createRequire(import.meta.url)("playwright");
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const files = [];
-for (const defs of ["RG_YS=1.0", "RG_YS=-1.0"]) {
+for (const defs of ["RG_YS=1.0;RG_DEPTH=1", "RG_YS=-1.0"]) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rgsh-"));
   const out = execFileSync("cargo", ["run", "-q", "--release", "-p", "rg_cli", "--", "shaders", dir, defs], { cwd: root, encoding: "utf8" });
   for (const f of out.trim().split("\n")) files.push({ name: path.relative(dir, f) + " [" + defs + "]", vs: f.endsWith(".vs"), src: fs.readFileSync(f, "utf8") });

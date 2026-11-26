@@ -14,6 +14,7 @@ What differs between hosts is passed as a define, not written twice:
 | Define | Web | Android | Meaning |
 |---|---|---|---|
 | `RG_YS` | `1.0` | `-1.0` | the density picture's v against the screen's up (splats) |
+| `RG_DEPTH` | `1` | (none) | the globe ray's length as the depth (the web's detail windows; the phone's mesh has its own) |
 
 ## Files
 
@@ -26,6 +27,9 @@ What differs between hosts is passed as a define, not written twice:
   - `lib/heat.glsl`: `heat(t)`, black-body colour for anything hot
   - `lib/light.glsl`: `fresnel`, `toksvigPower`, `aaStep`
   - `lib/sprite.glsl`: `softSprite`, `spriteColor`
+- `globe/globe.fs`: textured globes (draw kind 8), ray cast per pixel; painter.js `Spheres` and
+  GlSphere.java (its mesh vertex shader is made from this file's declarations: keep
+  `in vec2 uv;`, `in vec3 wpos;`, `out vec4 o;` and `void main()` written as they are)
 - `splat/`: liquid and gas splats (draw kind 10), used by painter.js and GlSplats.java;
   `splat/liquid.fs` wraps a `liquid()` hook, `splat/liquid.glsl` is the engine's own
 - `test/lib.fs`: uses every library function, only compiled by the tests
@@ -86,9 +90,7 @@ already included; a game file may `#include` its own files and library files.
 
 ## Later
 
-- `SPHERE_FS` still lives in `web/js/painter.js` (scripts/sphere-shader.mjs
-  copies it for Android); it moves here next, split into library files, with a
-  `surface()` hook for globes.
+- `globe/globe.fs` split into library files, with a `surface()` hook for globes.
 - More kinds: `sprite()` / `update()` for particles, `gas()`, `mesh()`.
 - When a second project (RangerThree, MFilesAPI) needs the library, `lib/`
   moves to RangerThree; the paths stay the same.
