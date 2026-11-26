@@ -697,7 +697,12 @@ impl Water {
         };
         Water {
             surface: a.get("surface").as_num(o.surface),
-            color: if a.get("color").is_null() { o.color } else { color(&a.get("color"), o.color) },
+            // a colour as "#rrggbb", or [r, g, b] in 0…1 (light: may go past 1)
+            color: match a.get("color") {
+                Json::Null => o.color,
+                Json::Arr(v) if v.len() >= 3 => [v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)],
+                c => color(&c, o.color),
+            },
             absorb,
             scatter: a.get("scatter").as_num(o.scatter),
             caustics: a.get("caustics").as_num(o.caustics),
