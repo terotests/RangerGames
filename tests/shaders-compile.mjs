@@ -18,6 +18,12 @@ for (const defs of ["RG_YS=1.0;RG_DEPTH=1", "RG_YS=-1.0"]) {
   const out = execFileSync("cargo", ["run", "-q", "--release", "-p", "rg_cli", "--", "shaders", dir, defs], { cwd: root, encoding: "utf8" });
   for (const f of out.trim().split("\n")) files.push({ name: path.relative(dir, f) + " [" + defs + "]", vs: f.endsWith(".vs"), src: fs.readFileSync(f, "utf8") });
 }
+// the phone's mesh vertex shader (GlSphere.meshVs): the globe's declarations and functions, RG_MESH_VS
+for (const f of files.filter((f) => f.name.startsWith("globe/globe.fs") && f.name.includes("RG_YS=-1.0"))) {
+  const pre = f.src.slice(0, f.src.indexOf("void main()")).replace("#version 300 es\n", "#version 300 es\n#define RG_MESH_VS\n")
+    .replace("in vec2 uv;", "in vec2 a; out vec2 uv;").replace("in vec3 wpos;", "out vec3 wpos;").replace("out vec4 o;", "");
+  files.push({ name: "globe/globe.fs as GlSphere's mesh vertex shader", vs: true, src: pre + "\nvoid main() { uv = a; wpos = vec3(a, 0.0); gl_Position = vec4(a, 0.0, 1.0); }" });
+}
 const browser = await chromium.launch({ args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage();
 const res = await page.evaluate((files) => {

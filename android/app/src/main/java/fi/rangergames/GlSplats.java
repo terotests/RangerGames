@@ -199,7 +199,7 @@ final class GlSplats {
     }
 
     /** uniforms "heat=0.8;tint=1,0.5,0.2" into u_heat, u_tint (1 to 4 floats) */
-    private static void uniforms(int prog, String text) {
+    static void uniforms(int prog, String text) {
         if (text.isEmpty()) return;
         for (String kv : text.split(";")) {
             int i = kv.indexOf('=');

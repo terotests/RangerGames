@@ -96,12 +96,12 @@ vec4 vnd(vec3 x) { ivec3 i = ivec3(floor(x)); vec3 f = x - floor(x); vec3 u = f 
   float k1 = b - a, k2 = c - a, k3 = e - a, k4 = a - b - c + d, k5 = a - c - e + h, k6 = a - b - e + g, k7 = -a + b + c - d + e - g - h + k;
   return vec4(a + k1 * u.x + k2 * u.y + k3 * u.z + k4 * u.x * u.y + k5 * u.y * u.z + k6 * u.z * u.x + k7 * u.x * u.y * u.z,
     du * vec3(k1 + k4 * u.y + k6 * u.z + k7 * u.y * u.z, k2 + k5 * u.z + k4 * u.x + k7 * u.z * u.x, k3 + k6 * u.x + k5 * u.y + k7 * u.x * u.y)); }
-float vnoise(vec3 x) { vec3 f = floor(x); ivec3 c = ivec3(f); vec3 t = x - f; t = t * t * (3.0 - 2.0 * t);
+float gvnoise(vec3 x) { vec3 f = floor(x); ivec3 c = ivec3(f); vec3 t = x - f; t = t * t * (3.0 - 2.0 * t);
   float a = mix(hv(c), hv(c + ivec3(1, 0, 0)), t.x), b = mix(hv(c + ivec3(0, 1, 0)), hv(c + ivec3(1, 1, 0)), t.x);
   float e = mix(hv(c + ivec3(0, 0, 1)), hv(c + ivec3(1, 0, 1)), t.x), g = mix(hv(c + ivec3(0, 1, 1)), hv(c + ivec3(1, 1, 1)), t.x);
   return mix(mix(a, b, t.y), mix(e, g, t.y), t.z); }
 // three octaves of value noise, 0..1 (the hot cap's swirling heat)
-float hfb(vec3 x) { return (vnoise(x) * 0.5 + vnoise(x * 2.03) * 0.25 + vnoise(x * 4.11) * 0.125) / 0.875; }
+float hfb(vec3 x) { return (gvnoise(x) * 0.5 + gvnoise(x * 2.03) * 0.25 + gvnoise(x * 4.11) * 0.125) / 0.875; }
 // the granules: cellular noise, the nearest two cell points (F1, F2) of the 27 cells round x
 vec2 cells(vec3 x) { vec3 i = floor(x), f = x - i; float d1 = 8.0, d2 = 8.0;
   for (int k = 0; k < 27; k++) { ivec3 o = ivec3(k % 3 - 1, (k / 3) % 3 - 1, k / 9 - 1); uint h = hsh(ivec3(i) + o);
@@ -116,13 +116,13 @@ vec2 cells(vec3 x) { vec3 i = floor(x), f = x - i; float d1 = 8.0, d2 = 8.0;
 vec3 starSurf(vec3 c, vec3 p, vec3 d, float fp) { float mu = clamp(dot(p, -d), 0.0, 1.0), tm = star.y;
   float g = 1.0; float ga = 1.0 / star.z;
   float w1 = smoothstep(2.0, 6.0, ga / fp), w0 = smoothstep(2.0, 6.0, 6.0 * ga / fp);
-  vec3 wq = vec3(vnoise(p * star.z * 0.5 + vec3(0.0, 0.0, tm * 0.011)), vnoise(p * star.z * 0.5 + vec3(5.2, 1.3, tm * 0.009)), 0.0) - 0.5;
+  vec3 wq = vec3(gvnoise(p * star.z * 0.5 + vec3(0.0, 0.0, tm * 0.011)), gvnoise(p * star.z * 0.5 + vec3(5.2, 1.3, tm * 0.009)), 0.0) - 0.5;
 // (the map's own blotches calmed where the granules show: they are the light's real texture)
   c = mix(c, vec3(1.0, 0.78, 0.4), 0.3 + 0.4 * w1);
   if (w1 > 0.0) { vec3 x = p * star.z + wq * 1.6 + vec3(0.0, 0.0, tm * 0.004); vec2 f = cells(x); float aa = fp * star.z;
     float lane = smoothstep(0.0, 0.24 + aa, f.y - f.x), core = 1.0 - f.x * f.x;
-    float gr = mix(0.5, 0.7 + 0.34 * core + 0.18 * (vnoise(x * 2.7) - 0.5) + 0.16 * (vnoise(x * 0.7) - 0.5), lane); g = mix(0.92, gr, w1 * (0.55 + 0.45 * mu)); }
-  if (w0 > 0.0) g *= mix(1.0, 0.86 + 0.28 * vnoise(p * star.z / 6.0 + vec3(tm * 0.002)), w0);
+    float gr = mix(0.5, 0.7 + 0.34 * core + 0.18 * (gvnoise(x * 2.7) - 0.5) + 0.16 * (gvnoise(x * 0.7) - 0.5), lane); g = mix(0.92, gr, w1 * (0.55 + 0.45 * mu)); }
+  if (w0 > 0.0) g *= mix(1.0, 0.86 + 0.28 * gvnoise(p * star.z / 6.0 + vec3(tm * 0.002)), w0);
   float sh = 1.0, pmx = 0.0; vec3 tint = vec3(1.0); float fac = 0.0;
   for (int i = 0; i < 8; i++) { if (float(i) >= star.x) break; vec3 cs = spots[i].xyz; float ru = spots[i].w, rp = ru * 2.3;
     float ca = dot(p, cs); if (ca < cos(min(rp * 2.6, 1.5))) continue;
@@ -132,7 +132,7 @@ vec3 starSurf(vec3 c, vec3 p, vec3 d, float fp) { float mu = clamp(dot(p, -d), 0
     vec3 ev = normalize(eye); vec3 tv = ev - cs * dot(ev, cs); vec2 wo = vec2(dot(tv, e1), dot(tv, e2)) * 0.45 * ru;
     float r = length(xy), th = atan(xy.y, xy.x), sd = float(i) * 7.31;
     vec3 ang = vec3(cos(th), sin(th), sd);
-    float ruE = ru * (0.78 + 0.4 * vnoise(ang * 2.2) + 0.12 * vnoise(ang * 7.0)), rpE = rp * (0.82 + 0.3 * vnoise(ang * 1.7 + 3.1) + 0.08 * vnoise(ang * 9.0));
+    float ruE = ru * (0.78 + 0.4 * gvnoise(ang * 2.2) + 0.12 * gvnoise(ang * 7.0)), rpE = rp * (0.82 + 0.3 * gvnoise(ang * 1.7 + 3.1) + 0.08 * gvnoise(ang * 9.0));
     float ru2 = length(xy - wo), soft = max(fp, ru * 0.05);
     float um = 1.0 - smoothstep(ruE - soft, ruE + soft, ru2), rw = r - 0.35 * dot(xy / max(r, 1e-9), wo), pm = 1.0 - smoothstep(rpE * 1.14 - 1.5 * soft, rpE * 1.14 + 1.5 * soft, rw);
     if (pm <= 0.0) { fac += (1.0 - mu) * exp(-pow((r - rpE) / rpE, 2.0) * 1.5); continue; }
@@ -140,17 +140,17 @@ vec3 starSurf(vec3 c, vec3 p, vec3 d, float fp) { float mu = clamp(dot(p, -d), 0
 // only where they are a couple of pixels wide, else their mean
     float s = clamp((r - ruE) / max(rpE - ruE, 1e-9), 0.0, 1.0), K = 70.0;
     float fw = smoothstep(1.5, 4.0, 6.2831853 * r / K / fp);
-    float fl = vnoise(vec3(th * K / 6.2831853 * 1.0, s * 2.2 - tm * 0.01, sd)) * 0.65 + vnoise(vec3(th * K / 3.14159 , s * 4.0, sd + 2.0)) * 0.35;
+    float fl = gvnoise(vec3(th * K / 6.2831853 * 1.0, s * 2.2 - tm * 0.01, sd)) * 0.65 + gvnoise(vec3(th * K / 3.14159 , s * 4.0, sd + 2.0)) * 0.35;
     fl = mix(0.5, smoothstep(0.38, 0.68, fl), fw);
 // finer threads close by (about 230 round the spot)
     float fw2 = smoothstep(1.5, 4.0, 6.2831853 * r / (K * 3.3) / fp);
-    if (fw2 > 0.0) fl = mix(fl, fl * (0.55 + 0.9 * smoothstep(0.25, 0.8, 1.0 - abs(2.0 * vnoise(vec3(th * K * 3.3 / 6.2831853, s * 6.0 - tm * 0.02, sd + 5.0)) - 1.0))), fw2);
+    if (fw2 > 0.0) fl = mix(fl, fl * (0.55 + 0.9 * smoothstep(0.25, 0.8, 1.0 - abs(2.0 * gvnoise(vec3(th * K * 3.3 / 6.2831853, s * 6.0 - tm * 0.02, sd + 5.0)) - 1.0))), fw2);
 // the outer edge ragged: the filaments reach out between the granules
     float re = rpE * (0.86 + 0.28 * fl); pm = min(pm, 1.0 - smoothstep(re - 1.5 * soft, re + 1.5 * soft, rw));
     float pb = 0.36 + 0.46 * fl + 0.28 * fl * exp(-s * 5.0) * fw;
 // the umbra: dark, deep red, with bright umbral dots where they can be seen
-    float dw = smoothstep(1.5, 4.0, ru * 0.08 / fp); float dots = pow(vnoise(p / (ru * 0.07) + vec3(sd)), 6.0) * 1.6 * dw;
-    float ub = 0.07 + 0.05 * vnoise(p / (ru * 0.3) + vec3(sd)) + 0.2 * dots;
+    float dw = smoothstep(1.5, 4.0, ru * 0.08 / fp); float dots = pow(gvnoise(p / (ru * 0.07) + vec3(sd)), 6.0) * 1.6 * dw;
+    float ub = 0.07 + 0.05 * gvnoise(p / (ru * 0.3) + vec3(sd)) + 0.2 * dots;
     float b = mix(pb, ub, um); sh = min(sh, mix(1.0, b, pm)); pmx = max(pmx, pm);
     tint = mix(tint, mix(vec3(1.0, 0.72, 0.48), vec3(0.95, 0.42, 0.22), um), pm); }
   float ld = 1.0 - star.w * (1.0 - pow(mu, 0.8));
@@ -169,7 +169,7 @@ float crater(vec3 p, float f, int o) { vec3 x = p * f + vec3(0.37, 0.61, 0.19) *
 // (n may be fractional: the last octave then counts by its fraction, so that the finer ones fade in by the pixel's
 // size instead of turning on at a distance, a line that swept over the ground as the ship moved)
 float bumpsF(vec3 p, float n) { if (hamp <= 0.0) return 0.0; float s = 0.0, a = 1.0, f = hfreq;
-  for (int k = 0; k < 9; k++) { float w = clamp(n - float(k), 0.0, 1.0); if (w <= 0.0) break; s += w * a * (2.0 * vnoise(p * f) - 1.0); a *= 0.48; f *= 2.03; }
+  for (int k = 0; k < 9; k++) { float w = clamp(n - float(k), 0.0, 1.0); if (w <= 0.0) break; s += w * a * (2.0 * gvnoise(p * f) - 1.0); a *= 0.48; f *= 2.03; }
   float cr = 0.0; if (crat > 0.0) { float cf = hfreq * 0.9; float nc = n >= 5.0 ? n - 2.0 : max(n - 2.0, 1.0);
     for (int k = 0; k < 7; k++) { float w = clamp(nc - float(k), 0.0, 1.0); if (w <= 0.0) break; cr += w * (crater(p, cf, 2 * k) + crater(p, cf, 2 * k + 1)); cf *= 2.7; } }
   return s * hamp + cr * crat; }
@@ -295,6 +295,17 @@ float grains(vec3 y, vec3 n, vec3 hw, float fpt) { float Lf = log2(max(fpt, 1e-1
     vec3 nf = normalize(n + 1.2 * rn); if (dot(nf, n) < 0.0) nf = reflect(nf, n); vec3 q = r - fl - j; q -= n * dot(q, n); float dd = length(q) * cs / fpt;
     sp += (k == 0 ? 1.0 - fr : fr) * (1.0 - smoothstep(0.25, 0.9, dd)) * pow(max(dot(nf, hw), 0.0), 150.0); }
   return sp; }
+// a game's own look on top (rg.shader kind "surface", the draw stream's header slots 9-11): the hook gets
+// the point and what the engine has drawn there, and gives the colour; the engine's own (surface.glsl) keeps it.
+// Left out of a phone's mesh vertex shader (GlSphere.meshVs defines RG_MESH_VS): it may use fwidth.
+uniform float rg_time;
+struct Surface { vec3 p; vec3 n; vec2 uv; vec3 col; vec3 sun; vec3 view; float t; float light; float day; };
+#ifndef RG_MESH_VS
+#include "lib/noise.glsl"
+#include "lib/heat.glsl"
+#include "lib/light.glsl"
+#include "<hook>"
+#endif
 void main() {
   vec2 px = box.xy + uv * box.zw;
   bool mesh = meshM > 0.5 && meshM < 1.5;
@@ -459,7 +470,7 @@ void main() {
     if (hx > 0.0) { float hl = lum(vec2(u, v)); vec3 q = p * 5.0;
       vec2 wq = vec2(hfb(q + vec3(1.7, 9.2, 3.1)), hfb(q + vec3(8.3, 2.8, 5.4))) - 0.5;
       float n = hfb(q * 1.7 + vec3(wq * 2.4, wq.x - wq.y));
-      float rv = 1.0 - abs(2.0 * vnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0), vein = rv * rv * rv * rv; vein *= vein;
+      float rv = 1.0 - abs(2.0 * gvnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0), vein = rv * rv * rv * rv; vein *= vein;
       float h = clamp(hw * 0.82 + (n - 0.5) * 1.15 + 0.25 * hl * hw + vein * 0.8 * hx * (1.0 - 0.5 * hw), 0.0, 1.5);
       vec3 g = mix(vec3(0.42, 0.05, 0.02), vec3(0.86, 0.22, 0.04), smoothstep(0.0, 0.35, h));
       g = mix(g, vec3(1.0, 0.55, 0.12), smoothstep(0.28, 0.62, h)); g = mix(g, vec3(1.0, 0.84, 0.4), smoothstep(0.58, 0.95, h));
@@ -467,6 +478,7 @@ void main() {
       g += vec3(1.0, 0.68, 0.24) * 0.5 * hw * (1.0 - hw) * 4.0 * (1.0 - step(3.0, hot.w));
       float ca = clamp(hw * (0.7 + 0.6 * n) + vein * hx * (1.0 - hw) * 1.2, 0.0, 1.0);
       c = mix(c, g * hotk.y, ca); } }
+  c = surface(Surface(p, n, lonlat(p), c, sun, -d, rg_time, kl, s));
 // city lights on the night side (the map read at the point itself, also under a detail window)
   if (useL > 0.5 && lit > 0.5) {
     vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));
