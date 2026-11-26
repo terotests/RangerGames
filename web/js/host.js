@@ -76,6 +76,16 @@
         if (n < 0) throw new Error("the games pack is not a pack");
         self.restoreSaves();
         self.x.rg_seed(Date.now() % 2147483647);
+        if (self.x.rg_shader && global.RgPainter && global.RgPainter.setShaderSource) {
+          global.RgPainter.setShaderSource(function (path, defs) {
+            var a = self.put(path), b = self.put(defs);
+            var r = self.x.rg_shader(a[0], a[1], b[0], b[1]);
+            self.free(a); self.free(b);
+            var t = self.text(self.x.rg_result_ptr(), self.x.rg_result_len());
+            if (r !== 0) { console.warn("shader " + path + ": " + t); return null; }
+            return t;
+          });
+        }
         // ?notex: planets drawn from their regions even where textures work
         if (self.x.rg_textures && global.RgPainter && global.RgPainter.canDrawSpheres && !params.has("notex") && global.RgPainter.canDrawSpheres()) {
           self.x.rg_textures(1);

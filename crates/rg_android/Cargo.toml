@@ -8,6 +8,7 @@ publish = false
 [dependencies]
 rg_engine = { path = "../rg_engine" }
 rg_gl = { path = "../rg_gl" }
+rg_shader = { path = "../rg_shader" }
 rg_core = { path = "../rg_core" }
 jni = { version = "0.21", default-features = false }
 

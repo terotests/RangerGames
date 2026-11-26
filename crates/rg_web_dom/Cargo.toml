@@ -23,6 +23,7 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 rg_engine = { path = "../rg_engine" }
 rg_core = { path = "../rg_core" }
+rg_shader = { path = "../rg_shader" }
 # shared-cell: EVG's and DomView's Rust share cells as the Go and JS builds
 # do (runtime/rust/ranger/src/cell.rs), as RangerDOM's own hosts build them
 ranger = { path = "../../.deps/Ranger/runtime/rust/ranger", features = ["shared-cell"] }
