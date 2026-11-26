@@ -195,6 +195,7 @@ dependencies = [
  "rg_core",
  "rg_engine",
  "rg_gl",
+ "rg_shader",
 ]
 
 [[package]]
@@ -203,6 +204,7 @@ version = "0.1.0"
 dependencies = [
  "rg_core",
  "rg_engine",
+ "rg_shader",
 ]
 
 [[package]]
@@ -235,6 +237,10 @@ name = "rg_gl"
 version = "0.1.0"
 
 [[package]]
+name = "rg_shader"
+version = "0.1.0"
+
+[[package]]
 name = "rg_voice"
 version = "0.1.0"
 dependencies = [
@@ -249,6 +255,7 @@ dependencies = [
  "rg_core",
  "rg_engine",
  "rg_gl",
+ "rg_shader",
 ]
 
 [[package]]

@@ -255,6 +255,19 @@ pub unsafe extern "C" fn rg_eval(p: *const u8, n: usize) -> i32 {
     })
 }
 
+/// A built-in shader stage (shaders/<path>, e.g. "splat/show.fs") assembled
+/// with the host's defines ("RG_YS=1.0"): 0 and the source in the result
+/// buffer, or 1 and the error there (rg_shader).
+#[no_mangle]
+pub unsafe extern "C" fn rg_shader(p: *const u8, n: usize, dp: *const u8, dn: usize) -> i32 {
+    let (r, code) = match rg_shader::assemble_builtin(&text(p, n), &text(dp, dn)) {
+        Ok(b) => (b.src, 0),
+        Err(e) => (e, 1),
+    };
+    RESULT.with(|b| *b.borrow_mut() = r.into_bytes());
+    code
+}
+
 #[no_mangle]
 pub extern "C" fn rg_tree() -> usize {
     with(|e| {

@@ -56,7 +56,7 @@ jobs:
           key: voice-${{ hashFiles('voice/**', 'crates/rg_voice/**', 'scripts/build-voice.sh', 'scripts/setup-piper.sh') }}
           restore-keys: voice-
       - name: Unit tests
-        run: cargo test -p rg_core -p rg_engine -p rg_voice
+        run: cargo test -p rg_core -p rg_engine -p rg_voice -p rg_shader
       - name: rg_core stays in Ranger's Rust subset (JavaScript, C++, Go, Python)
         run: TARGETS="es6 cpp go python" bash scripts/check-ranger.sh
       - name: Valopeilit levels are solvable with their trays

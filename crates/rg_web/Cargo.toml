@@ -9,6 +9,7 @@ publish = false
 rg_engine = { path = "../rg_engine" }
 rg_core = { path = "../rg_core" }
 rg_gl = { path = "../rg_gl" }
+rg_shader = { path = "../rg_shader" }
 
 [lib]
 crate-type = ["cdylib"]

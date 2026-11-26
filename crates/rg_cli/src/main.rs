@@ -6,6 +6,7 @@
 //!                                         runs a game headless and prints what it drew
 //!   rg_cli test <games dir> [frames]      runs every game with taps all over the screen;
 //!                                         fails when a script throws
+//!   rg_cli shaders <dir> [defines]       every built-in shader stage (shaders/) assembled, one file each
 //!   RG_LANG=en|es before either: the games in English or Spanish
 
 use rg_core::vfs::Vfs;
@@ -240,14 +241,44 @@ fn pack(args: &[String]) -> i32 {
     0
 }
 
+/// `rg_cli shaders <dir> [defines]`: every built-in stage (shaders/*.vs, *.fs)
+/// assembled as a host gets it, one file each, for tests/shaders-compile.mjs.
+fn shaders(args: &[String]) -> i32 {
+    let Some(dir) = args.first() else {
+        eprintln!("usage: rg_cli shaders <dir> [defines]");
+        return 2;
+    };
+    let defs = args.get(1).map(|s| s.as_str()).unwrap_or("RG_YS=1.0");
+    let mut bad = 0;
+    for p in rg_shader::names() {
+        if !(p.ends_with(".vs") || p.ends_with(".fs")) {
+            continue;
+        }
+        match rg_shader::assemble_builtin(p, defs) {
+            Ok(b) => {
+                let out = Path::new(dir).join(p);
+                std::fs::create_dir_all(out.parent().unwrap()).ok();
+                std::fs::write(&out, b.src).expect("write");
+                println!("{}", out.display());
+            }
+            Err(e) => {
+                eprintln!("{}", e);
+                bad += 1;
+            }
+        }
+    }
+    if bad > 0 { 1 } else { 0 }
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(|s| s.as_str()) {
         Some("pack") => pack(&args[1..]),
         Some("run") => run(&args[1..]),
         Some("test") => test(&args[1..]),
+        Some("shaders") => shaders(&args[1..]),
         _ => {
-            eprintln!("rg_cli pack | run | test  (see the source's header)");
+            eprintln!("rg_cli pack | run | test | shaders  (see the source's header)");
             2
         }
     };

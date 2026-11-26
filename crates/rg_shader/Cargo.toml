@@ -1,0 +1,9 @@
+[package]
+name = "rg_shader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+description = "The engine's GLSL in one place (shaders/): built-in sources, the shared library and the assembler that turns a stage file with #include lines and defines into one GLSL ES 3.00 source for WebGL2, GLES 3 (Android, Quest) alike"
+
+[dependencies]

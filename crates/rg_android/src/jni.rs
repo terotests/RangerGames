@@ -266,6 +266,33 @@ pub extern "system" fn Java_fi_rangergames_Engine_log(mut env: JNIEnv, _c: JClas
     jtext(&mut env, &s)
 }
 
+/// A built-in shader stage (shaders/<path>) assembled with the app's defines
+/// ("RG_YS=-1.0"); null when it fails (the error goes to the log). Needs no
+/// engine, so any thread may ask.
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_shader(
+    mut env: JNIEnv,
+    _c: JClass,
+    path: JString,
+    defines: JString,
+) -> jstring {
+    let path = text(&mut env, &path);
+    let defines = text(&mut env, &defines);
+    match rg_shader::assemble_builtin(&path, &defines) {
+        Ok(b) => jtext(&mut env, &b.src),
+        Err(e) => {
+            LOG.with(|l| {
+                let mut l = l.borrow_mut();
+                if !l.is_empty() {
+                    l.push('\n');
+                }
+                l.push_str(&format!("shader: {}", e));
+            });
+            std::ptr::null_mut()
+        }
+    }
+}
+
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_view(
     _env: JNIEnv,

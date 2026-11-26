@@ -19,40 +19,18 @@ import java.nio.FloatBuffer;
  */
 final class GlSplats {
     private static final String TAG = "RangerGames";
-    private static final String SPLAT_VS = "#version 300 es\nlayout(location=0) in vec2 q; layout(location=1) in vec4 s; uniform vec4 xf; out vec2 lq; out float tt;" +
-            "void main() { lq = q; tt = s.w; vec2 p = s.xy + q * s.z * 1.6; gl_Position = vec4(p * xf.xy + xf.zw, 0.0, 1.0); }";
-    private static final String SPLAT_FS = "#version 300 es\nprecision highp float; in vec2 lq; in float tt; uniform float gain; out vec4 o;" +
-            "void main() { float d = dot(lq, lq); if (d > 1.0) discard; float w = exp(-4.0 * d) * gain; o = vec4(w, w * tt, 0.0, 0.0); }";
-    private static final String SHOW_VS = "#version 300 es\nlayout(location=0) in vec2 q; out vec2 uv; void main() { uv = q * 0.5 + 0.5; gl_Position = vec4(q, 0.0, 1.0); }";
-    private static final String SHOW_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac; out vec4 o;" +
-            "float D(vec2 t) { return texture(den, t).r / gain; }" +
-            "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.02) discard;" +
-            "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
-            "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
-            "  float gx = D(uv + vec2(texel.x, 0.0)) - D(uv - vec2(texel.x, 0.0)), gy = D(uv + vec2(0.0, texel.y)) - D(uv - vec2(0.0, texel.y));" +
-            "  vec3 n = normalize(vec3(-gx * 3.0, gy * 3.0, 1.0)); vec3 l = normalize(light * vec3(1.0, -1.0, 1.0));" +
-            "  float dif = 0.45 + 0.55 * max(dot(n, l), 0.0), spec = pow(max(dot(reflect(-l, n), vec3(0.0, 0.0, 1.0)), 0.0), 28.0) * 0.5;" +
-            "  float glow = smoothstep(0.35, 0.9, tm); vec3 col = c * mix(dif, 1.0, glow * 0.7) + spec * mix(vec3(1.0), c, 0.4);" +
-            "  float body = smoothstep(0.3, 0.55, d), halo = smoothstep(0.02, 0.3, d) * 0.35 * (0.3 + glow);" +
-            "  float al = max(body, halo) * opac; o = vec4(mix(c * (0.6 + glow), col, body) * al, al); }";
+    /**
+     * The shaders come from the engine (shaders/splat/*.vs, *.fs in the
+     * repository, assembled by rg_shader), the same source painter.js uses;
+     * RG_YS -1: the density picture's v runs against the screen's up here.
+     */
+    private static final String DEFS = "RG_YS=-1.0";
 
-    /** see-through gas (look "gas"), painter.js gasFs; the picture's v against the screen's up as the liquid's normal here */
-    private static final String GAS_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac, kd; out vec4 o;" +
-            "float D(vec2 t) { return texture(den, t).r / gain; }" +
-            "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.004) discard;" +
-            "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
-            "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
-            "  vec3 l = normalize(light * vec3(1.0, -1.0, 1.0)); vec2 s = vec2(l.x, l.y * -1.0) * texel;" +
-            "  float db = 0.5 * d + 0.125 * (D(uv + vec2(texel.x, 0.0)) + D(uv - vec2(texel.x, 0.0)) + D(uv + vec2(0.0, texel.y)) + D(uv - vec2(0.0, texel.y)));" +
-            "  float al = 1.0 - exp(-kd * db);" +
-            "  float occ = D(uv + s * 4.0) + D(uv + s * 12.0) + D(uv + s * 28.0);" +
-            "  float lit = exp(-kd * 0.12 * occ);" +
-            "  float front = 0.5 + 0.5 * l.z, back = max(-l.z, 0.0);" +
-            "  float dif = 0.25 + 0.75 * lit * mix(0.4, 1.0, front);" +
-            "  float fwd = back * back * (1.0 - al) * lit * 1.6;" +
-            "  float glow = smoothstep(0.35, 0.9, tm);" +
-            "  vec3 col = mix(c * (dif + fwd), c * 1.25, glow);" +
-            "  float oa = al * opac; o = vec4(col * oa, oa); }";
+    private static String src(String path) {
+        String s = Engine.shader(path, DEFS);
+        if (s == null) throw new RuntimeException("shader " + path + " missing");
+        return s;
+    }
 
     private final GlSphere gl;
     boolean ok;
@@ -76,8 +54,8 @@ final class GlSplats {
             gl.current();
             String ext = GLES30.glGetString(GLES30.GL_EXTENSIONS);
             f16 = ext != null && (ext.contains("GL_EXT_color_buffer_half_float") || ext.contains("GL_EXT_color_buffer_float"));
-            add = program(SPLAT_VS, SPLAT_FS);
-            show = program(SHOW_VS, SHOW_FS);
+            add = program(src("splat/splat.vs"), src("splat/splat.fs"));
+            show = program(src("splat/show.vs"), src("splat/show.fs"));
             uXf = GLES30.glGetUniformLocation(add, "xf");
             uGain = GLES30.glGetUniformLocation(add, "gain");
             uDen = GLES30.glGetUniformLocation(show, "den");
@@ -87,7 +65,7 @@ final class GlSplats {
             uNpal = GLES30.glGetUniformLocation(show, "npal");
             uSGain = GLES30.glGetUniformLocation(show, "gain");
             uOpac = GLES30.glGetUniformLocation(show, "opac");
-            gas = program(SHOW_VS, GAS_FS);
+            gas = program(src("splat/show.vs"), src("splat/gas.fs"));
             gDen = GLES30.glGetUniformLocation(gas, "den");
             gPal = GLES30.glGetUniformLocation(gas, "pal");
             gTexel = GLES30.glGetUniformLocation(gas, "texel");

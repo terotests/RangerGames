@@ -732,49 +732,15 @@
   // pixels; then where the density is thick enough it shows as a liquid surface: the mean
   // temperature picks the colour, the density's slope makes a normal that the light shades and
   // glints off, and the thin edge fades out. Drawn into a picture of its own, then into the canvas.
-  var SPLAT_VS = "#version 300 es\nlayout(location=0) in vec2 q; layout(location=1) in vec4 s; uniform vec4 xf; out vec2 lq; out float tt;" +
-    "void main() { lq = q; tt = s.w; vec2 p = s.xy + q * s.z * 1.6; gl_Position = vec4(p * xf.xy + xf.zw, 0.0, 1.0); }";
-  var SPLAT_FS = "#version 300 es\nprecision highp float; in vec2 lq; in float tt; uniform float gain; out vec4 o;" +
-    "void main() { float d = dot(lq, lq); if (d > 1.0) discard; float w = exp(-4.0 * d) * gain; o = vec4(w, w * tt, 0.0, 0.0); }";
-  var SHOW_VS = "#version 300 es\nlayout(location=0) in vec2 q; out vec2 uv; void main() { uv = q * 0.5 + 0.5; gl_Position = vec4(q, 0.0, 1.0); }";
-  var SHOW_FS = "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac; out vec4 o;" +
-    "float D(vec2 t) { return texture(den, t).r / gain; }" +
-    "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.02) discard;" +
-    "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
-    "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
-    // the surface: where the density passes 0.35; its slope a normal (screen y down in the picture: flipped)
-    "  float gx = D(uv + vec2(texel.x, 0.0)) - D(uv - vec2(texel.x, 0.0)), gy = D(uv + vec2(0.0, texel.y)) - D(uv - vec2(0.0, texel.y));" +
-    "  vec3 n = normalize(vec3(-gx * 3.0, -gy * 3.0, 1.0)); vec3 l = normalize(light * vec3(1.0, -1.0, 1.0));" +
-    "  float dif = 0.45 + 0.55 * max(dot(n, l), 0.0), spec = pow(max(dot(reflect(-l, n), vec3(0.0, 0.0, 1.0)), 0.0), 28.0) * 0.5;" +
-    // hot magma glows of itself (less shading), cold rock is lit
-    "  float glow = smoothstep(0.35, 0.9, tm); vec3 col = c * mix(dif, 1.0, glow * 0.7) + spec * mix(vec3(1.0), c, 0.4);" +
-    "  float body = smoothstep(0.3, 0.55, d), halo = smoothstep(0.02, 0.3, d) * 0.35 * (0.3 + glow);" +
-    "  float al = max(body, halo) * opac; o = vec4(mix(c * (0.6 + glow), col, body) * al, al); }";
-
-  // see-through gas (look "gas"): alpha 1 - exp(-k × weight), no surface; lit by how the sun
-  // lies to the eye (light.z: towards the eye), shadowed by the gas between it and the sun
-  // (sampled towards the light on the screen), thin gas against the sun scatters it forward,
-  // the hot part glows of itself. YS: the picture's v against the screen's up (painter: 1).
-  var gasFs = function (ys) {
-    return "#version 300 es\nprecision highp float; in vec2 uv; uniform sampler2D den, pal; uniform vec2 texel; uniform vec3 light; uniform float npal, gain, opac, kd; out vec4 o;" +
-      "float D(vec2 t) { return texture(den, t).r / gain; }" +
-      "void main() { vec4 a = texture(den, uv); float d = a.r / gain; if (d < 0.004) discard;" +
-      "  float tm = clamp(a.g / max(a.r, 1e-6), 0.0, 1.0);" +
-      "  vec3 c = texture(pal, vec2((tm * (npal - 1.0) + 0.5) / npal, 0.5)).rgb;" +
-      "  vec3 l = normalize(light * vec3(1.0, -1.0, 1.0)); vec2 s = vec2(l.x, l.y * " + ys + ") * texel;" +
-      // soft: the density blurred a little (4 taps round it)
-      "  float db = 0.5 * d + 0.125 * (D(uv + vec2(texel.x, 0.0)) + D(uv - vec2(texel.x, 0.0)) + D(uv + vec2(0.0, texel.y)) + D(uv - vec2(0.0, texel.y)));" +
-      "  float al = 1.0 - exp(-kd * db);" +
-      "  float occ = D(uv + s * 4.0) + D(uv + s * 12.0) + D(uv + s * 28.0);" +
-      "  float lit = exp(-kd * 0.12 * occ);" +
-      "  float front = 0.5 + 0.5 * l.z, back = max(-l.z, 0.0);" +
-      "  float dif = 0.25 + 0.75 * lit * mix(0.4, 1.0, front);" +
-      "  float fwd = back * back * (1.0 - al) * lit * 1.6;" +
-      "  float glow = smoothstep(0.35, 0.9, tm);" +
-      "  vec3 col = mix(c * (dif + fwd), c * 1.25, glow);" +
-      "  float oa = al * opac; o = vec4(col * oa, oa); }";
-  };
-  var GAS_FS = gasFs("1.0");
+  // The shaders come from the engine (shaders/splat/*.vs, *.fs in the repository, assembled by
+  // rg_shader; host.js sets shaderSource), the same source the Android app uses. RG_YS 1: the
+  // density picture's v runs with the screen's up here (the phone's runs against it).
+  var shaderSource = null;
+  function splatSrc(path) {
+    var s = shaderSource ? shaderSource(path, "RG_YS=1.0") : null;
+    if (!s) throw new Error("shader " + path + " missing");
+    return s;
+  }
 
   function Splats() {
     this.ok = false;
@@ -794,9 +760,9 @@
         gl.linkProgram(p);
         return p;
       };
-      this.add = mk(SPLAT_VS, SPLAT_FS);
-      this.show = mk(SHOW_VS, SHOW_FS);
-      this.gas = mk(SHOW_VS, GAS_FS);
+      this.add = mk(splatSrc("splat/splat.vs"), splatSrc("splat/splat.fs"));
+      this.show = mk(splatSrc("splat/show.vs"), splatSrc("splat/show.fs"));
+      this.gas = mk(splatSrc("splat/show.vs"), splatSrc("splat/gas.fs"));
       this.quad = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
@@ -1120,6 +1086,8 @@
   global.RgPainter = Painter;
   global.RgPainter.canDrawSpheres = canDrawSpheres;
   global.RgPainter.canDrawSplats = canDrawSplats;
+  // f(path, defines) -> GLSL source or null: the engine's built-in shaders (host.js, rg_shader)
+  global.RgPainter.setShaderSource = function (f) { shaderSource = f; };
   // sphere commands with a detail window (24 numbers) are understood
   global.RgPainter.canDrawDetail = canDrawSpheres;
   // and real heights (40 numbers: the ground's shape, made-up bumps)
