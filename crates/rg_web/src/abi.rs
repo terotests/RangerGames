@@ -96,6 +96,19 @@ pub extern "C" fn rg_restyle() -> i32 {
     with(|e| e.restyle() as i32)
 }
 
+/// Dev reload (scripts/dev.sh, web/js/dev.js): the host put these files
+/// again (VFS paths, one a line). 2 the running game started again, 1 its
+/// style.css was read again, 0 it goes on (rg_engine Engine::dev_changed).
+#[no_mangle]
+pub unsafe extern "C" fn rg_dev_changed(p: *const u8, n: usize) -> i32 {
+    let paths: Vec<String> = text(p, n).lines().filter(|l| !l.is_empty()).map(|l| l.to_string()).collect();
+    with(|e| {
+        let r = e.dev_changed(&paths);
+        publish(e);
+        r
+    })
+}
+
 /// The pack of game `id` that a "pack" command asked for is mounted (`ok`
 /// 1) or could not be fetched (0).
 #[no_mangle]

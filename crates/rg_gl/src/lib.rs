@@ -542,6 +542,14 @@ impl Renderer {
     }
 
     /// Drops the least recently drawn pictures past the budget (not this frame's).
+    /// A picture changed in the VFS (dev reload): its texture uploaded again when next drawn.
+    pub fn forget(&mut self, src: &str) {
+        if let Some(p) = self.pics.remove(src) {
+            gl::delete_texture(p.tex);
+            self.pic_bytes -= p.bytes;
+        }
+    }
+
     fn evict(&mut self) {
         if self.pic_bytes <= IMAGE_BUDGET {
             return;

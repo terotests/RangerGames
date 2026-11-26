@@ -173,3 +173,10 @@ pub extern "C" fn rg_xr_eye(i: i32, fbo: u32, x: i32, y: i32, w: i32, h: i32, r:
         })
     })
 }
+
+/// Dev reload: a picture changed in the VFS, its texture is uploaded again when next drawn.
+#[no_mangle]
+pub unsafe extern "C" fn rg_gl_forget(p: *const u8, n: usize) {
+    let path = text(p, n);
+    GL.with(|gl| gl.borrow_mut().forget(&path));
+}

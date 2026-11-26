@@ -37,6 +37,11 @@ final class GlHost {
     /** one picture uploaded a frame, so several do not land in the same one */
     private static boolean uploaded;
 
+    /** Dev reload: the picture at path changed (rg_gl forgets its texture in Engine.devChanged). */
+    static void forget(String path) {
+        decoding.remove(path);
+    }
+
     /** A new frame: another picture may be uploaded (MainActivity, after each GL frame). */
     static void frameDone() {
         uploaded = false;

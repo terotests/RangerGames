@@ -299,6 +299,10 @@ pub struct Engine {
     /// the game whose own pack the host is fetching (web: every game but the
     /// launcher is a separate pack, `/games/<id>/_pack.url` names its address)
     pub waiting_pack: Option<String>,
+    /// dev reload: what the last game gave with rg.onHot, for the next start (rg.hot)
+    hot: Json,
+    /// (game id, rg.hot) of a reload that failed, for the next one
+    hot_kept: (String, Json),
     /// the game that lists the others (`launcher`)
     pub launcher: String,
     /// an app of one game (/games/_app.json): `launcher` is that game
@@ -419,6 +423,8 @@ impl Engine {
             perf: Perf::default(),
             pending: None,
             waiting_pack: None,
+            hot: Json::Null,
+            hot_kept: (String::new(), Json::Null),
             launcher: "launcher".to_string(),
             app: false,
             saved: Json::Obj(Vec::new()),
@@ -660,6 +666,71 @@ impl Engine {
         true
     }
 
+    /// Dev reload: the running game started again from the VFS (a host put
+    /// new files there). What the game gives with rg.onHot goes to the new
+    /// start as rg.hot; a game that gives nothing starts fresh (its saves stay).
+    pub fn reload(&mut self) -> Result<(), String> {
+        let id = match &self.game {
+            Some(g) if g.id != self.launcher => g.id.clone(),
+            _ => String::new(),
+        };
+        let hot = match self.script.as_mut().map(|s| s.call("__hotSave", String::new())) {
+            Some(Ok(text)) => json::parse(&text),
+            Some(Err(e)) => {
+                self.log.push(format!("rg.onHot: {}", e));
+                Json::Null
+            }
+            // the last reload failed (a typo): what the game gave before it
+            None if self.hot_kept.0 == id => self.hot_kept.1.clone(),
+            None => Json::Null,
+        };
+        self.hot = hot.clone();
+        let r = self.start(&id);
+        self.hot = Json::Null;
+        self.hot_kept = if r.is_err() { (id, hot) } else { (String::new(), Json::Null) };
+        r
+    }
+
+    /// Dev: the host put these files (VFS paths) again. 2 the running game
+    /// was started again (its scripts, game.json or texts changed), 1 only its
+    /// style.css changed and was read again (the game keeps running), 0 the
+    /// running game does not use them as code (pictures, sounds, other games:
+    /// the host forgets its decoded copies).
+    pub fn dev_changed(&mut self, paths: &[String]) -> i32 {
+        let info = match &self.game {
+            Some(g) => g.clone(),
+            None => return 0,
+        };
+        let prefix = format!("{}/", info.dir.trim_end_matches('/'));
+        let style = vfs::join(&info.dir, &info.style);
+        let mut css = false;
+        let mut code = false;
+        for p in paths {
+            // the launcher lists every game: a new or changed game.json shows there
+            let lists = info.id == self.launcher && p.ends_with("/game.json");
+            if !p.starts_with(&prefix) && !lists {
+                continue;
+            }
+            if *p == style {
+                css = true;
+                continue;
+            }
+            match vfs::extension(p).as_str() {
+                "ts" | "tsx" | "js" | "jsx" | "json" | "txt" | "css" => code = true,
+                _ => {}
+            }
+        }
+        if code || (self.error.len() > 0 && css) {
+            let _ = self.reload();
+            2
+        } else if css {
+            self.restyle();
+            1
+        } else {
+            0
+        }
+    }
+
     pub fn start(&mut self, id: &str) -> Result<(), String> {
         self.app_start();
         let id = if id.is_empty() { self.launcher.clone() } else { id.to_string() };
@@ -769,6 +840,12 @@ impl Engine {
         }
         if let Err(e) = s.eval(&format!("__settings({});", self.settings.write()), "settings.js") {
             return self.fail(e);
+        }
+        // dev reload: what the game gave with rg.onHot, before its code runs
+        if !matches!(self.hot, Json::Null) {
+            if let Err(e) = s.eval(&format!("rg.hot = {};", self.hot.write()), "hot.js") {
+                return self.fail(e);
+            }
         }
         // the game's other script files, as modules it can import by their
         // path without the extension ("lib/util") or relatively

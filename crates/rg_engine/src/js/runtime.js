@@ -644,6 +644,17 @@ function __frame(arg) {
   return JSON.stringify(__scene3d ? { tree: tree, cmds: cmds, scene3d: __scene3d } : { tree: tree, cmds: cmds });
 }
 
+// dev reload (scripts/dev.sh): rg.onHot(fn) gives the state to keep, the
+// game started again from the new files finds it in rg.hot (null otherwise)
+rg.hot = null;
+var __hotFn = null;
+rg.onHot = function (fn) { __hotFn = fn; };
+function __hotSave() {
+  if (typeof __hotFn !== "function") return "null";
+  var v = __hotFn();
+  return v === undefined ? "null" : JSON.stringify(v);
+}
+
 function __close() {
   rg.sound("click");
   if (typeof onClose === "function") { if (onClose() === false) return; }
