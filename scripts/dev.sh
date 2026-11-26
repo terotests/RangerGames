@@ -11,15 +11,19 @@
 #   scripts/dev.sh --game kello ...         start that game in the app
 #   scripts/dev.sh --off                    the app's dev link off again
 #   scripts/dev.sh --no-adb ...             only the server (the web page: ?dev=1)
+#   scripts/dev.sh --app fi.rangergames.solarpilot ...   a one-game app (RG_APP_ID of
+#                                           build-android.sh), e.g. Solar Pilot on the Quest
 # Several devices: ANDROID_SERIAL=<serial> scripts/dev.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PORT=${RG_DEV_PORT:-8787}
-PKG=fi.rangergames
-MARK=/sdcard/Android/data/$PKG/files/dev.json
+PKG=${RG_APP_ID:-fi.rangergames}
 GAME=""
 ADB=1
 SERVER_ARGS=()
+ARGS=("$@")
+for ((i = 0; i < ${#ARGS[@]}; i++)); do [[ "${ARGS[$i]}" == --app ]] && PKG="${ARGS[$((i + 1))]:-$PKG}"; done
+MARK=/sdcard/Android/data/$PKG/files/dev.json
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --off)
@@ -28,6 +32,7 @@ while [[ $# -gt 0 ]]; do
       echo "dev link off (the app notices at its next start)"
       exit 0 ;;
     --game) GAME="$2"; shift 2 ;;
+    --app) PKG="$2"; shift 2 ;;
     --no-adb) ADB=0; shift ;;
     --port) PORT="$2"; shift 2 ;;
     *) SERVER_ARGS+=("$1"); shift ;;
@@ -47,10 +52,10 @@ if [[ $ADB == 1 ]]; then
   # the dev link starts with the app: start it again (the game too, if asked)
   adb shell am force-stop "$PKG"
   if [[ -n "$GAME" ]]; then
-    adb shell am start -n "$PKG/.MainActivity" --es game "$GAME" >/dev/null
+    adb shell am start -n "$PKG/fi.rangergames.MainActivity" --es game "$GAME" >/dev/null
   else
     adb shell monkey -p "$PKG" -c android.intent.category.LAUNCHER 1 >/dev/null 2>&1 || true
   fi
-  echo "dev: app started with its dev link on ($(adb get-serialno))"
+  echo "dev: $PKG started with its dev link on ($(adb get-serialno))"
 fi
 exec node scripts/dev-server.mjs --port "$PORT" ${SERVER_ARGS[@]+"${SERVER_ARGS[@]}"}
