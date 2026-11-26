@@ -40,7 +40,11 @@
 //!                                               // splitAt: [min, max] (share of a life),
 //!                                               // splitSpeed (sparks break into n pieces);
 //!                                               // set { id, time } the seconds since it went off
-//!                                               // (back in time runs it again), bright
+//!                                               // (back in time runs it again), bright;
+//!                                               // look: "glow" soft glowing sprites where the host
+//!                                               // draws GPU splats (else the squares), material:
+//!                                               // { shader, u } a game's sprite() (rg.shader kind
+//!                                               // "sprite", shaders/README.md)
 //!                             | "splats"       // a baked particle run (src: a .rgps, splats.rs): axes,
 //!                                               // scale, palette (cold to hot), time; res (0.5: the
 //!                                               // density picture's pixels a screen pixel, less is
@@ -123,7 +127,7 @@ fn norm(a: V3) -> V3 {
 /// A material's `u` ({ heat: 0.8, tint: [1, 0.5, 0.2] }) as the draw stream
 /// carries it: "heat=0.8;tint=1,0.5,0.2" (names of letters, digits and _,
 /// 1 to 4 numbers; anything else is left out).
-fn uniforms_text(u: &[rg_core::json::JsonMember]) -> String {
+pub(crate) fn uniforms_text(u: &[rg_core::json::JsonMember]) -> String {
     let mut out = String::new();
     for m in u {
         let name = &m.key;
@@ -1031,6 +1035,7 @@ impl Scene {
                     if let Some(b) = o.burst.as_mut() {
                         b.time = a.get("time").as_num(b.time);
                         b.bright = a.get("bright").as_num(b.bright).max(0.0);
+                        b.set_look(a);
                     }
                     if let Some(size) = &o.hf {
                         if !a.get("heights").is_null() {
@@ -1452,7 +1457,8 @@ impl Scene {
                 }
             }
             // burst particles: tiny squares, one path a colour (hidden behind the planets)
-            if let Some(b) = o.burst.as_ref() {
+            // (look "glow" on a host with GPU splats: soft sprites, render_splats)
+            if let Some(b) = o.burst.as_ref().filter(|b| !(b.glow && self.splats_ok)) {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
                 let mut buckets: Vec<(u32, V3, Vec<f32>, Vec<f32>)> = Vec::new();
                 let streak = b.streak;
@@ -1587,7 +1593,8 @@ impl Scene {
     /// Baked particle runs, over the shapes: liquid splats (kind 10), or
     /// added squares where the host cannot draw them.
     fn render_splats(&self, out: &mut DrawStream, w: f64, h: f64) {
-        if !self.objs.iter().any(|o| o.splats.is_some() && o.visible) {
+        let glow = |o: &Obj| o.burst.as_ref().is_some_and(|b| b.glow) && self.splats_ok;
+        if !self.objs.iter().any(|o| (o.splats.is_some() || glow(o)) && o.visible) {
             return;
         }
         // the camera, or a VR eye (symmetric: its middle is w/2, h/2)
@@ -1598,6 +1605,33 @@ impl Scene {
             [dot(d, r), dot(d, u), dot(d, f)]
         };
         for o in self.objs.iter() {
+            // a burst's sparks as glowing sprites (look "glow")
+            if let (Some(b), true) = (o.burst.as_ref(), glow(o) && o.visible && o.opacity > 0.0) {
+                let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
+                let mut pts: Vec<f32> = Vec::new();
+                b.each_u(|lp, _, size, _, u| {
+                    let v = to_view(add(o.pos, lp));
+                    if v[2] < near || hidden(v, &discs) {
+                        return;
+                    }
+                    let px = (size * 1.6 * focal / v[2]).clamp(0.5, 200.0);
+                    let x = w / 2.0 + v[0] / v[2] * focal;
+                    let y = h / 2.0 - v[1] / v[2] * focal;
+                    if x < -px || y < -px || x > w + px || y > h + px {
+                        return;
+                    }
+                    pts.extend_from_slice(&[x as f32, y as f32, px as f32, u as f32]);
+                });
+                let pal = b.life_palette(32);
+                let key = self.shader_key(&b.shader);
+                if let Some(at) = out.splats(w, h, o.opacity * b.bright, 0.5, 0.0, &pal, [0.0, 0.0, 1.0], &pts) {
+                    out.splats_glow(at);
+                    if !key.is_empty() {
+                        out.splats_shader(at, key, &b.uniforms, b.sim_time());
+                    }
+                }
+                continue;
+            }
             let sp = match (&o.splats, o.visible) {
                 (Some(sp), true) => sp,
                 _ => continue,
@@ -1845,8 +1879,8 @@ impl Scene {
                     glow.push((v[2], corners, mul(rgb, a)));
                 }
             }
-            // burst particles: see-through quads, added like the puffs
-            if let Some(b) = o.burst.as_ref() {
+            // burst particles: see-through quads, added like the puffs (glow: render_splats)
+            if let Some(b) = o.burst.as_ref().filter(|b| !(b.glow && self.splats_ok)) {
                 let discs: Vec<(V3, f64)> = self.planets.iter().map(|p| (to_view(p.pos), p.r)).collect();
                 let streak = b.streak;
                 b.each(|lp, lv, size, c| {
@@ -2286,6 +2320,33 @@ mod mesh_tests {
         assert_eq!(out.strings[out.nums[k + 9] as usize - 1], "lava#abc");
         assert_eq!(out.strings[out.nums[k + 10] as usize - 1], "glow=2;tint=0.3,0.2,0.2");
         assert!((out.nums[k + 11] - 4.5).abs() < 1e-3, "{}", out.nums[k + 11]);
+    }
+
+    #[test]
+    fn a_glowing_burst_is_sprites_where_the_host_draws_splats() {
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "b", "shape": "burst", "count": 200, "speed": 1, "life": [3, 3], "look": "glow",
+            "material": { "shader": "spark", "u": { "hot": 2 } } }"#));
+        sc.command("set", &rg_core::json::parse(r#"{ "id": "b", "time": 1 }"#));
+        sc.set_shader("spark", "spark#abc");
+        // no GPU splats: the squares as before
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert!(!out.nums.is_empty() && out.nums[0] != 10.0);
+        sc.splats_ok = true;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.count, 1);
+        assert_eq!(out.nums[0], 10.0);
+        assert_eq!(out.nums[12], 1.0);
+        assert_eq!(out.strings[out.nums[18] as usize], "spark#abc");
+        assert_eq!(out.strings[out.nums[19] as usize], "hot=2");
+        assert!((out.nums[11] - 1.0).abs() < 1e-6);
+        // 32 palette colours, the light, then 200 sprites of 4 numbers
+        let e = crate::draw::HEADER;
+        assert_eq!(out.nums[e], 32.0);
+        assert_eq!(out.nums[e + 1 + 32 * 3 + 3], 200.0);
     }
 
     #[test]

@@ -31,7 +31,7 @@ What differs between hosts is passed as a define, not written twice:
   (`globe/surface.glsl` the engine's own); painter.js `Spheres` and
   GlSphere.java (its mesh vertex shader is made from this file's declarations: keep
   `in vec2 uv;`, `in vec3 wpos;`, `out vec4 o;` and `void main()` written as they are)
-- `splat/`: liquid and gas splats (draw kind 10), used by painter.js and GlSplats.java;
+- `splat/`: liquid and gas splats and glowing sprites (draw kind 10), used by painter.js and GlSplats.java;
   `splat/liquid.fs` wraps a `liquid()` hook, `splat/liquid.glsl` is the engine's own
 - `test/lib.fs`: uses every library function, only compiled by the tests
 
@@ -71,6 +71,7 @@ vec4 liquid(Fluid f) {
 | Kind | Hook | Used by | Stage, default |
 |---|---|---|---|
 | `liquid` | `vec4 liquid(Fluid f)` | `shape: "splats"` (not `look: "gas"`) | `splat/liquid.fs`, `splat/liquid.glsl` |
+| `sprite` | `vec4 sprite(Sprite s)` | `shape: "burst"` with `look: "glow"` | `splat/sprite.fs`, `splat/sprite.glsl` |
 | `surface` | `vec3 surface(Surface s)` | `rg.three("planet", { texture, material })` | `globe/globe.fs`, `globe/surface.glsl` |
 
 `Fluid`: `n` normal, `thick` density, `temp` 0..1, `view`, `sun`, `t` the
@@ -103,9 +104,32 @@ vec3 surface(Surface s) {
 }
 ```
 
+`Sprite`: `uv` the quad (-1..1, the middle 0), `r` = |uv|, `temp` the
+particle's 0..1 (a burst: how far through its life), `pal` the palette at
+`temp` (a burst: its colours over a life, fading at the end), `t` the run's
+time, `seed` the particle's own 0..1. The hook returns premultiplied colour
+and how much it hides what is behind: alpha 0 adds light (sparks), 1 covers
+(smoke). Without GPU splats (Canvas) the burst draws its squares as before.
+
+```ts
+rg.shader("spark", { src: "shaders/spark.glsl", kind: "sprite" });
+rg.three("add", { id: "b", shape: "burst", count: 3000, look: "glow",
+  material: { shader: "spark", u: { hot: 1.5 } } });
+```
+
+```glsl
+uniform float u_hot;
+vec4 sprite(Sprite s) {
+  float core = exp(-30.0 * s.r * s.r), halo = softSprite(s.uv) * 0.5;
+  float flick = 0.7 + 0.3 * sin(s.t * 20.0 + s.seed * 6.283);
+  return vec4(heat(1.0 - s.temp) * u_hot * (core + halo) * flick, 0.0);
+}
+```
+
 - A game file cannot replace a built-in path (`lib/...`).
 - Reserved names: `liquid`: `den`, `pal`, `texel`, `light`, `npal`, `gain`, `opac`,
-  `uv`, `o`, `main`, `Fluid`, `liquid`; `surface`: the uniforms and functions of
+  `uv`, `o`, `main`, `Fluid`, `liquid`; `sprite`: `lq`, `tt`, `sd`, `pal`, `npal`,
+  `opac`, `o`, `main`, `Sprite`, `sprite`; `surface`: the uniforms and functions of
   `globe/globe.fs`, `Surface`, `surface`; both: anything starting `rg_`.
 - A file that does not assemble (missing include, unknown kind, `#version`)
   is told in the game's log when `rg.shader` runs; one that does not compile
@@ -119,6 +143,7 @@ vec3 surface(Surface s) {
 ## Later
 
 - `globe/globe.fs` split into library files (its noise, rings, air).
-- More kinds: `sprite()` / `update()` for particles, `gas()`, `mesh()`.
+- More kinds: `update()` for particles (motion on the GPU, curl noise), `gas()`, `mesh()`;
+  puffs as sprites.
 - When a second project (RangerThree, MFilesAPI) needs the library, `lib/`
   moves to RangerThree; the paths stay the same.

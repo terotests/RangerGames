@@ -51,6 +51,12 @@ pub struct Burst {
     seed: u32,
     /// how bright the colours are (1: as given)
     pub bright: f64,
+    /// look "glow": soft sprites on hosts that draw GPU splats (draw.rs `splats`, look 1),
+    /// through a sprite() hook; else the squares and streaks
+    pub glow: bool,
+    /// material.shader: a game's sprite shader (rg.shader kind "sprite"); material.u as "a=1;b=2"
+    pub shader: String,
+    pub uniforms: String,
     // the run: positions and velocities in the object's frame at sim_t
     sim_t: f64,
     pos: Vec<V3>,
@@ -125,6 +131,9 @@ impl Burst {
             palette,
             seed: a.get("seed").as_num(1.0) as u32,
             bright: a.get("bright").as_num(1.0).max(0.0),
+            glow: false,
+            shader: String::new(),
+            uniforms: String::new(),
             sim_t: 0.0,
             pos: Vec::new(),
             vel: Vec::new(),
@@ -133,7 +142,52 @@ impl Burst {
             time: a.get("time").as_num(0.0),
         };
         b.restart();
+        b.set_look(a);
         b
+    }
+
+    /// look and material (add and set).
+    pub fn set_look(&mut self, a: &Json) {
+        if let Json::Str(l) = a.get("look") {
+            self.glow = l == "glow";
+        }
+        let m = a.get("material");
+        if let Json::Obj(_) = m {
+            if let Json::Str(sh) = m.get("shader") {
+                self.shader = sh.clone();
+            }
+            if let Json::Obj(u) = m.get("u") {
+                self.uniforms = crate::scene3d::uniforms_text(&u);
+            }
+        }
+    }
+
+    /// The seconds since it went off, as far as the particles are run.
+    pub fn sim_time(&self) -> f64 {
+        self.sim_t
+    }
+
+    /// The colour over a life without `bright` (the glow's palette: temperature = the share of
+    /// its life), n steps, the last fifth fading out.
+    pub fn life_palette(&self, n: usize) -> Vec<V3> {
+        (0..n)
+            .map(|i| {
+                let u = i as f64 / (n - 1).max(1) as f64;
+                let c = self.colour(u);
+                let fade = ((1.0 - u) / 0.2).min(1.0);
+                [c[0] * fade, c[1] * fade, c[2] * fade]
+            })
+            .collect()
+    }
+
+    fn colour(&self, u: f64) -> V3 {
+        let n = self.palette.len();
+        let x = u * (n - 1) as f64;
+        let k = (x.floor() as usize).min(n.saturating_sub(2));
+        let fr = if n > 1 { x - k as f64 } else { 0.0 };
+        let a = self.palette[k];
+        let b = self.palette[(k + 1).min(n - 1)];
+        [a[0] + (b[0] - a[0]) * fr, a[1] + (b[1] - a[1]) * fr, a[2] + (b[2] - a[2]) * fr]
     }
 
     fn restart(&mut self) {
@@ -209,6 +263,11 @@ impl Burst {
     /// The sparks to draw now: (place, velocity, size, colour), a broken-up
     /// spark as its pieces.
     pub fn each(&self, mut f: impl FnMut(V3, V3, f64, V3)) {
+        self.each_u(|p, v, size, c, _| f(p, v, size, c));
+    }
+
+    /// `each` with the share of its life (0..1) last.
+    pub fn each_u(&self, mut f: impl FnMut(V3, V3, f64, V3, f64)) {
         let t = self.sim_t;
         let n = self.palette.len();
         for i in 0..self.count {
@@ -236,7 +295,7 @@ impl Burst {
             let at = self.split_at.0 + (self.split_at.1 - self.split_at.0) * rnd(i32_, 5, self.seed);
             let ts = at * self.lives[i];
             if self.split < 2 || t <= ts {
-                f(p, v, size, c);
+                f(p, v, size, c, u);
                 continue;
             }
             // broken up: n pieces flying apart from where the spark is, each
@@ -252,7 +311,7 @@ impl Burst {
                 let ph = std::f64::consts::TAU * rnd(i32_, jj + 1, self.seed);
                 let sp = self.split_speed * (0.5 + rnd(i32_, jj + 2, self.seed));
                 let d = [s * ph.cos() * sp, s * ph.sin() * sp, z * sp];
-                f([p[0] + d[0] * dt, p[1] + d[1] * dt, p[2] + d[2] * dt], [v[0] + d[0], v[1] + d[1], v[2] + d[2]], size * k, c);
+                f([p[0] + d[0] * dt, p[1] + d[1] * dt, p[2] + d[2] * dt], [v[0] + d[0], v[1] + d[1], v[2] + d[2]], size * k, c, u);
             }
         }
     }

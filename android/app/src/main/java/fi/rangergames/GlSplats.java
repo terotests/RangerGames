@@ -42,7 +42,9 @@ final class GlSplats {
     private final GlSphere gl;
     boolean ok;
     private boolean f16;
-    private int add, show, gas, quad, inst, vao, den, denFbo, out, outFbo, pal;
+    private int add, show, gas, sprite, quad, inst, vao, den, denFbo, out, outFbo, pal;
+    /** the next command as glowing sprites (draw.rs splats_glow, header slot 12) */
+    private boolean glowNext;
     private int uXf, uGain, uDen, uPal, uTexel, uLight, uNpal, uSGain, uOpac;
     private int gDen, gPal, gTexel, gLight, gNpal, gGain, gOpac, gKd;
     private int dw, dh, ow, oh;
@@ -72,6 +74,7 @@ final class GlSplats {
             uNpal = GLES30.glGetUniformLocation(show, "npal");
             uSGain = GLES30.glGetUniformLocation(show, "gain");
             uOpac = GLES30.glGetUniformLocation(show, "opac");
+            sprite = program(src("splat/sprite.vs"), src("splat/sprite.fs"));
             gas = program(src("splat/show.vs"), src("splat/gas.fs"));
             gDen = GLES30.glGetUniformLocation(gas, "den");
             gPal = GLES30.glGetUniformLocation(gas, "pal");
@@ -148,9 +151,15 @@ final class GlSplats {
 
     /** The game shader the next draw or texture uses ("" for the engine's own look). */
     void game(String key, String unis, float time) {
+        game(key, unis, time, 0);
+    }
+
+    /** As game, and glow (header slot 12): 1 for glowing sprites through the sprite() hook. */
+    void game(String key, String unis, float time, float glow) {
         gameKey = key == null ? "" : key;
         gameUnis = unis == null ? "" : unis;
         gameTime = time;
+        glowNext = glow > 0.5f;
     }
 
     /** a game's liquid stage compiled once by key; 0 (and its error in the game's log) when it fails */
@@ -163,7 +172,8 @@ final class GlSplats {
         if (fs != null) {
             int p = GLES30.glCreateProgram();
             int vs = GLES30.glCreateShader(GLES30.GL_VERTEX_SHADER);
-            GLES30.glShaderSource(vs, src("splat/show.vs"));
+            // a sprite hook's stage takes the sprites' quads, a liquid's the full picture
+            GLES30.glShaderSource(vs, src(fs.contains("struct Sprite") ? "splat/sprite.vs" : "splat/show.vs"));
             GLES30.glCompileShader(vs);
             int f = GLES30.glCreateShader(GLES30.GL_FRAGMENT_SHADER);
             GLES30.glShaderSource(f, fs);
@@ -288,6 +298,10 @@ final class GlSplats {
         pts.position(0);
         pts.put(nums, p0, m * 4);
         pts.position(0);
+        if (glowNext) {
+            glow(np, m, w, h, cw, ch, opac);
+            return true;
+        }
         // 1: the weights added up
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
         GLES30.glDisable(GLES30.GL_DEPTH_TEST);
@@ -351,6 +365,36 @@ final class GlSplats {
         GLES30.glBindVertexArray(0);
         GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
         return true;
+    }
+
+    /** glowing sprites (look "glow"): each splat's quad through the sprite() hook straight into the shown picture */
+    private void glow(int np, int m, float w, float h, int cw, int ch, float opac) {
+        GLES30.glDisable(GLES30.GL_SCISSOR_TEST);
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST);
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, outFbo);
+        GLES30.glViewport(0, 0, cw, ch);
+        GLES30.glClearColor(0, 0, 0, 0);
+        GLES30.glClear(GLES30.GL_COLOR_BUFFER_BIT);
+        GLES30.glEnable(GLES30.GL_BLEND);
+        GLES30.glBlendFunc(GLES30.GL_ONE, GLES30.GL_ONE_MINUS_SRC_ALPHA);
+        int game = gameKey.isEmpty() ? 0 : gameProgram(gameKey);
+        int p = game != 0 ? game : sprite;
+        GLES30.glUseProgram(p);
+        GLES30.glUniform4f(GLES30.glGetUniformLocation(p, "xf"), 2f / w, -2f / h, -1, 1);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE1);
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, pal);
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0);
+        GLES30.glUniform1i(GLES30.glGetUniformLocation(p, "pal"), 1);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(p, "npal"), np);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(p, "opac"), opac);
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(p, "rg_time"), gameTime);
+        if (game != 0) uniforms(game, gameUnis);
+        GLES30.glBindVertexArray(vao);
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, inst);
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, m * 16, pts, GLES30.GL_STREAM_DRAW);
+        GLES30.glDrawArraysInstanced(GLES30.GL_TRIANGLE_STRIP, 0, 4, m);
+        GLES30.glBindVertexArray(0);
+        GLES30.glDisable(GLES30.GL_BLEND);
     }
 
     /**

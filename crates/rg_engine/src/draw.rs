@@ -392,6 +392,12 @@ impl DrawStream {
     /// "name=1;tint=1,0.5,0.2" (GLSL u_name, 1 to 4 numbers); slot 11 the
     /// run's time in seconds (the hook's f.t). A host that does not know a
     /// key, or whose compile fails, draws the engine's own look.
+    /// The splats as glowing sprites (look "glow", burst sparks): header slot 12 = 1; the host
+    /// draws each splat's quad through the sprite() hook straight into the picture (no density).
+    pub fn splats_glow(&mut self, at: usize) {
+        self.nums[at + 12] = 1.0;
+    }
+
     pub fn splats_shader(&mut self, at: usize, key: &str, uniforms: &str, time: f64) {
         let k = self.string(key);
         let u = self.string(uniforms);
