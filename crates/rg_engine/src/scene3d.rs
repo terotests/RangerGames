@@ -8,6 +8,10 @@
 //! ```text
 //! rg.three("scene",  { background: "#87ceeb" | ["#top", "#bottom"], fog: [near, far], fogColor,
 //!                      ground: { y, color } })            // an endless floor at height y
+//!                      water: { surface, color, absorb: [r, g, b], scatter, caustics, causticScale, time }
+//!                                     // under water (see `Water`): light and distance take each
+//!                                     // colour away at its own rate (red first), sunlight
+//!                                     // ripples over the faces (caustics); water: false ends it
 //! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //!                    type "env": a still surrounding that objects with env > 0 mirror
@@ -483,6 +487,9 @@ struct Obj {
     /// that light bends round a rounded rock instead of showing flat facets
     /// (GL only; the painter draws it faceted)
     smooth: bool,
+    /// the water's surface (rg.three add { surface: true }): its corners
+    /// take `Water::surface_color` instead of being lit
+    wsurf: bool,
     /// 1: solid; below 1 a see-through light (a flame, a glow): the painter
     /// blends it over what is behind, GL adds its colour times this
     opacity: f64,
@@ -650,10 +657,229 @@ struct Light {
     range: f64,
     /// "env": the colour above the horizon
     sky: V3,
+    /// a point light made a spot: its way (unit) and the cosine of its half angle
+    cone: Option<(V3, f64)>,
+}
+
+/// Under water (rg.three("scene", { water })): instead of the fog, what lies
+/// `d` metres away keeps exp(-(absorb + scatter) d) of each colour and takes
+/// the rest from `color` (the water's own glow), so red goes first and far
+/// things turn blue-green. The light from above (directional and ambient)
+/// has come down through the water: at depth `surface - y` it keeps
+/// exp(-absorb depth) of each colour. Faces turned up to a directional
+/// light get caustics: the bright net that the waves focus onto the
+/// bottom, moving with `time`, `causticScale` metres across, `caustics`
+/// strong (0…1), fainter and softer deeper down. All of it is in the light
+/// the engine works out at a face or corner, so every host draws it.
+#[derive(Clone, Copy)]
+pub struct Water {
+    pub surface: f64,
+    pub color: V3,
+    pub absorb: V3,
+    pub scatter: f64,
+    pub caustics: f64,
+    pub scale: f64,
+    pub time: f64,
+    /// the sky above the surface as seen through it (Snell's window)
+    pub sky: V3,
+    /// the way to the sun in the air (unit; from the first directional light)
+    pub sun: V3,
+    pub sun_color: V3,
+}
+
+impl Water {
+    fn from(a: &Json, old: Option<Water>) -> Water {
+        let o = old.unwrap_or(Water { surface: 0.0, color: [0.05, 0.25, 0.32], absorb: [0.45, 0.07, 0.04], scatter: 0.06, caustics: 0.6, scale: 3.0, time: 0.0,
+            sky: [0.75, 0.88, 1.0], sun: [0.0, 1.0, 0.0], sun_color: [1.0, 1.0, 1.0] });
+        let absorb = match a.get("absorb") {
+            Json::Arr(v) if v.len() >= 3 => [v[0].as_num(0.45), v[1].as_num(0.07), v[2].as_num(0.04)],
+            _ => o.absorb,
+        };
+        Water {
+            surface: a.get("surface").as_num(o.surface),
+            // a colour as "#rrggbb", or [r, g, b] in 0…1 (light: may go past 1)
+            color: match a.get("color") {
+                Json::Null => o.color,
+                Json::Arr(v) if v.len() >= 3 => [v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(0.0)],
+                c => color(&c, o.color),
+            },
+            absorb,
+            scatter: a.get("scatter").as_num(o.scatter),
+            caustics: a.get("caustics").as_num(o.caustics),
+            scale: a.get("causticScale").as_num(o.scale).max(0.05),
+            time: a.get("time").as_num(o.time),
+            sky: if a.get("sky").is_null() { o.sky } else { color(&a.get("sky"), o.sky) },
+            sun: o.sun,
+            sun_color: o.sun_color,
+        }
+    }
+
+    /// The water itself seen from height y0 along the unit way d, as far as
+    /// the light goes (or up to the surface): sunlight scattered into the
+    /// ray all along it. The light at height y is exp(-absorb (surface - y))
+    /// of the light just under the surface, and the ray loses
+    /// exp(-(absorb + scatter) s) over s metres, so the sum along the ray is
+    /// color * σt / k * (1 - exp(-k s_max)) with k = σt - absorb * d.y: up
+    /// it brightens towards the surface, down it goes dark, and the deeper
+    /// the eye the darker and bluer all of it. `color` is the water's glow
+    /// looking level just under the surface. A little forward scattering
+    /// round the sun's way under water.
+    pub fn backdrop(&self, y0: f64, d: V3) -> V3 {
+        let c = self.inscatter(y0, d, f64::INFINITY);
+        if d[1] <= 1e-6 {
+            return c;
+        }
+        // a way up meets the (calm) surface: what is seen there, dimmed by the water between
+        let depth = (self.surface - y0).max(0.0);
+        let s = depth / d[1];
+        let p = [d[0] * s, self.surface, d[2] * s];
+        let sc = self.surface_seen([0.0, 1.0, 0.0], d, p);
+        let mut o = c;
+        for i in 0..3 {
+            o[i] += sc[i] * (-(self.absorb[i] + self.scatter) * s).exp();
+        }
+        o
+    }
+
+    /// The light scattered into a ray `dist` long (see `backdrop`).
+    fn inscatter(&self, y0: f64, d: V3, dist: f64) -> V3 {
+        let depth = (self.surface - y0).max(0.0);
+        let smax = if d[1] > 1e-6 { (depth / d[1]).min(dist) } else { dist };
+        let sw = self.sun_water();
+        let cs = dot(d, sw).max(0.0);
+        let phase = 0.8 + 0.6 * cs.powi(4) + 0.8 * cs.powi(24);
+        let mut o = [0.0; 3];
+        for i in 0..3 {
+            let st = self.absorb[i] + self.scatter;
+            let k = (st - self.absorb[i] * d[1]).max(1e-4);
+            let fill = if smax.is_finite() { 1.0 - (-k * smax).exp() } else { 1.0 };
+            o[i] = self.color[i] * st / k * (-self.absorb[i] * depth).exp() * fill * phase;
+        }
+        o
+    }
+
+    /// The sun's way under water: bent down towards the vertical (Snell).
+    fn sun_water(&self) -> V3 {
+        let s = self.sun;
+        let h = (s[0] * s[0] + s[2] * s[2]).sqrt();
+        if h < 1e-6 {
+            return [0.0, 1.0, 0.0];
+        }
+        let sin_t = (h / 1.333).min(1.0);
+        let cos_t = (1.0 - sin_t * sin_t).sqrt();
+        [s[0] / h * sin_t, cos_t, s[2] / h * sin_t]
+    }
+
+    /// The surface seen from below at p, from the eye, with the wave's
+    /// normal n (unit, out of the water): inside Snell's window (about 49°
+    /// from the normal) the sky and the sun come through, bent, less what
+    /// the surface mirrors (Fresnel); outside it the surface is a mirror of
+    /// the water below (total internal reflection). Each wave tilts its
+    /// own window, which makes the bright and dark net of a real surface.
+    pub fn surface_color(&self, n: V3, p: V3, eye: V3) -> V3 {
+        self.surface_seen(n, norm(sub(p, eye)), p)
+    }
+
+    /// `surface_color` for the unit way v from the eye.
+    fn surface_seen(&self, n: V3, v: V3, p: V3) -> V3 {
+        let n = if n[1] < 0.0 { mul(n, -1.0) } else { n };
+        let c = dot(v, n);
+        let refl = |c: f64| -> V3 {
+            let r = norm(sub(v, mul(n, 2.0 * c)));
+            let r = if r[1] > -0.02 { norm([r[0], -0.02, r[2]]) } else { r };
+            self.backdrop(p[1] - 0.01, r)
+        };
+        if c <= 0.0 {
+            return refl(c.max(0.0));
+        }
+        let (n1, n2) = (1.333, 1.0);
+        let sin_i = (1.0 - c * c).max(0.0).sqrt();
+        let sin_t = n1 / n2 * sin_i;
+        if sin_t >= 1.0 {
+            return refl(c);
+        }
+        let cos_t = (1.0 - sin_t * sin_t).sqrt();
+        let rs = (n1 * c - n2 * cos_t) / (n1 * c + n2 * cos_t);
+        let rp = (n1 * cos_t - n2 * c) / (n1 * cos_t + n2 * c);
+        let r = ((rs * rs + rp * rp) / 2.0).clamp(0.0, 1.0);
+        let eta = n1 / n2;
+        // the way out into the air
+        let t = norm(add(mul(v, eta), mul(n, cos_t - eta * c)));
+        let s = dot(t, self.sun).max(0.0);
+        // the sun and its glow: soft enough that a corner-lit wave keeps it round
+        let glare = s.powi(150) * 6.0 + s.powi(24) * 0.9 + s.powi(4) * 0.15;
+        let sky = add(mul(self.sky, 0.45 + 0.3 * t[1].max(0.0)), mul(self.sun_color, glare));
+        add(mul(sky, 1.0 - r), mul(refl(c), r))
+    }
+
+    /// How much of each colour the light from above keeps at height y.
+    fn down(&self, y: f64) -> V3 {
+        let d = (self.surface - y).max(0.0);
+        [(-self.absorb[0] * d).exp(), (-self.absorb[1] * d).exp(), (-self.absorb[2] * d).exp()]
+    }
+
+    /// What an eye at height y0 sees of colour `c` `dist` away along the
+    /// unit way d: c dimmed by the water between, plus the light the water
+    /// scatters into that stretch (see `backdrop`).
+    fn seen(&self, c: V3, dist: f64, y0: f64, d: V3) -> V3 {
+        let add_in = self.inscatter(y0, d, dist.max(0.0));
+        let mut o = [0.0; 3];
+        for i in 0..3 {
+            let k = (-(self.absorb[i] + self.scatter) * dist.max(0.0)).exp();
+            o[i] = c[i] * k + add_in[i];
+        }
+        o
+    }
+
+    /// The caustics' light at (x, z), y deep: about 1 on average, bright
+    /// threads up to ~3 and dim cells between, fading towards 1 deeper down.
+    pub fn caustic(&self, x: f64, y: f64, z: f64) -> f64 {
+        if self.caustics <= 0.0 {
+            return 1.0;
+        }
+        let depth = (self.surface - y).max(0.0);
+        // the net grows and blurs with depth (the waves' lenses focus less)
+        let s = self.scale * (1.0 + depth * 0.04);
+        let v = caustic_net(x / s, z / s, self.time * 0.6);
+        let fade = self.caustics * (-depth / 25.0).exp();
+        // deeper the threads soften (a power below 1); minus the net's mean
+        // there, so the floor is as bright on average as without caustics
+        let p = 0.5 + 0.5 * (-depth / 15.0).exp();
+        1.0 + fade * 3.5 * (v.powf(p) - 0.92 * 0.15f64.powf(p))
+    }
+}
+
+/// A tiling net of bright threads 0…1 (the well-known turbulent sine
+/// iteration for water caustics), one period across a unit.
+pub fn caustic_net(u: f64, v: f64, t: f64) -> f64 {
+    const TAU: f64 = std::f64::consts::TAU;
+    let px = (u * TAU).rem_euclid(TAU) - 250.0;
+    let py = (v * TAU).rem_euclid(TAU) - 250.0;
+    let (mut ix, mut iy) = (px, py);
+    let mut c = 1.0;
+    let inten = 0.005;
+    for n in 0..4 {
+        let tt = t * (1.0 - 3.5 / (n as f64 + 1.0));
+        let nx = px + (tt - ix).cos() + (tt + iy).sin();
+        let ny = py + (tt - iy).sin() + (tt + ix).cos();
+        ix = nx;
+        iy = ny;
+        let a = px / ((ix + tt).sin() / inten);
+        let b = py / ((iy + tt).cos() / inten);
+        c += 1.0 / (a * a + b * b).sqrt().max(1e-6);
+    }
+    c /= 4.0;
+    let c = (1.17 - c.powf(1.4)).abs();
+    c.powi(8).min(1.0)
 }
 
 pub struct Scene {
     pub active: bool,
+    pub water: Option<Water>,
+    /// the eye the frame is drawn from (for the water's way-dependent fog)
+    fog_eye: std::cell::Cell<V3>,
+    /// the first directional light's way and colour (the water's sun)
+    sun_of_light: Option<(V3, V3)>,
     objs: Vec<Obj>,
     lights: Vec<Light>,
     sky: Option<(V3, V3)>,
@@ -837,6 +1063,9 @@ impl Scene {
     pub fn new() -> Scene {
         let mut s = Scene {
             active: false,
+            water: None,
+            fog_eye: std::cell::Cell::new([0.0; 3]),
+            sun_of_light: None,
             objs: Vec::new(),
             lights: Vec::new(),
             sky: None,
@@ -873,8 +1102,8 @@ impl Scene {
 
     fn default_lights(&mut self) {
         self.lights = vec![
-            Light { id: "ambient".into(), kind: "ambient".into(), color: [1.0, 1.0, 1.0], intensity: 0.55, pos: [0.0; 3], range: 0.0, sky: [0.0; 3] },
-            Light { id: "sun".into(), kind: "directional".into(), color: [1.0, 1.0, 1.0], intensity: 0.75, pos: [3.0, 6.0, 4.0], range: 0.0, sky: [0.0; 3] },
+            Light { id: "ambient".into(), kind: "ambient".into(), color: [1.0, 1.0, 1.0], intensity: 0.55, pos: [0.0; 3], range: 0.0, sky: [0.0; 3], cone: None },
+            Light { id: "sun".into(), kind: "directional".into(), color: [1.0, 1.0, 1.0], intensity: 0.75, pos: [3.0, 6.0, 4.0], range: 0.0, sky: [0.0; 3], cone: None },
         ];
     }
 
@@ -909,6 +1138,11 @@ impl Scene {
                 } else if let Some((_, b)) = self.sky {
                     self.fog_color = b;
                 }
+                match a.get("water") {
+                    Json::Null => {}
+                    Json::Bool(false) => self.water = None,
+                    w => self.water = Some(Water::from(&w, self.water)),
+                }
                 let g = a.get("ground");
                 if g.is_null() {
                 } else if let Json::Bool(false) = g {
@@ -936,6 +1170,9 @@ impl Scene {
             }
             "light" => {
                 let id = a.get("id").as_str();
+                if a.get("type").as_str() == "directional" && !self.lights.iter().any(|l| l.kind == "directional" && l.id != id) {
+                    self.sun_of_light = Some((norm(get3(a, ["x", "y", "z"], [0.0, 5.0, 0.0])), color(&a.get("color"), [1.0; 3])));
+                }
                 let kind = { let k = a.get("type").as_str(); if k.is_empty() { "point".to_string() } else { k } };
                 let l = Light {
                     id: id.clone(),
@@ -945,6 +1182,10 @@ impl Scene {
                     pos: get3(a, ["x", "y", "z"], [0.0, 5.0, 0.0]),
                     range: a.get("range").as_num(10.0),
                     sky: color(&a.get("sky"), [0.0; 3]),
+                    cone: match a.get("dir") {
+                        Json::Arr(v) if v.len() >= 3 => Some((norm([v[0].as_num(0.0), v[1].as_num(0.0), v[2].as_num(-1.0)]), a.get("cone").as_num(0.5).cos())),
+                        _ => None,
+                    },
                 };
                 if let Some(old) = self.lights.iter_mut().find(|x| x.id == id) {
                     *old = l;
@@ -984,7 +1225,8 @@ impl Scene {
                     double: a.get("double").as_bool() || shape == "plane",
                     shiny: a.get("shiny").as_num(0.0).clamp(0.0, 1.0),
                     env: a.get("env").as_num(0.0).clamp(0.0, 1.0),
-                    smooth: a.get("smooth").as_bool(),
+                    smooth: a.get("smooth").as_bool() || a.get("surface").as_bool(),
+                    wsurf: a.get("surface").as_bool(),
                     opacity: a.get("opacity").as_num(1.0).clamp(0.0, 1.0),
                     layer: a.get("layer").as_num(0.0) as i32,
                     wy: a.get("wy").as_num(0.0),
@@ -1119,6 +1361,10 @@ impl Scene {
         if op == "scene" || op == "camera" || op == "light" {
             self.active = true;
         }
+        if let (Some(w), Some((d, c))) = (self.water.as_mut(), self.sun_of_light) {
+            w.sun = d;
+            w.sun_color = c;
+        }
     }
 
     fn shade(&self, n: V3, centre: V3, base: V3) -> V3 {
@@ -1147,19 +1393,39 @@ impl Scene {
         let mut light = [0.0, 0.0, 0.0];
         let mut glint = [0.0, 0.0, 0.0];
         let eye = norm(sub(cam, centre));
+        // under water the light from above has lost colour on its way down
+        let (down, net) = match &self.water {
+            Some(w) => (w.down(centre[1]), w.caustic(centre[0], centre[1], centre[2])),
+            None => ([1.0; 3], 1.0),
+        };
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
                 "env" => 0.0,
-                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity,
+                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity * net,
                 _ => {
                     let d = sub(l.pos, centre);
                     let dist = dot(d, d).sqrt();
                     let fall = (1.0 - dist / l.range.max(0.01)).max(0.0);
-                    dot(n, norm(d)).max(0.0) * l.intensity * fall * fall
+                    // a spot (cone: `x, y, z` the place, `dir` and `cone` set) lights only ahead
+                    let spot = match l.cone {
+                        Some((dir, cos_out)) => {
+                            let c = dot(mul(norm(d), -1.0), dir);
+                            ((c - cos_out) / (1.0 - cos_out).max(1e-3) * 2.5).clamp(0.0, 1.0)
+                        }
+                        None => 1.0,
+                    };
+                    dot(n, norm(d)).max(0.0) * l.intensity * fall * fall * spot
                 }
             };
-            light = add(light, mul(l.color, k));
+            let lc = if l.kind != "ambient" && l.kind != "directional" && l.kind != "env" && self.water.is_some() {
+                // under water a lamp's light loses colour on its way (red first)
+                let w = self.water.as_ref().unwrap();
+                let d = sub(l.pos, centre);
+                let dist = dot(d, d).sqrt();
+                [l.color[0] * (-w.absorb[0] * dist).exp(), l.color[1] * (-w.absorb[1] * dist).exp(), l.color[2] * (-w.absorb[2] * dist).exp()]
+            } else if l.kind == "ambient" || l.kind == "directional" { [l.color[0] * down[0], l.color[1] * down[1], l.color[2] * down[2]] } else { l.color };
+            light = add(light, mul(lc, k));
             if shiny > 0.0 && l.kind != "ambient" && l.kind != "env" && k > 0.0 {
                 let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
                 let h = norm(add(to, eye));
@@ -1195,13 +1461,32 @@ impl Scene {
 
     /// How much of the fog's colour a point `dist` away takes (0…1).
     fn fog_k(&self, dist: f64) -> f64 {
+        if let Some(w) = &self.water {
+            return 1.0 - (-(w.absorb[1] + w.scatter) * dist.max(0.0)).exp();
+        }
         match self.fog {
             Some((near, far)) if far > near => ((dist - near) / (far - near)).clamp(0.0, 1.0),
             _ => 0.0,
         }
     }
 
+    /// `fogged` for a point p (under water the fog depends on the way).
+    fn fogged_at(&self, c: V3, p: V3) -> V3 {
+        let e = self.fog_eye.get();
+        let d = sub(p, e);
+        let dist = dot(d, d).sqrt();
+        match &self.water {
+            Some(w) => w.seen(c, dist, e[1], if dist > 1e-9 { mul(d, 1.0 / dist) } else { [0.0, 0.0, -1.0] }),
+            None => self.fogged(c, dist),
+        }
+    }
+
     fn fogged(&self, c: V3, dist: f64) -> V3 {
+        if let Some(w) = &self.water {
+            // no point given: as if level
+            let e = self.fog_eye.get();
+            return w.seen(c, dist, e[1], [0.0, 0.0, -1.0]);
+        }
         match self.fog {
             Some((near, far)) if far > near => {
                 let k = ((dist - near) / (far - near)).clamp(0.0, 1.0);
@@ -1305,6 +1590,7 @@ impl Scene {
         }
         // the camera, or a VR eye (symmetric there: its middle is w/2, h/2)
         let (eye, r, u, f, focal, _, _) = self.view_basis(w, h);
+        self.fog_eye.set(eye);
         let near = 0.05;
         if !self.stars.is_empty() {
             // tiny squares, in three brightnesses, each as one path
@@ -1444,7 +1730,7 @@ impl Scene {
             for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
                 let c = add(o.pos, [pf[0], pf[1], pf[2]]);
                 let v = to_view(c);
-                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                let rgb = self.fogged_at(mul(o.color, pf[5]), c);
                 let rings = if o.dust { dust_rings(v, pf, focal, w, h, near) } else { puff_rings(v, pf[3], focal, w, h, near) };
                 for (pts, k) in rings {
                     let alpha = (pf[4] * k * o.opacity).clamp(0.0, 0.999);
@@ -1475,7 +1761,7 @@ impl Scene {
                     };
                     // one colour a path: a streak's fading tail as half its light
                     let k = if wts[2] < 0.5 { k * 0.6 } else { k };
-                    let rgb = mul(self.fogged(c, v[2]), k);
+                    let rgb = mul(self.fogged_at(c, wp), k);
                     let key = burst_key(rgb);
                     let k = match buckets.iter().position(|e| e.0 == key) {
                         Some(k) => k,
@@ -1536,7 +1822,7 @@ impl Scene {
                 let dist = dot(towards, towards).sqrt();
                 let depth = view.iter().map(|p| p[2]).sum::<f64>() / view.len() as f64;
                 let (olayer, odepth, group) = match gdepth { Some(g) => (0, g, o.group), None => (o.layer, depth, 0) };
-                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged(lit, dist), alpha: o.opacity, ends: Vec::new(), added: false });
+                polys.push(Poly { olayer, odepth, group, layer: o.layer, depth, pts: grow(pts), rgb: self.fogged_at(lit, centre), alpha: o.opacity, ends: Vec::new(), added: false });
             }
         }
         let far = |a: f64, b: f64| b.partial_cmp(&a).unwrap_or(std::cmp::Ordering::Equal);
@@ -1743,7 +2029,7 @@ impl Scene {
         let mut tris: Vec<f32> = Vec::new();
         let mut ptris: Vec<f32> = Vec::new();
         // (a VR eye takes only triangles: its smooth meshes are lit at the corners)
-        let phong = self.unified && self.eye.is_none();
+        let phong = self.unified && self.eye.is_none() && self.water.is_none();
         let mut plights: Vec<f32> = Vec::new();
         if phong {
             for l in self.lights.iter().filter(|l| l.kind == "directional").take(4) {
@@ -1757,7 +2043,29 @@ impl Scene {
         let push = |tris: &mut Vec<f32>, x: f64, y: f64, d: f64, c: V3| {
             tris.extend_from_slice(&[x as f32, y as f32, d as f32, c[0] as f32, c[1] as f32, c[2] as f32]);
         };
-        if let Some((top, bottom)) = self.sky.filter(|_| with_sky) {
+        let (cam, r, u, f, focal, cx, cy) = self.view_basis(w, h);
+        self.fog_eye.set(cam);
+        if let (Some(wt), true) = (self.water, with_sky) {
+            // under water the background is the water itself, by the way each
+            // point of the screen looks (up bright, down dark): a grid of cells
+            let (nx, ny) = (12usize, 12usize);
+            let dir = |x: f64, y: f64| norm(add(add(f, mul(r, (x - cx) / focal)), mul(u, (cy - y) / focal)));
+            let mut grid: Vec<V3> = Vec::with_capacity((nx + 1) * (ny + 1));
+            for j in 0..=ny {
+                for i in 0..=nx {
+                    grid.push(wt.backdrop(cam[1], dir(w * i as f64 / nx as f64, h * j as f64 / ny as f64)));
+                }
+            }
+            for j in 0..ny {
+                for i in 0..nx {
+                    let k = |ii: usize, jj: usize| (w * ii as f64 / nx as f64, h * jj as f64 / ny as f64, grid[jj * (nx + 1) + ii]);
+                    for &(ii, jj) in [(i, j), (i + 1, j), (i + 1, j + 1), (i, j), (i + 1, j + 1), (i, j + 1)].iter() {
+                        let (x, y, c) = k(ii, jj);
+                        push(&mut tris, x, y, 1.0, c);
+                    }
+                }
+            }
+        } else if let Some((top, bottom)) = self.sky.filter(|_| with_sky) {
             // in VR the gradient goes by how high each corner looks, not by the screen
             let sky_at = |x: f64, y: f64, c: V3| -> V3 {
                 match self.eye {
@@ -1774,7 +2082,6 @@ impl Scene {
                 push(&mut tris, x, y, 1.0, sky_at(x, y, c));
             }
         }
-        let (cam, r, u, f, focal, cx, cy) = self.view_basis(w, h);
         let near = 0.05;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
@@ -1845,7 +2152,7 @@ impl Scene {
                 let r0 = reach * (b as f64) / bands as f64;
                 let r1 = reach * (b + 1) as f64 / bands as f64 * if b + 1 == bands { 3.0 } else { 1.0 };
                 let shade = self.shade([0.0, 1.0, 0.0], [cx, gy, cz], gc);
-                let c = self.fogged(shade, (r0 + r1) / 2.0);
+                let c = self.fogged_at(shade, [cx + (r0 + r1) / 2.0, gy, cz]);
                 let quad = [[cx - r1, gy, cz - r1], [cx + r1, gy, cz - r1], [cx + r1, gy, cz + r1], [cx - r1, gy, cz + r1]];
                 let v: Vec<V3> = quad.iter().map(|p| to_view(*p)).collect();
                 fan(&mut tris, &project(&v), &|_| 1.0, c);
@@ -1870,7 +2177,7 @@ impl Scene {
             for pf in o.puffs.chunks_exact(if o.dust { 8 } else { 6 }) {
                 let c = add(o.pos, [pf[0], pf[1], pf[2]]);
                 let v = to_view(c);
-                let rgb = self.fogged(mul(o.color, pf[5]), dot(sub(c, cam), sub(c, cam)).sqrt());
+                let rgb = self.fogged_at(mul(o.color, pf[5]), c);
                 let rings = if o.dust { dust_rings(v, pf, focal, cx * 2.0, cy * 2.0, near) } else { puff_rings(v, pf[3], focal, cx * 2.0, cy * 2.0, near) };
                 for (pts, k) in rings {
                     let a = (pf[4] * k * o.opacity).clamp(0.0, 1.0);
@@ -1895,7 +2202,7 @@ impl Scene {
                         None => return,
                     };
                     let dz = (d(v[2]) + 2.0) as f32;
-                    let rgb = mul(self.fogged(c, v[2]), o.opacity * k);
+                    let rgb = mul(self.fogged_at(c, wp), o.opacity * k);
                     for &i in [0usize, 1, 2, 0, 2, 3].iter() {
                         let (p, m) = (pts[i], wts[i]);
                         sparks.extend_from_slice(&[p[0] as f32, p[1] as f32, dz, (rgb[0] * m) as f32, (rgb[1] * m) as f32, (rgb[2] * m) as f32]);
@@ -1928,6 +2235,9 @@ impl Scene {
             } else {
                 (Vec::new(), Vec::new())
             };
+            // a smooth corner's light is the same for every face round it (shiny
+            // glints aside, which use the corner too): worked out once
+            let mut vlit: Vec<Option<V3>> = vec![None; vn.len()];
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1988,8 +2298,27 @@ impl Scene {
                         continue;
                     }
                     let cols: Vec<V3> = face.iter().map(|&i| {
-                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam, o.env);
-                        self.fogged(lit, dist)
+                        if o.wsurf {
+                            if let Some(wt) = &self.water {
+                                if vlit[i].is_none() {
+                                    vlit[i] = Some(self.fogged_at(wt.surface_color(vn[i], world[i], cam), world[i]));
+                                }
+                                return vlit[i].unwrap();
+                            }
+                        }
+                        let lit = if flip > 0.0 {
+                            match vlit[i] {
+                                Some(c) => c,
+                                None => {
+                                    let c = self.shade_shiny(vn[i], world[i], vc[i], o.shiny, cam, o.env);
+                                    vlit[i] = Some(c);
+                                    c
+                                }
+                            }
+                        } else {
+                            self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam, o.env)
+                        };
+                        self.fogged_at(lit, world[i])
                     }).collect();
                     for k in 1..pts.len() - 1 {
                         for &j in [0, k, k + 1].iter() {
@@ -2002,7 +2331,7 @@ impl Scene {
                     continue;
                 }
                 let lit = if unlit { fc } else { self.shade_shiny(n, centre, fc, o.shiny, cam, o.env) };
-                let c = self.fogged(lit, dist);
+                let c = self.fogged_at(lit, centre);
                 if o.opacity < 1.0 {
                     // see-through: added over what is behind, after the solid
                     // faces and far ones first (see `tris`)
@@ -2428,5 +2757,48 @@ mod mesh_tests {
         // the front box is nearer than the back box's front face, by many 16-bit steps
         assert!(gmax < wmin, "{} {}", gmax, wmin);
         assert!(wmin - gmax > 50.0 / 65536.0, "{} {}", gmax, wmin);
+    }
+
+    #[test]
+    fn water_takes_red_first_and_ripples() {
+        let mut sc = Scene::new();
+        sc.command("scene", &rg_core::json::parse(r##"{ "water": { "surface": 0, "color": "#0d4050", "caustics": 0.8, "time": 1.3 } }"##));
+        sc.command("light", &rg_core::json::parse(r##"{ "id": "sun", "type": "directional", "y": 1, "intensity": 1 }"##));
+        let w = sc.water.unwrap();
+        // far away a white wall is the water's colour; near it is still white-ish
+        let far = sc.fogged([1.0; 3], 200.0);
+        let near = sc.fogged([1.0; 3], 0.5);
+        let level = w.backdrop(0.0, [0.0, 0.0, -1.0]);
+        for i in 0..3 { assert!((far[i] - level[i]).abs() < 0.01, "{:?} {:?}", far, level); }
+        // the water looks bright up, dark down, and darker and bluer deeper
+        let up = w.backdrop(-5.0, [0.0, 1.0, 0.0]);
+        let dn = w.backdrop(-5.0, [0.0, -1.0, 0.0]);
+        let deep = w.backdrop(-40.0, [0.0, 0.0, -1.0]);
+        assert!(up[1] > dn[1] * 2.0, "{:?} {:?}", up, dn);
+        assert!(deep[1] < level[1] * 0.2 && deep[2] / deep[1] > level[2] / level[1], "{:?} {:?}", deep, level);
+        // the surface from below: straight up through Snell's window it is bright
+        // (the sky), at a slant beyond ~49° it mirrors the dark water below
+        let through = w.surface_color([0.0, 1.0, 0.0], [0.0, 0.0, -1.0], [0.0, -5.0, 0.0]);
+        let mirror = w.surface_color([0.0, 1.0, 0.0], [10.0, 0.0, 0.0], [0.0, -5.0, 0.0]);
+        assert!(through[1] > mirror[1] * 3.0, "{:?} {:?}", through, mirror);
+        assert!(near[0] > 0.7 && near[2] > 0.9, "{:?}", near);
+        // 10 m down a white floor has lost far more red than blue
+        let deep = sc.shade([0.0, 1.0, 0.0], [0.3, -10.0, 0.7], [1.0; 3]);
+        assert!(deep[0] < deep[2] * 0.15, "{:?}", deep);
+        // the caustics vary over the floor, averaging about the plain light
+        let (mut lo, mut hi, mut sum) = (f64::MAX, 0.0f64, 0.0);
+        let n = 4000;
+        for i in 0..n {
+            let x = (i % 63) as f64 * 0.137;
+            let z = (i / 63) as f64 * 0.211;
+            let c = w.caustic(x, -2.0, z);
+            lo = lo.min(c); hi = hi.max(c); sum += c;
+        }
+        assert!(hi > 1.8 && lo < 0.8, "{} {}", lo, hi);
+        let mean = sum / n as f64;
+        assert!(mean > 0.7 && mean < 1.4, "{}", mean);
+        // water: false ends it
+        sc.command("scene", &rg_core::json::parse(r##"{ "water": false }"##));
+        assert!(sc.water.is_none());
     }
 }
