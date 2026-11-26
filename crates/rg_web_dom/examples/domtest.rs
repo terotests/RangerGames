@@ -148,7 +148,7 @@ fn play(games: &str, id: &str, frames: usize, dom: bool) -> (bool, String, f64, 
             let n = &e.draw.nums[i..];
             let k = n[0] as i32;
             *kinds.entry(k).or_insert(0) += 1;
-            if std::env::var("DOMTEST_ORDER").is_ok() { println!("  #{} kind {} at {},{} {}x{} rgb {} {} {}", kinds.values().sum::<i32>(), k, n[1], n[2], n[3], n[4], n[5], n[6], n[7]); }
+            if std::env::var("DOMTEST_ORDER").is_ok() { println!("  #{} kind {} at {},{} {}x{} rgb {} {} {} a {} flags {} s {:?} extra {:?}", kinds.values().sum::<i32>(), k, n[1], n[2], n[3], n[4], n[5], n[6], n[7], n[8], n[17], e.draw.strings.get(n[18] as usize), &n[23..23 + n[22] as usize]); }
             i += rg_engine::draw::HEADER + n[22] as usize;
         }
         println!("  {} kinds {:?}", if dom { "dom" } else { "evg" }, kinds);
