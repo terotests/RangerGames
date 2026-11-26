@@ -29,7 +29,8 @@ TC=$(ls -d "$NDK"/toolchains/llvm/prebuilt/*/bin | head -1)
 API=24
 JNI=android/app/src/main/jniLibs
 ASSETS=android/app/src/main/assets
-rm -rf "$JNI" "$ASSETS"/web
+# assets/shaders held sphere.fs from older builds; shaders now live in the .so.
+rm -rf "$JNI" "$ASSETS"/web "$ASSETS"/shaders
 mkdir -p "$ASSETS/fonts"
 
 # With the RangerDOM dependencies (scripts/setup-dom.sh) the engine is
