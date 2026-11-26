@@ -244,3 +244,48 @@ fn an_installed_download_replaces_the_game_it_names() {
     assert!(!gs.iter().any(|g| g.id == "g1"));
     assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().replaced_by, "");
 }
+
+#[test]
+fn dev_reload_keeps_what_on_hot_gives_through_a_typo_and_restyles_css_in_place() {
+    let game = |label: &str| {
+        format!(
+            r#"let taps = rg.hot ? rg.hot.taps : 0;
+            rg.onHot(() => ({{ taps }}));
+            function onPointerDown() {{ taps++; }}
+            function view() {{ return <div className="s">{{"{} " + taps}}</div>; }}"#,
+            label
+        )
+    };
+    let mut e = engine(&game("A"), ".s { width: 200px; height: 100px; }");
+    e.start("t").unwrap();
+    e.pointer(0, 1, 100.0, 150.0);
+    e.pointer(2, 1, 100.0, 150.0);
+    e.frame(16.0).unwrap();
+    assert_eq!(e.eval("taps").unwrap(), "1");
+    // a new script: the game starts again with its state
+    e.vfs.add_text("/games/t/game.tsx", &game("B"));
+    assert_eq!(e.dev_changed(&["/games/t/game.tsx".to_string()]), 2);
+    e.frame(16.0).unwrap();
+    assert!(e.draw.strings.iter().any(|s| s == "B 1"));
+    // a typo fails; its fix still gets the state
+    e.vfs.add_text("/games/t/game.tsx", "let x = ;");
+    assert_eq!(e.dev_changed(&["/games/t/game.tsx".to_string()]), 2);
+    assert!(!e.error.is_empty());
+    e.vfs.add_text("/games/t/game.tsx", &game("C"));
+    e.dev_changed(&["/games/t/game.tsx".to_string()]);
+    e.frame(16.0).unwrap();
+    assert!(e.draw.strings.iter().any(|s| s == "C 1"));
+    // style.css alone: restyled, the script keeps running (no new start)
+    e.eval("taps = 5").unwrap();
+    e.vfs.add_text("/games/t/style.css", ".s { width: 200px; height: 100px; background-color: #00ff00; }");
+    assert_eq!(e.dev_changed(&["/games/t/style.css".to_string()]), 1);
+    assert_eq!(e.eval("taps").unwrap(), "5");
+    // another game's files and pictures: nothing to do
+    assert_eq!(e.dev_changed(&["/games/other/game.tsx".to_string(), "/games/t/img/a.png".to_string()]), 0);
+    // the state goes to whatever script comes next; after one without rg.onHot the game starts fresh
+    e.vfs.add_text("/games/t/game.tsx", "let n = rg.hot; function view() { return <div>{String(n)}</div>; }");
+    e.dev_changed(&["/games/t/game.tsx".to_string()]);
+    assert_eq!(e.eval("n.taps").unwrap(), "5");
+    e.dev_changed(&["/games/t/game.tsx".to_string()]);
+    assert_eq!(e.eval("String(n)").unwrap(), "null");
+}

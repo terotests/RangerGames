@@ -324,7 +324,11 @@
   Host.prototype.afterCall = function () {
     var x = this.x;
     var log = this.text(x.rg_log_ptr(), x.rg_log_len());
-    if (log) console.log(log);
+    if (log) {
+      console.log(log);
+      // dev reload (dev.js) sends it to the computer's terminal too
+      if (this.onLog) this.onLog(log);
+    }
     var cmds = this.text(x.rg_cmds_ptr(), x.rg_cmds_len());
     if (cmds && cmds !== "[]") {
       var list = JSON.parse(cmds);

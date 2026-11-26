@@ -55,6 +55,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private Camera camera;
     private Bluetooth bluetooth;
     private Store store;
+    /** dev reload from the computer (scripts/dev.sh), null when off */
+    private DevLink dev;
     private SharedPreferences saves;
     private Thread thread;
     private volatile boolean running;
@@ -236,6 +238,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         running = false;
         // (null: the activity handed over to XrActivity at once)
         if (bluetooth != null) bluetooth.destroy();
+        if (dev != null) dev.stop();
         if (thread != null) {
             try {
                 thread.join(1000);
@@ -367,6 +370,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         // and new versions of them, in the background, now and every few hours
         store.autoUpdate();
         Engine.store(true);
+        dev = DevLink.start(this, getIntent());
         for (Map.Entry<String, ?> e : saves.getAll().entrySet()) {
             if (e.getKey().startsWith("/save/") && e.getValue() instanceof String) {
                 Engine.put(e.getKey(), ((String) e.getValue()).getBytes(StandardCharsets.UTF_8));
@@ -613,7 +617,23 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     /** The engine's log to logcat, and what the game asked for done. */
     private void afterCall() {
         String log = Engine.log();
-        if (log != null && !log.isEmpty()) Log.i(TAG, log);
+        if (log != null && !log.isEmpty()) {
+            Log.i(TAG, log);
+            if (dev != null) dev.log(log);
+        }
+        commands();
+        // dev reload: files from the computer between frames, then what the restarted game asked for
+        if (dev != null && dev.apply(painter, sound)) {
+            String more = Engine.log();
+            if (more != null && !more.isEmpty()) {
+                Log.i(TAG, more);
+                dev.log(more);
+            }
+            commands();
+        }
+    }
+
+    private void commands() {
         String cmds = Engine.commands();
         if (cmds == null || cmds.isEmpty() || cmds.equals("[]")) return;
         try {

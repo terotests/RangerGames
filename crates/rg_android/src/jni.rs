@@ -542,3 +542,24 @@ pub extern "system" fn Java_fi_rangergames_Engine_glStats(mut env: JNIEnv, _c: J
     });
     jtext(&mut env, &s)
 }
+
+// ---- dev reload (scripts/dev.sh, DevLink.java) ----
+
+/// Dev: the app put these files again (VFS paths, one a line). Their GL
+/// pictures are forgotten; 2 the running game started again, 1 its style.css
+/// was read again, 0 it goes on as it was (Engine::dev_changed).
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_devChanged(mut env: JNIEnv, _c: JClass, paths: JString) -> jint {
+    let paths: Vec<String> = text(&mut env, &paths).lines().filter(|l| !l.is_empty()).map(|l| l.to_string()).collect();
+    GL.with(|gl| {
+        let mut gl = gl.borrow_mut();
+        for p in &paths {
+            gl.forget(p);
+        }
+    });
+    with(|e| {
+        let r = e.dev_changed(&paths);
+        publish(e);
+        r as jint
+    })
+}

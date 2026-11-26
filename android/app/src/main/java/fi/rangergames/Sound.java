@@ -395,6 +395,13 @@ final class Sound implements Runnable {
         }
     }
 
+    /** Dev reload: the file at path changed; decoded again when next played. */
+    void forget(String path) {
+        synchronized (files) {
+            files.remove(path);
+        }
+    }
+
     /** A WAV file of the virtual directory (or a voice clip asset) as samples at RATE (cached), or null. */
     private short[] file(String path) {
         synchronized (files) {

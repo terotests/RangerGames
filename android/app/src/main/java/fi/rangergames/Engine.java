@@ -20,6 +20,9 @@ final class Engine {
 
     static native int start(String id);
 
+    /** Dev reload ({@link DevLink}): these files (paths, one a line) were put again; 2 the game started again, 1 restyled, 0 nothing. */
+    static native int devChanged(String paths);
+
     static native void resize(double w, double h);
 
     static native void seed(double seed);

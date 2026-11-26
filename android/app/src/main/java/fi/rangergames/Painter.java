@@ -495,6 +495,15 @@ final class Painter {
         return t;
     }
 
+    /** Dev reload: the file at path changed; its decoded picture and map are made again when next drawn. */
+    void forget(String path) {
+        Bitmap b = images.remove(path);
+        if (b != null) imageBytes -= b.getByteCount();
+        maps.remove(path);
+        mapSizes.remove(path);
+        mapBitmaps.remove(path);
+    }
+
     /** An image of the virtual directory, decoded once (PNG, JPEG, WebP). */
     private Bitmap bitmap(String s) {
         if (images.containsKey(s)) return images.get(s);

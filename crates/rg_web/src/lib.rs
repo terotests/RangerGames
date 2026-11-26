@@ -21,6 +21,8 @@
 //!   rg_games_ptr/len                      the games as JSON
 //!   rg_eval(src, len)                     runs JS in the game's script; its value (or error) into the result; 0 ok, 1 error
 //!   rg_tree()                             the last frame's laid-out element tree as JSON into the result; its length
+//!   rg_dev_changed(paths, len)            dev reload (web/js/dev.js): files put again; 2 restarted, 1 restyled, 0 nothing
+//!   rg_gl_forget(path, len)               dev reload: a changed picture's GL texture uploaded again
 
 /// The engine the module runs: EVG lays out the view (crates/rg_web_dom
 /// makes one with the RangerDOM renderer instead).
