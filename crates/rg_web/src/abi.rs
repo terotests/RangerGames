@@ -255,17 +255,28 @@ pub unsafe extern "C" fn rg_eval(p: *const u8, n: usize) -> i32 {
     })
 }
 
-/// A built-in shader stage (shaders/<path>, e.g. "splat/show.fs") assembled
-/// with the host's defines ("RG_YS=1.0"): 0 and the source in the result
-/// buffer, or 1 and the error there (rg_shader).
+/// A shader stage assembled with the host's defines ("RG_YS=1.0"): a
+/// built-in (shaders/<path>, e.g. "splat/show.fs") or a game's
+/// ("game:<key>", the key a draw command names): 0 and the source in the
+/// result buffer, or 1 and the error there (rg_shader).
 #[no_mangle]
 pub unsafe extern "C" fn rg_shader(p: *const u8, n: usize, dp: *const u8, dn: usize) -> i32 {
-    let (r, code) = match rg_shader::assemble_builtin(&text(p, n), &text(dp, dn)) {
+    let (r, code) = match rg_shader::stage(&text(p, n), &text(dp, dn)) {
         Ok(b) => (b.src, 0),
         Err(e) => (e, 1),
     };
     RESULT.with(|b| *b.borrow_mut() = r.into_bytes());
     code
+}
+
+/// A driver's compile log for that stage told in the source's own files and
+/// lines (result buffer); it also goes to the game's log on the next frame.
+#[no_mangle]
+pub unsafe extern "C" fn rg_shader_explain(p: *const u8, n: usize, dp: *const u8, dn: usize, lp: *const u8, ln: usize) -> usize {
+    let r = rg_shader::explain(&text(p, n), &text(dp, dn), &text(lp, ln));
+    let len = r.len();
+    RESULT.with(|b| *b.borrow_mut() = r.into_bytes());
+    len
 }
 
 #[no_mangle]

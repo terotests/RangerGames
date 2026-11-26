@@ -223,6 +223,7 @@ dependencies = [
  "rangerthree",
  "rg_core",
  "rg_evg",
+ "rg_shader",
 ]
 
 [[package]]

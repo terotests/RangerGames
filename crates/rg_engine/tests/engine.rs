@@ -244,3 +244,23 @@ fn an_installed_download_replaces_the_game_it_names() {
     assert!(!gs.iter().any(|g| g.id == "g1"));
     assert_eq!(gs.iter().find(|g| g.id == "mansepoli").unwrap().replaced_by, "");
 }
+
+#[test]
+fn rg_shader_registers_a_game_file_and_reports_its_errors() {
+    let mut e = engine(
+        r#"
+        rg.shader("glow", { src: "shaders/glow.glsl", kind: "liquid" });
+        rg.shader("missing", { src: "shaders/none.glsl", kind: "liquid" });
+        rg.shader("odd", { src: "shaders/glow.glsl", kind: "smoke" });
+        function view() { return <div/>; }"#,
+        "",
+    );
+    e.vfs.add_text("/games/t/shaders/glow.glsl", "#include \"lib/heat.glsl\"\nuniform float u_k;\nvec4 liquid(Fluid f) { return vec4(heat(f.temp) * u_k, f.edge); }\n");
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    e.frame(16.0).unwrap();
+    let log = e.log.join("\n");
+    assert!(log.contains("shader missing: no file shaders/none.glsl"), "{}", log);
+    assert!(log.contains("kind \"smoke\""), "{}", log);
+    assert!(!log.contains("shader glow"), "{}", log);
+}

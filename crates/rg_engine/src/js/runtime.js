@@ -279,6 +279,10 @@ var rg = {
     supported: function () { return { vr: !!rg.xr.state.vr, stereo: true }; }
   },
   three: function (op, args) { __cmds.push(["three", String(op), args === undefined ? null : args]); },
+  // a shader of the game's own: GLSL functions in a file of its folder, wrapped
+  // by the engine (kind "liquid": vec4 liquid(Fluid f), for shape "splats"
+  // with material: { shader: name, u: { ... } }); see shaders/README.md
+  shader: function (name, opts) { __cmds.push(["shader", String(name), opts || {}]); },
   // a path in the game's folder, for <img src>
   asset: function (path) { return path.charAt(0) === "/" ? path : __dir + "/" + path; },
   games: function () { return __games; },

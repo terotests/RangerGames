@@ -84,6 +84,12 @@
             var t = self.text(self.x.rg_result_ptr(), self.x.rg_result_len());
             if (r !== 0) { console.warn("shader " + path + ": " + t); return null; }
             return t;
+          }, function (path, defs, log) {
+            if (!self.x.rg_shader_explain) return log;
+            var a = self.put(path), b = self.put(defs), c = self.put(log);
+            self.x.rg_shader_explain(a[0], a[1], b[0], b[1], c[0], c[1]);
+            self.free(a); self.free(b); self.free(c);
+            return self.text(self.x.rg_result_ptr(), self.x.rg_result_len());
           });
         }
         // ?notex: planets drawn from their regions even where textures work
