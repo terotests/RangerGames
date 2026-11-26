@@ -140,13 +140,19 @@ uniform vec4 fogc;
 out vec4 o;
 void main() {
   vec3 n = normalize(vn), e = normalize(ve);
+  // where the normal turns a lot within a pixel (a far crinkled or dented skin), the
+  // glint is spread wider and dimmer (Toksvig): many tiny facets as one rougher
+  // surface, instead of single pixels flashing on and off as the ship moves
+  float nw = length(fwidth(vn));
+  float pw = 24.0 / (1.0 + 48.0 * nw * nw);
+  float gk = (pw + 2.0) / 26.0;
   vec3 light = vr, glint = vec3(0.0);
   for (int i = 0; i < 4; i++) {
     if (i >= nl) break;
     vec4 a = lt[2 * i], b = lt[2 * i + 1];
     float k = max(dot(n, a.xyz), 0.0) * a.w;
     light += b.rgb * k;
-    if (vs.x > 0.0 && k > 0.0) glint += b.rgb * pow(max(dot(n, normalize(a.xyz + e)), 0.0), 24.0) * vs.x * b.w;
+    if (vs.x > 0.0 && k > 0.0) glint += b.rgb * pow(max(dot(n, normalize(a.xyz + e)), 0.0), pw) * vs.x * b.w * gk;
   }
   vec3 c = vb * light + glint;
   o = vec4(mix(c, fogc.rgb, vs.y), 1.0);
