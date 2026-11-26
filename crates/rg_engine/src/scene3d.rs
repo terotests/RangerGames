@@ -8,6 +8,10 @@
 //! ```text
 //! rg.three("scene",  { background: "#87ceeb" | ["#top", "#bottom"], fog: [near, far], fogColor,
 //!                      ground: { y, color } })            // an endless floor at height y
+//!                      water: { surface, color, absorb: [r, g, b], scatter, caustics, causticScale, time }
+//!                                     // under water (see `Water`): light and distance take each
+//!                                     // colour away at its own rate (red first), sunlight
+//!                                     // ripples over the faces (caustics); water: false ends it
 //! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //!                    type "env": a still surrounding that objects with env > 0 mirror
@@ -652,8 +656,106 @@ struct Light {
     sky: V3,
 }
 
+/// Under water (rg.three("scene", { water })): instead of the fog, what lies
+/// `d` metres away keeps exp(-(absorb + scatter) d) of each colour and takes
+/// the rest from `color` (the water's own glow), so red goes first and far
+/// things turn blue-green. The light from above (directional and ambient)
+/// has come down through the water: at depth `surface - y` it keeps
+/// exp(-absorb depth) of each colour. Faces turned up to a directional
+/// light get caustics: the bright net that the waves focus onto the
+/// bottom, moving with `time`, `causticScale` metres across, `caustics`
+/// strong (0…1), fainter and softer deeper down. All of it is in the light
+/// the engine works out at a face or corner, so every host draws it.
+#[derive(Clone, Copy)]
+pub struct Water {
+    pub surface: f64,
+    pub color: V3,
+    pub absorb: V3,
+    pub scatter: f64,
+    pub caustics: f64,
+    pub scale: f64,
+    pub time: f64,
+}
+
+impl Water {
+    fn from(a: &Json, old: Option<Water>) -> Water {
+        let o = old.unwrap_or(Water { surface: 0.0, color: [0.05, 0.25, 0.32], absorb: [0.45, 0.07, 0.04], scatter: 0.06, caustics: 0.6, scale: 3.0, time: 0.0 });
+        let absorb = match a.get("absorb") {
+            Json::Arr(v) if v.len() >= 3 => [v[0].as_num(0.45), v[1].as_num(0.07), v[2].as_num(0.04)],
+            _ => o.absorb,
+        };
+        Water {
+            surface: a.get("surface").as_num(o.surface),
+            color: if a.get("color").is_null() { o.color } else { color(&a.get("color"), o.color) },
+            absorb,
+            scatter: a.get("scatter").as_num(o.scatter),
+            caustics: a.get("caustics").as_num(o.caustics),
+            scale: a.get("causticScale").as_num(o.scale).max(0.05),
+            time: a.get("time").as_num(o.time),
+        }
+    }
+
+    /// How much of each colour the light from above keeps at height y.
+    fn down(&self, y: f64) -> V3 {
+        let d = (self.surface - y).max(0.0);
+        [(-self.absorb[0] * d).exp(), (-self.absorb[1] * d).exp(), (-self.absorb[2] * d).exp()]
+    }
+
+    /// What the eye sees of colour `c` `dist` away.
+    fn seen(&self, c: V3, dist: f64) -> V3 {
+        let mut o = [0.0; 3];
+        for i in 0..3 {
+            let k = (-(self.absorb[i] + self.scatter) * dist.max(0.0)).exp();
+            o[i] = c[i] * k + self.color[i] * (1.0 - k);
+        }
+        o
+    }
+
+    /// The caustics' light at (x, z), y deep: about 1 on average, bright
+    /// threads up to ~3 and dim cells between, fading towards 1 deeper down.
+    pub fn caustic(&self, x: f64, y: f64, z: f64) -> f64 {
+        if self.caustics <= 0.0 {
+            return 1.0;
+        }
+        let depth = (self.surface - y).max(0.0);
+        // the net grows and blurs with depth (the waves' lenses focus less)
+        let s = self.scale * (1.0 + depth * 0.04);
+        let v = caustic_net(x / s, z / s, self.time * 0.6);
+        let fade = self.caustics * (-depth / 25.0).exp();
+        // deeper the threads soften (a power below 1); minus the net's mean
+        // there, so the floor is as bright on average as without caustics
+        let p = 0.5 + 0.5 * (-depth / 15.0).exp();
+        1.0 + fade * 3.5 * (v.powf(p) - 0.92 * 0.15f64.powf(p))
+    }
+}
+
+/// A tiling net of bright threads 0…1 (the well-known turbulent sine
+/// iteration for water caustics), one period across a unit.
+pub fn caustic_net(u: f64, v: f64, t: f64) -> f64 {
+    const TAU: f64 = std::f64::consts::TAU;
+    let px = (u * TAU).rem_euclid(TAU) - 250.0;
+    let py = (v * TAU).rem_euclid(TAU) - 250.0;
+    let (mut ix, mut iy) = (px, py);
+    let mut c = 1.0;
+    let inten = 0.005;
+    for n in 0..4 {
+        let tt = t * (1.0 - 3.5 / (n as f64 + 1.0));
+        let nx = px + (tt - ix).cos() + (tt + iy).sin();
+        let ny = py + (tt - iy).sin() + (tt + ix).cos();
+        ix = nx;
+        iy = ny;
+        let a = px / ((ix + tt).sin() / inten);
+        let b = py / ((iy + tt).cos() / inten);
+        c += 1.0 / (a * a + b * b).sqrt().max(1e-6);
+    }
+    c /= 4.0;
+    let c = (1.17 - c.powf(1.4)).abs();
+    c.powi(8).min(1.0)
+}
+
 pub struct Scene {
     pub active: bool,
+    pub water: Option<Water>,
     objs: Vec<Obj>,
     lights: Vec<Light>,
     sky: Option<(V3, V3)>,
@@ -837,6 +939,7 @@ impl Scene {
     pub fn new() -> Scene {
         let mut s = Scene {
             active: false,
+            water: None,
             objs: Vec::new(),
             lights: Vec::new(),
             sky: None,
@@ -908,6 +1011,11 @@ impl Scene {
                     self.fog_color = color(&a.get("fogColor"), [1.0; 3]);
                 } else if let Some((_, b)) = self.sky {
                     self.fog_color = b;
+                }
+                match a.get("water") {
+                    Json::Null => {}
+                    Json::Bool(false) => self.water = None,
+                    w => self.water = Some(Water::from(&w, self.water)),
                 }
                 let g = a.get("ground");
                 if g.is_null() {
@@ -1147,11 +1255,16 @@ impl Scene {
         let mut light = [0.0, 0.0, 0.0];
         let mut glint = [0.0, 0.0, 0.0];
         let eye = norm(sub(cam, centre));
+        // under water the light from above has lost colour on its way down
+        let (down, net) = match &self.water {
+            Some(w) => (w.down(centre[1]), w.caustic(centre[0], centre[1], centre[2])),
+            None => ([1.0; 3], 1.0),
+        };
         for l in self.lights.iter() {
             let k = match l.kind.as_str() {
                 "ambient" => l.intensity,
                 "env" => 0.0,
-                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity,
+                "directional" => dot(n, norm(l.pos)).max(0.0) * l.intensity * net,
                 _ => {
                     let d = sub(l.pos, centre);
                     let dist = dot(d, d).sqrt();
@@ -1159,7 +1272,8 @@ impl Scene {
                     dot(n, norm(d)).max(0.0) * l.intensity * fall * fall
                 }
             };
-            light = add(light, mul(l.color, k));
+            let lc = if l.kind == "ambient" || l.kind == "directional" { [l.color[0] * down[0], l.color[1] * down[1], l.color[2] * down[2]] } else { l.color };
+            light = add(light, mul(lc, k));
             if shiny > 0.0 && l.kind != "ambient" && l.kind != "env" && k > 0.0 {
                 let to = if l.kind == "directional" { norm(l.pos) } else { norm(sub(l.pos, centre)) };
                 let h = norm(add(to, eye));
@@ -1195,6 +1309,9 @@ impl Scene {
 
     /// How much of the fog's colour a point `dist` away takes (0…1).
     fn fog_k(&self, dist: f64) -> f64 {
+        if let Some(w) = &self.water {
+            return 1.0 - (-(w.absorb[1] + w.scatter) * dist.max(0.0)).exp();
+        }
         match self.fog {
             Some((near, far)) if far > near => ((dist - near) / (far - near)).clamp(0.0, 1.0),
             _ => 0.0,
@@ -1202,6 +1319,9 @@ impl Scene {
     }
 
     fn fogged(&self, c: V3, dist: f64) -> V3 {
+        if let Some(w) = &self.water {
+            return w.seen(c, dist);
+        }
         match self.fog {
             Some((near, far)) if far > near => {
                 let k = ((dist - near) / (far - near)).clamp(0.0, 1.0);
@@ -1743,7 +1863,7 @@ impl Scene {
         let mut tris: Vec<f32> = Vec::new();
         let mut ptris: Vec<f32> = Vec::new();
         // (a VR eye takes only triangles: its smooth meshes are lit at the corners)
-        let phong = self.unified && self.eye.is_none();
+        let phong = self.unified && self.eye.is_none() && self.water.is_none();
         let mut plights: Vec<f32> = Vec::new();
         if phong {
             for l in self.lights.iter().filter(|l| l.kind == "directional").take(4) {
@@ -1928,6 +2048,9 @@ impl Scene {
             } else {
                 (Vec::new(), Vec::new())
             };
+            // a smooth corner's light is the same for every face round it (shiny
+            // glints aside, which use the corner too): worked out once
+            let mut vlit: Vec<Option<V3>> = vec![None; vn.len()];
             for (fi, face) in o.mesh.faces.iter().enumerate() {
                 let a = world[face[0]];
                 let b = world[face[1]];
@@ -1988,7 +2111,18 @@ impl Scene {
                         continue;
                     }
                     let cols: Vec<V3> = face.iter().map(|&i| {
-                        let lit = self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam, o.env);
+                        let lit = if flip > 0.0 {
+                            match vlit[i] {
+                                Some(c) => c,
+                                None => {
+                                    let c = self.shade_shiny(vn[i], world[i], vc[i], o.shiny, cam, o.env);
+                                    vlit[i] = Some(c);
+                                    c
+                                }
+                            }
+                        } else {
+                            self.shade_shiny(mul(vn[i], flip), world[i], vc[i], o.shiny, cam, o.env)
+                        };
                         self.fogged(lit, dist)
                     }).collect();
                     for k in 1..pts.len() - 1 {
@@ -2428,5 +2562,36 @@ mod mesh_tests {
         // the front box is nearer than the back box's front face, by many 16-bit steps
         assert!(gmax < wmin, "{} {}", gmax, wmin);
         assert!(wmin - gmax > 50.0 / 65536.0, "{} {}", gmax, wmin);
+    }
+
+    #[test]
+    fn water_takes_red_first_and_ripples() {
+        let mut sc = Scene::new();
+        sc.command("scene", &rg_core::json::parse(r##"{ "water": { "surface": 0, "color": "#0d4050", "caustics": 0.8, "time": 1.3 } }"##));
+        sc.command("light", &rg_core::json::parse(r##"{ "id": "sun", "type": "directional", "y": 1, "intensity": 1 }"##));
+        let w = sc.water.unwrap();
+        // far away a white wall is the water's colour; near it is still white-ish
+        let far = sc.fogged([1.0; 3], 200.0);
+        let near = sc.fogged([1.0; 3], 0.5);
+        for i in 0..3 { assert!((far[i] - w.color[i]).abs() < 0.01, "{:?}", far); }
+        assert!(near[0] > 0.7 && near[2] > 0.9, "{:?}", near);
+        // 10 m down a white floor has lost far more red than blue
+        let deep = sc.shade([0.0, 1.0, 0.0], [0.3, -10.0, 0.7], [1.0; 3]);
+        assert!(deep[0] < deep[2] * 0.15, "{:?}", deep);
+        // the caustics vary over the floor, averaging about the plain light
+        let (mut lo, mut hi, mut sum) = (f64::MAX, 0.0f64, 0.0);
+        let n = 4000;
+        for i in 0..n {
+            let x = (i % 63) as f64 * 0.137;
+            let z = (i / 63) as f64 * 0.211;
+            let c = w.caustic(x, -2.0, z);
+            lo = lo.min(c); hi = hi.max(c); sum += c;
+        }
+        assert!(hi > 1.8 && lo < 0.8, "{} {}", lo, hi);
+        let mean = sum / n as f64;
+        assert!(mean > 0.7 && mean < 1.4, "{}", mean);
+        // water: false ends it
+        sc.command("scene", &rg_core::json::parse(r##"{ "water": false }"##));
+        assert!(sc.water.is_none());
     }
 }
