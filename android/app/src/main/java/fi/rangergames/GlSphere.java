@@ -12,21 +12,17 @@ import android.opengl.EGLSurface;
 import android.opengl.GLES30;
 import android.util.Log;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Textured globes (draw kind 8) on the phone's GPU with the shader of
- * web/js/painter.js (assets/shaders/sphere.fs, made by
- * scripts/sphere-shader.mjs): the same picture as on the web, with real
+ * Textured globes (draw kind 8) on the phone's GPU with the web's shader
+ * (shaders/globe/globe.fs, from the engine: Engine.shader): the same picture as on the web, with real
  * heights close by and the detail pictures.
  *
  * The 2D view is a Canvas over the 3D view, so the globes are drawn in an
@@ -167,7 +163,8 @@ final class GlSphere {
     /** Makes the context current on this thread; false (and ok false) when the phone has no GLES 3.0. */
     boolean init(AssetManager assets) {
         try {
-            String fs = readAsset(assets, "shaders/sphere.fs");
+            String fs = Engine.shader("globe/globe.fs", "");
+            if (fs == null) throw new IllegalStateException("no globe shader");
             if (!shared) {
             display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
             int[] ver = new int[2];
@@ -322,16 +319,6 @@ final class GlSphere {
         GLES30.glBufferData(GLES30.GL_ELEMENT_ARRAY_BUFFER, idx.length * 2, ib, GLES30.GL_STATIC_DRAW);
         GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, vbo);
         GLES30.glUseProgram(prog);
-    }
-
-    private static String readAsset(AssetManager assets, String name) throws Exception {
-        try (InputStream in = assets.open(name)) {
-            ByteArrayOutputStream bo = new ByteArrayOutputStream();
-            byte[] b = new byte[16384];
-            int r;
-            while ((r = in.read(b)) > 0) bo.write(b, 0, r);
-            return new String(bo.toByteArray(), StandardCharsets.UTF_8);
-        }
     }
 
     private static int shader(int kind, String src) {
