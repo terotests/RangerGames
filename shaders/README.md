@@ -27,6 +27,8 @@ What differs between hosts is passed as a define, not written twice:
   - `lib/heat.glsl`: `heat(t)`, black-body colour for anything hot
   - `lib/light.glsl`: `fresnel`, `toksvigPower`, `aaStep`
   - `lib/sprite.glsl`: `softSprite`, `spriteColor`
+  - `lib/scatter.glsl`: air lit by the sun after O'Neil (GPU Gems 2 ch. 16): `scatterSpan`,
+    `scatterRay`, `scatterTone` (the globe's `scatter` option)
 - `globe/globe.fs`: textured globes (draw kind 8), ray cast per pixel, with the `surface()` hook
   (`globe/surface.glsl` the engine's own); painter.js `Spheres` and
   GlSphere.java (its mesh vertex shader is made from this file's declarations: keep

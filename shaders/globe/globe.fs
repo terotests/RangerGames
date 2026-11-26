@@ -17,6 +17,9 @@ uniform float meshM;
 // the eye's remainder (draw.rs `sphere` 116-118: the eye minus its 32-bit 0-2), |eye|² - 1 (the host, in 64 bits), and the
 // light that changes with the eye (120 dust, 121 grains' glints, 122 the sea's glint)
 uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;
+// the air lit by the sun after O'Neil (lib/scatter.glsl; draw.rs `sphere` 119 and 123): scat the sunlight's
+// strength (0: the older glow, airGlow), smie the dust and haze (Mie) against the Earth's
+uniform float scat, smie;
 // rings in the equator plane (draw.rs `sphere`, 44 numbers): pictures of their colour and opacity across, edges in radii
 uniform sampler2D rctex, ratex; uniform float useR, rIn, rOut;
 // a gas giant's cloud bands drifting (48 numbers): flowA how far the fastest band goes in a cycle (picture
@@ -304,8 +307,36 @@ struct Surface { vec3 p; vec3 n; vec2 uv; vec3 col; vec3 sun; vec3 view; float t
 #include "lib/noise.glsl"
 #include "lib/heat.glsl"
 #include "lib/light.glsl"
+#include "lib/scatter.glsl"
 #include "<hook>"
 #endif
+// the air seen past the ball (premultiplied colour): O'Neil's scattering (scat > 0), else the glow
+vec4 airSky(vec3 d, vec3 q, float q2, float b) {
+  float R = 1.0 + air;
+  if (air <= 0.0 || useWin > 0.5 || q2 >= R * R) return vec4(0.0);
+#ifndef RG_MESH_VS
+  if (scat > 0.0) { vec3 e = eye + eyeL; float t0, t1; bool gr; vec3 ex;
+    if (!scatterSpan(e, d, air, t0, t1, gr)) return vec4(0.0);
+    vec3 c = scatterTone(scatterRay(e, d, sun, air, airc, smie, 0.76, scat, t0, t1, false, ex));
+    return vec4(c, max(c.r, max(c.g, c.b))); }
+#endif
+  if (-b < 0.0) return vec4(0.0);
+  vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);
+  return vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }
+// the air in front of the ground at p, th along the ray: O'Neil's (the ground's colour dimmed by the air, the
+// light scattered on the way added), else the glow, thicker towards the rim
+vec3 airGround(vec3 c, vec3 d, vec3 p, float th, float b, float q2) {
+  if (air <= 0.0 || useWin > 0.5) return c;
+  float R = 1.0 + air; float t0 = max(-b - sqrt(max(R * R - q2, 0.0)), 0.0);
+#ifndef RG_MESH_VS
+  if (scat > 0.0) { if (th <= t0) return c; vec3 ex;
+// (the veil and the dimming at 0.6: in full they washed out a lit disc's land and sea, and greyed the ground
+// seen at a slant)
+    vec3 l = scatterTone(0.6 * scatterRay(eye + eyeL, d, sun, air, airc, smie, 0.76, scat, t0, th, true, ex));
+    return 1.0 - (1.0 - c * pow(ex, vec3(0.6))) * (1.0 - l); }
+#endif
+  vec4 g = airGlow(d, p, 0.0, max(th - t0, 0.0), true);
+  return mix(c, g.rgb, g.a * 0.85); }
 void main() {
   vec2 px = box.xy + uv * box.zw;
   bool mesh = meshM > 0.5 && meshM < 1.5;
@@ -337,9 +368,7 @@ void main() {
     if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }
   bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : soft ? (cover > 0.0 && -b > 0.0) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));
   if (!hit) {
-    float R = 1.0 + air; vec4 ga = vec4(0.0);
-    if (!(air <= 0.0 || useWin > 0.5 || q2 >= R * R || -b < 0.0)) { float hq = sqrt(q2);
-      vec4 g = airGlow(d, q, max(hq - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false); ga = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }
+    vec4 ga = airSky(d, q, q2, b);
 // past the ball: the rings (in front of the air, a thin shell)
     ga = rg + ga * (1.0 - rg.a);
     if (ga.a < 0.003) discard;
@@ -484,11 +513,7 @@ void main() {
     vec3 L = texture(ltex, lonlat(p)).rgb; c += L * vec3(1.0, 0.88, 0.65) * lgain * (1.0 - smoothstep(-0.12, 0.06, s));
   }
 // the air in front of the ground: thicker towards the rim
-  if (air > 0.0 && useWin < 0.5) {
-    float R = 1.0 + air; float t0 = -b - sqrt(max(R * R - q2, 0.0));
-    vec4 g = airGlow(d, p, 0.0, max(th - max(t0, 0.0), 0.0), true);
-    c = mix(c, g.rgb, g.a * 0.85);
-  }
+  c = airGround(c, d, p, th, b, q2);
 // a sharper picture fades in as it comes closer (0.85 to 0.55 radii away), so that it does not jump in over
 // the ball's own picture when the game changes the pictures; and, close by too, round the point under the eye
 // (0.10 to 0.18 radians): the game's pieces reach at least that far, so their outer edge (and their finer
@@ -498,8 +523,7 @@ void main() {
   if (fa <= 0.0) discard;
   DEPTH(th); o = vec4(min(c, vec3(1.0)) * fa, fa);
 // the part of an edge pixel the ball leaves: the air behind it
-  if (soft && cover < 1.0 && air > 0.0) { float R = 1.0 + air; vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(max(R * R - q2, 0.0)), false);
-    o += vec4(min(g.rgb, vec3(1.0)) * g.a, g.a) * (1.0 - cover); }
+  if (soft && cover < 1.0 && air > 0.0) o += airSky(d, q, q2, b) * (1.0 - cover);
 // the rings in front of the ball (behind it they are hidden); at the edge the part the ball leaves sees them too
   if (tr > 0.0 && (tr < th || cover < 1.0)) { float k = tr < th ? 1.0 : 1.0 - cover; o = rg * k + o * (1.0 - rg.a * k); }
 }

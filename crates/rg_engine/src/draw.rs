@@ -439,12 +439,14 @@ impl DrawStream {
     /// the ground a host casts its rays from it (a 32-bit eye near the ground
     /// is only to about 6e-8 radii, 10 cm on the Moon, and a headset's two eyes
     /// 6.4 cm apart came out 0 to 15 cm apart); the host takes |eye|² - 1 of
-    /// 0-2 in 64 bits. [119] unused. The light that changes with the eye, each
+    /// 0-2 in 64 bits. [119] the air lit after O'Neil (GPU Gems 2 ch. 16):
+    /// the sunlight's strength, 0 = the older glow; [123] its dust and haze
+    /// (Mie) against the Earth's, 1. The light that changes with the eye, each
     /// 0…1: [120] dust (Lommel-Seeliger against Lambert, and the opposition
     /// surge round the point opposite the sun), [121] the grains' glints (close
     /// by, small facets that shine towards the half way between the sun and the
     /// eye, each eye its own), [122] the sea's glint (the sun mirrored on the
-    /// picture's dark blue); [123] unused. The forms before it are zeros where
+    /// picture's dark blue). The forms before it are zeros where
     /// unused; a detail window has it too.)
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
