@@ -448,6 +448,9 @@ impl DrawStream {
     /// eye, each eye its own), [122] the sea's glint (the sun mirrored on the
     /// picture's dark blue). The forms before it are zeros where
     /// unused; a detail window has it too.)
+    /// (128 numbers, globe.rs `regolith`: [124] close over real ground, small
+    /// made-up pits and lumps in the shading, fixed to the place (counted from
+    /// the eye's 64 bits), finer as the eye comes nearer, 0..2; [125-127] 0.)
     #[allow(clippy::too_many_arguments)]
     pub fn sphere_rings(&mut self, x: f64, y: f64, w: f64, h: f64, src: &str, lights: &str, heights: &str, rings: &str, params: &[f32]) {
         let s = self.string(src);

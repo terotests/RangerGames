@@ -44,6 +44,8 @@
 //!   heightScale,                 // the bumps' coarsest size (same units, default r / 60)
 //!   heightRelief,                // how much the sharp picture tilts the ground (default 1: true)
 //!   heightCraters,               // made-up craters in the bumps: 0 none, 1 deep (a fifth of their width)
+//!   regolith,                    // with real heights: close by small pits and lumps in the ground's shading, 0..2
+//!                                // (made up, fixed to the place, finer as the eye comes nearer, down to millimetres)
 //!   dust, glint, seaGlint,       // with a texture: light that changes with the eye, 0..1 (a headset's
 //!                                // two eyes see it differently): dust, regolith's light (no darker
 //!                                // limb, a bright halo opposite the sun); glint, close by grains that
@@ -329,6 +331,8 @@ pub struct Globe {
     dust: f64,
     glint: f64,
     sea_glint: f64,
+    /// close by, made-up small pits in the shading (draw.rs `sphere` 124), 0..2
+    regolith: f64,
 }
 
 fn opt_color(v: &Json, old: Option<V3>) -> Option<V3> {
@@ -460,6 +464,7 @@ impl Globe {
             dust: 0.0,
             glint: 0.0,
             sea_glint: 0.0,
+            regolith: 0.0,
         }
     }
 
@@ -618,6 +623,7 @@ impl Globe {
         self.dust = a.get("dust").as_num(self.dust).clamp(0.0, 1.0);
         self.glint = a.get("glint").as_num(self.glint).clamp(0.0, 1.0);
         self.sea_glint = a.get("seaGlint").as_num(self.sea_glint).clamp(0.0, 1.0);
+        self.regolith = a.get("regolith").as_num(self.regolith).clamp(0.0, 2.0);
         if let Json::Arr(v) = a.get("detail") {
             self.detail = v.iter().take(8).filter_map(|d| {
                 let src = d.get("src").as_str();
@@ -1330,7 +1336,9 @@ impl Globe {
         // eyes 6 cm apart are then 6 cm apart on the Moon too), and the light that changes with the eye
         let view_light = self.dust > 0.0 || self.glint > 0.0 || self.sea_glint > 0.0;
         let scatter = self.air > 0.0 && self.scatter > 0.0;
-        let w124 = (terrain && near) || view_light || scatter;
+        // the 128-number form: [124] the regolith's pits (only close over real ground, with the eye's remainder)
+        let w128 = terrain && near && self.regolith > 0.0;
+        let w124 = (terrain && near) || view_light || scatter || w128;
         let tail: [f32; 8] = [
             (e[0] - params[0] as f64) as f32, (e[1] - params[1] as f64) as f32, (e[2] - params[2] as f64) as f32,
             if scatter { self.scatter as f32 } else { 0.0 },
@@ -1408,6 +1416,9 @@ impl Globe {
                 params.resize(116, 0.0);
                 params.extend_from_slice(&tail);
             }
+            if w128 {
+                params.extend_from_slice(&[self.regolith as f32, 0.0, 0.0, 0.0]);
+            }
         }
         out.sphere_rings(x0, y0, x1 - x0, y1 - y0, &self.texture, &self.lights, &heights, if rings { &self.rings } else { "" }, &params);
         params.truncate(20);
@@ -1477,6 +1488,9 @@ impl Globe {
                 // the eye's remainder and the light (the rings, bands, storms, hot cap and star are the whole ball's)
                 p.resize(116, 0.0);
                 p.extend_from_slice(&tail);
+            }
+            if w128 {
+                p.extend_from_slice(&[self.regolith as f32, 0.0, 0.0, 0.0]);
             }
             // the window's own heights: a third name, "shading|shape|window heights"
             let wh = if terrain && !dh.is_empty() { format!("{}|{}", heights, dh) } else { heights.clone() };
@@ -2280,6 +2294,43 @@ mod tests {
         let mut out = DrawStream::new();
         g2.render_3d(&mut out, &cam_at([rr * 3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([1.0, 0.0, 0.0]), false, true);
         assert_eq!(out.nums[22], 40.0);
+    }
+
+    // the regolith's pits: close over real ground the ball and each window get 128 numbers, [124] the strength;
+    // far off nothing is added
+    #[test]
+    fn close_by_the_regolith_goes_in_the_128_number_form() {
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-9,"heightMax":10.7,"regolith":0.7,
+            "detail":[{"src":"img/d/0_3.jpg","u0":0.0,"v0":0.0,"u1":1.0,"v1":1.0}]}"##));
+        g.texture_in("/games/x");
+        g.terrain_ok = true;
+        g.detail_ok = true;
+        let rr = 1737.4;
+        let place = Place3 { centre: [0.0; 3], radius: rr, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut sizes = |eye: V3, fwd: V3| -> Vec<Vec<f32>> {
+            let mut out = DrawStream::new();
+            g.render_3d(&mut out, &cam_at(eye, fwd), &place, Some([0.3, 0.2, 0.9]), false, true);
+            let n = out.nums;
+            let (mut i, mut ps) = (0, Vec::new());
+            while i < n.len() {
+                let k = n[i + 22] as usize;
+                if n[i] == 8.0 {
+                    ps.push(n[i + 23..i + 23 + k].to_vec());
+                }
+                i += 23 + k;
+            }
+            ps
+        };
+        let near = sizes([0.0, 0.0, rr + 0.002], [1.0, 0.0, 0.0]);
+        assert_eq!(near.len(), 2, "the ball and its window");
+        for p in &near {
+            assert_eq!(p.len(), 128);
+            assert!((p[124] - 0.7).abs() < 1e-6);
+        }
+        let far = sizes([rr * 3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]);
+        assert!(far.iter().all(|p| p.len() < 128));
     }
 
     #[test]

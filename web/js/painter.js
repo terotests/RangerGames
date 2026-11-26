@@ -70,7 +70,7 @@
     this.ok = true;
   }
 
-  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rg_time"];
+  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "rg_time"];
   // a globe stage's program ({ prog, u: its uniforms' locations }), or null (why(log) told)
   Spheres.prototype.link = function (fsrc, why) {
     var gl = this.gl, prog = gl.createProgram(), ok = true;
@@ -251,6 +251,8 @@
     // the air lit after O'Neil (shaders/lib/scatter.glsl): the sun's strength (0: the glow) and the dust
     gl.uniform1f(u.scat, w124 ? p[119] : 0);
     gl.uniform1f(u.smie, w124 ? p[123] : 1);
+    // close by, the regolith's small pits (128 numbers)
+    gl.uniform1f(u.rego, p.length >= 128 ? p[124] : 0);
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
     gl.uniform3f(u.fwd, p[9], p[10], p[11]);
@@ -561,7 +563,7 @@
             var di = hs && hn.length > 2 ? this.images.get(hn[2]) : null;
             if (di) hs.push(di, hn[2]);
           }
-          var sp = nums.subarray(e, e + (nx >= 124 ? 124 : nx >= 116 ? 116 : nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
+          var sp = nums.subarray(e, e + (nx >= 128 ? 128 : nx >= 124 ? 124 : nx >= 116 ? 116 : nx >= 80 ? 80 : nx >= 72 ? 72 : nx >= 48 ? 48 : nx >= 44 ? 44 : nx >= 40 ? 40 : nx >= 32 ? 32 : nx >= 24 ? 24 : 20));
           // the rings' pictures "colour|opacity" (string 4, slot 21), once both are loaded
           var rs = null;
           if (nx >= 44 && nums[e + 42] > 0.5 && ls >= 0) {

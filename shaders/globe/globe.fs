@@ -17,6 +17,8 @@ uniform float meshM;
 // the eye's remainder (draw.rs `sphere` 116-118: the eye minus its 32-bit 0-2), |eye|² - 1 (the host, in 64 bits), and the
 // light that changes with the eye (120 dust, 121 grains' glints, 122 the sea's glint)
 uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;
+// close by, the regolith's small pits (draw.rs `sphere` 124, globe.rs `regolith`), 0..2
+uniform float rego;
 // the air lit by the sun after O'Neil (lib/scatter.glsl; draw.rs `sphere` 119 and 123): scat the sunlight's
 // strength (0: the older glow, airGlow), smie the dust and haze (Mie) against the Earth's
 uniform float scat, smie;
@@ -298,6 +300,39 @@ float grains(vec3 y, vec3 n, vec3 hw, float fpt) { float Lf = log2(max(fpt, 1e-1
     vec3 nf = normalize(n + 1.2 * rn); if (dot(nf, n) < 0.0) nf = reflect(nf, n); vec3 q = r - fl - j; q -= n * dot(q, n); float dd = length(q) * cs / fpt;
     sp += (k == 0 ? 1.0 - fr : fr) * (1.0 - smoothstep(0.25, 0.9, dd)) * pow(max(dot(nf, hw), 0.0), 150.0); }
   return sp; }
+// the regolith (draw.rs `sphere` 124): close by, small made-up pits with a low rim, as the lunar ground is
+// pitted at every size, in two sizes round a few pixels across (the next size faded in as the eye comes
+// nearer, so they grow finer without popping). As the grains, the cells are counted from the eye's 32 bits split
+// at 1/1024 radii plus y (the point from the eye): fixed to the place to 1e-10 radii, the same from both eyes.
+// Each cell (a cube) may hold one ball-shaped pit; where the ground cuts the ball it leaves a round bowl. Gives
+// the slope (tangent, to tilt the normal) and in al a small change of brightness (fresh pits' rims lighter)
+vec3 regolith(vec3 y, vec3 n, float fpt, out float al) { al = 1.0; float Lf = log2(max(fpt, 1e-12)) + 3.0;
+  float L0 = clamp(floor(Lf), -30.0, -15.0); float fr = clamp(Lf - L0, 0.0, 1.0); if (Lf > -14.0) return vec3(0.0);
+  vec3 ch = floor(eye * 1024.0) / 1024.0, cl = eye - ch; vec3 g = vec3(0.0);
+  for (int k = 0; k < 3; k++) { float l = L0 + float(k); if (l > -15.0) break;
+    float w = k == 0 ? 1.0 - fr : k == 2 ? fr : 1.0; float cs = exp2(l); vec3 r = (cl + y) / cs, fl = floor(r);
+    uvec3 a = uvec3(ivec3(ch * 1024.0)) * uint(1 << int(-l - 10.0)) + uvec3(ivec3(fl));
+    uint h = hsh(ivec3(a) + ivec3(0, 0, int(l) * 4801)), h2 = hsh(ivec3(a.zxy) + ivec3(7, 53, int(l) * 13));
+// the finest size: the ground itself rough between the pits (value noise on the same exact lattice, its slope)
+    if (k == 0) { vec3 f = r - fl, sm = f * f * (3.0 - 2.0 * f), ds = 6.0 * f * (1.0 - f); ivec3 ia = ivec3(a) + ivec3(0, 0, int(l) * 977);
+      float v[8]; for (int c = 0; c < 8; c++) v[c] = float(hsh(ia + ivec3(c & 1, (c >> 1) & 1, (c >> 2) & 1)) >> 8u) / 16777215.0;
+      float x00 = mix(v[0], v[1], sm.x), x10 = mix(v[2], v[3], sm.x), x01 = mix(v[4], v[5], sm.x), x11 = mix(v[6], v[7], sm.x);
+      float y0 = mix(x00, x10, sm.y), y1 = mix(x01, x11, sm.y);
+      vec3 gn = vec3(mix(mix(v[1] - v[0], v[3] - v[2], sm.y), mix(v[5] - v[4], v[7] - v[6], sm.y), sm.z) * ds.x,
+                     mix(x10 - x00, x11 - x01, sm.z) * ds.y, (y1 - y0) * ds.z);
+      g += 0.16 * gn; al *= 0.96 + 0.08 * mix(y0, y1, sm.z); }
+    if (float(h2 & 1023u) / 1023.0 > 0.5) continue;
+    vec3 j = vec3(0.2) + 0.6 * vec3(float(h & 1023u), float((h >> 10u) & 1023u), float((h >> 20u) & 1023u)) / 1023.0;
+    vec3 q = r - fl - j; float dn = dot(q, n); vec3 qt = q - n * dn;
+    float R = 0.2 + 0.28 * float((h2 >> 10u) & 1023u) / 1023.0; float re2 = R * R - dn * dn; if (re2 <= 0.004) continue;
+    float re = sqrt(re2), dd = length(qt), x = dd / re;
+// depth against width: most old and soft, some fresh (to about a sixth)
+    float dep = 0.03 + 0.22 * pow(float((h2 >> 20u) & 1023u) / 1023.0, 2.5);
+// the bowl (-dep re (1 - x²)) and the rim (a soft ring just outside): dh/dd
+    float dh = x < 1.0 ? 2.0 * dep * x : 0.0; float xr = (x - 1.05) / 0.3; dh += -0.25 * dep * 2.0 * xr / 0.3 * exp(-xr * xr);
+    if (dd > 1e-5) g += w * dh * qt / dd;
+    if (x > 0.85 && x < 1.4) al += w * 0.06 * dep / 0.33 * (1.0 - abs(x - 1.1) / 0.3); }
+  return g - n * dot(g, n); }
 // a game's own look on top (rg.shader kind "surface", the draw stream's header slots 9-11): the hook gets
 // the point and what the engine has drawn there, and gives the colour; the engine's own (surface.glsl) keeps it.
 // Left out of a phone's mesh vertex shader (GlSphere.meshVs defines RG_MESH_VS): it may use fwidth.
@@ -437,6 +472,9 @@ void main() {
           g += w * (0.025 + 0.015 * float(k)) * dq; }
         lw /= 3.0; rk = rk * mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6); }
       tl += g - p * dot(g, p); }
+// the regolith's small pits close by (up to about 2e-4 radii, 350 m on the Moon)
+    if (terr && rego > 0.0 && wr > 0.0 && th < 2e-4) { float al; vec3 rgt2 = regolith(eyeL + d * th, p, fpt, al);
+      float fo = 1.0 - smoothstep(1e-4, 2e-4, th); tl += rego * fo * rgt2; c *= mix(1.0, al, fo); }
     if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);
       float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;
       tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }
