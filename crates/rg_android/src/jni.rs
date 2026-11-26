@@ -266,9 +266,9 @@ pub extern "system" fn Java_fi_rangergames_Engine_log(mut env: JNIEnv, _c: JClas
     jtext(&mut env, &s)
 }
 
-/// A built-in shader stage (shaders/<path>) assembled with the app's defines
-/// ("RG_YS=-1.0"); null when it fails (the error goes to the log). Needs no
-/// engine, so any thread may ask.
+/// A shader stage assembled with the app's defines ("RG_YS=-1.0"): a
+/// built-in (shaders/<path>) or a game's ("game:<key>"); null when it fails
+/// (the error goes to the log). Needs no engine, so any thread may ask.
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_shader(
     mut env: JNIEnv,
@@ -278,7 +278,7 @@ pub extern "system" fn Java_fi_rangergames_Engine_shader(
 ) -> jstring {
     let path = text(&mut env, &path);
     let defines = text(&mut env, &defines);
-    match rg_shader::assemble_builtin(&path, &defines) {
+    match rg_shader::stage(&path, &defines) {
         Ok(b) => jtext(&mut env, &b.src),
         Err(e) => {
             LOG.with(|l| {
@@ -291,6 +291,23 @@ pub extern "system" fn Java_fi_rangergames_Engine_shader(
             std::ptr::null_mut()
         }
     }
+}
+
+/// A driver's compile log for that stage in the source's own files and
+/// lines; also kept for the game's log (rg_shader::explain). Any thread.
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_shaderError(
+    mut env: JNIEnv,
+    _c: JClass,
+    path: JString,
+    defines: JString,
+    log: JString,
+) -> jstring {
+    let path = text(&mut env, &path);
+    let defines = text(&mut env, &defines);
+    let log = text(&mut env, &log);
+    let r = rg_shader::explain(&path, &defines, &log);
+    jtext(&mut env, &r)
 }
 
 #[no_mangle]

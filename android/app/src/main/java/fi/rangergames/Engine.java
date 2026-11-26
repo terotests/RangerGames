@@ -62,8 +62,10 @@ final class Engine {
     static native String commands();
 
     static native String log();
-    /** a built-in shader stage (shaders/&lt;path&gt;) assembled with the defines, or null (rg_shader) */
+    /** a shader stage, built-in (shaders/&lt;path&gt;) or a game's ("game:&lt;key&gt;"), assembled with the defines, or null (rg_shader) */
     static native String shader(String path, String defines);
+    /** a driver's compile log for that stage in the source's own lines; also goes to the game's log */
+    static native String shaderError(String path, String defines, String log);
 
     /** 0 scale, 1 x offset, 2 y offset, 3 game width, 4 game height. */
     static native double view(int i);

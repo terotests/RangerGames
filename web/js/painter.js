@@ -735,7 +735,7 @@
   // The shaders come from the engine (shaders/splat/*.vs, *.fs in the repository, assembled by
   // rg_shader; host.js sets shaderSource), the same source the Android app uses. RG_YS 1: the
   // density picture's v runs with the screen's up here (the phone's runs against it).
-  var shaderSource = null;
+  var shaderSource = null, shaderExplain = null;
   function splatSrc(path) {
     var s = shaderSource ? shaderSource(path, "RG_YS=1.0") : null;
     if (!s) throw new Error("shader " + path + " missing");
@@ -782,7 +782,56 @@
 
   // ex: the extras (palette, light, splats); w, h: the box in game units; px: device pixels a unit;
   // res: the density's pixels a pixel; gas: more than 0 for see-through gas (its density a splat)
-  Splats.prototype.draw = function (ctx, ex, w, h, px, opac, res, gas) {
+  // A game's liquid shader (rg.shader, draw.rs splats_shader): the stage "game:<key>" compiled
+  // once; null (and the error in the game's log, in its own lines) when it does not compile,
+  // and the engine's own look is drawn instead.
+  Splats.prototype.gameProgram = function (key) {
+    if (!this.games) this.games = {};
+    if (key in this.games) return this.games[key];
+    var gl = this.gl, path = "game:" + key, prog = null;
+    var fs = shaderSource ? shaderSource(path, "RG_YS=1.0") : null;
+    if (fs) {
+      var p = gl.createProgram(), ok = true;
+      [[gl.VERTEX_SHADER, splatSrc("splat/show.vs")], [gl.FRAGMENT_SHADER, fs]].forEach(function (x) {
+        var sh = gl.createShader(x[0]); gl.shaderSource(sh, x[1]); gl.compileShader(sh);
+        if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+          ok = false;
+          var why = gl.getShaderInfoLog(sh) || "";
+          console.warn(shaderExplain ? shaderExplain(path, "RG_YS=1.0", why) : why);
+        }
+        gl.attachShader(p, sh);
+      });
+      if (ok) {
+        gl.linkProgram(p);
+        if (gl.getProgramParameter(p, gl.LINK_STATUS)) prog = p;
+        else console.warn(shaderExplain ? shaderExplain(path, "RG_YS=1.0", gl.getProgramInfoLog(p) || "link") : "link");
+      }
+    }
+    // a changed file comes with a new key: forget the old ones of the same name
+    var name = key.split("#")[0];
+    for (var k in this.games) if (k.split("#")[0] === name) { if (this.games[k]) gl.deleteProgram(this.games[k]); delete this.games[k]; }
+    this.games[key] = prog;
+    return prog;
+  };
+
+  // uniforms "heat=0.8;tint=1,0.5,0.2" into u_heat, u_tint (1 to 4 floats)
+  function setUniforms(gl, prog, text) {
+    if (!text) return;
+    text.split(";").forEach(function (kv) {
+      var i = kv.indexOf("=");
+      if (i <= 0) return;
+      var loc = gl.getUniformLocation(prog, "u_" + kv.slice(0, i));
+      if (!loc) return;
+      var v = kv.slice(i + 1).split(",").map(Number);
+      if (v.length === 1) gl.uniform1f(loc, v[0]);
+      else if (v.length === 2) gl.uniform2f(loc, v[0], v[1]);
+      else if (v.length === 3) gl.uniform3f(loc, v[0], v[1], v[2]);
+      else gl.uniform4f(loc, v[0], v[1], v[2], v[3]);
+    });
+  }
+
+  // time, key, unis: a game shader's (draw.rs splats_shader: header slot 11, strings 0 and 1)
+  Splats.prototype.draw = function (ctx, ex, w, h, px, opac, res, gas, time, key, unis) {
     var gl = this.gl, c = this.canvas;
     var np = ex[0] | 0, at = 1 + np * 3;
     var light = [ex[at], ex[at + 1], ex[at + 2]], m = ex[at + 3] | 0, pts = ex.subarray(at + 4, at + 4 + m * 4);
@@ -829,8 +878,13 @@
     gl.viewport(0, 0, cw, ch);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.disable(gl.BLEND);
-    var sp = gas > 0 ? this.gas : this.show;
+    var game = gas > 0 || !key ? null : this.gameProgram(key);
+    var sp = gas > 0 ? this.gas : (game || this.show);
     gl.useProgram(sp);
+    if (game) {
+      gl.uniform1f(gl.getUniformLocation(sp, "rg_time"), time || 0);
+      setUniforms(gl, sp, unis);
+    }
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.den);
     gl.uniform1i(gl.getUniformLocation(sp, "den"), 0);
     gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.pal);
@@ -948,7 +1002,7 @@
         continue;
       }
       if (k === 10) {
-        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a, tl, tr);
+        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a, tl, tr, br, s0 >= 0 ? strings[s0] : "", s1 >= 0 ? strings[s1] : "");
         continue;
       }
       if (k === KIND.PUSH_CLIP) {
@@ -1087,7 +1141,8 @@
   global.RgPainter.canDrawSpheres = canDrawSpheres;
   global.RgPainter.canDrawSplats = canDrawSplats;
   // f(path, defines) -> GLSL source or null: the engine's built-in shaders (host.js, rg_shader)
-  global.RgPainter.setShaderSource = function (f) { shaderSource = f; };
+  // explain(path, defines, log) -> the log in the source's own lines (and into the game's log)
+  global.RgPainter.setShaderSource = function (f, explain) { shaderSource = f; shaderExplain = explain || null; };
   // sphere commands with a detail window (24 numbers) are understood
   global.RgPainter.canDrawDetail = canDrawSpheres;
   // and real heights (40 numbers: the ground's shape, made-up bumps)

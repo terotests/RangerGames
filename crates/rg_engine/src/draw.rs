@@ -362,10 +362,12 @@ impl DrawStream {
     /// gas, its density a splat (alpha 1 - exp(-gas × weight), lit by
     /// light · eye and self-shadowed, the hot part glowing).
     #[allow(clippy::too_many_arguments)]
-    pub fn splats(&mut self, w: f64, h: f64, opacity: f64, res: f64, gas: f64, palette: &[[f64; 3]], light: [f64; 3], pts: &[f32]) {
+    /// Gives where its header starts (None when there is nothing to draw).
+    pub fn splats(&mut self, w: f64, h: f64, opacity: f64, res: f64, gas: f64, palette: &[[f64; 3]], light: [f64; 3], pts: &[f32]) -> Option<usize> {
         if pts.is_empty() {
-            return;
+            return None;
         }
+        let at = self.nums.len();
         let mut extra: Vec<f32> = Vec::with_capacity(pts.len() + palette.len() * 3 + 5);
         extra.push(palette.len() as f32);
         for c in palette {
@@ -381,6 +383,21 @@ impl DrawStream {
         ]);
         self.nums.extend_from_slice(&extra);
         self.count += 1;
+        Some(at)
+    }
+
+    /// The splats command at `at` shown by a game shader (rg.shader, kind
+    /// "liquid"): header string 0 (slot 18) its rg_shader key, which a host
+    /// asks for as the stage "game:<key>"; string 1 (slot 19) its uniforms
+    /// "name=1;tint=1,0.5,0.2" (GLSL u_name, 1 to 4 numbers); slot 11 the
+    /// run's time in seconds (the hook's f.t). A host that does not know a
+    /// key, or whose compile fails, draws the engine's own look.
+    pub fn splats_shader(&mut self, at: usize, key: &str, uniforms: &str, time: f64) {
+        let k = self.string(key);
+        let u = self.string(uniforms);
+        self.nums[at + 11] = time as f32;
+        self.nums[at + 18] = k;
+        self.nums[at + 19] = u;
     }
 
     /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"

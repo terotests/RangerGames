@@ -1194,6 +1194,29 @@ impl Engine {
                 }
                 continue;
             }
+            if cmd.kind == "shader" {
+                // rg.shader(name, { src, kind }): the game's GLSL read here, where the files are
+                let src = cmd.args.get("src").as_str();
+                let kind = cmd.args.get("kind").as_str();
+                let dir = self.scene.dir.clone();
+                let vfs = &self.vfs;
+                let read = |p: &str| -> Option<String> {
+                    let path = if p.starts_with('/') { p.to_string() } else { vfs::join(&dir, p) };
+                    if vfs.exists(&path) {
+                        Some(String::from_utf8_lossy(&vfs.read(&path)).into_owned())
+                    } else {
+                        None
+                    }
+                };
+                match rg_shader::register_game(&cmd.name, if kind.is_empty() { "liquid" } else { &kind }, &src, &read) {
+                    Ok(key) => self.scene.set_shader(&cmd.name, &key),
+                    Err(e) => {
+                        self.scene.set_shader(&cmd.name, "");
+                        self.log.push(e);
+                    }
+                }
+                continue;
+            }
             if cmd.kind == "three" {
                 // a baked particle run: its file read here, where the files are
                 if cmd.name == "add" && cmd.args.get("shape").as_str() == "splats" {
@@ -1267,6 +1290,10 @@ impl Engine {
         self.draw.clear();
         let dt = (dt_ms / 1000.0).clamp(0.0, 0.1);
         self.time += dt;
+        // a host's compile errors of game shaders (rg_shader::explain) into the game's log
+        for m in rg_shader::take_errors() {
+            self.log.push(m);
+        }
         self.xr_step();
         let mut events = self.input.take_events();
         if !self.error.is_empty() || self.script.is_none() {

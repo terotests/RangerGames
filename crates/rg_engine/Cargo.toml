@@ -11,3 +11,4 @@ rg_evg = { path = "../rg_evg" }
 cerxes = { path = "../../.deps/ComponentEngine/cerxes" }
 rangerthree = { path = "../rg_three" }
 rg_core = { path = "../rg_core" }
+rg_shader = { path = "../rg_shader" }
