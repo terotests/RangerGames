@@ -306,6 +306,7 @@
       this.add = mk(splatSrc("splat/splat.vs"), splatSrc("splat/splat.fs"));
       this.show = mk(splatSrc("splat/show.vs"), splatSrc("splat/show.fs"));
       this.gas = mk(splatSrc("splat/show.vs"), splatSrc("splat/gas.fs"));
+      this.sprite = mk(splatSrc("splat/sprite.vs"), splatSrc("splat/sprite.fs"));
       this.quad = gl.createBuffer();
       gl.bindBuffer(gl.ARRAY_BUFFER, this.quad);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
@@ -328,14 +329,15 @@
   // A game's liquid shader (rg.shader, draw.rs splats_shader): the stage "game:<key>" compiled
   // once; null (and the error in the game's log, in its own lines) when it does not compile,
   // and the engine's own look is drawn instead.
-  Splats.prototype.gameProgram = function (key) {
+  // vs: the vertex stage (show.vs for a liquid, sprite.vs for glowing sprites)
+  Splats.prototype.gameProgram = function (key, vs) {
     if (!this.games) this.games = {};
     if (key in this.games) return this.games[key];
     var gl = this.gl, path = "game:" + key, prog = null;
     var fs = shaderSource ? shaderSource(path, "RG_YS=1.0") : null;
     if (fs) {
       var p = gl.createProgram(), ok = true;
-      [[gl.VERTEX_SHADER, splatSrc("splat/show.vs")], [gl.FRAGMENT_SHADER, fs]].forEach(function (x) {
+      [[gl.VERTEX_SHADER, splatSrc(vs || "splat/show.vs")], [gl.FRAGMENT_SHADER, fs]].forEach(function (x) {
         var sh = gl.createShader(x[0]); gl.shaderSource(sh, x[1]); gl.compileShader(sh);
         if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
           ok = false;
@@ -374,13 +376,53 @@
   }
 
   // time, key, unis: a game shader's (draw.rs splats_shader: header slot 11, strings 0 and 1)
-  Splats.prototype.draw = function (ctx, ex, w, h, px, opac, res, gas, time, key, unis) {
+  // glow: header slot 12 (draw.rs splats_glow): glowing sprites through the sprite() hook
+  // the palette (np colours from ex[1]) as a strip in this.pal
+  Splats.prototype.palette = function (ex, np) {
+    var gl = this.gl, pb = new Uint8Array(np * 4);
+    for (var i = 0; i < np; i++) { pb[i * 4] = ex[1 + i * 3] * 255; pb[i * 4 + 1] = ex[2 + i * 3] * 255; pb[i * 4 + 2] = ex[3 + i * 3] * 255; pb[i * 4 + 3] = 255; }
+    gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, np, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, pb);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  };
+  // glowing sprites (look "glow"): each splat's quad through the sprite() hook straight into the
+  // picture, premultiplied (alpha 0: light added, as the burst's sparks)
+  Splats.prototype.glow = function (ctx, ex, np, pts, m, w, h, cw, ch, opac, time, key, unis) {
+    var gl = this.gl, c = this.canvas;
+    this.palette(ex, np);
+    var game = key ? this.gameProgram(key, "splat/sprite.vs") : null;
+    var sp = game || this.sprite;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, cw, ch);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(sp);
+    gl.uniform1f(gl.getUniformLocation(sp, "rg_time"), time || 0);
+    if (game) setUniforms(gl, sp, unis);
+    gl.uniform4f(gl.getUniformLocation(sp, "xf"), 2 / w, -2 / h, -1, 1);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, this.pal);
+    gl.uniform1i(gl.getUniformLocation(sp, "pal"), 1);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1f(gl.getUniformLocation(sp, "npal"), np);
+    gl.uniform1f(gl.getUniformLocation(sp, "opac"), opac);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.inst);
+    gl.bufferData(gl.ARRAY_BUFFER, pts, gl.STREAM_DRAW);
+    gl.bindVertexArray(this.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, m);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    ctx.drawImage(c, 0, 0, cw, ch, 0, 0, w, h);
+  };
+  Splats.prototype.draw = function (ctx, ex, w, h, px, opac, res, gas, time, key, unis, glow) {
     var gl = this.gl, c = this.canvas;
     var np = ex[0] | 0, at = 1 + np * 3;
     var light = [ex[at], ex[at + 1], ex[at + 2]], m = ex[at + 3] | 0, pts = ex.subarray(at + 4, at + 4 + m * 4);
     var k = px * (res > 0 ? res : 0.5);
     var cw = Math.max(1, Math.min(2048, Math.round(w * k))), ch = Math.max(1, Math.min(2048, Math.round(h * k)));
     if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    if (glow > 0.5) { this.glow(ctx, ex, np, pts, m, w, h, cw, ch, opac, time, key, unis); return; }
     if (this.dw !== cw || this.dh !== ch) {
       gl.bindTexture(gl.TEXTURE_2D, this.den);
       if (this.f16) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, cw, ch, 0, gl.RGBA, gl.HALF_FLOAT, null);
@@ -546,7 +588,7 @@
         continue;
       }
       if (k === 10) {
-        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a, tl, tr, br, s0 >= 0 ? strings[s0] : "", s1 >= 0 ? strings[s1] : "");
+        if (nx > 4 && w > 0 && h > 0 && canDrawSplats()) splats.draw(ctx, nums.subarray(e, e + nx), w, h, scale, a, tl, tr, br, s0 >= 0 ? strings[s0] : "", s1 >= 0 ? strings[s1] : "", bl);
         continue;
       }
       if (k === KIND.PUSH_CLIP) {

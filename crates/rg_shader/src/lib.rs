@@ -203,7 +203,7 @@ pub fn assemble_builtin(path: &str, defines: &str) -> Result<Built, String> {
 /// The stage has a line `#include "<hook>"` where the game's file goes; the
 /// third file is the engine's own hook for that kind (its default look and an
 /// example to start a game's own from).
-pub const KINDS: &[(&str, &str, &str)] = &[("liquid", "splat/liquid.fs", "splat/liquid.glsl"), ("surface", "globe/globe.fs", "globe/surface.glsl")];
+pub const KINDS: &[(&str, &str, &str)] = &[("liquid", "splat/liquid.fs", "splat/liquid.glsl"), ("surface", "globe/globe.fs", "globe/surface.glsl"), ("sprite", "splat/sprite.fs", "splat/sprite.glsl")];
 
 struct GameShader {
     name: String,
