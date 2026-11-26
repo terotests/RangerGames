@@ -282,6 +282,8 @@ final class Painter {
             // the rings' pictures "colour|opacity" (slot 21, with 44 numbers)
             int rsi = (int) nums[q + 21];
             gl.rings = nx >= 44 && nums[at + 42] > 0.5f && rsi >= 0 && rsi < strings.length ? strings[rsi] : null;
+            // a game's surface shader (slots 9, 10: its key's and uniforms' strings + 1; 11: the time)
+            gl.game(str(strings, nums[q + 9] - 1), str(strings, nums[q + 10] - 1), nums[q + 11]);
             any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
         }
         if (c == null) {

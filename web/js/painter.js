@@ -52,32 +52,54 @@
     var gl = null;
     try { gl = c && c.getContext("webgl2", { alpha: true, premultipliedAlpha: true, antialias: false, depth: true, preserveDrawingBuffer: false }); } catch (e) { gl = null; }
     if (!gl) return;
-    var prog = gl.createProgram();
     var fsrc = shaderSource ? shaderSource("globe/globe.fs", "RG_DEPTH=1") : null;
     if (!fsrc) return;
+    this.canvas = c;
+    this.gl = gl;
+    var base = this.link(fsrc, function (why) { console.warn("sphere shader: " + why); });
+    if (!base) return;
+    this.base = base;
+    this.prog = base.prog;
+    this.u = base.u;
+    this.games = {};
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+    this.ok = true;
+  }
+
+  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "rg_time"];
+  // a globe stage's program ({ prog, u: its uniforms' locations }), or null (why(log) told)
+  Spheres.prototype.link = function (fsrc, why) {
+    var gl = this.gl, prog = gl.createProgram(), ok = true;
     [[gl.VERTEX_SHADER, SPHERE_VS], [gl.FRAGMENT_SHADER, fsrc]].forEach(function (x) {
       var sh = gl.createShader(x[0]);
       gl.shaderSource(sh, x[1]);
       gl.compileShader(sh);
-      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) console.warn("sphere shader: " + gl.getShaderInfoLog(sh));
+      if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { ok = false; why(gl.getShaderInfoLog(sh) || ""); }
       gl.attachShader(prog, sh);
     });
+    if (!ok) return null;
+    gl.bindAttribLocation(prog, 0, "a");
     gl.linkProgram(prog);
-    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) return;
-    this.canvas = c;
-    this.gl = gl;
-    this.prog = prog;
-    this.u = {};
-    var self = this;
-    ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG"].forEach(function (n) { self.u[n] = gl.getUniformLocation(prog, n); });
-    var buf = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 1]), gl.STATIC_DRAW);
-    var loc = gl.getAttribLocation(prog, "a");
-    gl.enableVertexAttribArray(loc);
-    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-    this.ok = true;
-  }
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { why(gl.getProgramInfoLog(prog) || "link"); return null; }
+    var u = {};
+    SPHERE_U.forEach(function (n) { u[n] = gl.getUniformLocation(prog, n); });
+    return { prog: prog, u: u };
+  };
+  // a game's surface shader (rg.shader kind "surface") built once by key; null when it does not compile
+  // (told in the game's log, and the engine's own look is drawn)
+  Spheres.prototype.game = function (key) {
+    if (key in this.games) return this.games[key];
+    var path = "game:" + key, fs = shaderSource ? shaderSource(path, "RG_DEPTH=1") : null;
+    var g = fs ? this.link(fs, function (why) { console.warn(shaderExplain ? shaderExplain(path, "RG_DEPTH=1", why) : why); }) : null;
+    var name = key.split("#")[0];
+    for (var k in this.games) if (k.split("#")[0] === name) { if (this.games[k]) this.gl.deleteProgram(this.games[k].prog); delete this.games[k]; }
+    this.games[key] = g;
+    return g;
+  };
 
   Spheres.prototype.texture = function (src, img, clamp, flat) {
     var t = this.textures.get(src);
@@ -124,8 +146,12 @@
   };
 
   // rs: the rings' pictures [colour, opacity, their names] (44 numbers), when loaded
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs) {
+  // key, unis, time: a game's surface shader (draw.rs spheres_shader), its uniforms and the planet's time
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs, key, unis, time) {
     var gl = this.gl, c = this.canvas, gr = this.group;
+    var pg = (key && this.game(key)) || this.base;
+    this.prog = pg.prog;
+    this.u = pg.u;
     // close over real ground every pixel casts a long ray: fewer of them, drawn bigger
     var ks = p.length >= 40 && hs && p[35] > 0.5 ? 0.6 : 1;
     var cw = Math.max(1, Math.min(4096, Math.round(w * px * ks))), ch = Math.max(1, Math.min(4096, Math.round(h * px * ks)));
@@ -142,6 +168,7 @@
       gl.clear(gl.COLOR_BUFFER_BIT);
     }
     gl.useProgram(this.prog);
+    if (pg !== this.base) { gl.uniform1f(pg.u.rg_time, time || 0); setUniforms(gl, pg.prog, unis); }
     gl.activeTexture(gl.TEXTURE0);
     var w32 = p.length >= 32;
     var w4 = w32 ? p[24] > 0.5 : p.length >= 24;
@@ -511,7 +538,8 @@
             spheres.begin(gx0, gy0, gx1 - gx0, gy1 - gy0, scale);
             spheres.groupLeft = gn;
           }
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs);
+          // a game's surface shader: slots 9, 10 its key's and uniforms' strings + 1, 11 the planet's time
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs, tl >= 1 ? strings[tl - 1] : "", tr >= 1 ? strings[tr - 1] : "", br);
         }
         // the group's last window drawn (or skipped): the picture into the canvas
         if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);

@@ -179,15 +179,8 @@ final class GlSphere {
             surface = EGL14.eglCreatePbufferSurface(display, cfg[0], new int[] {EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE}, 0);
             if (!EGL14.eglMakeCurrent(display, surface, surface, context)) throw new IllegalStateException("eglMakeCurrent");
             }
-            prog = GLES30.glCreateProgram();
-            GLES30.glAttachShader(prog, shader(GLES30.GL_VERTEX_SHADER, VS));
-            GLES30.glAttachShader(prog, shader(GLES30.GL_FRAGMENT_SHADER, fs));
-            GLES30.glBindAttribLocation(prog, 0, "a");
-            GLES30.glLinkProgram(prog);
+            prog = linkRay(fs, u);
             int[] st = new int[1];
-            GLES30.glGetProgramiv(prog, GLES30.GL_LINK_STATUS, st, 0);
-            if (st[0] == 0) throw new IllegalStateException("link: " + GLES30.glGetProgramInfoLog(prog));
-            for (int k = 0; k < NAMES.length; k++) u[k] = GLES30.glGetUniformLocation(prog, NAMES[k]);
             int[] ids = new int[1];
             GLES30.glGenBuffers(1, ids, 0);
             vbo = ids[0];
@@ -218,14 +211,6 @@ final class GlSphere {
             GLES30.glGetIntegerv(GLES30.GL_MAX_TEXTURE_SIZE, ids, 0);
             maxTex = Math.min(4096, Math.max(2048, ids[0]));
             GLES30.glUseProgram(prog);
-            GLES30.glUniform1i(u[TEX], 0);
-            GLES30.glUniform1i(u[LTEX], 1);
-            GLES30.glUniform1i(u[HTEX], 2);
-            GLES30.glUniform1i(u[GTEX], 3);
-            // a detail window's own heights on unit 5 (4 is the edge pass's)
-            GLES30.glUniform1i(u[DTEX], 5);
-            // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
-            GLES30.glUniform1f(u[LITE], 1);
             try {
                 progEdge = GLES30.glCreateProgram();
                 GLES30.glAttachShader(progEdge, shader(GLES30.GL_VERTEX_SHADER, VS));
@@ -252,6 +237,12 @@ final class GlSphere {
                 Log.w(TAG, "GL globes: no mesh close by (rays instead): " + t.getMessage());
                 progMesh = 0;
             }
+            base = new Progs();
+            base.prog = prog;
+            base.progMesh = progMesh;
+            System.arraycopy(u, 0, base.u, 0, u.length);
+            System.arraycopy(um, 0, base.um, 0, um.length);
+            System.arraycopy(mu, 0, base.mu, 0, mu.length);
             ok = GLES30.glGetError() == GLES30.GL_NO_ERROR;
             Log.i(TAG, "GL globes: " + (ok ? "on" : "GL error") + ", " + GLES30.glGetString(GLES30.GL_RENDERER) + ", max texture " + maxTex + (progMesh != 0 ? ", mesh close by" : ""));
         } catch (Throwable t) {
@@ -261,32 +252,148 @@ final class GlSphere {
         return ok;
     }
 
+    /** The ray program of a globe stage: linked, its uniforms' locations in L, its samplers on their units. */
+    private static int linkRay(String fs, int[] L) {
+        int pr = GLES30.glCreateProgram();
+        GLES30.glAttachShader(pr, shader(GLES30.GL_VERTEX_SHADER, VS));
+        GLES30.glAttachShader(pr, shader(GLES30.GL_FRAGMENT_SHADER, fs));
+        GLES30.glBindAttribLocation(pr, 0, "a");
+        GLES30.glLinkProgram(pr);
+        int[] st = new int[1];
+        GLES30.glGetProgramiv(pr, GLES30.GL_LINK_STATUS, st, 0);
+        if (st[0] == 0) throw new IllegalStateException("link: " + GLES30.glGetProgramInfoLog(pr));
+        for (int k = 0; k < NAMES.length; k++) L[k] = GLES30.glGetUniformLocation(pr, NAMES[k]);
+        GLES30.glUseProgram(pr);
+        GLES30.glUniform1i(L[TEX], 0);
+        GLES30.glUniform1i(L[LTEX], 1);
+        GLES30.glUniform1i(L[HTEX], 2);
+        GLES30.glUniform1i(L[GTEX], 3);
+        // a detail window's own heights on unit 5 (4 is the edge pass's)
+        GLES30.glUniform1i(L[DTEX], 5);
+        // the shader's cheaper rays close by (fewer steps, no finest bumps), for a phone's GPU
+        GLES30.glUniform1f(L[LITE], 1);
+        return pr;
+    }
+
+    /** The mesh program of a globe stage (meshVs + the stage), its locations in L and M. */
+    private static int linkMesh(String fs, int[] L, int[] M) {
+        int pr = GLES30.glCreateProgram();
+        GLES30.glAttachShader(pr, shader(GLES30.GL_VERTEX_SHADER, meshVs(fs)));
+        GLES30.glAttachShader(pr, shader(GLES30.GL_FRAGMENT_SHADER, fs));
+        GLES30.glBindAttribLocation(pr, 0, "a");
+        GLES30.glLinkProgram(pr);
+        int[] st = new int[1];
+        GLES30.glGetProgramiv(pr, GLES30.GL_LINK_STATUS, st, 0);
+        if (st[0] == 0) throw new IllegalStateException("mesh link: " + GLES30.glGetProgramInfoLog(pr));
+        for (int k = 0; k < NAMES.length; k++) L[k] = GLES30.glGetUniformLocation(pr, NAMES[k]);
+        for (int k = 0; k < MNAMES.length; k++) M[k] = GLES30.glGetUniformLocation(pr, MNAMES[k]);
+        GLES30.glUseProgram(pr);
+        GLES30.glUniform1i(L[TEX], 0);
+        GLES30.glUniform1i(L[LTEX], 1);
+        GLES30.glUniform1i(L[HTEX], 2);
+        GLES30.glUniform1i(L[GTEX], 3);
+        GLES30.glUniform1i(L[DTEX], 5);
+        GLES30.glUniform1f(L[LITE], 1);
+        GLES30.glUniform1f(L[MESHM], 1);
+        return pr;
+    }
+
+    /** a globe stage's programs and their uniforms' locations: the engine's own (base) or a game's */
+    private static final class Progs {
+        int prog, progMesh;
+        final int[] u = new int[NAMES.length], um = new int[NAMES.length], mu = new int[MNAMES.length];
+    }
+    private Progs base;
+    private final HashMap<String, Progs> games = new HashMap<>();
+    // the next draw's game surface shader (rg.shader kind "surface"): its key ("" none), uniforms, time
+    private String gameKey = "", gameUnis = "";
+    private float gameTime;
+
+    /** A game's surface shader for the next draw (Painter, from the header's slots 9-11). */
+    void game(String key, String unis, float time) {
+        gameKey = key == null ? "" : key;
+        gameUnis = unis == null ? "" : unis;
+        gameTime = time;
+    }
+
+    /** a game's globe stage built once by key; null (and its error in the game's log) when it fails */
+    private Progs gameProgs(String key) {
+        if (games.containsKey(key)) return games.get(key);
+        // an older version of the same shader (rg.shader again with a changed file): dropped
+        String name = key.contains("#") ? key.substring(0, key.indexOf('#') + 1) : key;
+        for (Iterator<Map.Entry<String, Progs>> it = games.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<String, Progs> e = it.next();
+            if (e.getKey().startsWith(name) && e.getValue() != null) {
+                GLES30.glDeleteProgram(e.getValue().prog);
+                if (e.getValue().progMesh != 0) GLES30.glDeleteProgram(e.getValue().progMesh);
+                it.remove();
+            }
+        }
+        String path = "game:" + key;
+        Progs g = null;
+        String fs = Engine.shader(path, "");
+        if (fs != null) {
+            int f = GLES30.glCreateShader(GLES30.GL_FRAGMENT_SHADER);
+            GLES30.glShaderSource(f, fs);
+            GLES30.glCompileShader(f);
+            int[] st = new int[1];
+            GLES30.glGetShaderiv(f, GLES30.GL_COMPILE_STATUS, st, 0);
+            if (st[0] == 0) {
+                Log.w(TAG, Engine.shaderError(path, "", GLES30.glGetShaderInfoLog(f)));
+            } else {
+                try {
+                    g = new Progs();
+                    g.prog = linkRay(fs, g.u);
+                    if (base.progMesh != 0) {
+                        try {
+                            g.progMesh = linkMesh(fs, g.um, g.mu);
+                        } catch (Throwable t) {
+                            Log.w(TAG, "GL globes: shader " + key + ": no mesh close by: " + t.getMessage());
+                        }
+                    }
+                } catch (Throwable t) {
+                    Log.w(TAG, "GL globes: shader " + key + ": " + t.getMessage());
+                    g = null;
+                }
+            }
+            GLES30.glDeleteShader(f);
+        }
+        games.put(key, g);
+        return g;
+    }
+
+    /** The programs of the next draw: a game's (when it built, with a mesh where the engine's has one) or the engine's. */
+    private void useProgs() {
+        Progs g = base;
+        if (!gameKey.isEmpty()) {
+            Progs q = gameProgs(gameKey);
+            if (q != null && (q.progMesh != 0 || base.progMesh == 0)) g = q;
+        }
+        prog = g.prog;
+        progMesh = g.progMesh;
+        System.arraycopy(g.u, 0, u, 0, u.length);
+        System.arraycopy(g.um, 0, um, 0, um.length);
+        System.arraycopy(g.mu, 0, mu, 0, mu.length);
+    }
+
+    /** a game shader's time and uniforms (u_ + name) on the program in use */
+    private void gameUniforms(int pr) {
+        if (gameKey.isEmpty() || base == null || pr == base.prog || pr == base.progMesh) return;
+        GLES30.glUniform1f(GLES30.glGetUniformLocation(pr, "rg_time"), gameTime);
+        GlSplats.uniforms(pr, gameUnis);
+    }
+
     /** The mesh's vertex shader: the fragment shader's declarations and functions, then MESH_MAIN. */
     static String meshVs(String fs) {
+        // RG_MESH_VS: the stage leaves out its library and a game's hook (they may use fwidth)
+        fs = fs.replaceFirst("#version 300 es\n", "#version 300 es\n#define RG_MESH_VS\n");
         String pre = fs.substring(0, fs.indexOf("void main()"));
         pre = pre.replace("in vec2 uv;", "in vec2 a; out vec2 uv;").replace("in vec3 wpos;", "out vec3 wpos;").replace("out vec4 o;", "");
         return pre + "\n" + MESH_MAIN;
     }
 
     private void buildMesh(String fs) {
-        progMesh = GLES30.glCreateProgram();
-        GLES30.glAttachShader(progMesh, shader(GLES30.GL_VERTEX_SHADER, meshVs(fs)));
-        GLES30.glAttachShader(progMesh, shader(GLES30.GL_FRAGMENT_SHADER, fs));
-        GLES30.glBindAttribLocation(progMesh, 0, "a");
-        GLES30.glLinkProgram(progMesh);
-        int[] st = new int[1];
-        GLES30.glGetProgramiv(progMesh, GLES30.GL_LINK_STATUS, st, 0);
-        if (st[0] == 0) throw new IllegalStateException("mesh link: " + GLES30.glGetProgramInfoLog(progMesh));
-        for (int k = 0; k < NAMES.length; k++) um[k] = GLES30.glGetUniformLocation(progMesh, NAMES[k]);
-        for (int k = 0; k < MNAMES.length; k++) mu[k] = GLES30.glGetUniformLocation(progMesh, MNAMES[k]);
-        GLES30.glUseProgram(progMesh);
-        GLES30.glUniform1i(um[TEX], 0);
-        GLES30.glUniform1i(um[LTEX], 1);
-        GLES30.glUniform1i(um[HTEX], 2);
-        GLES30.glUniform1i(um[GTEX], 3);
-        GLES30.glUniform1i(um[DTEX], 5);
-        GLES30.glUniform1f(um[LITE], 1);
-        GLES30.glUniform1f(um[MESHM], 1);
+        progMesh = linkMesh(fs, um, mu);
         int cols = SPOKES + 1;
         float[] grid = new float[RINGS * cols * 2];
         for (int i = 0, k = 0; i < RINGS; i++) {
@@ -616,6 +723,7 @@ final class GlSphere {
 
     boolean draw(String src, String lsrc, String hs, String gs, String ds, float x, float y, float w, float h, float[] p, int at, int nx, float gnd) {
         flowNx = nx;
+        useProgs();
         boolean w32 = nx >= 32;
         boolean w4 = w32 ? p[at + 24] > 0.5f : nx >= 24;
         Tex tx = texture(src, w4, false);
@@ -670,6 +778,7 @@ final class GlSphere {
         if (!mesh || !w4) {
             // the ball with a ray for each pixel, or close by only the air round the mesh
             GLES30.glUseProgram(prog);
+            gameUniforms(prog);
             uniforms(u, p, at, w32, w4, w40, lt != null, ho, x, y, w, h);
             GLES30.glUniform1f(u[USED], dt != null ? 1 : 0);
             GLES30.glUniform1f(u[MESHM], mesh ? 2 : 0);
@@ -679,6 +788,7 @@ final class GlSphere {
         }
         if (mesh) {
             GLES30.glUseProgram(progMesh);
+            gameUniforms(progMesh);
             GLES30.glUniform1f(um[USED], dt != null ? 1 : 0);
             meshDraw(p, at, w4, ho, w32, w40, lt != null, x, y, w, h, gnd);
         }

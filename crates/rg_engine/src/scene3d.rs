@@ -80,6 +80,9 @@
 //!                                                 // and all), set each frame
 //!                      turbulence: 1              // the clouds morph (a rolling warp of the
 //!                                                 // picture, EVG's smoke); default: as `flow`
+//!                      material: { shader: "lava", u: { glow: 2 } }
+//!                                                 // a game's surface shader (rg.shader kind
+//!                                                 // "surface", shaders/README.md), t = flowTime
 //!                      vortices: [{ lat, lon, r, ell, turns, depth }]
 //!                                                 // storms turning in the clouds (at most 4):
 //!                                                 // middle and radius in degrees, width /
@@ -723,6 +726,10 @@ struct Planet {
     spin: f64,
     tilt: f64,
     glowing: bool,
+    /// material.shader: a game shader's name (rg.shader, kind "surface"), "" for the engine's look
+    shader: String,
+    /// material.u as "name=1;tint=1,0.5,0.2" (u_ + name in the GLSL)
+    uniforms: String,
 }
 
 impl Planet {
@@ -1050,7 +1057,7 @@ impl Scene {
                         let mut g = crate::globe::Globe::new();
                         // planets: no map grid, no borders, no glow unless asked for
                         g.command(&rg_core::json::parse(r#"{"grid":false,"border":false,"glow":false,"night":0.85}"#));
-                        self.planets.push(Planet { id: id.clone(), globe: g, pos: [0.0; 3], r: 1.0, spin: 0.0, tilt: 0.0, glowing: false });
+                        self.planets.push(Planet { id: id.clone(), globe: g, pos: [0.0; 3], r: 1.0, spin: 0.0, tilt: 0.0, glowing: false, shader: String::new(), uniforms: String::new() });
                         self.planets.len() - 1
                     }
                 };
@@ -1061,6 +1068,15 @@ impl Scene {
                 p.tilt = a.get("tilt").as_num(p.tilt);
                 if let Json::Bool(v) = a.get("glowing") {
                     p.glowing = v;
+                }
+                let m = a.get("material");
+                if let Json::Obj(_) = m {
+                    if let Json::Str(sh) = m.get("shader") {
+                        p.shader = sh.clone();
+                    }
+                    if let Json::Obj(u) = m.get("u") {
+                        p.uniforms = uniforms_text(&u);
+                    }
                 }
                 p.globe.command(a);
                 p.globe.texture_in(&self.dir);
@@ -1321,11 +1337,16 @@ impl Scene {
             order.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
             let sun = self.sun;
             for (_, i) in order {
+                let key = self.shader_key(&self.planets[i].shader).to_string();
                 let p = &mut self.planets[i];
                 let place = crate::globe::Place3 { centre: p.pos, radius: p.r, axes: p.axes() };
                 p.globe.detail_ok = self.detail;
                 p.globe.terrain_ok = self.terrain;
+                let at = out.nums.len();
                 p.globe.render_3d(out, &cam3, &place, sun, p.glowing, self.textures);
+                if !key.is_empty() {
+                    out.spheres_shader(at, &key, &p.uniforms, p.globe.flow_time());
+                }
             }
         }
         if self.gl && self.unified {
@@ -2238,6 +2259,33 @@ mod mesh_tests {
         sc.render(&mut out, 400.0, 400.0);
         let k = out.nums.iter().position(|v| *v == 10.0).expect("kind 10");
         assert_eq!(out.nums[k + 18], -1.0);
+    }
+
+    #[test]
+    fn a_planet_with_a_game_surface_shader_names_it_in_its_sphere_commands() {
+        let mut sc = Scene::new();
+        sc.textures = true;
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 4, "lookAt": [0, 0, 0] }"#));
+        sc.command("planet", &rg_core::json::parse(r#"{ "id": "m", "r": 1, "regions": [], "texture": "img/m.jpg", "flowTime": 4100.5,
+            "material": { "shader": "lava", "u": { "glow": 2, "tint": [0.3, 0.2, 0.2] } } }"#));
+        let sphere = |out: &DrawStream| {
+            let mut i = 0;
+            while out.nums[i] != 8.0 {
+                i += crate::draw::HEADER + out.nums[i + 22] as usize;
+            }
+            i
+        };
+        // not registered: the engine's look (slot 9 is 0)
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        assert_eq!(out.nums[sphere(&out) + 9], 0.0);
+        sc.set_shader("lava", "lava#abc");
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let k = sphere(&out);
+        assert_eq!(out.strings[out.nums[k + 9] as usize - 1], "lava#abc");
+        assert_eq!(out.strings[out.nums[k + 10] as usize - 1], "glow=2;tint=0.3,0.2,0.2");
+        assert!((out.nums[k + 11] - 4.5).abs() < 1e-3, "{}", out.nums[k + 11]);
     }
 
     #[test]

@@ -1581,6 +1581,11 @@ impl Globe {
         }
     }
 
+    /// The planet's own time (flowTime, the game's clock), for a game's surface shader.
+    pub fn flow_time(&self) -> f64 {
+        self.flow_time
+    }
+
     pub fn render_3d(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, sun: Option<V3>, glowing: bool, textures: bool) {
         self.drawn = 0;
         if !self.visible {

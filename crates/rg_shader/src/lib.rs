@@ -203,7 +203,7 @@ pub fn assemble_builtin(path: &str, defines: &str) -> Result<Built, String> {
 /// The stage has a line `#include "<hook>"` where the game's file goes; the
 /// third file is the engine's own hook for that kind (its default look and an
 /// example to start a game's own from).
-pub const KINDS: &[(&str, &str, &str)] = &[("liquid", "splat/liquid.fs", "splat/liquid.glsl")];
+pub const KINDS: &[(&str, &str, &str)] = &[("liquid", "splat/liquid.fs", "splat/liquid.glsl"), ("surface", "globe/globe.fs", "globe/surface.glsl")];
 
 struct GameShader {
     name: String,
@@ -403,6 +403,26 @@ mod tests {
         assert!(register_game("x", "liquid", "shaders/bad.glsl", &files).is_err());
         assert!(register_game("x", "liquid", "shaders/none.glsl", &files).is_err());
         assert!(register_game("x", "nope", "shaders/magma.glsl", &files).is_err());
+    }
+
+    #[test]
+    fn surface_hook_for_globes() {
+        // the engine's own: the hook keeps the colour, inside RG_MESH_VS's guard with the library
+        let b = assemble_builtin("globe/globe.fs", "RG_DEPTH=1").unwrap();
+        let guard = b.src.find("#ifndef RG_MESH_VS").unwrap();
+        let hook = b.src.find("vec3 surface(Surface s)").unwrap();
+        let end = b.src[guard..].find("#endif").unwrap() + guard;
+        assert!(guard < hook && hook < end && end < b.src.find("void main()").unwrap());
+        assert!(b.src[guard..end].contains("float fbm("));
+        let files = |p: &str| -> Option<String> {
+            (p == "shaders/lava.glsl").then(|| "uniform float u_glow;\nvec3 surface(Surface s) {\n  return s.col + heat(s.light) * u_glow;\n}\n".to_string())
+        };
+        let key = register_game("lava", "surface", "shaders/lava.glsl", &files).unwrap();
+        let g = stage(&format!("game:{}", key), "").unwrap();
+        assert!(g.src.contains("uniform float u_glow;"));
+        assert!(!g.src.contains("return s.col;\n"));
+        let at = g.src.lines().position(|l| l.contains("heat(s.light)")).unwrap();
+        assert_eq!(g.origin[at], ("shaders/lava.glsl".to_string(), 3));
     }
 
     #[test]

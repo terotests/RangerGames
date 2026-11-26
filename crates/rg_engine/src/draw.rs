@@ -400,6 +400,25 @@ impl DrawStream {
         self.nums[at + 19] = u;
     }
 
+    /// A game's surface shader (rg.shader, kind "surface") for the sphere
+    /// commands (kind 8) from `at` on: header slot 9 its key's string + 1
+    /// (0: the engine's look), 10 the uniforms' string + 1, 11 the planet's
+    /// time (flowTime, kept under 4096 s for 32 bits).
+    pub fn spheres_shader(&mut self, at: usize, key: &str, uniforms: &str, time: f64) {
+        let k = self.string(key) + 1.0;
+        let u = self.string(uniforms) + 1.0;
+        let mut i = at;
+        while i + HEADER <= self.nums.len() {
+            let nx = self.nums[i + 22] as usize;
+            if self.nums[i] == 8.0 {
+                self.nums[i + 9] = k;
+                self.nums[i + 10] = u;
+                self.nums[i + 11] = time.rem_euclid(4096.0) as f32;
+            }
+            i += HEADER + nx;
+        }
+    }
+
     /// `sphere_terrain` with rings (44 numbers; their pictures "colour|opacity"
     /// are string 4, header slot 21, read only with 44 numbers and 42 = 1).
     /// (48 numbers: [44] how far a gas giant's fastest cloud band drifts in a
