@@ -278,6 +278,17 @@ mod api {
             Some((core::mem::transmute::<*const core::ffi::c_void, FbTexMs>(a), core::mem::transmute::<*const core::ffi::c_void, RbStoreMs>(b)))
         }
     }
+    /// whether the GL context has the extension `name` (e.g. "GL_EXT_sRGB_write_control")
+    pub fn has_extension(name: &str) -> bool {
+        unsafe {
+            let ext = glGetString(0x1F03); // GL_EXTENSIONS
+            if ext.is_null() {
+                return false;
+            }
+            let all = core::ffi::CStr::from_ptr(ext as *const core::ffi::c_char).to_bytes();
+            all.split(|c| *c == b' ').any(|w| w == name.as_bytes())
+        }
+    }
     /// how many samples a pixel `framebuffer_texture_ms` can give, up to
     /// `want` (0 when the GPU lacks GL_EXT_multisampled_render_to_texture)
     pub fn ms_samples(want: i32) -> i32 {

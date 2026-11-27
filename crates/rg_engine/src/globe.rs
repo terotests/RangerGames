@@ -1441,7 +1441,7 @@ impl Globe {
         // the host only inside its window, in the box its part of the
         // surface takes on the screen
         let near_c0 = (cap.c0.clamp(-1.0, 1.0).acos() + (2.0 * (self.terrain_high() / rr).max(0.0)).sqrt() + 0.02).min(std::f64::consts::PI).cos();
-        for (src, win, wsun, dh) in self.detail.iter() {
+        for (wi, (src, win, wsun, dh)) in self.detail.iter().enumerate() {
             let n = 8;
             let (mut a0, mut b0, mut a1, mut b1) = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
             let mut seen = false;
@@ -1503,11 +1503,37 @@ impl Globe {
             if w128 {
                 p.extend_from_slice(&[self.regolith as f32, 0.0, 0.0, 0.0]);
             }
+            // the 132-number form: [128-131] a window drawn after this one (the most of this one it covers):
+            // close over real ground it covers its own part opaquely round the point under the eye, so this one
+            // leaves it out instead of shading it too (Apollo 11 at the pad: the wide window and the NAC window
+            // with its heights both shaded the whole screen)
+            if terrain && near && w124 {
+                if let Some(c) = detail_cut(&self.detail, wi) {
+                    p.resize(128, 0.0);
+                    p.extend(c.iter().map(|v| *v as f32));
+                }
+            }
             // the window's own heights: a third name, "shading|shape|window heights"
             let wh = if terrain && !dh.is_empty() { format!("{}|{}", heights, dh) } else { heights.clone() };
             out.sphere_terrain(px0, py0, px1 - px0, py1 - py0, src, &self.lights, &wh, &p);
         }
     }
+}
+
+/// The window drawn after window `i` that covers the most of it (u of the later one moved by a whole turn to
+/// lie next to it), if any covers some of it.
+fn detail_cut(detail: &[(String, [f64; 4], [f64; 2], String)], i: usize) -> Option<[f64; 4]> {
+    let a = detail.get(i)?.1;
+    let mut best: Option<([f64; 4], f64)> = None;
+    for (_, w, _, _) in detail.iter().skip(i + 1) {
+        let sh = if w[0] - a[0] > 0.5 { -1.0 } else if w[0] - a[0] < -0.5 { 1.0 } else { 0.0 };
+        let c = [w[0] + sh, w[1], w[2] + sh, w[3]];
+        let ov = (c[2].min(a[2]) - c[0].max(a[0])).max(0.0) * (c[3].min(a[3]) - c[1].max(a[1])).max(0.0);
+        if ov > 0.0 && best.map_or(true, |(_, o)| ov > o) {
+            best = Some((c, ov));
+        }
+    }
+    best.map(|(c, _)| c)
 }
 
 /// The detail windows together, when they cover one rectangle of the map (u may run past 0 or 1 across the date line).
@@ -2361,6 +2387,38 @@ mod tests {
         }
         let far = sizes([rr * 3.0, 0.0, 0.0], [-1.0, 0.0, 0.0]);
         assert!(far.iter().all(|p| p.len() < 128));
+    }
+
+    // close by, a window under a later one leaves the later one's part out (132 numbers, [128-131] its window)
+    #[test]
+    fn a_window_under_a_later_one_names_it_to_be_left_out() {
+        let mut g = Globe::new();
+        g.command(&rg_core::json::parse(r##"{"texture":"img/moon.jpg","grid":false,"border":false,"glow":false,
+            "height":"img/moon-height.png","heightShape":"img/moon-shape.png","heightMin":-9,"heightMax":10.7,
+            "detail":[{"src":"img/wide.jpg","u0":0.4,"v0":0.4,"u1":0.6,"v1":0.6},
+                      {"src":"img/nac.jpg","u0":0.49,"v0":0.49,"u1":0.51,"v1":0.51,"height":"img/nac-h.webp"}]}"##));
+        g.texture_in("/games/x");
+        g.terrain_ok = true;
+        g.detail_ok = true;
+        let rr = 1737.4;
+        let place = Place3 { centre: [0.0; 3], radius: rr, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut out = DrawStream::new();
+        // just above the window's middle (u 0.5 v 0.5: lon 0, lat 0), looking along the ground
+        g.render_3d(&mut out, &cam_at([rr + 0.01, 0.0, 0.0], [0.0, 1.0, 0.0]), &place, Some([0.3, 0.2, 0.9]), false, true);
+        let n = out.nums;
+        let (mut i, mut ps) = (0, Vec::new());
+        while i < n.len() {
+            let k = n[i + 22] as usize;
+            if n[i] == 8.0 {
+                ps.push(n[i + 23..i + 23 + k].to_vec());
+            }
+            i += 23 + k;
+        }
+        assert_eq!(ps.len(), 3, "the ball and its two windows");
+        assert!(ps[0].len() < 132, "the ball has its hole instead");
+        assert_eq!(ps[1].len(), 132);
+        assert_eq!(&ps[1][128..132], &[0.49, 0.49, 0.51, 0.51]);
+        assert!(ps[2].len() < 132, "nothing is drawn after the last window");
     }
 
     #[test]

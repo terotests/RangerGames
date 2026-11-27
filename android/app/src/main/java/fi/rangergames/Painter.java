@@ -113,6 +113,14 @@ final class Painter {
                 glBake = "1".equals(bp);
                 Object li = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gllite", "2");
                 if (gl != null) gl.lite = "0".equals(li) ? 0 : "1".equals(li) ? 1 : 2;
+                Object go = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gloff", "0");
+                if (gl != null) {
+                    try {
+                        gl.gloff = Integer.parseInt((String) go);
+                    } catch (NumberFormatException e) {
+                        gl.gloff = 0;
+                    }
+                }
                 Object ed = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gledge", "1");
                 if (gl != null) gl.edge = !"0".equals(ed);
                 Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "0");
@@ -141,6 +149,17 @@ final class Painter {
         GlSphere g = new GlSphere();
         if (g.initShared(assets)) gl = g;
         return gl != null;
+    }
+
+    /** the globes' resolution lowered while the GPU is the bottleneck (GlAutoRes) */
+    private final GlAutoRes glAuto = new GlAutoRes();
+
+    /** A GL-painted frame's times (MainActivity.glPaintFrame): realMs since the last, workMs before its swap, slotMs its swap interval. */
+    void glPace(double realMs, double workMs, double slotMs) {
+        boolean big = glAuto.framePx > GL_FULL_PX * 0.5f;
+        glAuto.framePx = 0;
+        if (glAuto.frame(realMs, workMs, slotMs, big))
+            android.util.Log.i("RangerGames", String.format(java.util.Locale.ROOT, "GL globes: auto resolution %.2f (frame %.0f ms, work %.0f ms)", glAuto.k, realMs, workMs));
     }
 
     /** the end of a GL-painted frame (the globes' log) */
@@ -257,7 +276,8 @@ final class Painter {
         float k = scale * Math.max(floor, area > GL_FULL_PX ? (float) Math.sqrt(GL_FULL_PX / area) : 1f);
         float px = (x1 - x0) * (y1 - y0) * k * k;
         if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
-        k *= glTune();
+        glAuto.framePx = Math.max(glAuto.framePx, Math.min(px, GL_MAX_PIXELS));
+        k *= glTune() * glAuto.k;
         {
             int sk = (int) nums[i + 18];
             String kk = sk >= 0 && sk < strings.length ? strings[sk] : "";
