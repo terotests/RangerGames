@@ -1865,7 +1865,12 @@ impl Anims {
         let mut hit = false;
         for e in self.seqs[si as usize].entries.iter_mut() {
             if e.id == entry && !e.known {
-                e.dur = dur.max(0.0);
+                // played faster or slower (pitch), and the host's own frame
+                // round it (a radio call's static and click)
+                let rate = e.opts.get("rate").as_num(1.0);
+                let pad = e.opts.get("pad").as_num(0.0);
+                let r = if rate > 0.01 { rate } else { 1.0 };
+                e.dur = (dur / r + pad).max(0.0);
                 e.known = true;
                 hit = true;
             }

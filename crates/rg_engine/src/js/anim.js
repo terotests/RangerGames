@@ -336,8 +336,11 @@ function __anSoundEntry(seq, kind, file, opts, pos) {
   if (opts.wait === false) o.wait = false;
   // a clip that never comes does not hold the story for good
   o.timeout = opts.timeout === undefined ? 10000 : opts.timeout;
+  // the length from the file is played at `pitch` (faster or slower), and
+  // `pad` ms of the host's own around it (a radio call's static, 450 ms on the web)
+  o.opts = { rate: opts.pitch > 0 ? opts.pitch : 1, pad: opts.pad > 0 ? opts.pad : 0 };
   var host = {};
-  for (var k in opts) if (k !== "dur" && k !== "wait" && k !== "timeout" && k !== "name" && k !== "lang") host[k] = opts[k];
+  for (var k in opts) if (k !== "dur" && k !== "wait" && k !== "timeout" && k !== "name" && k !== "lang" && k !== "pad") host[k] = opts[k];
   var id = seq._add(o);
   __animEntries[id] = { sound: kind, path: path, opts: host, seq: seq.id, h: 0, silent: kind === "say" && !rg.speechOn() };
   return seq;
@@ -406,7 +409,7 @@ function __anSound(ev) {
     var o = {};
     for (var k in e.opts) o[k] = e.opts[k];
     if (ev[3] > 0) o.delay = ev[3] / 1000;
-    if (ev[4] > 0) o.offset = ev[4] / 1000;
+    if (ev[4] > 0) o.offset = ev[4] / 1000 * (o.pitch > 0 ? o.pitch : 1);   // into the file
     e.h = e.sound === "music" ? rg.music(e.path, o) : rg.sound(e.path, o);
   } else if (kind === "soundstop") { if (e.h) rg.stopSound(e.h, { fade: e.opts.fadeOut === undefined ? 0.03 : e.opts.fadeOut }); e.h = 0; }
   else if (kind === "soundpause") { if (e.h) rg.pauseSound(e.h); }

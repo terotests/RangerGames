@@ -300,3 +300,15 @@ fn parity_print() {
         println!("PARITY {}", l);
     }
 }
+
+#[test]
+fn sound_length_with_pitch_and_pad() {
+    // a radio call: the clip played at pitch 0.8, 450 ms of static and click round it
+    let mut w = Anims::new();
+    let s = w.request(&json::parse(r#"{"op":"seq"}"#)).as_num(0.0) as i64;
+    let a = w.request(&json::parse(&format!(r#"{{"op":"add","seq":{},"kind":"sound","path":"/r.wav","opts":{{"rate":0.8,"pad":450}}}}"#, s))).as_num(0.0) as i64;
+    w.request(&json::parse(&format!(r#"{{"op":"add","seq":{},"kind":"call"}}"#, s)));
+    w.sound_length(s, a, 800.0);
+    w.advance(16.0);
+    assert!(near(w.info(s).get("end").as_num(0.0), 1450.0, 1e-9), "{}", w.info(s).write());
+}

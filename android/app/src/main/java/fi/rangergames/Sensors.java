@@ -195,8 +195,10 @@ final class Sensors implements LocationListener, SensorEventListener {
             // (z up; with the game rotation vector x/y are a fixed but arbitrary
             // horizontal pair, not east/north); the screen's turn is already taken off
             lastOrientAt = now;
-            send("orient", String.format(Locale.US, "{\"m\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f]}",
-                    r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8]));
+            // t: the reading's own time (ms, the sensor's clock): events can come
+            // in batches, so the time they arrive says little about when the turn was
+            send("orient", String.format(Locale.US, "{\"m\":[%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f,%.4f],\"t\":%.3f}",
+                    r[0], r[3], r[6], r[1], r[4], r[7], r[2], r[5], r[8], e.timestamp / 1e6));
         }
         if (!headingOn || from != headingSensor) return;
         SensorManager.getOrientation(r, orient);

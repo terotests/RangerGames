@@ -411,7 +411,7 @@
           turn = ((turn % 360) + 360) % 360;
           var neg = function (v) { return [-v[0], -v[1], -v[2]]; }, sx = X, sy = Y;
           if (turn === 90) { sx = Y; sy = neg(X); } else if (turn === 180) { sx = neg(X); sy = neg(Y); } else if (turn === 270) { sx = neg(Y); sy = X; }
-          self.sendSensor("orient", { m: sx.concat(sy, Z) });
+          self.sendSensor("orient", { m: sx.concat(sy, Z), t: e.timeStamp });
         };
         global.addEventListener("deviceorientation", this.onTurn);
       } else if (!on && this.onTurn) {

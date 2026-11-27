@@ -29,6 +29,8 @@ frames**, carrying the rest to the next frame, so:
 - a stall longer than 100 ms is cut to 100 ms and counted in `rg.frame.lost`.
 
 `rg.frame` is this frame's `{ now, dt, frames, period, lost, count }` (ms).
+Sensor turns come with their own time too (`onOrient(m, t)`, ms), since the
+phone can hand them over in batches.
 A host that only gives the time since the last frame (an older build) gets
 the same steps with the period estimated from the frames.
 
@@ -89,7 +91,10 @@ function onAnswer(right) { s.cancel("vastaus"); }   // the rest moves up
   the game's files) as soon as it is there. Until then the sequence **waits
   at its start** (a clip still downloading), at most `timeout` ms (10 s by
   default for sounds), then the sound is dropped and the rest moves up.
-  `dur` gives a length by hand; `wait: false` does not wait.
+  `dur` gives a length by hand; `wait: false` does not wait. A sound played
+  at `pitch` lasts its length divided by the pitch; `pad` (ms) adds the
+  host's own sound round it (a radio call's static and click: 450 ms on the
+  web).
 - `cancel(name)` on an entry under way ends it now; on one ahead removes it;
   either way the entries after it move up. `resolve(name, ms)` gives a hold
   (or a sound) its length.
