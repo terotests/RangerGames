@@ -17,12 +17,20 @@ final class VsyncClock implements Choreographer.FrameCallback {
     /** the last vsync (System.nanoTime's clock, as Choreographer's), 0 before the first */
     private volatile long last;
     private volatile boolean on;
-    /** the display's frame, ns */
-    final long periodNs;
+    /** the display's frame, ns: followed from the display, whose mode the system may change */
+    volatile long periodNs;
+    private final android.view.Display display;
+    private long checkedAt;
 
-    VsyncClock(float refreshHz) {
-        float hz = refreshHz > 20 && refreshHz < 250 ? refreshHz : 60f;
-        periodNs = (long) (1e9 / hz);
+    VsyncClock(android.view.Display d) {
+        display = d;
+        periodNs = periodOf(d);
+    }
+
+    private static long periodOf(android.view.Display d) {
+        float hz = d != null ? d.getRefreshRate() : 60f;
+        if (!(hz > 20 && hz < 250)) hz = 60f;
+        return (long) (1e9 / hz);
     }
 
     /** On the main thread: start (again) taking the vsyncs. */
@@ -41,6 +49,11 @@ final class VsyncClock implements Choreographer.FrameCallback {
     @Override
     public void doFrame(long frameTimeNanos) {
         last = frameTimeNanos;
+        // twice a second: the display's rate now (a mode change)
+        if (frameTimeNanos - checkedAt > 500_000_000L) {
+            checkedAt = frameTimeNanos;
+            periodNs = periodOf(display);
+        }
         if (on) Choreographer.getInstance().postFrameCallback(this);
     }
 

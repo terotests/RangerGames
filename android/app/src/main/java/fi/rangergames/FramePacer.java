@@ -20,7 +20,7 @@ package fi.rangergames;
  */
 final class FramePacer {
     /** the display's frame, ms */
-    private final double period;
+    private double period;
     /** display frames a picture stays (the swap interval) */
     int interval = 1;
     /** the frames' mean time between pictures, ms */
@@ -43,6 +43,15 @@ final class FramePacer {
     FramePacer(float refreshHz) {
         period = 1000.0 / (refreshHz > 20 && refreshHz < 250 ? refreshHz : 60.0);
         mean = period;
+    }
+
+    /** The display's frame now (ms): it follows a change of the display's mode. */
+    void period(double ms) {
+        if (ms > 3 && ms < 60 && Math.abs(ms - period) > 0.3) {
+            period = ms;
+            mean = ms * interval;
+            upFor = downFor = 0;
+        }
     }
 
     /** the last frame's work before its swap, ms */

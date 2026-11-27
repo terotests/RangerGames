@@ -111,7 +111,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         density = getResources().getDisplayMetrics().density;
-        vsync = new VsyncClock(getWindowManager().getDefaultDisplay().getRefreshRate());
+        keepTopRefresh();
+        vsync = new VsyncClock(getWindowManager().getDefaultDisplay());
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         glPaint = xrMode() || (!"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false));
         painter = new Painter(getAssets());
@@ -255,6 +256,43 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     @Override
     public void surfaceCreated(SurfaceHolder h) {
         surface = h;
+        fixedFrameRate(h);
+    }
+
+    /**
+     * The display's fastest mode at its resolution for the game's window: the
+     * pacer shows a picture every 1, 2 or 3 of its frames (90 / 45 / 30 a
+     * second on a 90 Hz tablet). Without this the system lowered the tablet
+     * to 60 Hz when the pictures came 45 a second, and 45 on a 60 Hz screen is
+     * 16 / 33 ms between pictures again.
+     */
+    private void keepTopRefresh() {
+        try {
+            android.view.Display d = getWindowManager().getDefaultDisplay();
+            android.view.Display.Mode now = d.getMode(), best = now;
+            for (android.view.Display.Mode m : d.getSupportedModes()) {
+                if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
+                        && m.getRefreshRate() > best.getRefreshRate() + 0.5f) best = m;
+            }
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.preferredDisplayModeId = best.getModeId();
+            getWindow().setAttributes(lp);
+            Log.i(TAG, "display mode " + best.getModeId() + ": " + best.getRefreshRate() + " Hz");
+        } catch (Throwable t) {
+            Log.w(TAG, "display mode: " + t);
+        }
+    }
+
+    /** Android 11+: the surface's pictures keep the display's own rate (Surface.setFrameRate, FIXED_SOURCE). */
+    private void fixedFrameRate(SurfaceHolder h) {
+        if (android.os.Build.VERSION.SDK_INT < 30 || h == null) return;
+        try {
+            float hz = 0;
+            for (android.view.Display.Mode m : getWindowManager().getDefaultDisplay().getSupportedModes()) hz = Math.max(hz, m.getRefreshRate());
+            android.view.Surface.class.getMethod("setFrameRate", float.class, int.class).invoke(h.getSurface(), hz, 1);
+        } catch (Throwable t) {
+            Log.w(TAG, "setFrameRate: " + t);
+        }
     }
 
     @Override
@@ -455,6 +493,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             if (glPaint) {
                 if (pacer == null) pacer = new FramePacer(getWindowManager().getDefaultDisplay().getRefreshRate());
                 pacer.paced = glCtx.presentTime && vs != 0;
+                // the display's frame as it is now (the system may change the mode)
+                if (vs != 0) pacer.period(vsync.periodMs());
                 dt = pacer.step(dt);
                 long present = 0;
                 if (pacer.paced) {
