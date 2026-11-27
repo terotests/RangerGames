@@ -264,9 +264,11 @@ bool march(vec3 d, float pix, out float t) {
 // how much sun reaches the ground point x (radii from the centre): a ray towards the sun against the ground's shape,
 // soft at the edges
 float sunRay(vec3 x, float sz) {
-  float k = 1.0, t = max(sz * 4.0, 2e-6);
-  for (int i = 0; i < 24; i++) { if (lite > 0.5 && i >= 10) break; vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;
-    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= 1.35; }
+// (lite, a phone's GPU: 7 longer steps reach as far as 10 of 1.35, 1.35^10 ≈ 1.54^7; on the test tablet the sun's ray
+// alone held the Apollo pad under 30 fps)
+  float k = 1.0, t = max(sz * 4.0, 2e-6), gr = lite > 0.5 ? 1.54 : 1.35;
+  for (int i = 0; i < 24; i++) { if (lite > 0.5 && i >= 7) break; vec3 y = x + sun * t; float r = length(y); if (r > 1.0 + hhi + 2.0 * hamp + 0.05 * crat / hfreq) break;
+    float h = r - ground(y / r, octs(t * 0.1)); k = min(k, 10.0 * h / t); if (k < 0.0) return 0.0; t *= gr; }
   return clamp(k, 0.0, 1.0);
 }
 // the rings' opacity at rr radii from the middle (for shadows: the coarse picture)
