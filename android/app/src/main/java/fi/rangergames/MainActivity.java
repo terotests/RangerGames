@@ -78,6 +78,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private final Object glLock = new Object();
     private boolean glLetGo;
     private int glFrames;
+    /** the time since the last frame, ms (unclamped, for GlAutoRes) */
+    private double lastRealMs = 16;
     /** even frames for the GL painter */
     private FramePacer pacer;
     /** the display's vsync times (Choreographer) for the engine's frame clock */
@@ -449,6 +451,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             takeInput();
             long t = System.nanoTime();
             double dt = Math.min(100, (t - last) / 1e6);
+            lastRealMs = (t - last) / 1e6;
             last = t;
             // the frame's vsync: the engine steps whole display frames from it, the rest carried
             long vs = vsync != null ? vsync.frameTime(t) : 0;
@@ -603,7 +606,11 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
         painter.glFrameDone();
         GlHost.frameDone();
-        if (pacer != null) pacer.worked((System.nanoTime() - t) / 1e6);
+        double workMs = (System.nanoTime() - t) / 1e6;
+        if (pacer != null) {
+            pacer.worked(workMs);
+            painter.glPace(lastRealMs, workMs, pacer.slot());
+        }
         glCtx.swap();
         glFrames++;
         long now = System.nanoTime();
