@@ -1447,6 +1447,24 @@ fn brush_ribbon(view: &[V3], ws: &[f32], focal: f32, near: f32, cx: f32, cy: f32
     out
 }
 
+thread_local! {
+    /// a feature's art and its fills' triangles, made once per feature (keyed
+    /// by where its JSON lives, which is the loaded model's and does not move)
+    static FEATURE_ART: std::cell::RefCell<std::collections::HashMap<usize, Rc<(crate::features::Art, [f32; 3], Vec<Vec<u32>>)>>> = std::cell::RefCell::new(std::collections::HashMap::new());
+}
+
+fn feature_art(f: &rg_core::json::Json) -> Option<Rc<(crate::features::Art, [f32; 3], Vec<Vec<u32>>)>> {
+    let key = f as *const rg_core::json::Json as usize;
+    if let Some(hit) = FEATURE_ART.with(|c| c.borrow().get(&key).cloned()) {
+        return Some(hit);
+    }
+    let (art, at) = crate::features::art(f)?;
+    let tris = art.fills.iter().map(|fl| crate::features::triangulate(&fl.pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect()).collect();
+    let v = Rc::new((art, at, tris));
+    FEATURE_ART.with(|c| c.borrow_mut().insert(key, v.clone()));
+    Some(v)
+}
+
 /// A model's triangles in the world for a mix of clips, skinned where it has
 /// a skin; `tint` multiplies its colours.
 fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tint: Option<V3>, toon: Option<Toon>, items: &mut Vec<Item>) {
@@ -1509,21 +1527,28 @@ fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tin
         }
         let full = gltf::mat_mul(m, &wm[ni]);
         let fwd = norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0]));
-        for f in node.features.items().iter() {
-            let (art, at) = match crate::features::art(f) { Some(x) => x, None => continue };
+        // the features by reference (the model's own JSON: no copy a frame, and
+        // a fixed place to key their cached art by)
+        let feats: &[rg_core::json::Json] = match &node.features { rg_core::json::Json::Arr(v) => v, _ => &[] };
+        for f in feats.iter() {
+            let cached = match feature_art(f) { Some(x) => x, None => continue };
+            let (art, at, fill_tris) = (&cached.0, cached.1, &cached.2);
             let mut layer = 0.0f32;
+            // how far each layer sits in front of the one under it (a drawing with
+            // hundreds of layers takes a smaller step)
+            let step = f.get("layerStep").as_num(0.00005) as f32;
             let place = |p: [f32; 2], z: f32| gltf::transform_point(&full, [at[0] + p[0], at[1] + p[1], at[2] + z]);
-            for fl in art.fills.iter() {
+            for (fl, tris) in art.fills.iter().zip(fill_tris.iter()) {
                 layer += 1.0;
-                let z = layer * 0.00005;
+                let z = layer * step;
                 let pos: Vec<V3> = fl.pts.iter().map(|p| place(*p, z)).collect();
-                let tris: Vec<u32> = crate::features::triangulate(&fl.pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect();
+                let tris = tris.clone();
                 let col = match tint { Some(t) => [fl.col[0] * t[0], fl.col[1] * t[1], fl.col[2] * t[2]], None => fl.col };
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![col; pos.len()], pos, emissive: [0.0; 3], tris, kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: None });
             }
             for st in art.strokes.iter() {
                 layer += 1.0;
-                let z = layer * 0.00005;
+                let z = layer * step;
                 let pos: Vec<V3> = st.pts.iter().map(|p| place(*p, z)).collect();
                 if pos.len() < 2 { continue; }
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![st.col; pos.len()], pos, emissive: [0.0; 3], tris: Vec::new(), kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: Some(Rc::new(st.w.clone())) });

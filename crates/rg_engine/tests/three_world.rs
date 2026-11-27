@@ -260,7 +260,8 @@ fn the_cat_has_its_clip_groups_and_toon_parts() {
     }
     let parts: Vec<&gltf::Primitive> = a.meshes.iter().flatten().collect();
     assert!(parts.iter().all(|p| !p.toon.is_null()));
-    assert!(parts.iter().any(|p| matches!(p.toon.get("lit"), rg_core::json::Json::Bool(false))), "the face's ink");
+    // the face's ink: unlit parts, or drawn features on the bones
+    assert!(parts.iter().any(|p| matches!(p.toon.get("lit"), rg_core::json::Json::Bool(false))) || a.nodes.iter().any(|n| !n.features.is_null()), "the face's ink");
     let pose = gltf::pose(&a, &[(0, 1.0, 1.0), (names.iter().position(|n| *n == "Talk").unwrap(), 0.3, 1.0)]);
     assert!(pose.iter().all(|(t, r, s)| t.iter().chain(r.iter()).chain(s.iter()).all(|v| v.is_finite())));
 }
@@ -285,4 +286,31 @@ fn the_eye_feature_draws_an_almond_iris_pupil_and_lash() {
     let (art, _) = rg_engine::features::art(&shut).unwrap();
     assert!(art.fills.is_empty());
     assert_eq!(art.strokes.len(), 1);
+}
+
+#[test]
+fn the_drawing_feature_makes_closed_curve_fills_and_strokes() {
+    let j = rg_core::json::parse(r##"{ "type": "drawing", "at": [0, 0, 0.01], "steps": 4,
+        "fills": [{ "pts": [[0, 0], [1, 0], [1, 1], [0, 1]], "color": "#ff0000" }],
+        "strokes": [{ "pts": [[0, 0], [0.5, 0.2], [1, 0]], "w": [0, 0.01, 0] }] }"##);
+    let (art, at) = rg_engine::features::art(&j).expect("a drawing");
+    assert_eq!(at, [0.0, 0.0, 0.01]);
+    assert_eq!(art.fills.len(), 1);
+    // 4 control points, 4 steps a span, closed: the curve passes through every control point
+    assert_eq!(art.fills[0].pts.len(), 16);
+    assert!(art.fills[0].pts.iter().step_by(4).zip([[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]]).all(|(p, q)| (p[0] - q[0]).abs() < 1e-6 && (p[1] - q[1]).abs() < 1e-6));
+    assert_eq!(art.strokes.len(), 1);
+    assert_eq!(art.strokes[0].w, vec![0.0, 0.01, 0.0]);
+}
+
+#[test]
+fn a_drawing_fill_with_a_hole_leaves_the_hole_open() {
+    // a 4 x 4 square with a 2 x 2 hole in the middle: 12 of area, not 16
+    let j = rg_core::json::parse(r##"{ "type": "drawing", "steps": 1,
+        "fills": [{ "pts": [[0, 0], [4, 0], [4, 4], [0, 4]], "holes": [[[1, 1], [3, 1], [3, 3], [1, 3]]], "color": "#ff0000" }] }"##);
+    let (art, _) = rg_engine::features::art(&j).expect("a drawing");
+    let p = &art.fills[0].pts;
+    let tris = rg_engine::features::triangulate(p);
+    let area: f32 = tris.iter().map(|t| { let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]); ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5 }).sum();
+    assert!((area - 12.0).abs() < 1e-3, "area {}", area);
 }

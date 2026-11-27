@@ -54,6 +54,7 @@ pub fn art(f: &Json) -> Option<(Art, [f32; 3])> {
         "whiskers" => Some((Whiskers::from_json(f).art(), at)),
         "arcs" => Some((arcs(f), at)),
         "earring" => Some((earring(f), at)),
+        "drawing" => Some((drawing(f), at)),
         _ => None,
     }
 }
@@ -521,6 +522,112 @@ pub fn arcs(j: &Json) -> Art {
     a
 }
 
+// ---------------------------------------------------------------- drawing
+
+/// A drawn part of a figure given as its curves: `fills` are closed
+/// Catmull-Rom curves through their control points (`pts`, a `color` each),
+/// drawn in order; `strokes` are brush strokes (`pts`, a width `w` at each,
+/// `color`, ink when none) drawn over them. For the parts a character has
+/// that no modelled feature makes (a ruff, a collar, a gloved hand): the
+/// character's data gives the curves, the feature binds them to a bone. The
+/// fill edges are guides ("drawing").
+pub fn drawing(j: &Json) -> Art {
+    let mut a = Art::default();
+    let ink = hex(&j.get("inkColor").as_str()).unwrap_or([0.02, 0.014, 0.03]);
+    let steps = j.get("steps").as_num(6.0).max(1.0) as usize;
+    for fl in j.get("fills").items() {
+        let pts = pts_of(&fl, "pts", &[]);
+        if pts.len() < 3 { continue; }
+        let col = hex(&fl.get("color").as_str()).unwrap_or(ink);
+        let curve = catmull_closed(&pts, steps);
+        a.guides.push(Guide { name: "drawing", pts: curve.clone() });
+        let holes: Vec<Vec<P2>> = fl.get("holes").items().iter().map(|h| pts_of(&json_wrap(h), "pts", &[])).filter(|h| h.len() >= 3).map(|h| catmull_closed(&h, steps)).collect();
+        let shape = if holes.is_empty() { curve } else { bridge_holes(curve, holes) };
+        a.fills.push(Fill { pts: shape, col });
+    }
+    for l in j.get("strokes").items() {
+        let pts = pts_of(&l, "pts", &[]);
+        let w = nums(&l.get("w"));
+        if pts.len() < 2 || w.len() != pts.len() { continue; }
+        let col = hex(&l.get("color").as_str()).unwrap_or(ink);
+        a.strokes.push(Stroke { pts, w, col });
+    }
+    a
+}
+
+fn json_wrap(h: &Json) -> Json { rg_core::json::obj(vec![rg_core::json::member("pts", h.clone())]) }
+
+/// A polygon with holes as one simple polygon: each hole joined to the outer
+/// ring by a two-way cut to a vertex it can see (holes taken rightmost first;
+/// the cut runs from the hole's rightmost vertex along +x, as in Eberly's
+/// "Triangulation by Ear Clipping"), so `triangulate` can cut it into ears.
+pub fn bridge_holes(outer: Vec<P2>, holes: Vec<Vec<P2>>) -> Vec<P2> {
+    let mut poly = outer;
+    if area(&poly) < 0.0 { poly.reverse(); }
+    let mut hs: Vec<Vec<P2>> = holes.into_iter().map(|mut h| { if area(&h) > 0.0 { h.reverse(); } h }).collect();
+    let maxx = |h: &Vec<P2>| h.iter().fold(f32::MIN, |m, p| m.max(p[0]));
+    hs.sort_by(|a, b| maxx(b).partial_cmp(&maxx(a)).unwrap_or(std::cmp::Ordering::Equal));
+    let crs = |a: P2, b: P2, c: P2| (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+    for h in hs {
+        let mi = (0..h.len()).fold(0, |b, i| if h[i][0] > h[b][0] { i } else { b });
+        let m = h[mi];
+        // the nearest edge the ray from m along +x hits
+        let n = poly.len();
+        let mut best: Option<(f32, usize)> = None;
+        for i in 0..n {
+            let (p, q) = (poly[i], poly[(i + 1) % n]);
+            if (p[1] > m[1]) == (q[1] > m[1]) { continue; }
+            let x = p[0] + (m[1] - p[1]) / (q[1] - p[1]) * (q[0] - p[0]);
+            if x < m[0] { continue; }
+            if best.map_or(true, |(bx, _)| x < bx) { best = Some((x, i)); }
+        }
+        let (ix, ei) = match best { Some(b) => b, None => continue };
+        let ipt = [ix, m[1]];
+        // the edge's end further along +x, unless a reflex vertex of the
+        // polygon lies in the triangle m, ipt, end: then the one of those
+        // nearest in angle to the ray
+        let (p, q) = (poly[ei], poly[(ei + 1) % n]);
+        let mut pick = if p[0] > q[0] { ei } else { (ei + 1) % n };
+        let tri = [m, ipt, poly[pick]];
+        let mut best_ang = f32::MAX;
+        for i in 0..n {
+            if i == pick { continue; }
+            let v = poly[i];
+            let (pv, nx) = (poly[(i + n - 1) % n], poly[(i + 1) % n]);
+            if crs(pv, v, nx) >= 0.0 { continue; }   // convex
+            let s1 = crs(tri[0], tri[1], v); let s2 = crs(tri[1], tri[2], v); let s3 = crs(tri[2], tri[0], v);
+            let inside = (s1 >= 0.0 && s2 >= 0.0 && s3 >= 0.0) || (s1 <= 0.0 && s2 <= 0.0 && s3 <= 0.0);
+            if !inside { continue; }
+            let ang = ((v[1] - m[1]).abs()).atan2(v[0] - m[0]);
+            if ang < best_ang { best_ang = ang; pick = i; }
+        }
+        // poly[..=pick], the hole from m round to m, back to poly[pick], the rest
+        let mut out = Vec::with_capacity(poly.len() + h.len() + 2);
+        out.extend_from_slice(&poly[..=pick]);
+        for k in 0..=h.len() { out.push(h[(mi + k) % h.len()]); }
+        out.push(poly[pick]);
+        out.extend_from_slice(&poly[pick + 1..]);
+        poly = out;
+    }
+    poly
+}
+
+/// a closed Catmull-Rom curve through the points, `n` steps a span
+pub fn catmull_closed(p: &[P2], n: usize) -> Vec<P2> {
+    let m = p.len();
+    let mut out = Vec::with_capacity(m * n);
+    for i in 0..m {
+        let (p0, p1, p2, p3) = (p[(i + m - 1) % m], p[i], p[(i + 1) % m], p[(i + 2) % m]);
+        for k in 0..n {
+            let t = k as f32 / n as f32;
+            let (t2, t3) = (t * t, t * t * t);
+            let cr = |a: f32, b: f32, c: f32, d: f32| 0.5 * (2.0 * b + (-a + c) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (-a + 3.0 * b - 3.0 * c + d) * t3);
+            out.push([cr(p0[0], p1[0], p2[0], p3[0]), cr(p0[1], p1[1], p2[1], p3[1])]);
+        }
+    }
+    out
+}
+
 // ---------------------------------------------------------------- earring
 
 /// An earring: a ball and gems hanging under it, each gem a four-point
@@ -692,7 +799,8 @@ pub fn triangulate(p: &[P2]) -> Vec<[usize; 3]> {
             let (ia, ib, ic) = (idx[(i + idx.len() - 1) % idx.len()], idx[i], idx[(i + 1) % idx.len()]);
             let (a, b, c) = (p[ia], p[ib], p[ic]);
             if crs(a, b, c) <= 1e-12 { continue; }
-            if idx.iter().any(|&j| j != ia && j != ib && j != ic && crs(a, b, p[j]) >= 0.0 && crs(b, c, p[j]) >= 0.0 && crs(c, a, p[j]) >= 0.0) { continue; }
+            let same = |q: P2| (q[0] == a[0] && q[1] == a[1]) || (q[0] == b[0] && q[1] == b[1]) || (q[0] == c[0] && q[1] == c[1]);
+            if idx.iter().any(|&j| j != ia && j != ib && j != ic && !same(p[j]) && crs(a, b, p[j]) >= 0.0 && crs(b, c, p[j]) >= 0.0 && crs(c, a, p[j]) >= 0.0) { continue; }
             out.push([ia, ib, ic]);
             idx.remove(i);
             cut = true;
