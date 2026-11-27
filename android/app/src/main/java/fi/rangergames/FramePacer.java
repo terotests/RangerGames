@@ -37,6 +37,11 @@ final class FramePacer {
         mean = period;
     }
 
+    /** a picture's time at the current swap interval, ms */
+    double slot() {
+        return period * interval;
+    }
+
     /** the last frame's work before its swap, ms */
     void worked(double ms) {
         work += (ms - work) * 0.08;
