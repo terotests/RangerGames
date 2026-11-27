@@ -1237,7 +1237,18 @@ impl Globe {
     /// The surface as one sphere command (kind 8) the host fills from the
     /// texture: the disc's box on the screen and the camera in the globe's
     /// own frame, the radius 1 (see draw.rs `sphere`).
+    /// The textured ball and its detail pictures, each sphere command with
+    /// the ball's level of detail (lod.rs): drawn by the host every frame,
+    /// its costly parts faded out as the ball gets smaller on the screen.
     fn render_textured(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, cap: &Cap, to_eye: V3, sun_local: Option<V3>) {
+        let at = out.nums.len();
+        self.render_textured_all(out, cam, place, cap, to_eye, sun_local);
+        let dist = dot(to_eye, to_eye).sqrt();
+        let size = crate::lod::screen_size(place.radius, dist, cam.focal);
+        out.spheres_lod(at, crate::lod::globe_level(size * 0.5));
+    }
+
+    fn render_textured_all(&mut self, out: &mut DrawStream, cam: &Cam3, place: &Place3, cap: &Cap, to_eye: V3, sun_local: Option<V3>) {
         let (w, h) = (cam.w, cam.h);
         // all of it behind the camera: nothing to draw
         let reach = if self.rings.is_empty() { 1.0 } else { self.ring_out };
@@ -2162,6 +2173,25 @@ mod tests {
         let mut out = DrawStream::new();
         g.render_3d(&mut out, &cam_at([6.0, 0.0, 0.0], [1.0, 0.0, 0.0]), &place, None, false, true);
         assert_eq!(out.count, 0);
+    }
+
+    #[test]
+    fn each_sphere_command_has_the_balls_level_of_detail() {
+        let mut g = Globe::new();
+        let a = rg_core::json::parse(&format!(r#"{{"regions":[["A","x",{}]],"texture":"img/earth.jpg","grid":false,"glow":false,"border":false}}"#, square(0.0, 0.0)));
+        g.command(&a);
+        let place = Place3 { centre: [0.0; 3], radius: 2.0, axes: [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]] };
+        let mut level = |eye: f64| {
+            let mut out = DrawStream::new();
+            g.render_3d(&mut out, &cam_at([eye, 0.0, 0.0], [-1.0, 0.0, 0.0]), &place, Some([10.0, 0.0, 0.0]), false, true);
+            assert_eq!(out.nums[0], 8.0);
+            out.nums[12] as f64 - 1.0
+        };
+        // big on the screen (radius ~106 units): in full
+        assert_eq!(level(6.0), 0.0);
+        // farther: higher, smoothly (4x the distance ~ 2 levels more)
+        let (a, b) = (level(24.0), level(48.0));
+        assert!(a > 1.0 && a < 2.5 && (b - a - 1.0).abs() < 0.05, "{a} {b}");
     }
 
     #[test]

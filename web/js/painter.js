@@ -70,7 +70,7 @@
     this.ok = true;
   }
 
-  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "rg_time"];
+  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "rg_time"];
   // a globe stage's program ({ prog, u: its uniforms' locations }), or null (why(log) told)
   Spheres.prototype.link = function (fsrc, why) {
     var gl = this.gl, prog = gl.createProgram(), ok = true;
@@ -147,7 +147,7 @@
 
   // rs: the rings' pictures [colour, opacity, their names] (44 numbers), when loaded
   // key, unis, time: a game's surface shader (draw.rs spheres_shader), its uniforms and the planet's time
-  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs, key, unis, time) {
+  Spheres.prototype.draw = function (ctx, img, src, x, y, w, h, p, px, limg, lsrc, hs, rs, key, unis, time, lod) {
     var gl = this.gl, c = this.canvas, gr = this.group;
     var pg = (key && this.game(key)) || this.base;
     this.prog = pg.prog;
@@ -253,6 +253,8 @@
     gl.uniform1f(u.smie, w124 ? p[123] : 1);
     // close by, the regolith's small pits (128 numbers)
     gl.uniform1f(u.rego, p.length >= 128 ? p[124] : 0);
+    // the level of detail (draw.rs spheres_lod: header slot 12 = level + 1; 0: in full)
+    gl.uniform1f(u.lod, Math.max(0, (lod || 0) - 1));
     gl.uniform3f(u.rgt, p[3], p[4], p[5]);
     gl.uniform3f(u.upv, p[6], p[7], p[8]);
     gl.uniform3f(u.fwd, p[9], p[10], p[11]);
@@ -586,7 +588,7 @@
             spheres.groupLeft = gn;
           }
           // a game's surface shader: slots 9, 10 its key's and uniforms' strings + 1, 11 the planet's time
-          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs, tl >= 1 ? strings[tl - 1] : "", tr >= 1 ? strings[tr - 1] : "", br);
+          spheres.draw(ctx, simg, strings[s0], x, y, w, h, sp, scale, limg, s1 >= 0 ? strings[s1] : "", hs, rs, tl >= 1 ? strings[tl - 1] : "", tr >= 1 ? strings[tr - 1] : "", br, bl);
         }
         // the group's last window drawn (or skipped): the picture into the canvas
         if (spheres && spheres.group && --spheres.groupLeft <= 0) spheres.end(ctx);

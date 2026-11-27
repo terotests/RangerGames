@@ -462,6 +462,92 @@ impl Label {
     }
 }
 
+/// An object's mesh from its "add" (or one `lod` entry, `parent` the
+/// object's own: an entry without a shape takes the object's).
+fn obj_mesh(a: &Json, shape: &str, size: &[f64], detail: Option<usize>) -> Mesh {
+    if label_shape(shape) {
+        Mesh::plain(Vec::new(), Vec::new())
+    } else if shape == "heightfield" {
+        let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
+        heightfield(size, &hs)
+    } else if shape == "mesh" {
+        tri_mesh(a)
+    } else if shape == "puffs" || shape == "dust" || shape == "burst" || shape == "splats" {
+        Mesh::plain(Vec::new(), Vec::new())
+    } else {
+        mesh(shape, size, detail.unwrap_or(a.get("detail").as_num(12.0) as usize))
+    }
+}
+
+/// The shapes `detail: "auto"` makes coarser forms of (their detail is a
+/// count of segments round): the segments and each form's limit on the
+/// screen (units across), finest first.
+const AUTO_DETAIL: [(usize, f64); 4] = [(48, f64::MAX), (24, 160.0), (12, 60.0), (6, 16.0)];
+
+/// The object's forms of detail from its "add":
+///
+/// - `lod: [{ px: 40, shape: "mesh", verts, tris, colors }, { px: 8, shape: "box", size: [1] }, { px: 2, hide: true }]`:
+///   each entry is a coarser form, drawn once the object is under `px`
+///   units across on the screen (its bounding ball's diameter; units are
+///   about CSS pixels); `hide: true` draws nothing (too small to see).
+///   An entry without a shape takes the object's shape and size, so
+///   `{ px: 30, detail: 8 }` is the same sphere with fewer segments.
+/// - `detail: "auto"` on a sphere, cylinder or cone: 48, 24, 12 and 6
+///   segments by its size.
+/// - `lodMargin` (0.15): how far past a limit before the form changes.
+fn lod_forms(o: &mut Obj, a: &Json, shape: &str, size: &[f64]) {
+    let mut forms: Vec<Mesh> = Vec::new();
+    let mut px: Vec<f64> = Vec::new();
+    let auto = a.get("detail").as_str() == "auto" && matches!(shape, "sphere" | "cylinder" | "cone");
+    if auto {
+        for (i, (seg, lim)) in AUTO_DETAIL.iter().enumerate() {
+            forms.push(mesh(shape, size, *seg));
+            if i > 0 {
+                px.push(*lim);
+            }
+        }
+    } else {
+        let entries = a.get("lod").items();
+        if entries.is_empty() {
+            return;
+        }
+        let mut steps: Vec<(f64, Mesh)> = Vec::new();
+        for e in entries.iter() {
+            let lim = e.get("px").as_num(0.0);
+            if lim <= 0.0 {
+                continue;
+            }
+            let m = if e.get("hide").as_bool() {
+                Mesh::plain(Vec::new(), Vec::new())
+            } else {
+                let es = e.get("shape").as_str();
+                let (sh, sz): (String, Vec<f64>) = if es.is_empty() {
+                    (shape.to_string(), if e.get("size").is_null() { size.to_vec() } else { e.get("size").items().iter().map(|v| v.as_num(1.0)).collect() })
+                } else {
+                    (es, e.get("size").items().iter().map(|v| v.as_num(1.0)).collect())
+                };
+                obj_mesh(e, &sh, &sz, None)
+            };
+            steps.push((lim, m));
+        }
+        if steps.is_empty() {
+            return;
+        }
+        steps.sort_by(|x, y| y.0.partial_cmp(&x.0).unwrap_or(std::cmp::Ordering::Equal));
+        forms.push(std::mem::replace(&mut o.mesh, Mesh::plain(Vec::new(), Vec::new())));
+        for (lim, m) in steps {
+            px.push(lim);
+            forms.push(m);
+        }
+    }
+    o.lod_r = forms.iter().flat_map(|m| m.verts.iter()).map(|v| dot(*v, *v).sqrt()).fold(0.0, f64::max);
+    // the finest form in use; its slot empty
+    o.mesh = std::mem::replace(&mut forms[0], Mesh::plain(Vec::new(), Vec::new()));
+    o.forms = forms;
+    o.lod_px = px;
+    o.lod_at = 0;
+}
+
 struct Obj {
     id: String,
     mesh: Mesh,
@@ -509,6 +595,20 @@ struct Obj {
     burst: Option<Box<crate::burst::Burst>>,
     /// a "splats" object: its baked run and how it lies in the world
     splats: Option<Box<SplatRun>>,
+    /// Level of detail (lod.rs): the object's other forms, a coarser one each
+    /// step (`lod: [{ px, shape, ... }]` or `detail: "auto"`). forms[i] is
+    /// step i's mesh, except the step in use, whose mesh is `mesh` (its slot
+    /// then holds an empty one). Empty: one form.
+    forms: Vec<Mesh>,
+    /// each coarser step's limit: step i + 1 is drawn below lod_px[i] units
+    /// across on the screen (largest first)
+    lod_px: Vec<f64>,
+    /// the step in use
+    lod_at: usize,
+    /// the finest form's reach from its middle (before `scale`)
+    lod_r: f64,
+    /// how far past a limit the size must go before the step changes (0.15)
+    lod_margin: f64,
 }
 
 /// A "splats" object's run (splats.rs): the file's x, y, z axes in the world,
@@ -1203,18 +1303,7 @@ impl Scene {
                 let o = Obj {
                     id: id.clone(),
                     label,
-                    mesh: if label_shape(&shape) {
-                        Mesh::plain(Vec::new(), Vec::new())
-                    } else if hf {
-                        let hs: Vec<f64> = a.get("heights").items().iter().map(|v| v.as_num(0.0)).collect();
-                        heightfield(&size, &hs)
-                    } else if shape == "mesh" {
-                        tri_mesh(a)
-                    } else if shape == "puffs" || shape == "dust" || shape == "burst" || shape == "splats" {
-                        Mesh::plain(Vec::new(), Vec::new())
-                    } else {
-                        mesh(&shape, &size, a.get("detail").as_num(12.0) as usize)
-                    },
+                    mesh: obj_mesh(a, &shape, &size, None),
                     hf: if hf { Some(size.clone()) } else { None },
                     color: color(&a.get("color"), [0.8, 0.8, 0.8]),
                     pos: get3(a, ["x", "y", "z"], [0.0; 3]),
@@ -1239,7 +1328,14 @@ impl Scene {
                     } else {
                         None
                     },
+                    forms: Vec::new(),
+                    lod_px: Vec::new(),
+                    lod_at: 0,
+                    lod_r: 0.0,
+                    lod_margin: a.get("lodMargin").as_num(0.15).clamp(0.0, 0.9),
                 };
+                let mut o = o;
+                lod_forms(&mut o, a, &shape, &size);
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
             }
@@ -1510,6 +1606,7 @@ impl Scene {
                 b.advance();
             }
         }
+        self.pick_lods(w, h);
         if self.eyes_only {
             return;
         }
@@ -1982,6 +2079,38 @@ impl Scene {
 
     /// The camera: position, right, up, forward, focal length and the point
     /// straight ahead on the screen. In VR (`eye` set) the eye's.
+    /// Each object with forms of detail (lod.rs) in the form its size on the
+    /// screen calls for, seen from the game camera (a headset's two eyes see
+    /// the same form). Drawn live every frame in that form.
+    fn pick_lods(&mut self, w: f64, h: f64) {
+        if !self.objs.iter().any(|o| !o.lod_px.is_empty()) {
+            return;
+        }
+        let (cam, _, _, _) = self.rig();
+        let focal = if self.eye.is_some() { crate::xr::K } else { (h.max(1.0) / 2.0) / (self.fov.to_radians() / 2.0).tan() };
+        let _ = w;
+        for o in self.objs.iter_mut() {
+            if o.lod_px.is_empty() {
+                continue;
+            }
+            let d = sub(o.pos, cam);
+            let k = o.scale[0].abs().max(o.scale[1].abs()).max(o.scale[2].abs());
+            let size = crate::lod::screen_size(o.lod_r * k, dot(d, d).sqrt(), focal);
+            let step = crate::lod::pick(size, &o.lod_px, o.lod_at, o.lod_margin);
+            if step != o.lod_at {
+                // the form in use back to its slot, the new one out of its slot
+                std::mem::swap(&mut o.mesh, &mut o.forms[o.lod_at]);
+                std::mem::swap(&mut o.mesh, &mut o.forms[step]);
+                o.lod_at = step;
+            }
+        }
+    }
+
+    /// The step of detail object `id` is drawn in (0: its finest form), if it has forms.
+    pub fn lod_step(&self, id: &str) -> Option<usize> {
+        self.objs.iter().find(|o| o.id == id && !o.lod_px.is_empty()).map(|o| o.lod_at)
+    }
+
     fn view_basis(&self, w: f64, h: f64) -> (V3, V3, V3, V3, f64, f64, f64) {
         if let Some(e) = self.eye {
             let (cx, cy) = e.centre();
@@ -2391,6 +2520,58 @@ pub(crate) fn grow(pts: Vec<f32>) -> Vec<f32> {
 #[cfg(test)]
 mod mesh_tests {
     use super::*;
+
+    fn faces_at(sc: &mut Scene, z: f64) -> (usize, usize) {
+        sc.command("camera", &rg_core::json::parse(&format!(r#"{{ "x": 0, "y": 0, "z": {z}, "lookAt": [0, 0, 0] }}"#)));
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let o = sc.objs.iter().find(|o| o.id == "s").unwrap();
+        (o.lod_at, o.mesh.faces.len())
+    }
+
+    #[test]
+    fn an_auto_detail_sphere_has_fewer_segments_far_off() {
+        let mut sc = Scene::new();
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "sphere", "size": [1], "detail": "auto" }"#));
+        let (s0, f0) = faces_at(&mut sc, 2.0);
+        let (s1, f1) = faces_at(&mut sc, 20.0);
+        let (s3, f3) = faces_at(&mut sc, 400.0);
+        assert_eq!(s0, 0);
+        assert!(s1 > s0 && f1 < f0, "{s1} {f1} {f0}");
+        assert_eq!(s3, 3);
+        assert!(f3 < f1);
+        // back close: the finest again, with all its faces
+        assert_eq!(faces_at(&mut sc, 2.0), (s0, f0));
+    }
+
+    #[test]
+    fn lod_entries_replace_the_mesh_by_size_and_hide_it_when_tiny() {
+        let mut sc = Scene::new();
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "sphere", "size": [1], "detail": 32,
+            "lod": [{ "px": 3, "hide": true }, { "px": 60, "shape": "box", "size": [1] }] }"#));
+        assert_eq!(sc.lod_step("s"), Some(0));
+        // 1 unit wide at 3 units: big, the sphere
+        let (a, fa) = faces_at(&mut sc, 3.0);
+        assert_eq!(a, 0);
+        assert!(fa > 100);
+        // far: the box (6 faces)
+        assert_eq!(faces_at(&mut sc, 30.0), (1, 6));
+        // very far: nothing
+        assert_eq!(faces_at(&mut sc, 2000.0), (2, 0));
+    }
+
+    #[test]
+    fn a_form_holds_at_its_limit() {
+        let mut sc = Scene::new();
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "s", "shape": "sphere", "size": [1], "lod": [{ "px": 60, "detail": 6 }] }"#));
+        // the distance where it is 60 units across (focal 400 / 2 / tan(fov / 2))
+        let mut z = 3.0;
+        while { let (st, _) = faces_at(&mut sc, z); st == 0 } { z *= 1.01; }
+        let edge = z;
+        // just inside the limit again: still the coarse one (the margin)
+        assert_eq!(faces_at(&mut sc, edge * 0.95).0, 1);
+        assert_eq!(faces_at(&mut sc, edge * 0.7).0, 0);
+    }
 
     #[test]
     fn a_mesh_keeps_a_colour_and_glow_a_face() {
