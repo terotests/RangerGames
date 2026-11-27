@@ -87,7 +87,7 @@ props `color`, `emissive`, `emissiveIntensity`, `side` (`THREE.DoubleSide`),
 `flatShading`. Colours: `"#rrggbb"`, `"#rgb"`, names, `0xrrggbb`, `rgb()`,
 `hsl()`, `[r, g, b]`. Lighting is Lambert, per corner, with three.js's
 colour management (sRGB colours lit in linear light); there are no textures,
-shadows or transparency.
+shadows or transparency (but see Toon shading below).
 
 ## Level of detail
 
@@ -215,6 +215,48 @@ mixer.addEventListener("marker", (e) => {
 `BackSide`, `DoubleSide`. `import * as THREE from "three"` and
 `import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js"` work, and
 `THREE` is also a global.
+
+## Toon shading
+
+A cartoon look, the way a toon shader draws it, on any mesh or model:
+`<meshToonMaterial>` (three.js's name), `toon` on a mesh's material, or
+`toon` on a `<primitive>`:
+
+```tsx
+<primitive object={cat} toon={{ bands: 3, outline: 2.2, outlineColor: "#1d1528",
+  shadowColor: "#8c74d8", rim: 0.8, rimColor: "#4b3478" }} />
+<mesh><sphereGeometry /><meshToonMaterial color="#cfc3e6" outline={1.5} /></mesh>
+```
+
+| prop | what |
+| --- | --- |
+| `bands` | 2, 3 (default) or 4 even light bands; or `edges` (n·l where a band ends, up to 3) and `levels` (how much of the key light each band gets) |
+| `shadowColor` | tints the fill light (ambient and hemisphere) that the shadow band is lit by |
+| `specular`, `specularColor` | a highlight where n·h is at least this (0.9–0.97: metal, eyes, gems) |
+| `rim`, `rimColor` | rim light where 1 − n·v is at least this (0.8: a thin edge) |
+| `outline`, `outlineColor` | the outline, units wide (about CSS pixels) whatever the distance; 0 / false: none |
+| `lit` | false: the colours drawn flat (ink, glow), outline kept |
+
+The strongest directional light is the key light that the bands cut; the
+ambient and hemisphere lights are a flat fill under it (point lights are
+left out). Every edge (band, highlight, rim) is cut through the triangles
+on the CPU, so each piece is one flat colour and the edges stay sharp
+however big the triangles are; it works the same on the web, the phone's
+GL and the painter (no GPU). The outline is an inverted hull: the
+corners pushed out along their normals and the faces that then look away
+drawn behind the surface, so models want smooth normals (shared corners)
+and no inner part close under an outer one (its hull would show through).
+
+A glTF part's material can carry its own settings in `extras.toon` (same
+fields), over the primitive's: fur, fabric, metal, gems and the face's ink
+of one model each drawn their way. `writeGlb` (`tools/three/glb.mjs`) writes them
+(`writeGlb({ meshes: [{ …, extras: { toon: {…} } }] })`); the Character
+Studio (`games/hahmostudio`) shows a cat built this way, whose face is drawn as 2D
+shapes laid on the head (lines and fills, `lit: false`, no outline) moved by
+face bones for its expressions. The cat's data and its build script are
+kept in the private Trade Frontier repository (`characters/cat/make-cat.mjs`
+writes `games/hahmostudio/models/` here); the studio says so when the model
+is missing.
 
 ## Making a model
 

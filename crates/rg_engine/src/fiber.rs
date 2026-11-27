@@ -293,7 +293,190 @@ struct Mat {
     kind: u8,
     side: u8,
     flat: bool,
+    toon: Option<Toon>,
 }
+
+/// Cel shading and an outline (`<meshToonMaterial>`, `toon` on a mesh's
+/// material or on a `<primitive>`, and per part a glTF material's
+/// `extras.toon`), as a toon shader's passes:
+///
+/// - **bands**: the key light's n·l cut into `n` bands at `edges`; band j is
+///   lit by `levels[j]` of the key light over the flat fill (ambient and
+///   hemisphere light, times `shadow`, the shadow's tint)
+/// - **highlight** (specular): where n·h ≥ `spec`, `spec_col` × the key light
+///   is added (metal, eyes, gems); 0: none
+/// - **rim** (Fresnel): where 1 − n·v ≥ `rim`, `rim_col` is added; 0: none
+/// - **outline**: `line` units wide (about CSS pixels, the same on the screen
+///   at any distance) in `line_col`; 0: none
+///
+/// Every edge is cut through the triangles, so each piece is one flat
+/// colour and the edges stay sharp however big the triangles are.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Toon {
+    pub n: u8,
+    pub edges: [f32; 3],
+    pub levels: [f32; 4],
+    pub shadow: V3,
+    pub spec: f32,
+    pub spec_col: V3,
+    pub rim: f32,
+    pub rim_col: V3,
+    pub line: f32,
+    pub line_col: V3,
+    /// lit: false draws the colours flat (emissive glow) but keeps the outline
+    pub lit: bool,
+}
+
+impl Toon {
+    pub const DEFAULT: Toon = Toon {
+        n: 3, edges: [-0.05, 0.45, 2.0], levels: [0.0, 0.55, 1.0, 1.0], shadow: [1.0; 3],
+        spec: 0.0, spec_col: [1.0; 3], rim: 0.0, rim_col: [0.5, 0.35, 1.0],
+        line: 2.0, line_col: [0.012, 0.009, 0.02], lit: true,
+    };
+
+    /// `true`, a number (the number of bands) or an object (see `apply`);
+    /// None for false / null.
+    pub fn from_json(v: &Json) -> Option<Toon> {
+        let mut t = Toon::DEFAULT;
+        match v {
+            Json::Bool(true) => {}
+            Json::Num(k) => t = Toon::bands(*k as usize),
+            Json::Obj(_) => t.apply(v),
+            _ => return None,
+        }
+        Some(t)
+    }
+
+    /// Fields of `{ bands, edges, levels, shadowColor, specular,
+    /// specularColor, rim, rimColor, outline, outlineColor, lit }` over these.
+    pub fn apply(&mut self, v: &Json) {
+        if let Some(k) = prop(v, "bands") {
+            let b = Toon::bands(k.as_num(3.0) as usize);
+            self.n = b.n;
+            self.edges = b.edges;
+            self.levels = b.levels;
+        }
+        if let Some(Json::Arr(e)) = prop(v, "edges") {
+            let e: Vec<f32> = e.iter().take(3).map(|x| x.as_num(0.0) as f32).collect();
+            self.n = (e.len() + 1) as u8;
+            for (i, x) in e.iter().enumerate() { self.edges[i] = *x; }
+        }
+        if let Some(Json::Arr(l)) = prop(v, "levels") {
+            for (i, x) in l.iter().take(4).enumerate() { self.levels[i] = x.as_num(1.0) as f32; }
+        }
+        let width = |o: &Json, d: f32| match o { Json::Bool(b) => if *b { d } else { 0.0 }, _ => o.as_num(d as f64).max(0.0) as f32 };
+        if let Some(c) = prop(v, "shadowColor") { self.shadow = color(c, self.shadow); }
+        if let Some(o) = prop(v, "specular") { self.spec = width(o, 0.96).min(1.0); }
+        if let Some(c) = prop(v, "specularColor") { self.spec_col = color(c, self.spec_col); }
+        if let Some(o) = prop(v, "rim") { self.rim = width(o, 0.6).min(1.0); }
+        if let Some(c) = prop(v, "rimColor") { self.rim_col = color(c, self.rim_col); }
+        if let Some(o) = prop(v, "outline") { self.line = width(o, 2.0); }
+        if let Some(c) = prop(v, "outlineColor") { self.line_col = color(c, self.line_col); }
+        if let Some(Json::Bool(b)) = prop(v, "lit") { self.lit = *b; }
+    }
+
+    /// n even bands from shadow to full light (2 to 4)
+    pub fn bands(k: usize) -> Toon {
+        let mut t = Toon::DEFAULT;
+        match k.clamp(2, 4) {
+            2 => { t.n = 2; t.edges = [0.1, 2.0, 2.0]; t.levels = [0.15, 1.0, 1.0, 1.0]; }
+            4 => { t.n = 4; t.edges = [-0.05, 0.4, 0.9]; t.levels = [0.0, 0.5, 0.9, 1.2]; }
+            _ => {}
+        }
+        t
+    }
+
+    /// the band n·l = `t` falls in
+    pub fn band(&self, t: f32) -> usize {
+        let mut j = 0;
+        while j + 1 < self.n as usize && t >= self.edges[j] {
+            j += 1;
+        }
+        j
+    }
+
+    fn hash<H: std::hash::Hasher>(&self, hs: &mut H) {
+        use std::hash::Hash;
+        self.n.hash(hs);
+        self.lit.hash(hs);
+        for v in self.edges.iter().chain(self.levels.iter()).chain(self.shadow.iter()).chain(self.spec_col.iter()).chain(self.rim_col.iter()).chain(self.line_col.iter()) { v.to_bits().hash(hs); }
+        for v in [self.spec, self.rim, self.line] { v.to_bits().hash(hs); }
+    }
+}
+
+/// A polygon cut by the toon pass's edges: corners in view space with
+/// their n·l, n·h and 1 − n·v.
+type ToonPoly = Vec<(V3, [f32; 3])>;
+
+/// The part of `poly` where scalar `k` is at least `at` (`above`) or under it.
+fn clip_scalar(poly: &[(V3, [f32; 3])], k: usize, at: f32, above: bool) -> ToonPoly {
+    let inside = |t: f32| if above { t >= at } else { t < at };
+    let mut out = Vec::with_capacity(poly.len() + 1);
+    for i in 0..poly.len() {
+        let (p, sp) = poly[i];
+        let (q, sq) = poly[(i + 1) % poly.len()];
+        if inside(sp[k]) {
+            out.push((p, sp));
+        }
+        if inside(sp[k]) != inside(sq[k]) {
+            let t = (at - sp[k]) / (sq[k] - sp[k]);
+            let l = |a: f32, b: f32| a + (b - a) * t;
+            out.push(([l(p[0], q[0]), l(p[1], q[1]), l(p[2], q[2])], [l(sp[0], sq[0]), l(sp[1], sq[1]), l(sp[2], sq[2])]));
+        }
+    }
+    out
+}
+
+/// `poly` cut into pieces that each lie in one band, highlight and rim
+/// region: (piece, (band, highlight, rim)). Each scalar is cut once and its
+/// class is known from the cut (a cut corner sits on the edge itself).
+fn toon_pieces(tn: &Toon, poly: ToonPoly, out: &mut Vec<(ToonPoly, (usize, bool, bool))>) {
+    // split one polygon at `at` on scalar k: (below, above), either may be empty
+    fn split(poly: ToonPoly, k: usize, at: f32) -> (ToonPoly, ToonPoly) {
+        let (lo, hi) = poly.iter().fold((f32::MAX, f32::MIN), |m, c| (m.0.min(c.1[k]), m.1.max(c.1[k])));
+        if hi < at {
+            return (poly, Vec::new());
+        }
+        if lo >= at {
+            return (Vec::new(), poly);
+        }
+        (clip_scalar(&poly, k, at, false), clip_scalar(&poly, k, at, true))
+    }
+    let mut bands: Vec<(ToonPoly, usize)> = Vec::new();
+    let mut rest = poly;
+    for j in 0..tn.n as usize {
+        if j + 1 == tn.n as usize {
+            bands.push((rest, j));
+            break;
+        }
+        let (below, above) = split(rest, 0, tn.edges[j]);
+        if below.len() >= 3 {
+            bands.push((below, j));
+        }
+        if above.len() < 3 {
+            break;
+        }
+        rest = above;
+    }
+    for (bp, j) in bands {
+        if bp.len() < 3 {
+            continue;
+        }
+        let specs = if tn.spec > 0.0 { let (a, b) = split(bp, 1, tn.spec); vec![(a, false), (b, true)] } else { vec![(bp, false)] };
+        for (sp, sf) in specs {
+            if sp.len() < 3 {
+                continue;
+            }
+            let rims = if tn.rim > 0.0 { let (a, b) = split(sp, 2, tn.rim); vec![(a, false), (b, true)] } else { vec![(sp, false)] };
+            for (rp, rf) in rims {
+                if rp.len() >= 3 {
+                    out.push((rp, (j, sf, rf)));
+                }
+            }
+        }
+    }
+}
+
 
 /// A thing to draw: its corners in the world and their linear colours.
 struct Item {
@@ -306,6 +489,8 @@ struct Item {
     kind: u8,
     double: bool,
     flat: bool,
+    /// cel shading and outline (None: three.js's light)
+    toon: Option<Toon>,
     owner: u32,
     /// three.js's renderOrder: without a depth buffer (the painter) lower
     /// orders are drawn first, whatever their depth
@@ -314,6 +499,9 @@ struct Item {
     /// `key` tells the same model, pose and place from frame to frame
     model: Option<Rc<ModelInst>>,
     key: u64,
+    /// a brush stroke: `pos` are its Catmull-Rom control points and these
+    /// their widths (model units), drawn as a ribbon (see `brush_ribbon`)
+    brush: Option<Rc<Vec<f32>>>,
 }
 
 struct ModelInst {
@@ -321,6 +509,7 @@ struct ModelInst {
     mix: Vec<(usize, f32, f32)>,
     m: M4,
     tint: Option<V3>,
+    toon: Option<Toon>,
 }
 
 /// One model's drawing kept for the next frame: if nothing about it or the
@@ -653,7 +842,7 @@ impl World {
         match t.as_str() {
             "mesh" => {
                 let mut geo: Option<Rc<Geo>> = None;
-                let mut mat = Mat { color: [1.0; 3], emissive: [0.0; 3], kind: 0, side: 0, flat: false };
+                let mut mat = Mat { color: [1.0; 3], emissive: [0.0; 3], kind: 0, side: 0, flat: false, toon: None };
                 for c in kids.items().iter() {
                     let ct = c.get("t").as_str();
                     let ca = prop(c, "a").cloned().unwrap_or(Json::Null);
@@ -667,6 +856,11 @@ impl World {
                         mat.kind = match ct.as_str() { "meshBasicMaterial" => 1, "meshNormalMaterial" => 2, _ => 0 };
                         mat.side = pnum(&ca, "side", 0.0) as u8;
                         mat.flat = prop(&ca, "flatShading").map(|v| v.as_bool()).unwrap_or(false);
+                        mat.toon = match prop(&ca, "toon") {
+                            Some(v) => Toon::from_json(v),
+                            None if ct == "meshToonMaterial" => Toon::from_json(&ca).map(|t| if prop(&ca, "outline").is_none() { Toon { line: 0.0, ..t } } else { t }),
+                            None => None,
+                        };
                     }
                 }
                 if geo.is_none() {
@@ -691,7 +885,7 @@ impl World {
                     };
                     let col = vec![mat.color; pos.len()];
                     let tris = if mat.side == 1 { tris.chunks(3).flat_map(|t| [t[0], t[2], t[1]]).collect() } else { tris };
-                    ctx.items.push(Item { pos, nrm, col, emissive: mat.emissive, tris, kind: mat.kind, double: mat.side == 2, flat: mat.flat, owner: ow, order, model: None, key: 0 });
+                    ctx.items.push(Item { pos, nrm, col, emissive: mat.emissive, tris, kind: mat.kind, double: mat.side == 2, flat: mat.flat, toon: mat.toon, owner: ow, order, model: None, key: 0, brush: None });
                 }
             }
             "primitive" => {
@@ -705,6 +899,7 @@ impl World {
                         let ow = ctx.owners.len() as u32;
                         ctx.owners.push((own_id.clone(), own_name.clone()));
                         let tint = prop(a, "color").map(|v| color(v, [1.0; 3]));
+                        let toon = prop(a, "toon").and_then(Toon::from_json);
                         let mut hs = std::collections::hash_map::DefaultHasher::new();
                         use std::hash::{Hash, Hasher};
                         src.hash(&mut hs);
@@ -712,8 +907,9 @@ impl World {
                         for (c, t, wgt) in mix.iter() { c.hash(&mut hs); t.to_bits().hash(&mut hs); wgt.to_bits().hash(&mut hs); }
                         for v in m.iter() { v.to_bits().hash(&mut hs); }
                         if let Some(t) = tint { for v in t.iter() { v.to_bits().hash(&mut hs); } }
-                        ctx.items.push(Item { pos: Vec::new(), nrm: Vec::new(), col: Vec::new(), emissive: [0.0; 3], tris: Vec::new(), kind: 0, double: false, flat: false, owner: ow, order,
-                            model: Some(Rc::new(ModelInst { asset, mix, m, tint })), key: hs.finish() });
+                        if let Some(t) = toon { t.hash(&mut hs); }
+                        ctx.items.push(Item { pos: Vec::new(), nrm: Vec::new(), col: Vec::new(), emissive: [0.0; 3], tris: Vec::new(), kind: 0, double: false, flat: false, toon, owner: ow, order,
+                            model: Some(Rc::new(ModelInst { asset, mix, m, tint, toon })), key: hs.finish(), brush: None });
                     }
                 }
             }
@@ -892,14 +1088,120 @@ impl World {
         };
         // painter polygons: (depth, corners x y, colour)
         let mut polys: Vec<(i32, f32, Vec<f32>, V3)> = Vec::new();
+        // toon materials: the strongest directional light is the key, cut
+        // into bands; ambient and hemisphere light are a flat fill under it
+        let key: Option<(V3, V3)> = lights.iter().filter(|l| matches!(l.kind, LightKind::Directional))
+            .max_by(|a, b| a.intensity.partial_cmp(&b.intensity).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|l| (l.v, [l.color[0] * l.intensity, l.color[1] * l.intensity, l.color[2] * l.intensity]));
+        let fill: V3 = lights.iter().fold([0.0f32; 3], |s, l| match l.kind {
+            LightKind::Ambient => [s[0] + l.color[0] * l.intensity, s[1] + l.color[1] * l.intensity, s[2] + l.color[2] * l.intensity],
+            LightKind::Hemisphere => {
+                let k = l.intensity * 0.5;
+                [s[0] + (l.color[0] + l.ground[0]) * k, s[1] + (l.color[1] + l.ground[1]) * k, s[2] + (l.color[2] + l.ground[2]) * k]
+            }
+            _ => s,
+        });
+        let toon_col = |tn: &Toon, p: V3, base: V3, em: V3, cls: (usize, bool, bool)| -> V3 {
+            let kc = key.map(|k| k.1).unwrap_or([0.0; 3]);
+            let level = tn.levels[cls.0];
+            let mut c = [0.0f32; 3];
+            for i in 0..3 {
+                c[i] = base[i] * (fill[i] * tn.shadow[i] + kc[i] * level) + em[i];
+                if cls.1 {
+                    c[i] += tn.spec_col[i] * kc[i];
+                }
+                if cls.2 {
+                    c[i] += tn.rim_col[i];
+                }
+            }
+            if let Some((fc, fnear, ffar)) = fog {
+                let dz = sub(p, eye);
+                let k = ((dot(dz, dz).sqrt() - fnear) / (ffar - fnear).max(1e-4)).clamp(0.0, 1.0);
+                c = [c[0] + (fc[0] - c[0]) * k, c[1] + (fc[1] - c[1]) * k, c[2] + (fc[2] - c[2]) * k];
+            }
+            [to_srgb(c[0]), to_srgb(c[1]), to_srgb(c[2])]
+        };
+        // one polygon in view space (a colour a corner, at most 6 corners):
+        // clipped against the near plane, projected and put into tris (GL)
+        // or polys (the painter); false when it is off the screen
+        let put = |pv: &[V3], pc: &[V3], order: i32, tris: &mut Vec<f32>, polys: &mut Vec<(i32, f32, Vec<f32>, V3)>| -> bool {
+            let mut poly: [(V3, V3); 8] = [([0.0; 3], [0.0; 3]); 8];
+            let mut np = 0;
+            let m = pv.len().min(6);
+            for i in 0..m {
+                let (p, pcol) = (pv[i], pc[i]);
+                let (q, qcol) = (pv[(i + 1) % m], pc[(i + 1) % m]);
+                if p[2] >= near {
+                    poly[np] = (p, pcol);
+                    np += 1;
+                }
+                if (p[2] >= near) != (q[2] >= near) {
+                    let k = (near - p[2]) / (q[2] - p[2]);
+                    let lerp = |x: V3, y: V3| [x[0] + (y[0] - x[0]) * k, x[1] + (y[1] - x[1]) * k, x[2] + (y[2] - x[2]) * k];
+                    poly[np] = (lerp(p, q), lerp(pcol, qcol));
+                    np += 1;
+                }
+            }
+            if np < 3 {
+                return false;
+            }
+            let mut scr: [(f32, f32, f32, V3); 8] = [(0.0, 0.0, 0.0, [0.0; 3]); 8];
+            for i in 0..np {
+                let (p, c) = poly[i];
+                scr[i] = (cx + p[0] / p[2] * focal, cy - p[1] / p[2] * focal, p[2], c);
+            }
+            let scr = &scr[..np];
+            let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
+            for s in scr.iter() {
+                x0 = x0.min(s.0); x1 = x1.max(s.0); y0 = y0.min(s.1); y1 = y1.max(s.1);
+            }
+            if x1 < 0.0 || y1 < 0.0 || x0 > w || y0 > h {
+                return false;
+            }
+            if gl {
+                // renderOrder 1000 and up: an overlay (a construction sketch over
+                // the figure), drawn in front of everything, in its own depth order
+                let over = order >= 1000;
+                for k in 1..scr.len() - 1 {
+                    for s in [scr[0], scr[k], scr[k + 1]].iter() {
+                        let d = if over { depth(s.2) * 0.001 } else { depth(s.2) };
+                        tris.extend_from_slice(&[s.0, s.1, d, s.3[0], s.3[1], s.3[2]]);
+                    }
+                }
+            } else {
+                let mut pts = Vec::with_capacity(scr.len() * 2);
+                let mut zsum = 0.0;
+                let mut cs = [0.0f32; 3];
+                for s in scr.iter() {
+                    pts.push(s.0);
+                    pts.push(s.1);
+                    zsum += s.2;
+                    cs = [cs[0] + s.3[0], cs[1] + s.3[1], cs[2] + s.3[2]];
+                }
+                let k = 1.0 / scr.len() as f32;
+                polys.push((order, zsum * k, crate::scene3d::grow(pts), [cs[0] * k, cs[1] * k, cs[2] * k]));
+            }
+            true
+        };
         // one item's triangles: into tris (GL) or polys (the painter), and pick
         let draw = |it: &Item, tris: &mut Vec<f32>, polys: &mut Vec<(i32, f32, Vec<f32>, V3)>, pick: &mut Vec<[V3; 3]>, pick_owner: &mut Vec<u32>| -> usize {
             let mut n = 0;
             // each corner in view space and lit once
             let view: Vec<V3> = it.pos.iter().map(|p| { let d = sub(*p, eye); [dot(d, r), dot(d, u), dot(d, f)] }).collect();
+            if let Some(ws) = &it.brush {
+                let c = it.col[0];
+                let col = [to_srgb(c[0]), to_srgb(c[1]), to_srgb(c[2])];
+                for q in brush_ribbon(&view, ws, focal, near, cx, cy) {
+                    if put(&q, &[col; 4], it.order, tris, polys) {
+                        n += 1;
+                    }
+                }
+                return n;
+            }
             // corners are lit when a front face first needs them: about half
             // of a model's faces look away and are never lit
-            let mut vcol: Vec<V3> = if it.flat { Vec::new() } else { vec![[-1.0; 3]; it.pos.len()] };
+            let toon = it.toon.filter(|t| it.kind == 0 && t.lit);
+            let mut vcol: Vec<V3> = if it.flat || toon.is_some() { Vec::new() } else { vec![[-1.0; 3]; it.pos.len()] };
             for t in it.tris.chunks(3) {
                 let (ia, ib, ic) = (t[0] as usize, t[1] as usize, t[2] as usize);
                 let (a, b, c) = (it.pos[ia], it.pos[ib], it.pos[ic]);
@@ -916,10 +1218,43 @@ impl World {
                 if va[2] > far && vb[2] > far && vc[2] > far {
                     continue;
                 }
-                let cols: [V3; 3] = if it.flat || back {
-                    let n = if back { [-fnrm[0], -fnrm[1], -fnrm[2]] } else { fnrm };
+                pick.push([a, b, c]);
+                pick_owner.push(it.owner);
+                if let Some(tn) = toon {
+                    // cel shading: the key light's n·l at each corner, the
+                    // triangle cut along the bands' edges, each piece one flat colour
+                    let nv = if it.flat || back {
+                        let fl = if back { [-fnrm[0], -fnrm[1], -fnrm[2]] } else { fnrm };
+                        [fl, fl, fl]
+                    } else {
+                        [it.nrm[ia], it.nrm[ib], it.nrm[ic]]
+                    };
+                    let kd = key.map(|k| k.0).unwrap_or([0.0, 1.0, 0.0]);
+                    let corner = |i: usize, nn: V3| -> [f32; 3] {
+                        let v = norm(sub(eye, it.pos[i]));
+                        let hv = norm([kd[0] + v[0], kd[1] + v[1], kd[2] + v[2]]);
+                        [dot(nn, kd), dot(nn, hv), 1.0 - dot(nn, v).max(0.0)]
+                    };
+                    let tri: ToonPoly = vec![(va, corner(ia, nv[0])), (vb, corner(ib, nv[1])), (vc, corner(ic, nv[2]))];
+                    let base = { let (x, y, z) = (it.col[ia], it.col[ib], it.col[ic]); [(x[0] + y[0] + z[0]) / 3.0, (x[1] + y[1] + z[1]) / 3.0, (x[2] + y[2] + z[2]) / 3.0] };
                     let centre = [(a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0, (a[2] + b[2] + c[2]) / 3.0];
-                    let k = shade(centre, n, it.col[ia], it.emissive, it.kind);
+                    let mut pieces = Vec::new();
+                    toon_pieces(&tn, tri, &mut pieces);
+                    let mut any = false;
+                    for (piece, cls) in pieces.iter() {
+                        let col = toon_col(&tn, centre, base, it.emissive, *cls);
+                        let pv: Vec<V3> = piece.iter().map(|q| q.0).collect();
+                        any |= put(&pv, &vec![col; pv.len()], it.order, tris, polys);
+                    }
+                    if any {
+                        n += 1;
+                    }
+                    continue;
+                }
+                let cols: [V3; 3] = if it.flat || back {
+                    let nn = if back { [-fnrm[0], -fnrm[1], -fnrm[2]] } else { fnrm };
+                    let centre = [(a[0] + b[0] + c[0]) / 3.0, (a[1] + b[1] + c[1]) / 3.0, (a[2] + b[2] + c[2]) / 3.0];
+                    let k = shade(centre, nn, it.col[ia], it.emissive, it.kind);
                     [k, k, k]
                 } else {
                     for &i in [ia, ib, ic].iter() {
@@ -929,62 +1264,32 @@ impl World {
                     }
                     [vcol[ia], vcol[ib], vcol[ic]]
                 };
-                // clip against the near plane: (view position, colour), at most 4 corners
-                let corners = [(va, cols[0]), (vb, cols[1]), (vc, cols[2])];
-                let mut poly: [(V3, V3); 4] = [([0.0; 3], [0.0; 3]); 4];
-                let mut np = 0;
-                for i in 0..3 {
-                    let (p, pc) = corners[i];
-                    let (q, qc) = corners[(i + 1) % 3];
-                    if p[2] >= near {
-                        poly[np] = (p, pc);
-                        np += 1;
-                    }
-                    if (p[2] >= near) != (q[2] >= near) {
-                        let k = (near - p[2]) / (q[2] - p[2]);
-                        let lerp = |x: V3, y: V3| [x[0] + (y[0] - x[0]) * k, x[1] + (y[1] - x[1]) * k, x[2] + (y[2] - x[2]) * k];
-                        poly[np] = (lerp(p, q), lerp(pc, qc));
-                        np += 1;
-                    }
+                if put(&[va, vb, vc], &cols, it.order, tris, polys) {
+                    n += 1;
                 }
-                if np < 3 {
-                    continue;
-                }
-                let mut scr: [(f32, f32, f32, V3); 4] = [(0.0, 0.0, 0.0, [0.0; 3]); 4];
-                for i in 0..np {
-                    let (p, c) = poly[i];
-                    scr[i] = (cx + p[0] / p[2] * focal, cy - p[1] / p[2] * focal, p[2], c);
-                }
-                let scr = &scr[..np];
-                let (mut x0, mut y0, mut x1, mut y1) = (f32::MAX, f32::MAX, f32::MIN, f32::MIN);
-                for s in scr.iter() {
-                    x0 = x0.min(s.0); x1 = x1.max(s.0); y0 = y0.min(s.1); y1 = y1.max(s.1);
-                }
-                pick.push([a, b, c]);
-                pick_owner.push(it.owner);
-                if x1 < 0.0 || y1 < 0.0 || x0 > w || y0 > h {
-                    continue;
-                }
-                n += 1;
-                if gl {
-                    for k in 1..scr.len() - 1 {
-                        for s in [scr[0], scr[k], scr[k + 1]].iter() {
-                            tris.extend_from_slice(&[s.0, s.1, depth(s.2), s.3[0], s.3[1], s.3[2]]);
-                        }
+            }
+            // the outline (inverted hull): the corners pushed out along their
+            // normals by `line` units on the screen, and only the faces that
+            // then look away drawn, in the line colour, behind the surface:
+            // what shows round the edge of the shape is the line
+            if let Some(tn) = it.toon.filter(|t| t.line > 0.0) {
+                let lc = [to_srgb(tn.line_col[0]), to_srgb(tn.line_col[1]), to_srgb(tn.line_col[2])];
+                let hull: Vec<V3> = it.pos.iter().zip(view.iter()).zip(it.nrm.iter()).map(|((p, v), nn)| {
+                    let off = tn.line * v[2].max(near) / focal;
+                    [p[0] + nn[0] * off, p[1] + nn[1] * off, p[2] + nn[2] * off]
+                }).collect();
+                for t in it.tris.chunks(3) {
+                    let (ia, ib, ic) = (t[0] as usize, t[1] as usize, t[2] as usize);
+                    let (a, b, c) = (hull[ia], hull[ib], hull[ic]);
+                    if dot(cross(sub(b, a), sub(c, a)), sub(a, eye)) <= 0.0 {
+                        continue;
                     }
-                } else {
-                    let mut pts = Vec::with_capacity(scr.len() * 2);
-                    let mut zsum = 0.0;
-                    let mut cs = [0.0f32; 3];
-                    for s in scr.iter() {
-                        pts.push(s.0);
-                        pts.push(s.1);
-                        zsum += s.2;
+                    let tv = |p: V3| { let d = sub(p, eye); [dot(d, r), dot(d, u), dot(d, f)] };
+                    let (va, vb, vc) = (tv(a), tv(b), tv(c));
+                    if (va[2] < near && vb[2] < near && vc[2] < near) || (va[2] > far && vb[2] > far && vc[2] > far) {
+                        continue;
                     }
-                    for c in cols.iter() {
-                        cs = [cs[0] + c[0] / 3.0, cs[1] + c[1] / 3.0, cs[2] + c[2] / 3.0];
-                    }
-                    polys.push((it.order, zsum / scr.len() as f32, crate::scene3d::grow(pts), cs));
+                    put(&[va, vb, vc], &[lc; 3], it.order, tris, polys);
                 }
             }
             n
@@ -1053,7 +1358,7 @@ impl World {
                 }
             }
             let mut sub = Vec::new();
-            model_items(&mi.asset, &mi.mix, &mi.m, it.owner, mi.tint, &mut sub);
+            model_items(&mi.asset, &mi.mix, &mi.m, it.owner, mi.tint, mi.toon, &mut sub);
             let (t0, p0, d0) = (tris.len(), pick.len(), drawn);
             for s in sub.iter_mut() {
                 s.order = it.order;
@@ -1091,9 +1396,60 @@ impl World {
     }
 }
 
+/// A brush stroke as quads in view space. The control points (view space)
+/// are projected; a Catmull-Rom curve runs through them on the screen, cut
+/// into steps a few pixels long, so it stays smooth at any size; its width
+/// (model units, so it scales with the drawing) goes linearly between the
+/// points' widths. Each step is a quad across the curve; widths of 0 at the
+/// ends make the sharp tips of a brush.
+fn brush_ribbon(view: &[V3], ws: &[f32], focal: f32, near: f32, cx: f32, cy: f32) -> Vec<[V3; 4]> {
+    let mut out = Vec::new();
+    let n = view.len();
+    if n < 2 || view.iter().any(|v| v[2] < near) {
+        return out;
+    }
+    // screen x, y; depth; width in pixels
+    let sp: Vec<(f32, f32, f32, f32)> = view.iter().zip(ws.iter()).map(|(v, w)| (cx + v[0] / v[2] * focal, cy - v[1] / v[2] * focal, v[2], w * focal / v[2])).collect();
+    let mut samples: Vec<(f32, f32, f32, f32)> = Vec::new();
+    for i in 0..n - 1 {
+        let p0 = sp[i.saturating_sub(1)];
+        let (p1, p2) = (sp[i], sp[i + 1]);
+        let p3 = sp[(i + 2).min(n - 1)];
+        let len = ((p2.0 - p1.0).powi(2) + (p2.1 - p1.1).powi(2)).sqrt();
+        let steps = ((len / 3.0).ceil() as usize).clamp(1, 32);
+        for k in 0..steps {
+            let t = k as f32 / steps as f32;
+            let (t2, t3) = (t * t, t * t * t);
+            let cr = |a: f32, b: f32, c: f32, d: f32| 0.5 * (2.0 * b + (-a + c) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (-a + 3.0 * b - 3.0 * c + d) * t3);
+            samples.push((cr(p0.0, p1.0, p2.0, p3.0), cr(p0.1, p1.1, p2.1, p3.1), p1.2 + (p2.2 - p1.2) * t, p1.3 + (p2.3 - p1.3) * t));
+        }
+    }
+    samples.push(sp[n - 1]);
+    let m = samples.len();
+    let un = |x: f32, y: f32, z: f32| -> V3 { [(x - cx) * z / focal, (cy - y) * z / focal, z] };
+    let side = |i: usize| -> (V3, V3) {
+        let a = samples[i.saturating_sub(1)];
+        let b = samples[(i + 1).min(m - 1)];
+        let (mut tx, mut ty) = (b.0 - a.0, b.1 - a.1);
+        let l = (tx * tx + ty * ty).sqrt().max(1e-6);
+        tx /= l;
+        ty /= l;
+        let s = samples[i];
+        let h = s.3 * 0.5;
+        (un(s.0 - ty * h, s.1 + tx * h, s.2), un(s.0 + ty * h, s.1 - tx * h, s.2))
+    };
+    let mut prev = side(0);
+    for i in 1..m {
+        let cur = side(i);
+        out.push([prev.0, prev.1, cur.1, cur.0]);
+        prev = cur;
+    }
+    out
+}
+
 /// A model's triangles in the world for a mix of clips, skinned where it has
 /// a skin; `tint` multiplies its colours.
-fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tint: Option<V3>, items: &mut Vec<Item>) {
+fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tint: Option<V3>, toon: Option<Toon>, items: &mut Vec<Item>) {
     let pose = gltf::pose(asset, mix);
     let wm = gltf::world_matrices(asset, &pose);
     // each skin's joint matrices: world(joint) * inverse bind
@@ -1135,7 +1491,43 @@ fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tin
                 }
             }
             let col = match tint { Some(t) => p.col.iter().map(|c| [c[0] * t[0], c[1] * t[1], c[2] * t[2]]).collect(), None => p.col.clone() };
-            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind: if p.unlit { 1 } else { 0 }, double: p.double, flat: false, owner, order: 0, model: None, key: 0 });
+            // a part's own material settings (extras.toon) over the model's
+            let toon = toon.map(|mut t| { if !p.toon.is_null() { t.apply(&p.toon); } t });
+            let kind = if p.unlit || toon.map(|t| !t.lit).unwrap_or(false) { 1 } else { 0 };
+            let brush = if p.brush.is_null() { None } else {
+                let w: Vec<f32> = p.brush.get("w").items().iter().map(|x| x.as_num(0.0) as f32).collect();
+                if w.len() == n && n >= 2 { Some(Rc::new(w)) } else { None }
+            };
+            let toon = if brush.is_some() { None } else { toon };
+            items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind, double: p.double, flat: false, toon, owner, order: 0, model: None, key: 0, brush });
+        }
+    }
+    // the bones' 2D features (eyes, …): drawn in each bone's plane, in front, layer by layer
+    for (ni, node) in asset.nodes.iter().enumerate() {
+        if node.features.is_null() {
+            continue;
+        }
+        let full = gltf::mat_mul(m, &wm[ni]);
+        let fwd = norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0]));
+        for f in node.features.items().iter() {
+            let (art, at) = match crate::features::art(f) { Some(x) => x, None => continue };
+            let mut layer = 0.0f32;
+            let place = |p: [f32; 2], z: f32| gltf::transform_point(&full, [at[0] + p[0], at[1] + p[1], at[2] + z]);
+            for fl in art.fills.iter() {
+                layer += 1.0;
+                let z = layer * 0.00005;
+                let pos: Vec<V3> = fl.pts.iter().map(|p| place(*p, z)).collect();
+                let tris: Vec<u32> = crate::features::triangulate(&fl.pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect();
+                let col = match tint { Some(t) => [fl.col[0] * t[0], fl.col[1] * t[1], fl.col[2] * t[2]], None => fl.col };
+                items.push(Item { nrm: vec![fwd; pos.len()], col: vec![col; pos.len()], pos, emissive: [0.0; 3], tris, kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: None });
+            }
+            for st in art.strokes.iter() {
+                layer += 1.0;
+                let z = layer * 0.00005;
+                let pos: Vec<V3> = st.pts.iter().map(|p| place(*p, z)).collect();
+                if pos.len() < 2 { continue; }
+                items.push(Item { nrm: vec![fwd; pos.len()], col: vec![st.col; pos.len()], pos, emissive: [0.0; 3], tris: Vec::new(), kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: Some(Rc::new(st.w.clone())) });
+            }
         }
     }
 }

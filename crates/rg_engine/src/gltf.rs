@@ -120,6 +120,8 @@ pub struct Node {
     pub t: [f32; 3],
     pub r: [f32; 4],
     pub s: [f32; 3],
+    /// `extras.features`: 2D features drawn on this bone (features.rs), Null if none
+    pub features: Json,
 }
 
 pub struct Primitive {
@@ -135,6 +137,13 @@ pub struct Primitive {
     pub double: bool,
     /// KHR_materials_unlit: the colours are drawn as they are (lighting baked in)
     pub unlit: bool,
+    /// the material's `extras.toon` (fiber.rs `Toon`: cel bands, rim,
+    /// highlight and outline for this part), Null when it has none
+    pub toon: Json,
+    /// the material's `extras.brush` ({ w: [width a corner] }): the corners
+    /// are a brush stroke's Catmull-Rom control points, not triangles (fiber.rs
+    /// draws the stroke), Null for a mesh
+    pub brush: Json,
 }
 
 pub struct Skin {
@@ -338,14 +347,14 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
     let rd = Reader { doc: &doc, buffers, accessors: doc.get("accessors").items(), views: doc.get("bufferViews").items() };
 
     // materials: (linear base colour, emissive, double sided, unlit)
-    let mats: Vec<([f32; 4], [f32; 3], bool, bool)> = doc.get("materials").items().iter().map(|m| {
+    let mats: Vec<([f32; 4], [f32; 3], bool, bool, Json)> = doc.get("materials").items().iter().map(|m| {
         let pbr = f(m, "pbrMetallicRoughness");
         let bc = nums(&pbr.get("baseColorFactor"));
         let base = if bc.len() >= 3 { [bc[0], bc[1], bc[2], bc.get(3).copied().unwrap_or(1.0)] } else { [1.0, 1.0, 1.0, 1.0] };
         let em = nums(&m.get("emissiveFactor"));
         let emissive = if em.len() >= 3 { [em[0], em[1], em[2]] } else { [0.0; 3] };
         let unlit = !m.get("extensions").get("KHR_materials_unlit").is_null();
-        (base, emissive, m.get("doubleSided").as_bool(), unlit)
+        (base, emissive, m.get("doubleSided").as_bool(), unlit, m.get("extras"))
     }).collect();
 
     let mut triangles = 0;
@@ -405,9 +414,9 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
                     *q = [q[0] / l, q[1] / l, q[2] / l];
                 }
             }
-            let (base, emissive, double, unlit) = match p.get("material") {
-                Json::Num(i) => mats.get(i as usize).copied().unwrap_or(([1.0; 4], [0.0; 3], false, false)),
-                _ => ([1.0; 4], [0.0; 3], false, false),
+            let (base, emissive, double, unlit, extras) = match p.get("material") {
+                Json::Num(i) => mats.get(i as usize).cloned().unwrap_or(([1.0; 4], [0.0; 3], false, false, Json::Null)),
+                _ => ([1.0; 4], [0.0; 3], false, false, Json::Null),
             };
             let mut col = vec![[base[0], base[1], base[2]]; count];
             if !at.get("COLOR_0").is_null() {
@@ -438,7 +447,8 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
                 }
             }
             triangles += idx.len() / 3;
-            prims.push(Primitive { pos, nrm, col, joints, weights, tris: idx, emissive, double, unlit });
+            let (toon, brush) = (extras.get("toon"), extras.get("brush"));
+            prims.push(Primitive { pos, nrm, col, joints, weights, tris: idx, emissive, double, unlit, toon, brush });
         }
         meshes.push(prims);
     }
@@ -469,6 +479,7 @@ pub fn parse(bytes: &[u8], side: &dyn Fn(&str) -> Option<Vec<u8>>) -> Result<Ass
             mesh: opt(n.get("mesh")),
             skin: opt(n.get("skin")),
             t, r, s,
+            features: n.get("extras").get("features"),
         }
     }).collect();
     let count = nodes.len();

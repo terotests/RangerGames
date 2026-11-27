@@ -22,6 +22,7 @@
 
 pub mod burst;
 pub mod draw;
+pub mod features;
 pub mod fiber;
 pub mod fluid;
 pub mod globe;

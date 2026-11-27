@@ -176,3 +176,113 @@ fn the_script_reads_a_height_picture() {
     let saved = e.vfs.read_text("/save/t.json");
     assert!(saved.contains("0,1.000,"), "{}", saved);
 }
+
+// Toon shading (fiber.rs `Toon`): a sphere lit by one directional light is
+// drawn in a few flat colours (its bands), not a smooth ramp, and with an
+// outline in the outline colour round it; the same sphere without toon has
+// many shades.
+fn sphere_colours(toon: &str) -> (std::collections::HashSet<[u8; 3]>, usize) {
+    let mut e = engine(&format!(r##"
+        function view() {{
+          return <div class="s"><scene3d>
+            <color attach="background" args={{["#ffffff"]}} />
+            <perspectiveCamera position={{[0, 0, 4]}} fov={{50}} />
+            <ambientLight intensity={{0.4}} />
+            <directionalLight position={{[2, 3, 4]}} intensity={{1}} />
+            <mesh name="ball">
+              <sphereGeometry args={{[1, 32, 16]}} />
+              <meshStandardMaterial color="#8060c0" {} />
+            </mesh>
+          </scene3d></div>;
+        }}
+    "##, toon));
+    e.gl3d = true;
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    let tris = &e.scene.tris;
+    let mut cols = std::collections::HashSet::new();
+    let mut dark = 0;
+    for c in tris.chunks_exact(6) {
+        let k = [(c[3] * 255.0).round() as u8, (c[4] * 255.0).round() as u8, (c[5] * 255.0).round() as u8];
+        if k == [255, 255, 255] {
+            continue; // the background
+        }
+        if k[0] < 40 && k[1] < 40 && k[2] < 50 {
+            dark += 1;
+        } else {
+            cols.insert(k);
+        }
+    }
+    (cols, dark)
+}
+
+#[test]
+fn toon_shading_draws_flat_bands_and_an_outline() {
+    let (plain, plain_dark) = sphere_colours("");
+    let (toon, dark) = sphere_colours(r#"toon={{ bands: 3, outline: 2 }}"#);
+    assert!(plain.len() > 40, "a lit sphere has many shades: {}", plain.len());
+    assert_eq!(plain_dark, 0);
+    assert!(toon.len() <= 3, "three bands: {:?}", toon);
+    assert!(dark > 30, "the outline's corners: {}", dark);
+    // rim light and a highlight are bands of their own
+    let (more, _) = sphere_colours(r##"toon={{ bands: 2, rim: 0.7, rimColor: "#604080", specular: 0.95, outline: 0 }}"##);
+    assert!(more.len() >= 3 && more.len() <= 8, "2 bands × highlight × rim: {:?}", more);
+}
+
+#[test]
+fn toon_settings_read_from_json() {
+    use rg_core::json;
+    use rg_engine::fiber::Toon;
+    let t = Toon::from_json(&json::parse(r#"{ "bands": 4, "outline": 3, "specular": true, "rim": 0.5 }"#)).unwrap();
+    assert_eq!(t.n, 4);
+    assert_eq!(t.line, 3.0);
+    assert!((t.spec - 0.96).abs() < 1e-6 && (t.rim - 0.5).abs() < 1e-6);
+    assert_eq!(t.band(-1.0), 0);
+    assert_eq!(t.band(1.0), 3);
+    assert!(Toon::from_json(&json::Json::Bool(false)).is_none());
+    // a glTF part's extras.toon over the model's settings
+    let mut m = Toon::from_json(&json::Json::Bool(true)).unwrap();
+    m.apply(&json::parse(r#"{ "lit": false, "outline": 0 }"#));
+    assert!(!m.lit && m.line == 0.0 && m.n == 3);
+}
+
+// The Character Studio's cat (games/hahmostudio; built by Trade Frontier's characters/cat/make-cat.mjs):
+// its clip groups are there and its parts carry their toon settings.
+#[test]
+fn the_cat_has_its_clip_groups_and_toon_parts() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../games/hahmostudio/models/cat.glb");
+    // the model is built from Trade Frontier's private character data: not here in CI
+    let Ok(bytes) = std::fs::read(path) else { eprintln!("no {}: skipped", path); return; };
+    let a = gltf::parse(&bytes, &|_| None).unwrap();
+    let names: Vec<&str> = a.clips.iter().map(|c| c.name.as_str()).collect();
+    for n in ["Idle", "Wave", "Explain", "Think", "Talk", "Blink", "Tail", "FaceSmile"] {
+        assert!(names.contains(&n), "{} in {:?}", n, names);
+    }
+    let parts: Vec<&gltf::Primitive> = a.meshes.iter().flatten().collect();
+    assert!(parts.iter().all(|p| !p.toon.is_null()));
+    assert!(parts.iter().any(|p| matches!(p.toon.get("lit"), rg_core::json::Json::Bool(false))), "the face's ink");
+    let pose = gltf::pose(&a, &[(0, 1.0, 1.0), (names.iter().position(|n| *n == "Talk").unwrap(), 0.3, 1.0)]);
+    assert!(pose.iter().all(|(t, r, s)| t.iter().chain(r.iter()).chain(s.iter()).all(|v| v.is_finite())));
+}
+
+#[test]
+fn the_eye_feature_draws_an_almond_iris_pupil_and_lash() {
+    let j = rg_core::json::parse(r##"{ "type": "eye", "at": [0, 0, 0.01], "halfWidth": 0.02, "side": -1, "sclera": "#f1ebe2" }"##);
+    let (art, at) = rg_engine::features::art(&j).expect("an eye");
+    assert_eq!(at, [0.0, 0.0, 0.01]);
+    // sclera, iris, the iris's dark top, pupil (the glint is cut to nothing at 0 size only)
+    assert!(art.fills.len() >= 4, "fills: {}", art.fills.len());
+    // the lash (with its flick) and the lower lid
+    assert_eq!(art.strokes.len(), 2);
+    let lash = &art.strokes[1];
+    assert_eq!(lash.pts.len(), lash.w.len());
+    assert!(lash.w.iter().cloned().fold(0.0f32, f32::max) > 0.003, "the lash swells");
+    assert!(*lash.w.last().unwrap() < 1e-4, "and ends in a point");
+    // mirrored: the outer corner is on the left
+    assert!(art.guides[0].pts.iter().map(|p| p[0]).fold(0.0f32, f32::min) < -0.019);
+    // closed: only the lash line
+    let shut = rg_core::json::parse(r##"{ "type": "eye", "open": 0 }"##);
+    let (art, _) = rg_engine::features::art(&shut).unwrap();
+    assert!(art.fills.is_empty());
+    assert_eq!(art.strokes.len(), 1);
+}
