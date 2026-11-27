@@ -411,7 +411,7 @@
           turn = ((turn % 360) + 360) % 360;
           var neg = function (v) { return [-v[0], -v[1], -v[2]]; }, sx = X, sy = Y;
           if (turn === 90) { sx = Y; sy = neg(X); } else if (turn === 180) { sx = neg(X); sy = neg(Y); } else if (turn === 270) { sx = neg(Y); sy = X; }
-          self.sendSensor("orient", { m: sx.concat(sy, Z) });
+          self.sendSensor("orient", { m: sx.concat(sy, Z), t: e.timeStamp });
         };
         global.addEventListener("deviceorientation", this.onTurn);
       } else if (!on && this.onTurn) {
@@ -731,7 +731,8 @@
     this.last = t;
     var t0 = performance.now();
     var x = this.x;
-    x.rg_frame(dt);
+    // the frame's vsync time: the engine steps whole display frames (rg_core::clock)
+    if (x.rg_frame_at && !this.dtOnly) x.rg_frame_at(t, 0); else x.rg_frame(dt);
     this.afterCall();
     this.readView();
     var nums = new Float32Array(x.memory.buffer, x.rg_draw_ptr() >>> 0, x.rg_draw_len());

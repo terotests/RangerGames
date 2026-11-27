@@ -16,10 +16,16 @@
 //! - `host`: what a game asks of the host: sounds, vibration, saves, 3D
 //! - `rng`: a seeded random number generator that answers the same on every
 //!   target
+//! - `clock`: the frame clock (vsync steps, carry) and named time scales
+//! - `easing`: CSS and Penner easing curves read from text
+//! - `anim`: Web Animations, sequences with sounds and pauses, springs
 
 #[allow(unused_imports)]
 use ranger::prelude::*;
 
+pub mod anim;
+pub mod clock;
+pub mod easing;
 pub mod host;
 pub mod input;
 pub mod json;

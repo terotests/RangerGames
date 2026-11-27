@@ -37,6 +37,9 @@ final class Engine {
 
     static native int frame(double dtMs);
 
+    /** One frame from the display's vsync time and period (ms): steps of whole display frames (rg_core::clock). */
+    static native int frameAt(double vsyncMs, double periodMs);
+
     static native float[] draw();
 
     /** on: the app draws the 3D scene itself with GLES ({@link Gl3D}); then it is in tris(), not in draw(). */

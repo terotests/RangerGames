@@ -186,6 +186,26 @@ pub extern "system" fn Java_fi_rangergames_Engine_frame(
     })
 }
 
+/// One frame from the display's vsync time and period (ms): the engine steps
+/// whole display frames from them, the rest carried (rg_core::clock).
+#[no_mangle]
+pub extern "system" fn Java_fi_rangergames_Engine_frameAt(
+    _env: JNIEnv,
+    _c: JClass,
+    vsync_ms: jdouble,
+    period_ms: jdouble,
+) -> jint {
+    with(|e| {
+        let r = e.frame_at(vsync_ms, period_ms);
+        publish(e);
+        if r.is_ok() {
+            0
+        } else {
+            1
+        }
+    })
+}
+
 #[no_mangle]
 pub extern "system" fn Java_fi_rangergames_Engine_gl3d(_env: JNIEnv, _c: JClass, on: jboolean) {
     with(|e| e.gl3d = on != 0);

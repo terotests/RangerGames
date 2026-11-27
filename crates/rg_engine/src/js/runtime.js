@@ -228,9 +228,10 @@ var rg = {
   // times a second onMic({ db, talk }), db = loudness in dBFS, -100…0, talk =
   // true while the phone itself speaks or plays a sound, so a game can ignore
   // its own voice) or "orient" (the phone's whole turn, for looking around by
-  // turning it: up to 60 times a second onOrient(m), m = 9 numbers, the rows
+  // turning it: up to 60 times a second onOrient(m, t), m = 9 numbers, the rows
   // are the screen's right, up and out-of-screen axes in the world, x east,
-  // y north, z up). Failures come as onSensor("error", { sensor, reason }).
+  // y north, z up; t = the reading's own time in ms, for steps between readings).
+  // Failures come as onSensor("error", { sensor, reason }).
   // a photo with the phone's camera: it goes to the phone's photo folder and
   // a small copy to "/save/photos/<id>.jpg" (thumbnail "<id>_t.jpg", for
   // <img src>); then onPhoto({ id, ok, path, thumb, w, h, reason }). id: letters,
@@ -507,7 +508,7 @@ function __ser(n, out) {
   if (typeof n.type !== "string") return false;
   // the 3D world (three.js's names, three.js): kept out of the 2D layout
   if (n.type === "scene3d") { __scene3d = __ser3(n); return true; }
-  if (n.__s !== undefined) { out.push(n.__s); return false; }
+  if (n.__s !== undefined && !(n.__s.id && __animStyle[n.__s.id])) { out.push(n.__s); return false; }
   var handlers = false;
   var e = { t: n.type };
   var p = n.props || {};
@@ -536,6 +537,13 @@ function __ser(n, out) {
       e.a[k] = String(v);
     }
   }
+  // rg.animate("#id", …): this frame's animated style over the element's own
+  if (e.id && typeof __animStyle === "object" && __animStyle[e.id]) {
+    var as = __animStyle[e.id];
+    if (!e.s) e.s = {};
+    for (var ak in as) e.s[ak] = as[ak];
+    handlers = true;
+  }
   var kids = n.children || [];
   if (kids.length) {
     e.c = [];
@@ -554,6 +562,8 @@ function __frame(arg) {
   var a = JSON.parse(arg);
   width = a.w;
   height = a.h;
+  // the animations (anim.js): their values and events, before the game's own code
+  if (typeof __animFrame === "function") __animFrame(a);
   __input.keys = a.input.keys;
   __input.pointer = a.input.pointer;
   __input.pointers = a.input.pointers;
@@ -582,7 +592,7 @@ function __frame(arg) {
       if (e.key === "location" && typeof onLocation === "function") onLocation(data);
       else if (e.key === "heading" && typeof onHeading === "function") onHeading(data && data.deg);
       else if (e.key === "mic") { if (typeof onMic === "function" && data) onMic(data); }
-      else if (e.key === "orient") { if (typeof onOrient === "function" && data && data.m) onOrient(data.m); }
+      else if (e.key === "orient") { if (typeof onOrient === "function" && data && data.m) onOrient(data.m, data.t); }
       else if (e.key === "photo" && typeof onPhoto === "function") onPhoto(data);
       else if (e.key === "net") __netEvent(data);
       else if (e.key === "store") {

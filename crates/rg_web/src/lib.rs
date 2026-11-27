@@ -10,6 +10,7 @@
 //!   rg_pointer(kind, id, x, y)            0 down, 1 move, 2 up; screen coordinates
 //!   rg_key(down, key, len)                a key by its KeyboardEvent.key
 //!   rg_frame(dt_ms)                       one frame; 0 ok, 1 the script threw
+//!   rg_frame_at(vsync_ms, period_ms)      one frame from the vsync time (whole display frames)
 //!   rg_draw_ptr/len                       the frame's draw stream (f32s, crates/rg_engine/src/draw.rs)
 //!   rg_gl3d(on)                           the page draws the 3D scene with WebGL (depth-tested)
 //!   rg_tris_ptr/len                       then the frame's 3D triangles (f32s, scene3d.rs `tris`)

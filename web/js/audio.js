@@ -182,12 +182,14 @@
       e.buf = buf; e.pitch = pitch || 1; e.loop = !!loop; e.radio = radio; e.fx = fx;
       e.out = self.ctx.createGain(); e.out.connect(self.master);
       var now = self.ctx.currentTime;
-      var at = queue && !loop ? Math.max(now, self.queueEnd || 0) : now;
+      // a sequence's sound (rg.sequence): `delay` s from now, `offset` s into the file
+      var dl = fx && fx.delay > 0 ? fx.delay : 0, of = fx && fx.offset > 0 ? fx.offset : 0;
+      var at = queue && !loop ? Math.max(now, self.queueEnd || 0) : now + dl;
       var lvl = e.level === undefined ? 1 : e.level;
       if (fade > 0) { e.out.gain.setValueAtTime(0, at); e.out.gain.linearRampToValueAtTime(lvl, at + fade); }
       else e.out.gain.value = lvl;
       if (e.paused) { e.off = 0; return null; }
-      var len = self.startSource(e, at, 0);
+      var len = self.startSource(e, at, of);
       if (queue && !loop) self.queueEnd = at + len + 0.15;
       return e.s;
     };
@@ -330,7 +332,7 @@
     if (!tune) {
       // a file: a sound like rg.sound's, under the music's handle
       if (!h) h = "m";
-      this.playFile(name, vol * 0.6, 1, !(opts && opts.loop === false), false, false, null, h, fade);
+      this.playFile(name, vol * 0.6, 1, !(opts && opts.loop === false), false, false, opts && (opts.delay || opts.offset) ? { delay: opts.delay, offset: opts.offset } : null, h, fade);
       if (this.playing[h]) this.playing[h].base = vol;
       this.music = { h: h };
       return;

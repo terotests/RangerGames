@@ -80,6 +80,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     private int glFrames;
     /** even frames for the GL painter */
     private FramePacer pacer;
+    /** the display's vsync times (Choreographer) for the engine's frame clock */
+    private VsyncClock vsync;
     private long glStatsAt;
     private static final String SETTINGS = "/save/_settings.json";
     /** touches and keys for the game thread: {kind, id, x, y} or a key name */
@@ -109,6 +111,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         density = getResources().getDisplayMetrics().density;
+        vsync = new VsyncClock(getWindowManager().getDefaultDisplay().getRefreshRate());
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         glPaint = xrMode() || (!"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false));
         painter = new Painter(getAssets());
@@ -194,6 +197,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onResume() {
         super.onResume();
         paused = false;
+        if (vsync != null) vsync.start();
         if (glView != null) glView.onResume();
         sound.start();
         sound.setPaused(false);
@@ -225,6 +229,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     protected void onPause() {
         super.onPause();
         paused = true;
+        if (vsync != null) vsync.stop();
         if (glView != null) glView.onPause();
         sound.setPaused(true);
         sound.stop();
@@ -445,11 +450,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             long t = System.nanoTime();
             double dt = Math.min(100, (t - last) / 1e6);
             last = t;
+            // the frame's vsync: the engine steps whole display frames from it, the rest carried
+            long vs = vsync != null ? vsync.frameTime(t) : 0;
             if (glPaint) {
                 if (pacer == null) pacer = new FramePacer(getWindowManager().getDefaultDisplay().getRefreshRate());
                 dt = pacer.step(dt);
                 glCtx.interval(pacer.interval);
-                Engine.frame(dt);
+                if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
+                else Engine.frame(dt);
                 afterCall();
                 if (!running) break;
                 glPaintFrame(h, t);
@@ -460,7 +468,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
                 glOn = gl3d.ready;
                 Engine.gl3d(glOn);
             }
-            Engine.frame(dt);
+            if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
+            else Engine.frame(dt);
             afterCall();
             float[] tris = glOn ? Engine.tris() : null;
             boolean has3d = tris != null && tris.length > 0;
