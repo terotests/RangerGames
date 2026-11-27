@@ -93,8 +93,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58, LODU = 59;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "dbgOff"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58, LODU = 59, DBGOFF = 60;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -111,6 +111,8 @@ final class GlSphere {
     boolean edge = true;
     /** the shader's cheaper ground: 2 (default) without the fine bumps, 1 with their slope towards the sun only (+10 ms at 5 km on the test tablet), 0 everything, adb shell setprop debug.rg.gllite */
     float lite = 2;
+    /** parts of the ground close by left out, for measuring (globe.fs dbgOff bits): adb shell setprop debug.rg.gloff, 0 by default */
+    int gloff = 0;
     // the edge pass: its program, and the picture it writes (read back instead of fbo's)
     private int progEdge, fbo2, target2, f2W, f2H;
     private final int[] u = new int[NAMES.length];
@@ -800,6 +802,7 @@ final class GlSphere {
     private void uniforms(int[] L, float[] p, int at, boolean w32, boolean w4, boolean w40, boolean useL, boolean ho, float x, float y, float w, float h) {
         GLES30.glUniform1f(L[USEL], useL ? 1 : 0);
         GLES30.glUniform1f(L[LITE], lite);
+        GLES30.glUniform1f(L[DBGOFF], gloff);
         GLES30.glUniform1f(L[AIR], w32 ? p[at + 25] : 0);
         GLES30.glUniform3f(L[AIRC], w32 ? p[at + 26] : 0, w32 ? p[at + 27] : 0, w32 ? p[at + 28] : 0);
         GLES30.glUniform1f(L[LGAIN], w32 ? p[at + 29] : 0);

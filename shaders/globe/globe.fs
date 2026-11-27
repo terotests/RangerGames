@@ -19,6 +19,11 @@ uniform float meshM;
 uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;
 // close by, the regolith's small pits (draw.rs `sphere` 124, globe.rs `regolith`), 0..2
 uniform float rego;
+// for measuring on a device (android debug.rg.gloff, a bit mask): parts of the ground close by left out, to find
+// what costs: 1 the sun's ray (shadows), 2 the made-up rocks, 4 the regolith, 8 the mesh's slant steps,
+// 16 the heights' slopes (four reads), 32 the picture's own slopes, 64 the grains' glints; 0 (the web) everything
+uniform float dbgOff;
+bool off(int b) { return (int(dbgOff) & b) != 0; }
 // the level of detail (draw.rs `spheres_lod`, lod.rs `globe_level`): 0 in full (the ball 96 units round and more),
 // 1 more each halving of its size, up to 4. The costly parts fade out over a range of it (never popping out):
 // the O'Neil air to the glow from 2 to 3, the sea's sharp glint and the hot cap's fine veins from 2 to 3, the picture's
@@ -412,7 +417,7 @@ void main() {
 // the mesh's corners slide over the ground as the eye moves and its flat triangles miss the true ground a little:
 // seen at a slant the picture slid to and fro on rough ground ("flowed"); two steps along the ray to the true ground
 // (only at a slant, where it shows, and one step with the three largest octaves: two full ones cost 4-5 ms on a tablet)
-  if (mesh && terr) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);
+  if (mesh && terr && !off(8)) { vec3 x = eye + d * th; float r = length(x); float ci0 = -dot(d, x / r);
     if (ci0 < 0.4) th += clamp((r - groundF(x / r, min(octsAF(th * pix), 3.0))) / max(ci0, 0.05), -0.05 * th, 0.05 * th) * (1.0 - smoothstep(0.25, 0.4, ci0)); }
   bool hit = meshM > 1.5 ? false : mesh ? true : terr ? march(d, pix, th) : soft ? (cover > 0.0 && -b > 0.0) : (disc >= 0.0 && -b >= sqrt(max(disc, 0.0)));
   if (!hit) {
@@ -467,8 +472,9 @@ void main() {
     float lod = max(0.0, log2(max(eps, fpt * 0.7) / ta)); float nb = 0.0;
 // close by also the finer bumps, down to about three pixels across
     if (terr && lite < 0.5) nb = octsF(max(fp * 3.0, fpt * 1.5));
-    float gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);
-    float gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps);
+    float gx = 0.0, gy = 0.0;
+    if (!off(16)) { gx = (shadeH(normalize(p + east * eps), lod) - shadeH(normalize(p - east * eps), lod)) / (2.0 * eps);
+      gy = (shadeH(normalize(p + north * eps), lod) - shadeH(normalize(p - north * eps), lod)) / (2.0 * eps); }
     vec3 tl = hrel * (gx * east + gy * north);
 // the bumps at the pixel's own size, at their true slope
     if (nb > 0.0) { float eb = max(fp, 1e-7); float b0 = bumpsF(p, nb);
@@ -478,7 +484,7 @@ void main() {
 // finer than the detail pictures' pixels (2 pi / 16384 radians): made-up rocks and crags, seeded by the place
 // itself (value noise of the point, three sizes, the finest ridged), the same wherever the eye comes from and
 // without seams; each size fades in once it is a few screen pixels long (and out towards the horizon)
-    if (terr && wr > 0.0) { vec3 g = vec3(0.0); float lw = 7.67e-4; mat3 rk = mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6);
+    if (terr && wr > 0.0 && !off(2)) { vec3 g = vec3(0.0); float lw = 7.67e-4; mat3 rk = mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6);
       for (int k = 0; k < 3; k++) { float w = smoothstep(1.0, 2.0, log2(lw / max(fpt, 1e-9)));
         if (w > 0.0) { vec4 q = vnd(rk * (p / lw) + vec3(17.3 * float(k), 5.1, 0.0)); vec3 dq = 2.0 * (q.yzw * rk);
           if (k == 2) { float m = 2.0 * q.x - 1.0; dq *= -m * inversesqrt(m * m + 0.03); }
@@ -486,9 +492,9 @@ void main() {
         lw /= 3.0; rk = rk * mat3(0.36, 0.48, -0.8, -0.8, 0.6, 0.0, 0.48, 0.64, 0.6); }
       tl += g - p * dot(g, p); }
 // the regolith's small pits close by (up to about 2e-4 radii, 350 m on the Moon)
-    if (terr && rego > 0.0 && wr > 0.0 && th < 2e-4) { float al; vec3 rgt2 = regolith(eyeL + d * th, p, fpt, al);
+    if (terr && rego > 0.0 && wr > 0.0 && th < 2e-4 && !off(4)) { float al; vec3 rgt2 = regolith(eyeL + d * th, p, fpt, al);
       float fo = 1.0 - smoothstep(1e-4, 2e-4, th); tl += rego * fo * rgt2; c *= mix(1.0, al, fo); }
-    if (terr && mapK > 0.0) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);
+    if (terr && mapK > 0.0 && !off(32)) { float l0 = lumAt(p, fpt, 0.0, 1.0), lb = lumAt(p, fpt, 3.0, 1.0); float sl = clamp((l0 - lb) / mapK, -1.5, 1.5);
       float ee = useWin > 0.5 ? smoothstep(0.0, 0.06, min(min(u, 1.0 - u), min(v, 1.0 - v))) : 1.0; sl *= ee;
       tl += sl * (cos(mapAz) * east + sin(mapAz) * north); c *= mix(1.0, clamp(lb / max(l0, 0.02), 0.5, 2.0), wr * ee); }
 // the phone's lite ground: the bumps and craters as fine as on a computer (down to about three pixels
@@ -510,7 +516,7 @@ void main() {
 // real heights: the slope against the ground's own (flat) light, and close by the shadows of the hills
     float sn = dot(n, sun); float k = smoothstep(-0.04, terr ? 0.22 : 0.3, s) * clamp(sn / max(s, 0.06), 0.0, 1.6);
 // (the mesh's point lies on its flat triangles: the sun's ray starts from the true ground there)
-    if (terr && k > 0.0 && sn > 0.0) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + (eyeL + d * th), fp);
+    if (terr && k > 0.0 && sn > 0.0 && !off(1)) k *= sunRay(mesh ? p * (ground(p, octs(th * pix * 0.5)) + fp * 0.5) : eye + (eyeL + d * th), fp);
     kl = k;
 // close by on the day side the shadows are not black: the sunlit ground round them lights them a little
 // (about a fifth), and the slopes still show in it (the shadows of the coarse heights were blurry black patches)
@@ -532,7 +538,7 @@ void main() {
     float wet = smoothstep(0.03, 0.12, c.b - max(c.r, c.g * 0.85)) * (1.0 - smoothstep(0.35, 0.6, c.r + c.g));
     c += vec3(1.0, 0.93, 0.8) * seaG * wet * min(kl, 1.0) * (pow(nh, 250.0) * 2.5 * lodW(2.0, 3.0) + pow(nh, 30.0) * 0.2); }
 // the grains' glints, close by (up to about 1e-4 radii away)
-  if (lit > 0.5 && glint > 0.0 && terr && kl > 0.0 && th < 1e-4) c += vec3(1.5, 1.45, 1.35) * glint * min(kl, 1.0) * grains(eyeL + d * th, n, hw, fpt) * (1.0 - smoothstep(3e-5, 1e-4, th));
+  if (lit > 0.5 && glint > 0.0 && terr && kl > 0.0 && th < 1e-4 && !off(64)) c += vec3(1.5, 1.45, 1.35) * glint * min(kl, 1.0) * grains(eyeL + d * th, n, hw, fpt) * (1.0 - smoothstep(3e-5, 1e-4, th));
 // close by, a band about 10 pixels on each side of the smooth ball's horizon line fades to black (the edge
 // against the black sky shows no pixel steps, cheaper than multisampling), and the ground far off dims a little
   if (terr) { float e = length(eye), dh = sqrt(max(e * e - 1.0, 1e-9)), ah = asin(min(1.0 / e, 1.0)), a = acos(clamp(-dot(d, eye) / e, -1.0, 1.0)), w = 10.0 * pix;
