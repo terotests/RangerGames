@@ -113,6 +113,14 @@ final class Painter {
                 glBake = "1".equals(bp);
                 Object li = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gllite", "2");
                 if (gl != null) gl.lite = "0".equals(li) ? 0 : "1".equals(li) ? 1 : 2;
+                Object go = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gloff", "0");
+                if (gl != null) {
+                    try {
+                        gl.gloff = Integer.parseInt((String) go);
+                    } catch (NumberFormatException e) {
+                        gl.gloff = 0;
+                    }
+                }
                 Object ed = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gledge", "1");
                 if (gl != null) gl.edge = !"0".equals(ed);
                 Object ma = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmsaa", "0");
