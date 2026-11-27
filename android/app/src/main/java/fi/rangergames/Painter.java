@@ -75,6 +75,17 @@ final class Painter {
     private static final float GL_RES = 0.5f, GL_RES_NEAR = 0.4f;
     /** at most this many pixels in one globe picture (it is read back every frame) */
     private static final int GL_MAX_PIXELS = 1600 * 1000;
+    /**
+     * A globe picture is drawn at the screen's own pixels up to this many
+     * pixels; past it with this many (fewer per screen pixel as it grows)
+     * down to GL_RES (GL_RES_NEAR close over the ground). Before, a globe
+     * jumped from the screen's pixels to half of them at 250000 screen pixels,
+     * a step in sharpness as a planet came nearer.
+     */
+    private static final float GL_FULL_PX = 250000;
+    // the last resolution, kept while the wanted one stays within a step (2^(1/16)) of it, so that the picture's
+    // pixels do not move by a fraction from frame to frame as the box grows by a little
+    private final HashMap<String, Float> glKs = new HashMap<>();
 
     Painter(AssetManager assets) {
         this.assets = assets;
@@ -98,8 +109,8 @@ final class Painter {
                 glTune = Math.max(0.1f, Math.min(2f, Float.parseFloat((String) v)));
                 Object m = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glmesh", "1");
                 if (gl != null) gl.meshOn = !"0".equals(m);
-                Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "1");
-                glBake = !"0".equals(bp);
+                Object bp = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.glbake", "0");
+                glBake = "1".equals(bp);
                 Object li = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gllite", "2");
                 if (gl != null) gl.lite = "0".equals(li) ? 0 : "1".equals(li) ? 1 : 2;
                 Object ed = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, "debug.rg.gledge", "1");
@@ -231,12 +242,29 @@ final class Painter {
             }
             return j;
         }
-        float k = scale * (near ? GL_RES_NEAR : GL_RES);
-        // a small globe (far off) is cheap: at the screen's own pixels, sharp and steady
-        if (!near && (x1 - x0) * (y1 - y0) * scale * scale < 250000) k = scale;
+        // the resolution by the picture's size alone, without steps: a small globe (far off) at the screen's own
+        // pixels, sharp and steady; a bigger one with about GL_FULL_PX pixels, down to GL_RES; close over real
+        // ground the floor glides to GL_RES_NEAR over the last 0.06 radii (the eye's height, from the numbers)
+        float area = (x1 - x0) * (y1 - y0) * scale * scale;
+        float floor = GL_RES;
+        int at0 = extras(nums, i);
+        if ((int) nums[i + 22] >= 40) {
+            float ex = nums[at0], ey = nums[at0 + 1], ez = nums[at0 + 2];
+            float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
+            float t = Math.max(0, Math.min(1, (el - 1.06f) / 0.06f));
+            if (near || el < 1.12f) floor = GL_RES_NEAR + (GL_RES - GL_RES_NEAR) * t;
+        }
+        float k = scale * Math.max(floor, area > GL_FULL_PX ? (float) Math.sqrt(GL_FULL_PX / area) : 1f);
         float px = (x1 - x0) * (y1 - y0) * k * k;
         if (px > GL_MAX_PIXELS) k *= (float) Math.sqrt(GL_MAX_PIXELS / px);
         k *= glTune();
+        {
+            int sk = (int) nums[i + 18];
+            String kk = sk >= 0 && sk < strings.length ? strings[sk] : "";
+            Float last = glKs.get(kk);
+            if (last != null && Math.abs(Math.log(k / last)) < 0.75 * Math.log(2) / 16) k = last;
+            else glKs.put(kk, k);
+        }
         // detail pictures still decoding (another thread): the ball covers their place meanwhile
         boolean allReady = true;
         for (int q = i; q < j; q = q + HEADER + (int) nums[q + 22]) {
@@ -284,6 +312,8 @@ final class Painter {
             gl.rings = nx >= 44 && nums[at + 42] > 0.5f && rsi >= 0 && rsi < strings.length ? strings[rsi] : null;
             // a game's surface shader (slots 9, 10: its key's and uniforms' strings + 1; 11: the time)
             gl.game(str(strings, nums[q + 9] - 1), str(strings, nums[q + 10] - 1), nums[q + 11]);
+            // the level of detail (draw.rs spheres_lod, header slot 12 = level + 1; 0 from an older engine: in full)
+            gl.lod = Math.max(0, nums[q + 12] - 1);
             any |= gl.draw(strings[s0], ls, hs, gs, ds, x, y, w, h, nums, at, nx, gnd);
         }
         if (c == null) {
@@ -330,8 +360,10 @@ final class Painter {
     }
 
     // ---- far globes kept as pictures (Tero's idea: compute once, then a texture) ----
-    // adb shell setprop debug.rg.glbake 0: every frame drawn again (for comparing)
-    private boolean glBake = true;
+    // Off: every globe is drawn live every frame, at its level of detail (draw.rs spheres_lod, globe.fs lod);
+    // a kept picture made the frames' cost uneven (a whole globe one frame, nothing the next) and moved in steps.
+    // adb shell setprop debug.rg.glbake 1: the kept pictures again (for comparing)
+    private boolean glBake = false;
     private int bakedReused;
 
     private static void put(float[] out, int tex, float x, float y, float w, float h, float u1, float v1) {

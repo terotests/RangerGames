@@ -19,6 +19,12 @@ uniform float meshM;
 uniform vec3 eyeL; uniform float eyeK, dust, glint, seaG;
 // close by, the regolith's small pits (draw.rs `sphere` 124, globe.rs `regolith`), 0..2
 uniform float rego;
+// the level of detail (draw.rs `spheres_lod`, lod.rs `globe_level`): 0 in full (the ball 96 units round and more),
+// 1 more each halving of its size, up to 4. The costly parts fade out over a range of it (never popping out):
+// the O'Neil air to the glow from 2 to 3, the sea's sharp glint and the hot cap's fine veins from 2 to 3, the picture's
+// relief from 2.5 to 3.5. Small on the screen they were a few pixels, cost as much a pixel and flickered (finer than one)
+uniform float lod;
+float lodW(float a, float b) { return 1.0 - smoothstep(a, b, lod); }
 // the air lit by the sun after O'Neil (lib/scatter.glsl; draw.rs `sphere` 119 and 123): scat the sunlight's
 // strength (0: the older glow, airGlow), smie the dust and haze (Mie) against the Earth's
 uniform float scat, smie;
@@ -350,28 +356,35 @@ vec4 airSky(vec3 d, vec3 q, float q2, float b) {
   float R = 1.0 + air;
   if (air <= 0.0 || useWin > 0.5 || q2 >= R * R) return vec4(0.0);
 #ifndef RG_MESH_VS
-  if (scat > 0.0) { vec3 e = eye + eyeL; float t0, t1; bool gr; vec3 ex;
-    if (!scatterSpan(e, d, air, t0, t1, gr)) return vec4(0.0);
-    vec3 c = scatterTone(scatterRay(e, d, sun, air, airc, smie, 0.76, scat, t0, t1, false, ex));
-    return vec4(c, max(c.r, max(c.g, c.b))); }
+  float ws = scat > 0.0 ? lodW(2.0, 3.0) : 0.0; vec4 sc = vec4(0.0);
+  if (ws > 0.0) { vec3 e = eye + eyeL; float t0, t1; bool gr; vec3 ex;
+    if (scatterSpan(e, d, air, t0, t1, gr)) { vec3 c = scatterTone(scatterRay(e, d, sun, air, airc, smie, 0.76, scat, t0, t1, false, ex));
+      sc = vec4(c, max(c.r, max(c.g, c.b))); }
+    if (ws >= 1.0) return sc; }
+#else
+  float ws = 0.0; vec4 sc = vec4(0.0);
 #endif
-  if (-b < 0.0) return vec4(0.0);
-  vec4 g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false);
-  return vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }
+  vec4 g = vec4(0.0);
+  if (-b >= 0.0) { g = airGlow(d, q, max(sqrt(q2) - 1.0, 0.0) / air, 2.0 * sqrt(R * R - q2), false); g = vec4(min(g.rgb, vec3(1.0)) * g.a, g.a); }
+  return mix(g, sc, ws); }
 // the air in front of the ground at p, th along the ray: O'Neil's (the ground's colour dimmed by the air, the
 // light scattered on the way added), else the glow, thicker towards the rim
 vec3 airGround(vec3 c, vec3 d, vec3 p, float th, float b, float q2) {
   if (air <= 0.0 || useWin > 0.5) return c;
   float R = 1.0 + air; float t0 = max(-b - sqrt(max(R * R - q2, 0.0)), 0.0);
 #ifndef RG_MESH_VS
-  if (scat > 0.0) { if (th <= t0) return c; vec3 ex;
+  float ws = scat > 0.0 ? lodW(2.0, 3.0) : 0.0; vec3 sc = c;
+  if (ws > 0.0) { if (th <= t0) return c; vec3 ex;
 // (the veil and the dimming at 0.6: in full they washed out a lit disc's land and sea, and greyed the ground
 // seen at a slant)
     vec3 l = scatterTone(0.6 * scatterRay(eye + eyeL, d, sun, air, airc, smie, 0.76, scat, t0, th, true, ex));
-    return 1.0 - (1.0 - c * pow(ex, vec3(0.6))) * (1.0 - l); }
+    sc = 1.0 - (1.0 - c * pow(ex, vec3(0.6))) * (1.0 - l);
+    if (ws >= 1.0) return sc; }
+#else
+  float ws = 0.0; vec3 sc = c;
 #endif
   vec4 g = airGlow(d, p, 0.0, max(th - t0, 0.0), true);
-  return mix(c, g.rgb, g.a * 0.85); }
+  return mix(mix(c, g.rgb, g.a * 0.85), sc, ws); }
 void main() {
   vec2 px = box.xy + uv * box.zw;
   bool mesh = meshM > 0.5 && meshM < 1.5;
@@ -485,12 +498,12 @@ void main() {
       vec3 st = sun - p * dot(sun, p); float sl = length(st);
       if (sl > 1e-4) { st /= sl; float e = max(fp, 1e-8); tl += (bumpsF(normalize(p + st * e), nl) - bumpsF(p, nl)) / e * st; } }
     n = normalize(p - tl * wr);
-  } else if (relief != 0.0 && useH < 0.5) {
+  } else if (relief != 0.0 && useH < 0.5 && lod < 3.5) {
 // relief: the picture's brightness as height tilts the normal for the sun
     vec2 ts = 1.0 / vec2(textureSize(tex, 0)); float clat = max(0.05, sqrt(1.0 - p.z * p.z));
     float hx = (lum(vec2(u + ts.x, v)) - lum(vec2(u - ts.x, v))) / (2.0 * ts.x * 6.2831853 * clat);
     float hy = (lum(vec2(u, v - ts.y)) - lum(vec2(u, v + ts.y))) / (2.0 * ts.y * 3.1415927);
-    n = normalize(p - relief * (hx * east + hy * north));
+    n = normalize(p - relief * lodW(2.5, 3.5) * (hx * east + hy * north));
   }
   float s = dot(p, sun); float kl = 0.0;
   if (lit > 0.5 && useH > 0.5) {
@@ -517,7 +530,7 @@ void main() {
 // the sea's glint: the sun mirrored on the water (the picture's dark blue), a sharp spot and a wide sheen of waves
   if (lit > 0.5 && seaG > 0.0 && kl > 0.0) { float nh = max(dot(n, hw), 0.0);
     float wet = smoothstep(0.03, 0.12, c.b - max(c.r, c.g * 0.85)) * (1.0 - smoothstep(0.35, 0.6, c.r + c.g));
-    c += vec3(1.0, 0.93, 0.8) * seaG * wet * min(kl, 1.0) * (pow(nh, 250.0) * 2.5 + pow(nh, 30.0) * 0.2); }
+    c += vec3(1.0, 0.93, 0.8) * seaG * wet * min(kl, 1.0) * (pow(nh, 250.0) * 2.5 * lodW(2.0, 3.0) + pow(nh, 30.0) * 0.2); }
 // the grains' glints, close by (up to about 1e-4 radii away)
   if (lit > 0.5 && glint > 0.0 && terr && kl > 0.0 && th < 1e-4) c += vec3(1.5, 1.45, 1.35) * glint * min(kl, 1.0) * grains(eyeL + d * th, n, hw, fpt) * (1.0 - smoothstep(3e-5, 1e-4, th));
 // close by, a band about 10 pixels on each side of the smooth ball's horizon line fades to black (the edge
@@ -537,7 +550,7 @@ void main() {
     if (hx > 0.0) { float hl = lum(vec2(u, v)); vec3 q = p * 5.0;
       vec2 wq = vec2(hfb(q + vec3(1.7, 9.2, 3.1)), hfb(q + vec3(8.3, 2.8, 5.4))) - 0.5;
       float n = hfb(q * 1.7 + vec3(wq * 2.4, wq.x - wq.y));
-      float rv = 1.0 - abs(2.0 * gvnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0), vein = rv * rv * rv * rv; vein *= vein;
+      float lv = lodW(2.0, 3.0), rv = lv > 0.0 ? 1.0 - abs(2.0 * gvnoise(p * 15.0 + vec3(wq.yx * 3.0, wq.x * 2.0)) - 1.0) : 0.0, vein = rv * rv * rv * rv; vein *= vein * lv;
       float h = clamp(hw * 0.82 + (n - 0.5) * 1.15 + 0.25 * hl * hw + vein * 0.8 * hx * (1.0 - 0.5 * hw), 0.0, 1.5);
       vec3 g = mix(vec3(0.42, 0.05, 0.02), vec3(0.86, 0.22, 0.04), smoothstep(0.0, 0.35, h));
       g = mix(g, vec3(1.0, 0.55, 0.12), smoothstep(0.28, 0.62, h)); g = mix(g, vec3(1.0, 0.84, 0.4), smoothstep(0.58, 0.95, h));

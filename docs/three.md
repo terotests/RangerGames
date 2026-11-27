@@ -89,6 +89,40 @@ props `color`, `emissive`, `emissiveIntensity`, `side` (`THREE.DoubleSide`),
 colour management (sRGB colours lit in linear light); there are no textures,
 shadows or transparency.
 
+## Level of detail
+
+Everything is drawn live every frame, in the form its size on the screen
+calls for (crates/rg_engine/src/lod.rs). No pictures are kept in between.
+
+An object made with `rg.three("add", …)` can have coarser forms. Each one
+is drawn once the object is less than `px` units across on the screen
+(its bounding ball's diameter; a unit is about a CSS pixel):
+
+```ts
+rg.three("add", { id: "lm", shape: "mesh", verts, tris, colors,
+  lod: [
+    { px: 80, shape: "mesh", verts: v2, tris: t2, colors: c2 }, // fewer faces
+    { px: 12, shape: "box", size: [1, 0.8, 1], color: "#c8a040" },
+    { px: 2, hide: true },                                     // too small to see
+  ] });
+rg.three("add", { id: "ball", shape: "sphere", size: [1], detail: "auto" }); // 48, 24, 12, 6 segments
+rg.three("add", { id: "s", shape: "sphere", size: [1], lod: [{ px: 40, detail: 8 }] }); // the same shape, fewer segments
+```
+
+A form changes only once the size has passed its limit by `lodMargin`
+(0.15 = 15 %, per object), so an object at a limit does not flick between
+two forms. `detail: "auto"` works on `sphere`, `cylinder` and `cone`.
+
+Planets (`rg.three("planet", …)`) are cast a ray a pixel, so they have no
+triangles to drop. Their level instead follows their size smoothly: 0 at
+96 units of radius and over, 1 more each halving of the size. The globe
+shader fades its costly parts out over ranges of it (the O'Neil air to
+the plain glow, the sea's glint and the hot cap's fine veins from 2 to 3,
+the picture's relief from 2.5 to 3.5), so nothing pops in or out. The
+phone draws a globe's picture at the screen's own pixels up to 250000
+pixels and with about that many past it (down to half the screen's
+pixels), without steps.
+
 ## Taps (raycasting)
 
 As in React Three Fiber, a mesh or primitive with `onClick`, `onPointerDown`
