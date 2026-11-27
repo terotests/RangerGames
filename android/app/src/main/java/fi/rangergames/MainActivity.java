@@ -454,13 +454,28 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             long vs = vsync != null ? vsync.frameTime(t) : 0;
             if (glPaint) {
                 if (pacer == null) pacer = new FramePacer(getWindowManager().getDefaultDisplay().getRefreshRate());
+                pacer.paced = glCtx.presentTime && vs != 0;
                 dt = pacer.step(dt);
-                glCtx.interval(pacer.interval);
-                if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
-                else Engine.frame(dt);
+                long present = 0;
+                if (pacer.paced) {
+                    // each picture given its vsync (eglPresentationTimeANDROID): an
+                    // even 45 or 30 a second where the driver ignores the swap interval
+                    glCtx.interval(1);
+                    present = pacer.present(vs, vsync.periodNs);
+                    long wait = pacer.ahead(present, t, vsync.periodNs);
+                    if (wait > 0) {
+                        sleepNs(wait);
+                        t = System.nanoTime();
+                    }
+                    Engine.frameAt(present / 1e6, vsync.periodMs());
+                } else {
+                    glCtx.interval(pacer.interval);
+                    if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
+                    else Engine.frame(dt);
+                }
                 afterCall();
                 if (!running) break;
-                glPaintFrame(h, t);
+                glPaintFrame(h, t, present);
                 continue;
             }
             // the 3D scene as triangles for the GL view once its context works
@@ -591,7 +606,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     }
 
     /** The frame painted with GL into the window, then shown (eglSwapBuffers keeps to the display's pace). */
-    private void glPaintFrame(SurfaceHolder h, long t) {
+    private void glPaintFrame(SurfaceHolder h, long t, long present) {
         if (!glCtx.attach(h.getSurface())) {
             sleep(16);
             return;
@@ -604,6 +619,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         painter.glFrameDone();
         GlHost.frameDone();
         if (pacer != null) pacer.worked((System.nanoTime() - t) / 1e6);
+        glCtx.presentAt(present);
         glCtx.swap();
         glFrames++;
         long now = System.nanoTime();
@@ -613,6 +629,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             Log.i(TAG, String.format(java.util.Locale.ROOT, "GL paint: %.1f fps (swap %d), %s", glFrames * 1e9 / (now - glStatsAt), pacer != null ? pacer.interval : 1, Engine.glStats()));
             glFrames = 0;
             glStatsAt = now;
+        }
+    }
+
+    private static void sleepNs(long ns) {
+        try {
+            Thread.sleep(ns / 1_000_000L, (int) (ns % 1_000_000L));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

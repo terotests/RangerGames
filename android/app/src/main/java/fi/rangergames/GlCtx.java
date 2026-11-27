@@ -48,6 +48,11 @@ final class GlCtx {
             pbuffer = EGL14.eglCreatePbufferSurface(display, config, new int[] {EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE}, 0);
             if (pbuffer == EGL14.EGL_NO_SURFACE) throw new IllegalStateException("pbuffer");
             if (!EGL14.eglMakeCurrent(display, pbuffer, pbuffer, context)) throw new IllegalStateException("eglMakeCurrent");
+            // the picture's own time on the screen (SurfaceFlinger keeps it even
+            // where the driver ignores the swap interval, as on the tablet)
+            String ext = EGL14.eglQueryString(display, EGL14.EGL_EXTENSIONS);
+            presentTime = ext != null && ext.contains("EGL_ANDROID_presentation_time") && !"0".equals(prop("debug.rg.present", "1"));
+            Log.i(TAG, "GL painting: presentation time " + (presentTime ? "on" : "off"));
             return true;
         } catch (Throwable t) {
             Log.w(TAG, "GL painting off (Canvas): " + t.getMessage());
@@ -99,6 +104,23 @@ final class GlCtx {
     }
 
     private int swapInterval = 1;
+    /** EGL_ANDROID_presentation_time: each picture can be given the vsync it is shown at */
+    boolean presentTime;
+
+    /** The picture about to be swapped is shown at `ns` (System.nanoTime's clock), not before. */
+    void presentAt(long ns) {
+        if (!presentTime || ns == 0 || window == EGL14.EGL_NO_SURFACE) return;
+        if (!EGLExt.eglPresentationTimeANDROID(display, window, ns)) presentTime = false;
+    }
+
+    private static String prop(String key, String def) {
+        try {
+            Object v = Class.forName("android.os.SystemProperties").getMethod("get", String.class, String.class).invoke(null, key, def);
+            return v != null ? v.toString() : def;
+        } catch (Throwable t) {
+            return def;
+        }
+    }
 
     /** How many display frames each picture stays (FramePacer). */
     void interval(int n) {
