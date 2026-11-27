@@ -314,3 +314,34 @@ fn a_drawing_fill_with_a_hole_leaves_the_hole_open() {
     let area: f32 = tris.iter().map(|t| { let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]); ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5 }).sum();
     assert!((area - 12.0).abs() < 1e-3, "area {}", area);
 }
+
+// Ink lines (fiber.rs `ink_lines`): with `ink` in a model's toon settings its
+// contour is drawn as brush strokes in the ink colour, round the outside and
+// where one part is in front of another; without, none.
+fn soldier_ink(toon: &str) -> usize {
+    let mut e = engine(&format!(r##"
+        import {{ GLTFLoader }} from "three/addons/loaders/GLTFLoader.js";
+        const g = new GLTFLoader().loadSync("models/s.glb");
+        function view() {{
+          return <div class="s"><scene3d>
+            <color attach="background" args={{["#ffffff"]}} />
+            <perspectiveCamera position={{[0, 1, 3]}} fov={{50}} lookAt={{[0, 0.8, 0]}} />
+            <ambientLight intensity={{0.6}} />
+            <directionalLight position={{[2, 3, 4]}} intensity={{1}} />
+            <primitive object={{g.scene}} toon={{{}}} />
+          </scene3d></div>;
+        }}
+    "##, toon));
+    e.gl3d = true;
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    e.scene.tris.chunks_exact(6).filter(|c| (c[3] - 1.0).abs() < 0.01 && c[4].abs() < 0.01 && (c[5] - 1.0).abs() < 0.01).count()
+}
+
+#[test]
+fn ink_lines_draw_the_contour_as_brush_strokes() {
+    let none = soldier_ink(r##"{ outline: 0 }"##);
+    let inked = soldier_ink(r##"{ outline: 0, ink: 0.01, inkColor: "#ff00ff" }"##);
+    assert_eq!(none, 0);
+    assert!(inked > 200, "ink ribbon corners: {}", inked);
+}

@@ -325,6 +325,12 @@ pub struct Toon {
     pub line_col: V3,
     /// lit: false draws the colours flat (emissive glow) but keeps the outline
     pub lit: bool,
+    /// ink lines (a comic's brush line on a 3D surface, see `ink_lines`):
+    /// the contour drawn as brush strokes `ink` model units wide (0: none),
+    /// thinner on the lit side and thicker in shadow by `ink_var`, in `ink_col`
+    pub ink: f32,
+    pub ink_var: f32,
+    pub ink_col: V3,
 }
 
 impl Toon {
@@ -332,6 +338,7 @@ impl Toon {
         n: 3, edges: [-0.05, 0.45, 2.0], levels: [0.0, 0.55, 1.0, 1.0], shadow: [1.0; 3],
         spec: 0.0, spec_col: [1.0; 3], rim: 0.0, rim_col: [0.5, 0.35, 1.0],
         line: 2.0, line_col: [0.012, 0.009, 0.02], lit: true,
+        ink: 0.0, ink_var: 0.6, ink_col: [0.012, 0.009, 0.02],
     };
 
     /// `true`, a number (the number of bands) or an object (see `apply`);
@@ -373,6 +380,9 @@ impl Toon {
         if let Some(o) = prop(v, "outline") { self.line = width(o, 2.0); }
         if let Some(c) = prop(v, "outlineColor") { self.line_col = color(c, self.line_col); }
         if let Some(Json::Bool(b)) = prop(v, "lit") { self.lit = *b; }
+        if let Some(o) = prop(v, "ink") { self.ink = width(o, 0.004); }
+        if let Some(o) = prop(v, "inkVar") { self.ink_var = o.as_num(0.6) as f32; }
+        if let Some(c) = prop(v, "inkColor") { self.ink_col = color(c, self.ink_col); }
     }
 
     /// n even bands from shadow to full light (2 to 4)
@@ -400,7 +410,8 @@ impl Toon {
         self.n.hash(hs);
         self.lit.hash(hs);
         for v in self.edges.iter().chain(self.levels.iter()).chain(self.shadow.iter()).chain(self.spec_col.iter()).chain(self.rim_col.iter()).chain(self.line_col.iter()) { v.to_bits().hash(hs); }
-        for v in [self.spec, self.rim, self.line] { v.to_bits().hash(hs); }
+        for v in [self.spec, self.rim, self.line, self.ink, self.ink_var] { v.to_bits().hash(hs); }
+        for v in self.ink_col.iter() { v.to_bits().hash(hs); }
     }
 }
 
@@ -1379,7 +1390,7 @@ impl World {
                 }
             }
             let mut sub = Vec::new();
-            model_items(mi, eye, it.owner, &mut sub);
+            model_items(mi, eye, key.map(|k| k.0), it.owner, &mut sub);
             let (t0, p0, d0) = (tris.len(), pick.len(), drawn);
             for s in sub.iter_mut() {
                 s.order = it.order;
@@ -1468,6 +1479,164 @@ fn brush_ribbon(view: &[V3], ws: &[f32], focal: f32, near: f32, cx: f32, cy: f32
     out
 }
 
+/// Ink lines: a comic artist's brush line drawn on a 3D surface. The
+/// contour is where the surface turns from facing the eye to facing away:
+/// n·v is worked out at the corners and its zero found inside the
+/// triangles (a smooth curve, not the jagged edges between faces), the
+/// crossings chained into strokes and evened out. Each stroke is a brush
+/// stroke (see `brush_ribbon`): `ink` wide, thicker where the surface turns
+/// away from the key light and thinner where the light falls (`ink_var`),
+/// tapered to points at open ends; set a little towards the eye so that the
+/// surface it outlines does not cover it. Inner contours (an arm in front of
+/// the body, a cheek's edge) come out the same way; what is behind another
+/// surface is hidden by the depth test.
+fn ink_lines(pos: &[V3], nrm: &[V3], tris: &[u32], eye: V3, light: Option<V3>, tn: &Toon) -> Vec<(Vec<V3>, Vec<f32>)> {
+    let n = pos.len();
+    let mut out = Vec::new();
+    if n == 0 || tris.len() < 3 {
+        return out;
+    }
+    // corners at the same place are one (a flat-shaded or seamed mesh has a
+    // corner a face there): their normals averaged, their edges shared
+    let mut weld: HashMap<[i32; 3], u32> = HashMap::new();
+    let mut wid = vec![0u32; n];
+    let mut wn: Vec<V3> = Vec::new();
+    let mut wp: Vec<V3> = Vec::new();
+    for i in 0..n {
+        let k = [(pos[i][0] * 1e4).round() as i32, (pos[i][1] * 1e4).round() as i32, (pos[i][2] * 1e4).round() as i32];
+        let id = *weld.entry(k).or_insert_with(|| { wn.push([0.0; 3]); wp.push(pos[i]); (wn.len() - 1) as u32 });
+        wid[i] = id;
+        let s = &mut wn[id as usize];
+        *s = [s[0] + nrm[i][0], s[1] + nrm[i][1], s[2] + nrm[i][2]];
+    }
+    let (pos, nrm): (&[V3], Vec<V3>) = (&wp, wn.iter().map(|v| norm(*v)).collect());
+    let tris: Vec<u32> = tris.iter().map(|&t| wid[t as usize]).collect();
+    let n = pos.len();
+    let g: Vec<f32> = (0..n).map(|i| dot(nrm[i], norm(sub(eye, pos[i])))).collect();
+    // one point where n·v = 0 on each crossed edge, and its neighbours along the contour
+    let mut at: HashMap<(u32, u32), usize> = HashMap::new();
+    let mut pts: Vec<(V3, V3)> = Vec::new();
+    let mut nb: Vec<[usize; 2]> = Vec::new();
+    let mut deg: Vec<u8> = Vec::new();
+    const NONE: usize = usize::MAX;
+    for t in tris.chunks_exact(3) {
+        let mut cr = [NONE; 2];
+        let mut k = 0;
+        for e in 0..3 {
+            let (a, b) = (t[e], t[(e + 1) % 3]);
+            let (ga, gb) = (g[a as usize], g[b as usize]);
+            if (ga < 0.0) == (gb < 0.0) {
+                continue;
+            }
+            let key = if a < b { (a, b) } else { (b, a) };
+            let id = *at.entry(key).or_insert_with(|| {
+                let s = ga / (ga - gb);
+                let (pa, pb) = (pos[a as usize], pos[b as usize]);
+                let (na, nb_) = (nrm[a as usize], nrm[b as usize]);
+                let lp = |x: V3, y: V3| [x[0] + (y[0] - x[0]) * s, x[1] + (y[1] - x[1]) * s, x[2] + (y[2] - x[2]) * s];
+                pts.push((lp(pa, pb), norm(lp(na, nb_))));
+                nb.push([NONE; 2]);
+                deg.push(0);
+                pts.len() - 1
+            });
+            if k < 2 {
+                cr[k] = id;
+                k += 1;
+            }
+        }
+        if k == 2 && cr[0] != cr[1] {
+            for (x, y) in [(cr[0], cr[1]), (cr[1], cr[0])] {
+                if deg[x] < 2 {
+                    nb[x][deg[x] as usize] = y;
+                    deg[x] += 1;
+                }
+            }
+        }
+    }
+    // chains: from the open ends first, then the closed loops
+    let mut seen = vec![false; pts.len()];
+    let mut chains: Vec<(Vec<usize>, bool)> = Vec::new();
+    for pass in 0..2 {
+        for s0 in 0..pts.len() {
+            if seen[s0] || (pass == 0 && deg[s0] != 1) {
+                continue;
+            }
+            let mut c = vec![s0];
+            seen[s0] = true;
+            let mut cur = s0;
+            loop {
+                let next = nb[cur].iter().copied().find(|&x| x != NONE && !seen[x]);
+                match next {
+                    Some(x) => { seen[x] = true; c.push(x); cur = x; }
+                    None => break,
+                }
+            }
+            let closed = pass == 1 && c.len() > 2 && nb[cur].contains(&s0);
+            chains.push((c, closed));
+        }
+    }
+    let w0 = tn.ink;
+    for (c, closed) in chains {
+        let mut p: Vec<V3> = c.iter().map(|&i| pts[i].0).collect();
+        let q: Vec<V3> = c.iter().map(|&i| pts[i].1).collect();
+        let m = p.len();
+        if m < 3 {
+            continue;
+        }
+        // evened out (twice: the crossings zigzag a little from face to face)
+        for _ in 0..2 {
+            let prev = p.clone();
+            for i in 0..m {
+                if !closed && (i == 0 || i == m - 1) {
+                    continue;
+                }
+                let (a, b) = (prev[(i + m - 1) % m], prev[(i + 1) % m]);
+                p[i] = [(a[0] + b[0]) * 0.25 + prev[i][0] * 0.5, (a[1] + b[1]) * 0.25 + prev[i][1] * 0.5, (a[2] + b[2]) * 0.25 + prev[i][2] * 0.5];
+            }
+        }
+        // length along the stroke; short bits are noise
+        let mut s = vec![0.0f32; m];
+        for i in 1..m {
+            let d = sub(p[i], p[i - 1]);
+            s[i] = s[i - 1] + dot(d, d).sqrt();
+        }
+        let total = s[m - 1];
+        if total < w0 * 5.0 {
+            continue;
+        }
+        // control points about 1.5 widths apart (the ribbon's curve runs through them)
+        let step = w0 * 1.5;
+        let mut keep = vec![0usize];
+        for i in 1..m - 1 {
+            if s[i] - s[*keep.last().unwrap()] >= step {
+                keep.push(i);
+            }
+        }
+        keep.push(m - 1);
+        if closed {
+            keep.push(0);
+        }
+        let taper = (total * 0.3).min(w0 * 14.0);
+        let mut cp = Vec::with_capacity(keep.len());
+        let mut ws = Vec::with_capacity(keep.len());
+        for (k, &i) in keep.iter().enumerate() {
+            let lam = light.map(|l| dot(q[i], l)).unwrap_or(0.0);
+            let mut wv = w0 * (1.0 - tn.ink_var * lam).clamp(0.3, 1.8);
+            if !closed {
+                let e = s[i].min(total - s[i]);
+                let x = (e / taper).clamp(0.0, 1.0);
+                wv *= x * x * (3.0 - 2.0 * x) * 0.9 + if k == 0 || k == keep.len() - 1 { 0.0 } else { 0.1 };
+            }
+            let to = norm(sub(eye, p[i]));
+            let off = w0 * 2.5;
+            cp.push([p[i][0] + to[0] * off, p[i][1] + to[1] * off, p[i][2] + to[2] * off]);
+            ws.push(wv);
+        }
+        out.push((cp, ws));
+    }
+    out
+}
+
 /// A feature's art made ready to draw: its fills' triangles, and for a
 /// drawing with depth each point's depth (features.rs `Depth`).
 struct FeatArt {
@@ -1532,7 +1701,7 @@ fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc
 
 /// A model's triangles in the world for a mix of clips, skinned where it has
 /// a skin; `tint` multiplies its colours.
-fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
+fn model_items(mi: &ModelInst, eye: V3, light: Option<V3>, owner: u32, items: &mut Vec<Item>) {
     let (asset, m, tint, toon) = (&*mi.asset, &mi.m, mi.tint, mi.toon);
     let mut pose = gltf::pose(asset, &mi.mix);
     crate::rig::add_turns(&mut pose, &mi.turns);
@@ -1585,6 +1754,12 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
                 if w.len() == n && n >= 2 { Some(Rc::new(w)) } else { None }
             };
             let toon = if brush.is_some() { None } else { toon };
+            if let Some(tn) = toon.filter(|t| t.ink > 0.0) {
+                for (pts, ws) in ink_lines(&pos, &nrm, &p.tris, eye, light, &tn) {
+                    let n = pts.len();
+                    items.push(Item { nrm: vec![[0.0, 0.0, 1.0]; n], col: vec![tn.ink_col; n], pos: pts, emissive: [0.0; 3], tris: Vec::new(), kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: Some(Rc::new(ws)) });
+                }
+            }
             items.push(Item { pos, nrm, col, emissive: p.emissive, tris: p.tris.clone(), kind, double: p.double, flat: false, toon, owner, order: 0, model: None, key: 0, brush });
         }
     }
