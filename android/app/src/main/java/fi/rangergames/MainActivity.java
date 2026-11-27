@@ -113,7 +113,8 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
         }
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         density = getResources().getDisplayMetrics().density;
-        vsync = new VsyncClock(getWindowManager().getDefaultDisplay().getRefreshRate());
+        keepTopRefresh();
+        vsync = new VsyncClock(getWindowManager().getDefaultDisplay());
         saves = getSharedPreferences("saves", MODE_PRIVATE);
         glPaint = xrMode() || (!"canvas".equals(paintSetting()) && !saves.getBoolean("glFailed", false));
         painter = new Painter(getAssets());
@@ -257,6 +258,43 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     @Override
     public void surfaceCreated(SurfaceHolder h) {
         surface = h;
+        fixedFrameRate(h);
+    }
+
+    /**
+     * The display's fastest mode at its resolution for the game's window: the
+     * pacer shows a picture every 1, 2 or 3 of its frames (90 / 45 / 30 a
+     * second on a 90 Hz tablet). Without this the system lowered the tablet
+     * to 60 Hz when the pictures came 45 a second, and 45 on a 60 Hz screen is
+     * 16 / 33 ms between pictures again.
+     */
+    private void keepTopRefresh() {
+        try {
+            android.view.Display d = getWindowManager().getDefaultDisplay();
+            android.view.Display.Mode now = d.getMode(), best = now;
+            for (android.view.Display.Mode m : d.getSupportedModes()) {
+                if (m.getPhysicalWidth() == now.getPhysicalWidth() && m.getPhysicalHeight() == now.getPhysicalHeight()
+                        && m.getRefreshRate() > best.getRefreshRate() + 0.5f) best = m;
+            }
+            WindowManager.LayoutParams lp = getWindow().getAttributes();
+            lp.preferredDisplayModeId = best.getModeId();
+            getWindow().setAttributes(lp);
+            Log.i(TAG, "display mode " + best.getModeId() + ": " + best.getRefreshRate() + " Hz");
+        } catch (Throwable t) {
+            Log.w(TAG, "display mode: " + t);
+        }
+    }
+
+    /** Android 11+: the surface's pictures keep the display's own rate (Surface.setFrameRate, FIXED_SOURCE). */
+    private void fixedFrameRate(SurfaceHolder h) {
+        if (android.os.Build.VERSION.SDK_INT < 30 || h == null) return;
+        try {
+            float hz = 0;
+            for (android.view.Display.Mode m : getWindowManager().getDefaultDisplay().getSupportedModes()) hz = Math.max(hz, m.getRefreshRate());
+            android.view.Surface.class.getMethod("setFrameRate", float.class, int.class).invoke(h.getSurface(), hz, 1);
+        } catch (Throwable t) {
+            Log.w(TAG, "setFrameRate: " + t);
+        }
     }
 
     @Override
@@ -457,13 +495,30 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             long vs = vsync != null ? vsync.frameTime(t) : 0;
             if (glPaint) {
                 if (pacer == null) pacer = new FramePacer(getWindowManager().getDefaultDisplay().getRefreshRate());
+                pacer.paced = glCtx.presentTime && vs != 0;
+                // the display's frame as it is now (the system may change the mode)
+                if (vs != 0) pacer.period(vsync.periodMs());
                 dt = pacer.step(dt);
-                glCtx.interval(pacer.interval);
-                if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
-                else Engine.frame(dt);
+                long present = 0;
+                if (pacer.paced) {
+                    // each picture given its vsync (eglPresentationTimeANDROID): an
+                    // even 45 or 30 a second where the driver ignores the swap interval
+                    glCtx.interval(1);
+                    present = pacer.present(vs, vsync.periodNs);
+                    long wait = pacer.ahead(present, t, vsync.periodNs);
+                    if (wait > 0) {
+                        sleepNs(wait);
+                        t = System.nanoTime();
+                    }
+                    Engine.frameAt(present / 1e6, vsync.periodMs());
+                } else {
+                    glCtx.interval(pacer.interval);
+                    if (vs != 0) Engine.frameAt(vs / 1e6, vsync.periodMs());
+                    else Engine.frame(dt);
+                }
                 afterCall();
                 if (!running) break;
-                glPaintFrame(h, t);
+                glPaintFrame(h, t, present);
                 continue;
             }
             // the 3D scene as triangles for the GL view once its context works
@@ -594,7 +649,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
     }
 
     /** The frame painted with GL into the window, then shown (eglSwapBuffers keeps to the display's pace). */
-    private void glPaintFrame(SurfaceHolder h, long t) {
+    private void glPaintFrame(SurfaceHolder h, long t, long present) {
         if (!glCtx.attach(h.getSurface())) {
             sleep(16);
             return;
@@ -611,6 +666,7 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             pacer.worked(workMs);
             painter.glPace(lastRealMs, workMs, pacer.slot());
         }
+        glCtx.presentAt(present);
         glCtx.swap();
         glFrames++;
         long now = System.nanoTime();
@@ -620,6 +676,14 @@ public class MainActivity extends Activity implements SurfaceHolder.Callback, Ru
             Log.i(TAG, String.format(java.util.Locale.ROOT, "GL paint: %.1f fps (swap %d), %s", glFrames * 1e9 / (now - glStatsAt), pacer != null ? pacer.interval : 1, Engine.glStats()));
             glFrames = 0;
             glStatsAt = now;
+        }
+    }
+
+    private static void sleepNs(long ns) {
+        try {
+            Thread.sleep(ns / 1_000_000L, (int) (ns % 1_000_000L));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
     }
 

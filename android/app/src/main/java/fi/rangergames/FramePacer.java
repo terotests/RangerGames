@@ -11,12 +11,16 @@ package fi.rangergames;
  * evenly (45 or 30 a second rather than an uneven 40–50). The game's step
  * comes from the engine's frame clock (VsyncClock → Engine.frameAt: whole
  * display frames with the rest carried, rg_core::clock); {@link #step}'s own
- * rounding is only the fallback before the first vsync. Where the driver
- * does not keep the interval it stays 1.
+ * rounding is only the fallback before the first vsync. Where the device has
+ * EGL_ANDROID_presentation_time each picture is given its vsync
+ * ({@link #present}) and the swap interval stays 1, which also works where the
+ * driver ignores the swap interval (the tablet: 11 / 22 ms before); without it
+ * a driver that ignores the interval keeps 1 (adb shell setprop
+ * debug.rg.present 0 to compare).
  */
 final class FramePacer {
     /** the display's frame, ms */
-    private final double period;
+    private double period;
     /** display frames a picture stays (the swap interval) */
     int interval = 1;
     /** the frames' mean time between pictures, ms */
@@ -31,10 +35,23 @@ final class FramePacer {
      *  the swap interval: 89 fps at "swap 2"): interval stays 1 */
     private boolean ignored;
     private double fastFor;
+    /** the pictures are given their vsync (presentation time): the swap interval stays 1 and the pacer keeps the interval itself */
+    boolean paced;
+    /** the last picture's vsync (ns), 0 before the first */
+    private long lastPresent;
 
     FramePacer(float refreshHz) {
         period = 1000.0 / (refreshHz > 20 && refreshHz < 250 ? refreshHz : 60.0);
         mean = period;
+    }
+
+    /** The display's frame now (ms): it follows a change of the display's mode. */
+    void period(double ms) {
+        if (ms > 3 && ms < 60 && Math.abs(ms - period) > 0.3) {
+            period = ms;
+            mean = ms * interval;
+            upFor = downFor = 0;
+        }
     }
 
     /** a picture's time at the current swap interval, ms */
@@ -81,16 +98,38 @@ final class FramePacer {
         }
         // pictures coming faster than the interval: the swap interval is not
         // kept, so a longer one only made the game run fast; back to 1 for good
-        if (interval > 1 && mean < period * interval * 0.75) {
+        if (!paced && interval > 1 && mean < period * interval * 0.75) {
             fastFor += real;
             if (fastFor > 600) ignored = true;
         } else {
             fastFor = 0;
         }
-        if (ignored) interval = 1;
+        if (ignored && !paced) interval = 1;
         // the game's step: whole display frames, as the pictures are shown
         // (never more than the time that passed, rounded to the nearest frame)
         double frames = Math.max(1, Math.round(real / period));
         return Math.min(100, frames * period);
+    }
+
+    /**
+     * The vsync this frame's picture is shown at (ns): `interval` display frames
+     * after the last one, so 40–50 fps on a 90 Hz screen become an even 45
+     * instead of 11 / 22 ms between pictures. A frame that is late goes to the
+     * first vsync after its own. The engine steps the game to this time, so the
+     * motion moves by exactly the time between the pictures shown.
+     */
+    long present(long vsyncNs, long periodNs) {
+        long slot = periodNs * interval;
+        long earliest = vsyncNs + periodNs;
+        long t = lastPresent + slot;
+        if (lastPresent == 0 || t < earliest || t > earliest + 4 * slot) t = earliest;
+        lastPresent = t;
+        return t;
+    }
+
+    /** How long to wait before this frame (ns) so that it is not made more than one picture ahead. */
+    long ahead(long present, long now, long periodNs) {
+        long w = present - now - periodNs * interval - periodNs;
+        return w > 1_000_000L ? w : 0;
     }
 }
