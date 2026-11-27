@@ -70,7 +70,7 @@
     this.ok = true;
   }
 
-  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "rg_time"];
+  var SPHERE_U = ["tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "rg_time", "useCut", "cut"];
   // a globe stage's program ({ prog, u: its uniforms' locations }), or null (why(log) told)
   Spheres.prototype.link = function (fsrc, why) {
     var gl = this.gl, prog = gl.createProgram(), ok = true;
@@ -240,6 +240,10 @@
     var ho = w40 && !w4 && p[35] > 0.5 && (p[20] !== 0 || p[21] !== 0 || p[22] !== 1 || p[23] !== 1);
     gl.uniform1f(u.useHole, ho ? 1 : 0);
     gl.uniform4f(u.hole, ho ? p[20] : 0, ho ? p[21] : 0, ho ? p[22] : 0, ho ? p[23] : 0);
+    // a window under a later one (132 numbers): the later one's window, left out here
+    var wc = w4 && w40 && p.length >= 132;
+    gl.uniform1f(u.useCut, wc ? 1 : 0);
+    gl.uniform4f(u.cut, wc ? p[128] : 0, wc ? p[129] : 0, wc ? p[130] : 0, wc ? p[131] : 0);
     gl.uniform3f(u.eye, p[0], p[1], p[2]);
     // the eye's remainder and the light that changes with the eye (124 numbers), |eye|² - 1 here in 64 bits
     var w124 = p.length >= 124;

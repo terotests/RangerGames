@@ -93,8 +93,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "dbgOff"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58, LODU = 59, DBGOFF = 60;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod", "dbgOff", "useCut", "cut"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58, LODU = 59, DBGOFF = 60, USECUT = 61, CUT = 62;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -819,6 +819,11 @@ final class GlSphere {
         GLES30.glUniform1f(L[MAPK], w40 && w4 ? p[at + 39] : 0);
         GLES30.glUniform1f(L[USEHOLE], ho ? 1 : 0);
         GLES30.glUniform4f(L[HOLE], ho ? p[at + 20] : 0, ho ? p[at + 21] : 0, ho ? p[at + 22] : 0, ho ? p[at + 23] : 0);
+        // a window under a later one (132 numbers): the later one's window, left out here (not while a picture
+        // of the batch is still decoding: the later one may not be drawn yet)
+        boolean wc = !noHole && w4 && w40 && flowNx >= 132;
+        GLES30.glUniform1f(L[USECUT], wc ? 1 : 0);
+        GLES30.glUniform4f(L[CUT], wc ? p[at + 128] : 0, wc ? p[at + 129] : 0, wc ? p[at + 130] : 0, wc ? p[at + 131] : 0);
         GLES30.glUniform3f(L[EYE], p[at], p[at + 1], p[at + 2]);
         // the eye's remainder and the light that changes with the eye (124 numbers, painter.js), |eye|² - 1 in 64 bits
         boolean w124 = flowNx >= 124;
