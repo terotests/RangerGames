@@ -42,6 +42,69 @@ pub struct Art {
     pub fills: Vec<Fill>,
     pub strokes: Vec<Stroke>,
     pub guides: Vec<Guide>,
+    /// the fills and strokes that follow the eyes' look (an iris, a pupil, a
+    /// glint): true at their index; empty when none do
+    pub gaze_fills: Vec<bool>,
+    pub gaze_strokes: Vec<bool>,
+}
+
+/// How far in front of its plane (+z, metres) each point of a drawing is, so
+/// that a turn of its bone moves the near parts more than the far ones and
+/// the drawing changes shape as the 3D thing would (fiber.rs flattens the
+/// turned points back onto the drawing's plane, so the layers keep their
+/// order and nothing fades). `{ "z0": z, "tilt": [dz/dx, dz/dy],
+/// "dome": [cx, cy, rx, ry, dz], "bumps": [[cx, cy, r, h], …] }`: a plane,
+/// an ellipsoid cap that falls away past its edge (a head), and round bumps
+/// (a muzzle, a nose).
+#[derive(Clone, Debug, Default)]
+pub struct Depth {
+    pub z0: f32,
+    pub tilt: [f32; 2],
+    /// where the tilt is measured from (an ear's base: the ear meets the head's dome there)
+    pub tilt_at: [f32; 2],
+    pub dome: Option<[f32; 5]>,
+    pub bumps: Vec<[f32; 4]>,
+    /// the lowest depth (a far side does not fall away further)
+    pub floor: Option<f32>,
+    /// `[y0, y1]`: below y0 a point stays with the bone's parent, above y1 it
+    /// turns with the bone, between it blends (a ruff over a neck)
+    pub pin: Option<[f32; 2]>,
+}
+
+impl Depth {
+    pub fn from_json(j: &Json) -> Option<Depth> {
+        if j.is_null() { return None; }
+        let t = nums(&j.get("tilt"));
+        let d = nums(&j.get("dome"));
+        Some(Depth {
+            z0: j.get("z0").as_num(0.0) as f32,
+            tilt: [t.first().copied().unwrap_or(0.0), t.get(1).copied().unwrap_or(0.0)],
+            tilt_at: { let a = nums(&j.get("tiltAt")); [a.first().copied().unwrap_or(0.0), a.get(1).copied().unwrap_or(0.0)] },
+            dome: if d.len() == 5 { Some([d[0], d[1], d[2], d[3], d[4]]) } else { None },
+            bumps: j.get("bumps").items().iter().map(nums).filter(|b| b.len() == 4).map(|b| [b[0], b[1], b[2], b[3]]).collect(),
+            floor: if j.get("floor").is_null() { None } else { Some(j.get("floor").as_num(0.0) as f32) },
+            pin: { let p = nums(&j.get("pin")); if p.len() == 2 { Some([p[0], p[1]]) } else { None } },
+        })
+    }
+    /// how much of the bone's own turn a point takes (1 without `pin`)
+    pub fn weight(&self, p: P2) -> f32 {
+        match self.pin {
+            Some([y0, y1]) if (y1 - y0).abs() > 1e-9 => { let t = ((p[1] - y0) / (y1 - y0)).clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) }
+            _ => 1.0,
+        }
+    }
+    pub fn z(&self, p: P2) -> f32 {
+        let mut z = self.z0 + self.tilt[0] * (p[0] - self.tilt_at[0]) + self.tilt[1] * (p[1] - self.tilt_at[1]);
+        if let Some([cx, cy, rx, ry, dz]) = self.dome {
+            let u = ((p[0] - cx) / rx).powi(2) + ((p[1] - cy) / ry).powi(2);
+            z += if u <= 1.0 { dz * (1.0 - u).sqrt() } else { -dz * (u.sqrt() - 1.0) };
+        }
+        for b in self.bumps.iter() {
+            let d2 = ((p[0] - b[0]).powi(2) + (p[1] - b[1]).powi(2)) / (b[2] * b[2]);
+            z += b[3] * (-d2).exp();
+        }
+        match self.floor { Some(f) => z.max(f), None => z }
+    }
 }
 
 /// The art of one feature from its JSON description; offset to its `at`.
@@ -544,6 +607,7 @@ pub fn drawing(j: &Json) -> Art {
         let holes: Vec<Vec<P2>> = fl.get("holes").items().iter().map(|h| pts_of(&json_wrap(h), "pts", &[])).filter(|h| h.len() >= 3).map(|h| catmull_closed(&h, steps)).collect();
         let shape = if holes.is_empty() { curve } else { bridge_holes(curve, holes) };
         a.fills.push(Fill { pts: shape, col });
+        a.gaze_fills.push(fl.get("gaze").as_bool());
     }
     for l in j.get("strokes").items() {
         let pts = pts_of(&l, "pts", &[]);
@@ -551,6 +615,7 @@ pub fn drawing(j: &Json) -> Art {
         if pts.len() < 2 || w.len() != pts.len() { continue; }
         let col = hex(&l.get("color").as_str()).unwrap_or(ink);
         a.strokes.push(Stroke { pts, w, col });
+        a.gaze_strokes.push(l.get("gaze").as_bool());
     }
     a
 }
@@ -810,4 +875,21 @@ pub fn triangulate(p: &[P2]) -> Vec<[usize; 3]> {
     }
     if idx.len() == 3 { out.push([idx[0], idx[1], idx[2]]); }
     out
+}
+
+#[cfg(test)]
+mod depth_tests {
+    use super::*;
+    #[test]
+    fn a_dome_is_deepest_in_its_middle_and_falls_away_past_its_edge_to_the_floor() {
+        let j = rg_core::json::parse(r#"{"dome":[0,0,1,1,0.5],"floor":-0.2,"bumps":[[0.5,0,0.1,0.1]],"pin":[-1,0]}"#);
+        let d = Depth::from_json(&j).unwrap();
+        assert!((d.z([0.0, 0.0]) - 0.5).abs() < 1e-5);
+        assert!(d.z([1.0, 0.0]).abs() < 1e-5);
+        assert!((d.z([3.0, 0.0]) + 0.2).abs() < 1e-5, "floor");
+        assert!(d.z([0.5, 0.0]) > 0.5f32 * (0.75f32).sqrt() + 0.09, "bump");
+        assert_eq!(d.weight([0.0, -2.0]), 0.0);
+        assert_eq!(d.weight([0.0, 1.0]), 1.0);
+        assert!((d.weight([0.0, -0.5]) - 0.5).abs() < 1e-5);
+    }
 }

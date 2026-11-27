@@ -69,6 +69,16 @@ let clean = false;          // tap the title: only the character, for screenshot
 let reorbit = 0;            // frames left to put the orbit camera back to its props
 let blinkIn = 2;
 let t = 0;
+// the drawn features' life (engine rig.rs and the features' depth): a head turn
+// set by hand or alive (the head looks about), the eyes' look, and the ears
+// following the head's turns on springs
+const TURNS = [0, -0.3, -0.6, 0.3];
+let turnAt = 0;
+let alive = false;
+let head = [0, 0, 0];
+let look: number[] | null = null;
+const ear = { L: [0, 0], R: [0, 0] };     // [turn, speed] each ear
+let lastYaw = 0;
 
 function pose(name: string, fade = 0.35) {
   if (!HAVE) return;
@@ -117,6 +127,25 @@ function tick(dt: number) {
     blinkIn = 2 + Math.random() * 3.5;
   }
   if (HAVE) { mixer.update(dt); mixer2.update(dt); }
+  // the head: alive, it looks about slowly; else the turn chosen
+  const yaw = alive ? 0.45 * Math.sin(t * 0.7) + 0.15 * Math.sin(t * 1.9) : TURNS[turnAt];
+  const pitch = alive ? 0.08 * Math.sin(t * 1.1) : 0;
+  head = [pitch, yaw, 0];
+  // the eyes lead the head: they look where it is turning to
+  look = alive ? [Math.sin(yaw * 1.6) * 1.2, 1.74 + 0.35 * Math.sin(t * 1.3), 1.0] : null;
+  // the ears lag the head's turn (springs), and twitch now and then
+  const vel = dt > 0 ? (yaw - lastYaw) / dt : 0;
+  lastYaw = yaw;
+  for (const k of ["L", "R"]) {
+    const e = (ear as any)[k];
+    const goal = -0.6 * vel + (alive && Math.sin(t * 0.9 + (k === "L" ? 0 : 2)) > 0.97 ? 0.35 : 0);
+    e[1] += ((goal - e[0]) * 60 - e[1] * 9) * dt;
+    e[0] += e[1] * dt;
+  }
+}
+
+function bones() {
+  return { head: head, "ear.L": [0, ear.L[0], -ear.L[0] * 0.3], "ear.R": [0, -ear.R[0], ear.R[0] * 0.3] };
 }
 
 const TOON = { bands: 3, outline: 2.2, outlineColor: "#1d1528", shadowColor: "#9c8cc0", rim: 0.8, rimColor: "#4e3f66" };
@@ -133,7 +162,7 @@ function world() {
         <circleGeometry args={[0.7, 40]} />
         <meshToonMaterial color="#cfc3e6" />
       </mesh>
-      {HAVE && sketchMode < 2 ? <primitive name="cat" object={cat} position={[0, 0, 0]} toon={toon ? TOON : false} /> : null}
+      {HAVE && sketchMode < 2 ? <primitive name="cat" object={cat} position={[0, 0, 0]} toon={toon ? TOON : false} bones={bones()} look={look} /> : null}
       {HAVE && sketchMode > 0 ? <primitive name="sketch" object={sketchModel} position={[0, 0, 0]} toon={false} renderOrder={sketchMode === 1 ? 1000 : 0} /> : null}
     </scene3d>
   );
@@ -167,6 +196,8 @@ function controls() {
         <div class={"tool" + (talking ? " on" : "")} onClick={() => talk(!talking)}>{talking ? "🗨️ " + tr("Puhuu", "Talking", "Habla") : "💬 " + tr("Puhu", "Talk", "Hablar")}</div>
         <div class={"tool" + (close ? " on" : "")} onClick={() => { close = !close; reorbit = 3; }}>{close ? "🔍 " + tr("Lähikuva", "Close-up", "Primer plano") : "🧍 " + tr("Koko hahmo", "Full body", "Cuerpo entero")}</div>
         <div class={"tool" + (sketchMode ? " on" : "")} onClick={() => { sketchMode = (sketchMode + 1) % 3; }}>{"📐 " + [tr("Hahmotelma", "Sketch", "Boceto"), tr("Hahmotelma päällä", "Sketch over", "Boceto encima"), tr("Vain hahmotelma", "Sketch only", "Solo boceto")][sketchMode]}</div>
+        <div class={"tool" + (turnAt ? " on" : "")} onClick={() => { turnAt = (turnAt + 1) % TURNS.length; }}>{"↔ " + tr("Käännös", "Turn", "Giro") + " " + Math.round(TURNS[turnAt] * 57.3) + "°"}</div>
+        <div class={"tool" + (alive ? " on" : "")} onClick={() => { alive = !alive; }}>{"✨ " + tr("Elävä", "Alive", "Viva")}</div>
         <div class={"tool" + (toon ? " on" : "")} onClick={() => { toon = !toon; }}>{toon ? "✏️ Toon" : "💡 " + tr("Tavallinen valo", "Plain light", "Luz normal")}</div>
       </div>
     </div>

@@ -510,6 +510,11 @@ struct ModelInst {
     m: M4,
     tint: Option<V3>,
     toon: Option<Toon>,
+    /// what the game does on top of the clips (rig.rs): turns added to bones,
+    /// two-bone IK, and the point the eyes look at (world)
+    turns: Vec<(usize, [f32; 4])>,
+    ik: Vec<crate::rig::Ik>,
+    look: Option<V3>,
 }
 
 /// One model's drawing kept for the next frame: if nothing about it or the
@@ -908,8 +913,24 @@ impl World {
                         for v in m.iter() { v.to_bits().hash(&mut hs); }
                         if let Some(t) = tint { for v in t.iter() { v.to_bits().hash(&mut hs); } }
                         if let Some(t) = toon { t.hash(&mut hs); }
+                        // the game's turns, IK and look (rig.rs), by bone name
+                        let bone = |n: &str| asset.nodes.iter().position(|x| x.name == n);
+                        let v3 = |j: &Json| -> Option<V3> { let v = j.items(); if v.len() >= 3 { Some([v[0].as_num(0.0) as f32, v[1].as_num(0.0) as f32, v[2].as_num(0.0) as f32]) } else { None } };
+                        let turns: Vec<(usize, [f32; 4])> = prop(a, "bones").map(|b| b.members().iter().filter_map(|mb| {
+                            let e = v3(&mb.value)?;
+                            Some((bone(&mb.key)?, crate::rig::euler(e[0], e[1], e[2])))
+                        }).collect()).unwrap_or_default();
+                        let ik: Vec<crate::rig::Ik> = prop(a, "ik").map(|l| l.items().iter().filter_map(|e| {
+                            let ch: Vec<usize> = e.get("chain").items().iter().filter_map(|n| bone(&n.as_str())).collect();
+                            if ch.len() != 3 { return None; }
+                            Some(crate::rig::Ik { chain: [ch[0], ch[1], ch[2]], target: v3(&e.get("target"))?, pole: v3(&e.get("pole")), weight: e.get("weight").as_num(1.0) as f32 })
+                        }).collect()).unwrap_or_default();
+                        let look = prop(a, "look").and_then(|j| v3(j));
+                        for (i, q) in turns.iter() { i.hash(&mut hs); for v in q.iter() { v.to_bits().hash(&mut hs); } }
+                        for k in ik.iter() { k.chain.hash(&mut hs); for v in k.target.iter() { v.to_bits().hash(&mut hs); } k.weight.to_bits().hash(&mut hs); }
+                        if let Some(l) = look { for v in l.iter() { v.to_bits().hash(&mut hs); } }
                         ctx.items.push(Item { pos: Vec::new(), nrm: Vec::new(), col: Vec::new(), emissive: [0.0; 3], tris: Vec::new(), kind: 0, double: false, flat: false, toon, owner: ow, order,
-                            model: Some(Rc::new(ModelInst { asset, mix, m, tint, toon })), key: hs.finish(), brush: None });
+                            model: Some(Rc::new(ModelInst { asset, mix, m, tint, toon, turns, ik, look })), key: hs.finish(), brush: None });
                     }
                 }
             }
@@ -1358,7 +1379,7 @@ impl World {
                 }
             }
             let mut sub = Vec::new();
-            model_items(&mi.asset, &mi.mix, &mi.m, it.owner, mi.tint, mi.toon, &mut sub);
+            model_items(mi, eye, it.owner, &mut sub);
             let (t0, p0, d0) = (tris.len(), pick.len(), drawn);
             for s in sub.iter_mut() {
                 s.order = it.order;
@@ -1447,29 +1468,76 @@ fn brush_ribbon(view: &[V3], ws: &[f32], focal: f32, near: f32, cx: f32, cy: f32
     out
 }
 
+/// A feature's art made ready to draw: its fills' triangles, and for a
+/// drawing with depth each point's depth (features.rs `Depth`).
+struct FeatArt {
+    art: crate::features::Art,
+    at: [f32; 3],
+    tris: Vec<Vec<u32>>,
+    rot: [f32; 4],
+    fz: Vec<Vec<f32>>,
+    sz: Vec<Vec<f32>>,
+    /// each point's share of the bone's own turn (Depth `pin`); empty: all of it
+    fw: Vec<Vec<f32>>,
+    sw: Vec<Vec<f32>>,
+    depth: bool,
+    /// the turn of the head (degrees about the bone's up, + towards the
+    /// bone's +x) the drawing shows: a feature's views are drawings of it from
+    /// other angles, and the nearest one is drawn
+    yaw: f32,
+    /// the look: how far the iris moves (metres, x and y) and the convex
+    /// shape it stays in
+    gaze: Option<([f32; 2], Vec<[f32; 2]>)>,
+}
+
 thread_local! {
     /// a feature's art and its fills' triangles, made once per feature (keyed
     /// by where its JSON lives, which is the loaded model's and does not move)
-    static FEATURE_ART: std::cell::RefCell<std::collections::HashMap<usize, Rc<(crate::features::Art, [f32; 3], Vec<Vec<u32>>)>>> = std::cell::RefCell::new(std::collections::HashMap::new());
+    static FEATURE_ART: std::cell::RefCell<std::collections::HashMap<usize, Rc<FeatArt>>> = std::cell::RefCell::new(std::collections::HashMap::new());
 }
 
-fn feature_art(f: &rg_core::json::Json) -> Option<Rc<(crate::features::Art, [f32; 3], Vec<Vec<u32>>)>> {
+/// `f` is the feature or one of its views (which take what they leave out from the feature)
+fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc<FeatArt>> {
     let key = f as *const rg_core::json::Json as usize;
     if let Some(hit) = FEATURE_ART.with(|c| c.borrow().get(&key).cloned()) {
         return Some(hit);
     }
-    let (art, at) = crate::features::art(f)?;
+    let get = |k: &str| { let v = f.get(k); if v.is_null() { base.get(k) } else { v } };
+    let (art, _) = if std::ptr::eq(f, base) { crate::features::art(f)? } else { (crate::features::drawing(f), [0.0; 3]) };
+    let at = { let v: Vec<f32> = base.get("at").items().iter().map(|x| x.as_num(0.0) as f32).collect(); if v.len() == 3 { [v[0], v[1], v[2]] } else { [0.0; 3] } };
     let tris = art.fills.iter().map(|fl| crate::features::triangulate(&fl.pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect()).collect();
-    let v = Rc::new((art, at, tris));
+    // the plane the feature is drawn in, turned from the bone's by `rot` (a quaternion x, y, z, w)
+    let r: Vec<f32> = get("rot").items().iter().map(|v| v.as_num(0.0) as f32).collect();
+    let rot = if r.len() == 4 { [r[0], r[1], r[2], r[3]] } else { [0.0, 0.0, 0.0, 1.0] };
+    let dj = get("depth");
+    let dep = crate::features::Depth::from_json(&dj);
+    let (fz, sz) = match &dep {
+        Some(d) => (art.fills.iter().map(|fl| fl.pts.iter().map(|p| d.z(*p)).collect()).collect(), art.strokes.iter().map(|st| st.pts.iter().map(|p| d.z(*p)).collect()).collect()),
+        None => (Vec::new(), Vec::new()),
+    };
+    let (fw, sw) = match &dep {
+        Some(d) if d.pin.is_some() => (art.fills.iter().map(|fl| fl.pts.iter().map(|p| d.weight(*p)).collect()).collect(), art.strokes.iter().map(|st| st.pts.iter().map(|p| d.weight(*p)).collect()).collect()),
+        _ => (Vec::new(), Vec::new()),
+    };
+    let gj = get("gaze");
+    let gaze = if gj.is_null() { None } else {
+        let rg: Vec<f32> = gj.get("range").items().iter().map(|x| x.as_num(0.0) as f32).collect();
+        let clip: Vec<[f32; 2]> = gj.get("clip").items().iter().map(|p| { let v = p.items(); [v.first().map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32, v.get(1).map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32] }).collect();
+        Some(([rg.first().copied().unwrap_or(0.0), rg.get(1).copied().unwrap_or(0.0)], clip))
+    };
+    let v = Rc::new(FeatArt { art, at, tris, rot, fz, sz, fw, sw, depth: dep.is_some(), yaw: f.get("yaw").as_num(0.0) as f32, gaze });
     FEATURE_ART.with(|c| c.borrow_mut().insert(key, v.clone()));
     Some(v)
 }
 
 /// A model's triangles in the world for a mix of clips, skinned where it has
 /// a skin; `tint` multiplies its colours.
-fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tint: Option<V3>, toon: Option<Toon>, items: &mut Vec<Item>) {
-    let pose = gltf::pose(asset, mix);
-    let wm = gltf::world_matrices(asset, &pose);
+fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
+    let (asset, m, tint, toon) = (&*mi.asset, &mi.m, mi.tint, mi.toon);
+    let mut pose = gltf::pose(asset, &mi.mix);
+    crate::rig::add_turns(&mut pose, &mi.turns);
+    let mut wm = gltf::world_matrices(asset, &pose);
+    for k in mi.ik.iter() { crate::rig::two_bone(asset, &mut pose, &mut wm, k); }
     // each skin's joint matrices: world(joint) * inverse bind
     let joints: Vec<Vec<M4>> = asset.skins.iter().map(|s| s.joints.iter().zip(s.ibm.iter()).map(|(&j, ibm)| gltf::mat_mul(m, &gltf::mat_mul(&wm[j], ibm))).collect()).collect();
     for (ni, node) in asset.nodes.iter().enumerate() {
@@ -1526,30 +1594,117 @@ fn model_items(asset: &Asset, mix: &[(usize, f32, f32)], m: &M4, owner: u32, tin
             continue;
         }
         let full = gltf::mat_mul(m, &wm[ni]);
-        let fwd = norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0]));
+        // the bone where its parent has it but not turned itself (for a drawing's pinned points)
+        let still = match node.parent { Some(pi) => gltf::mat_mul(m, &gltf::mat_mul(&wm[pi], &gltf::compose(node.t, node.r, node.s))), None => full };
         // the features by reference (the model's own JSON: no copy a frame, and
         // a fixed place to key their cached art by)
         let feats: &[rg_core::json::Json] = match &node.features { rg_core::json::Json::Arr(v) => v, _ => &[] };
         for f in feats.iter() {
-            let cached = match feature_art(f) { Some(x) => x, None => continue };
-            let (art, at, fill_tris) = (&cached.0, cached.1, &cached.2);
+            let base = match feature_art(f, f) { Some(x) => x, None => continue };
+            // the anchor, the bone's up and forward, and the way to the camera
+            let o = gltf::transform_point(&full, base.at);
+            let to_eye = norm(sub(eye, o));
+            // a drawing with depth is flattened along the model's forward: at rest it
+            // is the drawing as drawn, and a bone's turn moves its points by depth
+            let model_fwd = norm(gltf::transform_dir(m, [0.0, 0.0, 1.0]));
+            // the view drawn: the one nearest the head's turn from the camera
+            let mut cached = base.clone();
+            let views = f.get("views");
+            if base.depth && !views.items().is_empty() {
+                let up = norm(gltf::transform_dir(&full, [0.0, 1.0, 0.0]));
+                let fw = norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0]));
+                let flat = |v: V3| norm(sub(v, [up[0] * dot(v, up), up[1] * dot(v, up), up[2] * dot(v, up)]));
+                let (a, b) = (flat(to_eye), flat(fw));
+                let yaw = dot(cross(a, b), up).atan2(dot(a, b)).to_degrees();
+                let mut best = (yaw - base.yaw).abs();
+                if let rg_core::json::Json::Arr(vs) = &views {
+                    for v in vs.iter() {
+                        if let Some(c) = feature_art(v, f) {
+                            let d = (yaw - c.yaw).abs();
+                            if d < best { best = d; cached = c; }
+                        }
+                    }
+                }
+            }
+            let (art, at, fill_tris, rot) = (&cached.art, cached.at, &cached.tris, cached.rot);
             let mut layer = 0.0f32;
             // how far each layer sits in front of the one under it (a drawing with
             // hundreds of layers takes a smaller step)
             let step = f.get("layerStep").as_num(0.00005) as f32;
-            let place = |p: [f32; 2], z: f32| gltf::transform_point(&full, [at[0] + p[0], at[1] + p[1], at[2] + z]);
-            for (fl, tris) in art.fills.iter().zip(fill_tris.iter()) {
+            // a view drawn at another turn of the head is turned back by it, so that
+            // the bone's turn less the view's is what moves its points
+            let (vc, vs) = ((-cached.yaw).to_radians().cos(), (-cached.yaw).to_radians().sin());
+            let turn = |v: V3| -> V3 {
+                let v = [v[0] * vc + v[2] * vs, v[1], -v[0] * vs + v[2] * vc];
+                // v rotated by the quaternion rot
+                let (qx, qy, qz, qw) = (rot[0], rot[1], rot[2], rot[3]);
+                let t = [2.0 * (qy * v[2] - qz * v[1]), 2.0 * (qz * v[0] - qx * v[2]), 2.0 * (qx * v[1] - qy * v[0])];
+                [v[0] + qw * t[0] + (qy * t[2] - qz * t[1]), v[1] + qw * t[1] + (qz * t[0] - qx * t[2]), v[2] + qw * t[2] + (qx * t[1] - qy * t[0])]
+            };
+            let depth = cached.depth;
+            // with depth: each point where the turned 3D thing has it, then moved
+            // along the way to the camera onto the plane through the anchor
+            // (where it is on the screen stays), plus its layer's step towards
+            // the camera; without: in the bone's plane, layer over layer
+            let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32| -> V3 {
+                if depth {
+                    let q = turn([p[0], p[1], zd]);
+                    let lp = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
+                    let w = gltf::transform_point(&full, lp);
+                    let w = if wt >= 1.0 { w } else { let s0 = gltf::transform_point(&still, lp); [s0[0] + (w[0] - s0[0]) * wt, s0[1] + (w[1] - s0[1]) * wt, s0[2] + (w[2] - s0[2]) * wt] };
+                    let d = dot(sub(w, o), model_fwd) - zl;
+                    [w[0] - model_fwd[0] * d, w[1] - model_fwd[1] * d, w[2] - model_fwd[2] * d]
+                } else {
+                    let q = turn([p[0], p[1], zl]);
+                    gltf::transform_point(&full, [at[0] + q[0], at[1] + q[1], at[2] + q[2]])
+                }
+            };
+            let fwd = if depth { model_fwd } else { norm(gltf::transform_dir(&full, turn([0.0, 0.0, 1.0]))) };
+            // the look: the iris's shift (in the drawing's plane) towards where the
+            // eyes look, from where they look at rest (the camera)
+            let shift = match (&cached.gaze, mi.look) {
+                (Some((range, _)), Some(look)) => {
+                    let rt = norm(gltf::transform_dir(&full, turn([1.0, 0.0, 0.0])));
+                    let up = norm(gltf::transform_dir(&full, turn([0.0, 1.0, 0.0])));
+                    let fw = norm(gltf::transform_dir(&full, turn([0.0, 0.0, 1.0])));
+                    let ang = |d: V3| { let d = norm(d); [dot(d, rt).atan2(dot(d, fw).max(0.05)), dot(d, up).atan2(dot(d, fw).max(0.05))] };
+                    let (t, c) = (ang(sub(look, o)), ang(sub(eye, o)));
+                    [range[0] * ((t[0] - c[0]).clamp(-1.2, 1.2)).sin(), range[1] * ((t[1] - c[1]).clamp(-1.2, 1.2)).sin()]
+                }
+                _ => [0.0, 0.0],
+            };
+            let moved = shift[0] != 0.0 || shift[1] != 0.0;
+            for (k, (fl, tris)) in art.fills.iter().zip(fill_tris.iter()).enumerate() {
                 layer += 1.0;
                 let z = layer * step;
-                let pos: Vec<V3> = fl.pts.iter().map(|p| place(*p, z)).collect();
-                let tris = tris.clone();
+                let zs = cached.fz.get(k);
+                let zd = |i: usize| zs.and_then(|v| v.get(i)).copied().unwrap_or(0.0);
+                let ws = cached.fw.get(k);
+                let wt = |i: usize| ws.and_then(|v| v.get(i)).copied().unwrap_or(1.0);
+                let (pos, tris): (Vec<V3>, Vec<u32>) = if moved && art.gaze_fills.get(k).copied().unwrap_or(false) {
+                    // the iris moved, kept inside the eye's shape
+                    let pts: Vec<[f32; 2]> = fl.pts.iter().map(|p| [p[0] + shift[0], p[1] + shift[1]]).collect();
+                    let clip = cached.gaze.as_ref().map(|g| &g.1);
+                    let pts = match clip { Some(c) if c.len() >= 3 => crate::features::clip_convex(&pts, c), _ => pts };
+                    if pts.len() < 3 { continue; }
+                    let t = crate::features::triangulate(&pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect();
+                    (pts.iter().map(|p| place(*p, zd(0), z, wt(0))).collect(), t)
+                } else {
+                    (fl.pts.iter().enumerate().map(|(i, p)| place(*p, zd(i), z, wt(i))).collect(), tris.clone())
+                };
                 let col = match tint { Some(t) => [fl.col[0] * t[0], fl.col[1] * t[1], fl.col[2] * t[2]], None => fl.col };
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![col; pos.len()], pos, emissive: [0.0; 3], tris, kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: None });
             }
-            for st in art.strokes.iter() {
+            for (k, st) in art.strokes.iter().enumerate() {
                 layer += 1.0;
                 let z = layer * step;
-                let pos: Vec<V3> = st.pts.iter().map(|p| place(*p, z)).collect();
+                let zs = cached.sz.get(k);
+                let ws = cached.sw.get(k);
+                let g = moved && art.gaze_strokes.get(k).copied().unwrap_or(false);
+                let pos: Vec<V3> = st.pts.iter().enumerate().map(|(i, p)| {
+                    let p = if g { [p[0] + shift[0], p[1] + shift[1]] } else { *p };
+                    place(p, zs.and_then(|v| v.get(i)).copied().unwrap_or(0.0), z, ws.and_then(|v| v.get(i)).copied().unwrap_or(1.0))
+                }).collect();
                 if pos.len() < 2 { continue; }
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![st.col; pos.len()], pos, emissive: [0.0; 3], tris: Vec::new(), kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: Some(Rc::new(st.w.clone())) });
             }

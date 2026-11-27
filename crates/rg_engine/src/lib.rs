@@ -30,6 +30,7 @@ pub mod gltf;
 pub mod heights;
 pub mod lod;
 pub mod motion;
+pub mod rig;
 pub mod scene3d;
 pub mod splats;
 pub mod script;
