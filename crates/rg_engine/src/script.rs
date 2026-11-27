@@ -7,6 +7,8 @@ use cerxes::value::Val;
 pub const RUNTIME: &str = include_str!("js/runtime.js");
 /// three.js's names for the 3D world (`THREE`, `<scene3d>`), run after the runtime
 pub const THREE: &str = include_str!("js/three.js");
+/// animations on the engine's clock (rg.animate, rg.sequence, rg.clock, rg.spring), run after three.js
+pub const ANIM: &str = include_str!("js/anim.js");
 /// the element tree into RangerDOM's document (only with Engine::dom)
 pub const DOM: &str = include_str!("js/dom.js");
 

@@ -27,6 +27,7 @@ pub mod fluid;
 pub mod globe;
 pub mod gltf;
 pub mod heights;
+pub mod motion;
 pub mod scene3d;
 pub mod splats;
 pub mod script;
@@ -37,6 +38,8 @@ use draw::DrawStream;
 use rg_core::host::HostCommand;
 use rg_core::input::{event_json, Input};
 use rg_core::json::{self, member, quote, Json};
+use rg_core::anim::Anims;
+use rg_core::clock::FrameClock;
 use rg_core::vfs::{self, Vfs};
 use script::Script;
 use ui::Ui;
@@ -47,6 +50,8 @@ use std::rc::Rc;
 /// world answers them (fiber.rs World::sync).
 struct WorldSync {
     world: Rc<RefCell<fiber::World>>,
+    /// the animations (a request starting with U+0002: rg.animate, rg.sequence …)
+    anims: Rc<RefCell<Anims>>,
     /// the DOM backend's own requests (a request starting with U+0001:
     /// RangerDOM's style, DomBackend::host_sync)
     dom: Option<Box<dyn FnMut(&str) -> String>>,
@@ -58,6 +63,12 @@ impl cerxes::vm::HostSync for WorldSync {
             return match self.dom.as_mut() {
                 Some(f) => f(request),
                 None => String::new(),
+            };
+        }
+        if let Some(rest) = request.strip_prefix('\u{2}') {
+            return match self.anims.try_borrow_mut() {
+                Ok(mut a) => a.request(&json::parse(rest)).write(),
+                Err(_) => "null".to_string(),
             };
         }
         match self.world.try_borrow_mut() {
@@ -318,6 +329,10 @@ pub struct Engine {
     pub off_y: f64,
     time: f64,
     seed: i64,
+    /// the one clock: each frame's step in whole display frames (rg_core::clock)
+    pub clock: FrameClock,
+    /// the game's animations, sequences and springs, run before its tick
+    pub anims: Rc<RefCell<Anims>>,
     /// the game's 3D scene (rg.three), drawn under its 2D view
     pub scene: scene3d::Scene,
     /// the host draws the 3D scene itself with a depth buffer (WebGL / GLES):
@@ -436,6 +451,8 @@ impl Engine {
             off_y: 0.0,
             time: 0.0,
             seed: 1,
+            clock: FrameClock::new(),
+            anims: Rc::new(RefCell::new(Anims::new())),
         }
     }
 
@@ -762,6 +779,8 @@ impl Engine {
         self.fit();
         self.xr_auto();
         self.time = 0.0;
+        self.clock.reset();
+        self.anims.borrow_mut().reset();
         self.waiting_pack = None;
         // the game's files are a pack of their own that is not here yet: the
         // host fetches it, mounts it at the game's folder and calls
@@ -792,7 +811,7 @@ impl Engine {
             Some(d) => d.host_sync(),
             None => None,
         };
-        s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone(), dom: dom_sync }));
+        s.vm.vm.set_host_sync(Box::new(WorldSync { world: self.world.clone(), anims: self.anims.clone(), dom: dom_sync }));
         self.world.borrow_mut().dir = info.dir.clone();
         self.scene.dir = info.dir.clone();
         self.lend_files(true);
@@ -836,6 +855,9 @@ impl Engine {
             }
         }
         if let Err(e) = s.eval(script::THREE, "three.js") {
+            return self.fail(e);
+        }
+        if let Err(e) = s.eval(script::ANIM, "anim.js") {
             return self.fail(e);
         }
         if let Err(e) = s.eval(&format!("__settings({});", self.settings.write()), "settings.js") {
@@ -1287,8 +1309,41 @@ impl Engine {
     /// the script, its view is laid out into `draw`, its requests into
     /// `commands`. Err when the script threw (its error is on the screen).
     pub fn frame(&mut self, dt_ms: f64) -> Result<(), String> {
+        let step = self.clock.frame_dt(dt_ms);
+        self.run_frame(step)
+    }
+
+    /// One frame from the display's vsync time (ms, any origin) and its frame
+    /// period (ms, 0 when the host does not know it): the step is whole
+    /// display frames, the rest carried (rg_core::clock::FrameClock).
+    pub fn frame_at(&mut self, vsync_ms: f64, period_ms: f64) -> Result<(), String> {
+        let step = self.clock.frame_vsync(vsync_ms, period_ms);
+        self.run_frame(step)
+    }
+
+    /// The animations' frame: sound lengths now known, every clock and
+    /// animation moved by `step` ms; None when the game has none.
+    fn anim_frame(&mut self, step: f64) -> Option<Json> {
+        let mut a = self.anims.borrow_mut();
+        for u in a.unknown_sounds() {
+            let it = u.items();
+            let path = it[2].as_str();
+            if self.vfs.exists(&path) {
+                if let Some(ms) = motion::audio_ms(&self.vfs.read(&path)) {
+                    a.sound_length(it[0].as_num(0.0) as i64, it[1].as_num(0.0) as i64, ms);
+                }
+            }
+        }
+        let values = a.advance(step);
+        if a.anims.is_empty() && a.seqs.is_empty() && a.springs.is_empty() && a.clocks.len() == 1 && a.events.is_empty() {
+            return None;
+        }
+        Some(a.frame_json(values))
+    }
+
+    fn run_frame(&mut self, step: f64) -> Result<(), String> {
         self.draw.clear();
-        let dt = (dt_ms / 1000.0).clamp(0.0, 0.1);
+        let dt = step / 1000.0;
         self.time += dt;
         // a host's compile errors of game shaders (rg_shader::explain) into the game's log
         for m in rg_shader::take_errors() {
@@ -1345,11 +1400,14 @@ impl Engine {
             }
             evs.push(j);
         }
+        let anim = self.anim_frame(step);
         let arg = json::obj(vec![
             member("w", Json::Num(self.ui.width)),
             member("h", Json::Num(self.ui.height)),
             member("dt", Json::Num(dt)),
             member("time", Json::Num(self.time)),
+            member("clock", motion::clock_json(&self.clock)),
+            member("anim", anim.unwrap_or(Json::Null)),
             member("input", json::parse(&self.input.state_json())),
             member("events", Json::Arr(evs)),
             member("sim", self.fluid.state()),

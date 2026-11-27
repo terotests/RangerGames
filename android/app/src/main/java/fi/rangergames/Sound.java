@@ -248,10 +248,22 @@ final class Sound implements Runnable {
                 break;
             }
             default:
+                askTiming(o);
                 playFile(name, vol, o != null ? o.optInt("h", 0) : 0, o != null && o.optBoolean("loop", false), o != null ? o.optDouble("fade", 0) : 0, vol,
                         o != null && o.optBoolean("queue", false));
+                askDelay = 0;
+                askOffset = 0;
                 break;
         }
+    }
+
+    /** a sequence's sound (rg.sequence): starts `delay` s from now, `offset` s into the
+     *  file (o.delay, o.offset); kept for the next playFile on this thread */
+    private double askDelay, askOffset;
+
+    private void askTiming(JSONObject o) {
+        askDelay = o != null ? Math.max(0, o.optDouble("delay", 0)) : 0;
+        askOffset = o != null ? Math.max(0, o.optDouble("offset", 0)) : 0;
     }
 
     private void playFile(String name, double vol, int h, boolean loop, double fade, double base) {
@@ -280,19 +292,28 @@ final class Sound implements Runnable {
         }
         short[] pcm = file(name);
         if (pcm == null || pcm.length == 0) return;
-        startFile(pcm, vol, h, loop, fade, base, queue, ++serial);
+        startFile(pcm, null, vol, h, loop, fade, base, queue, ++serial, askDelay, askOffset);
     }
 
     private void startFile(short[] pcm, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser) {
-        startFile(pcm, null, vol, h, loop, fade, base, queue, ser);
+        startFile(pcm, null, vol, h, loop, fade, base, queue, ser, 0, 0);
     }
 
     private void startFile(short[] pcm, Stream st, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser) {
+        startFile(pcm, st, vol, h, loop, fade, base, queue, ser, 0, 0);
+    }
+
+    private void startFile(short[] pcm, Stream st, double vol, int h, boolean loop, double fade, double base, boolean queue, long ser, double delay, double offset) {
         Voice v = new Voice();
         v.pcm = pcm;
         v.st = st;
         v.vol = vol;
-        v.at = now;
+        v.at = now + (long) (delay * RATE);
+        // a sequence that starts it part way (a seek, a late load): from there on
+        if (offset > 0 && st == null) {
+            long off = (long) (offset * RATE);
+            v.pos = loop && pcm.length > 0 ? off % pcm.length : Math.min(off, pcm.length);
+        }
         if (queue && !loop) {
             v.at = Math.max(now, queueEnd);
             queueEnd = v.at + pcm.length + (long) (0.15 * RATE);
@@ -692,7 +713,10 @@ final class Sound implements Runnable {
         if (t == null) {
             // music files: 1.6 × MASTER 0.5 = 0.8 of full scale (0.6 × 0.5 was half as
             // loud as the MediaPlayer music before, and barely audible on the tablet)
+            askTiming(o);
             playFile(name, vol * 1.6, h, loop, o != null ? o.optDouble("fade", 0) : 0, vol);
+            askDelay = 0;
+            askOffset = 0;
             return;
         }
         tuneVol = vol;

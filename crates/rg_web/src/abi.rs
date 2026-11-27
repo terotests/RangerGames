@@ -167,6 +167,21 @@ pub extern "C" fn rg_frame(dt_ms: f64) -> i32 {
     })
 }
 
+/// One frame from the display's vsync time (requestAnimationFrame's time, ms)
+/// and its frame period (ms, 0: estimated): steps of whole display frames.
+#[no_mangle]
+pub extern "C" fn rg_frame_at(vsync_ms: f64, period_ms: f64) -> i32 {
+    with(|e| {
+        let r = e.frame_at(vsync_ms, period_ms);
+        publish(e);
+        if r.is_ok() {
+            0
+        } else {
+            1
+        }
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn rg_draw_ptr() -> *const f32 {
     with(|e| e.draw.nums.as_ptr())

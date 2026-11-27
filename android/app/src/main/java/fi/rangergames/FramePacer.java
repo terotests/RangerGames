@@ -8,9 +8,11 @@ package fi.rangergames;
  * pictures while the game moves by the time its frames took: the motion
  * judders. The pacer picks how many display frames a picture stays (the swap
  * interval, 1–3) from the frame times, with hysteresis, so pictures come
- * evenly (45 or 30 a second rather than an uneven 40–50), and gives the game
- * the time that passed rounded to whole display frames, as the pictures are
- * shown. Where the driver does not keep the interval it stays 1.
+ * evenly (45 or 30 a second rather than an uneven 40–50). The game's step
+ * comes from the engine's frame clock (VsyncClock → Engine.frameAt: whole
+ * display frames with the rest carried, rg_core::clock); {@link #step}'s own
+ * rounding is only the fallback before the first vsync. Where the driver
+ * does not keep the interval it stays 1.
  */
 final class FramePacer {
     /** the display's frame, ms */

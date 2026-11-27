@@ -507,7 +507,7 @@ function __ser(n, out) {
   if (typeof n.type !== "string") return false;
   // the 3D world (three.js's names, three.js): kept out of the 2D layout
   if (n.type === "scene3d") { __scene3d = __ser3(n); return true; }
-  if (n.__s !== undefined) { out.push(n.__s); return false; }
+  if (n.__s !== undefined && !(n.__s.id && __animStyle[n.__s.id])) { out.push(n.__s); return false; }
   var handlers = false;
   var e = { t: n.type };
   var p = n.props || {};
@@ -536,6 +536,13 @@ function __ser(n, out) {
       e.a[k] = String(v);
     }
   }
+  // rg.animate("#id", …): this frame's animated style over the element's own
+  if (e.id && typeof __animStyle === "object" && __animStyle[e.id]) {
+    var as = __animStyle[e.id];
+    if (!e.s) e.s = {};
+    for (var ak in as) e.s[ak] = as[ak];
+    handlers = true;
+  }
   var kids = n.children || [];
   if (kids.length) {
     e.c = [];
@@ -554,6 +561,8 @@ function __frame(arg) {
   var a = JSON.parse(arg);
   width = a.w;
   height = a.h;
+  // the animations (anim.js): their values and events, before the game's own code
+  if (typeof __animFrame === "function") __animFrame(a);
   __input.keys = a.input.keys;
   __input.pointer = a.input.pointer;
   __input.pointers = a.input.pointers;
