@@ -32,15 +32,24 @@ mod quest {
     extern "C" {
         fn __system_property_get(name: *const u8, value: *mut u8) -> i32;
     }
+    /// an integer system property (`adb shell setprop <name> N`), else `default`
+    fn prop_int(name: &[u8], default: i32) -> i32 {
+        let mut v = [0u8; 92];
+        let n = unsafe { __system_property_get(name.as_ptr(), v.as_mut_ptr()) };
+        if n <= 0 {
+            return default;
+        }
+        std::str::from_utf8(&v[..n as usize]).ok().and_then(|s| s.trim().parse::<i32>().ok()).unwrap_or(default)
+    }
     /// samples a pixel in the eyes: 4, or `adb shell setprop debug.rg.xrsamples N` (0 = off)
     fn eye_samples_wanted() -> i32 {
-        let mut v = [0u8; 92];
-        let n = unsafe { __system_property_get(b"debug.rg.xrsamples\0".as_ptr(), v.as_mut_ptr()) };
-        if n <= 0 {
-            return 4;
-        }
-        std::str::from_utf8(&v[..n as usize]).ok().and_then(|s| s.trim().parse::<i32>().ok()).map_or(4, |x| x.clamp(0, 8))
+        prop_int(b"debug.rg.xrsamples\0", 4).clamp(0, 8)
     }
+    /// sRGB eye images (`adb shell setprop debug.rg.xrsrgb 0` = the old RGBA8)
+    fn eye_srgb_wanted() -> bool {
+        prop_int(b"debug.rg.xrsrgb\0", 1) != 0
+    }
+    const GL_FRAMEBUFFER_SRGB_EXT: u32 = 0x8DB9;
     const EGL_CONFIG_ID: i32 = 0x3028;
     const EGL_NONE: i32 = 0x3038;
     const GL_RGBA8: u32 = 0x8058;
@@ -86,6 +95,8 @@ mod quest {
         head: xr::Space,
         blend: xr::EnvironmentBlendMode,
         eyes: Vec<Eye>,
+        /// the eye images are sRGB: write the painter's colours unconverted
+        srgb: bool,
         act: Actions,
         hands: Vec<Hand>,
         running: bool,
@@ -127,6 +138,10 @@ mod quest {
     }
 
     impl Quest {
+        pub(super) fn srgb_eyes(&self) -> bool {
+            self.srgb
+        }
+
         pub(super) fn start(env: &mut JNIEnv, activity: &JObject) -> Result<Quest, String> {
             let vm = env.get_java_vm().map_err(err("JavaVM"))?;
             let activity = env.new_global_ref(activity).map_err(err("activity"))?;
@@ -153,9 +168,17 @@ mod quest {
             let space = session.create_reference_space(kind, xr::Posef::IDENTITY).map_err(err("space"))?;
             let head = session.create_reference_space(xr::ReferenceSpaceType::VIEW, xr::Posef::IDENTITY).map_err(err("view space"))?;
 
-            // an eye's images: RGBA8 (the painter's colours are already sRGB)
+            // an eye's images: sRGB, so that the compositor shows them as they
+            // are (it takes a UNORM image for linear light and encodes it again:
+            // space turned grey-blue, everything washed out). The painter's
+            // colours are sRGB already, so the GPU's own linear→sRGB conversion
+            // is turned off while drawing the eyes (EXT_sRGB_write_control).
+            // Without the extension: RGBA8 as before.
             let formats = session.enumerate_swapchain_formats().unwrap_or_default();
-            let format = [GL_RGBA8, GL_SRGB8_ALPHA8].into_iter().find(|f| formats.contains(f)).or(formats.first().copied()).ok_or("no swapchain format")?;
+            let srgb = eye_srgb_wanted() && formats.contains(&GL_SRGB8_ALPHA8) && rg_gl::gl::has_extension("GL_EXT_sRGB_write_control");
+            let order = if srgb { [GL_SRGB8_ALPHA8, GL_RGBA8] } else { [GL_RGBA8, GL_SRGB8_ALPHA8] };
+            let format = order.into_iter().find(|f| formats.contains(f)).or(formats.first().copied()).ok_or("no swapchain format")?;
+            let srgb = srgb && format == GL_SRGB8_ALPHA8;
             let mut eyes = Vec::new();
             // the eyes draw with 4 samples a pixel where the GPU can (Quest: on
             // the chip, resolved as each tile is written): smooth edges on the
@@ -256,7 +279,7 @@ mod quest {
                     grip: grip_action.create_space(&session, p, xr::Posef::IDENTITY).map_err(err("grip space"))?,
                 });
             }
-            Ok(Quest { _activity: activity, instance, session, waiter, stream, space, head, blend, eyes, act, hands, running: false, events: xr::EventDataBuffer::new(), last: None })
+            Ok(Quest { _activity: activity, instance, session, waiter, stream, space, head, blend, eyes, srgb, act, hands, running: false, events: xr::EventDataBuffer::new(), last: None })
         }
 
         /// The session's state changes; false when the app should end.
@@ -408,6 +431,9 @@ mod quest {
                 eye.chain.wait_image(xr::Duration::INFINITE).map_err(err("wait image"))?;
                 let (fbo, (w, h)) = (eye.fbos[idx], rects[i]);
                 if with(|e| e.xr_eye(i)) {
+                    if self.srgb {
+                        rg_gl::gl::disable(GL_FRAMEBUFFER_SRGB_EXT);
+                    }
                     // read only while painting: the host's globes read files (Engine.read)
                     let mut host = JniGlHost { env: &mut *env, strings: None };
                     with_ref(|e| {
@@ -424,6 +450,9 @@ mod quest {
                     rg_gl::gl::bind_framebuffer(fbo);
                     rg_gl::gl::discard_depth_stencil();
                     rg_gl::gl::bind_framebuffer(0);
+                    if self.srgb {
+                        rg_gl::gl::enable(GL_FRAMEBUFFER_SRGB_EXT);
+                    }
                 }
                 eye.chain.release_image().map_err(err("release"))?;
             }
@@ -484,6 +513,7 @@ fn xr_log(e: &str) {
 pub extern "system" fn Java_fi_rangergames_Engine_xrStart(mut env: JNIEnv, _c: JClass, activity: jni::objects::JObject) -> jboolean {
     match quest::Quest::start(&mut env, &activity) {
         Ok(q) => {
+            xr_log(if q.srgb_eyes() { "eyes sRGB (write conversion off)" } else { "eyes RGBA8" });
             QUEST.with(|s| *s.borrow_mut() = Some(q));
             // the game shows in the headset from the start: a panel in a room
             with(|e| e.xr_input(r#"{"event":"caps","vr":true,"always":true}"#));
