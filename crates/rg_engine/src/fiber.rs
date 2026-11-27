@@ -1604,9 +1604,6 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
             // the anchor, the bone's up and forward, and the way to the camera
             let o = gltf::transform_point(&full, base.at);
             let to_eye = norm(sub(eye, o));
-            // a drawing with depth is flattened along the model's forward: at rest it
-            // is the drawing as drawn, and a bone's turn moves its points by depth
-            let model_fwd = norm(gltf::transform_dir(m, [0.0, 0.0, 1.0]));
             // the view drawn: the one nearest the head's turn from the camera
             let mut cached = base.clone();
             let views = f.get("views");
@@ -1646,20 +1643,33 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
             // along the way to the camera onto the plane through the anchor
             // (where it is on the screen stays), plus its layer's step towards
             // the camera; without: in the bone's plane, layer over layer
+            // with depth: the drawing on a card facing the camera through the anchor;
+            // each point is turned as the bone is turned from the view's angle (its
+            // depth makes the near parts move more), and only its move across the
+            // screen is kept, so the layers keep their order and nothing fades.
+            // Without depth: in the bone's plane, layer over layer.
+            let cr = { let c = cross([0.0, 1.0, 0.0], to_eye); if dot(c, c) < 1e-8 { norm(gltf::transform_dir(m, [1.0, 0.0, 0.0])) } else { norm(c) } };
+            let cu = cross(to_eye, cr);
+            // the turn's pivot: the bone's own axis (the card sits at.z in front of it, towards the camera)
+            // (the depth is from the bone's origin: the drawing's points are where the
+            // 3D thing has them, and every feature of a head turns about the same axis)
+            let piv = gltf::transform_point(&full, [0.0; 3]);
+            let piv_still = gltf::transform_point(&still, [0.0; 3]);
             let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32| -> V3 {
                 if depth {
                     let q = turn([p[0], p[1], zd]);
-                    let lp = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
-                    let w = gltf::transform_point(&full, lp);
-                    let w = if wt >= 1.0 { w } else { let s0 = gltf::transform_point(&still, lp); [s0[0] + (w[0] - s0[0]) * wt, s0[1] + (w[1] - s0[1]) * wt, s0[2] + (w[2] - s0[2]) * wt] };
-                    let d = dot(sub(w, o), model_fwd) - zl;
-                    [w[0] - model_fwd[0] * d, w[1] - model_fwd[1] * d, w[2] - model_fwd[2] * d]
+                    let q = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
+                    let on_card = |mm: &M4, oo: V3| { let w = gltf::transform_dir(mm, q); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y] };
+                    let a = on_card(&full, piv);
+                    let a = if wt >= 1.0 { a } else { let b = on_card(&still, piv_still); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] };
+                    let zl = zl + at[2];
+                    [a[0] + to_eye[0] * zl, a[1] + to_eye[1] * zl, a[2] + to_eye[2] * zl]
                 } else {
                     let q = turn([p[0], p[1], zl]);
                     gltf::transform_point(&full, [at[0] + q[0], at[1] + q[1], at[2] + q[2]])
                 }
             };
-            let fwd = if depth { model_fwd } else { norm(gltf::transform_dir(&full, turn([0.0, 0.0, 1.0]))) };
+            let fwd = if depth { to_eye } else { norm(gltf::transform_dir(&full, turn([0.0, 0.0, 1.0]))) };
             // the look: the iris's shift (in the drawing's plane) towards where the
             // eyes look, from where they look at rest (the camera)
             let shift = match (&cached.gaze, mi.look) {
