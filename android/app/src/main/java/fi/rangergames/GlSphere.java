@@ -93,8 +93,8 @@ final class GlSphere {
     private static final int RINGS = 96, SPOKES = 160;
     private static final String[] MNAMES = {"mgrid", "mspoke", "mclip", "mcull", "mcullM"};
     private static final int MGRID = 0, MSPOKE = 1, MCLIP = 2, MCULL = 3, MCULLM = 4;
-    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego"};
-    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58;
+    private static final String[] NAMES = {"tex", "ltex", "eye", "rgt", "upv", "fwd", "sun", "airc", "box", "view", "focal", "night", "lit", "win", "useWin", "air", "lgain", "useL", "relief", "htex", "gtex", "useH", "hlo", "hhi", "hamp", "nearM", "hrel", "hfreq", "crat", "mapAz", "mapK", "useHole", "hole", "lite", "meshM", "dtex", "useD", "rctex", "ratex", "useR", "rIn", "rOut", "flowA", "flowPh", "vinfo", "vtx", "vamp", "hot", "hotk", "star", "spots", "eyeL", "eyeK", "dust", "glint", "seaG", "scat", "smie", "rego", "lod"};
+    private static final int TEX = 0, LTEX = 1, EYE = 2, RGT = 3, UPV = 4, FWD = 5, SUN = 6, AIRC = 7, BOX = 8, VIEW = 9, FOCAL = 10, NIGHT = 11, LIT = 12, WIN = 13, USEWIN = 14, AIR = 15, LGAIN = 16, USEL = 17, RELIEF = 18, HTEX = 19, GTEX = 20, USEH = 21, HLO = 22, HHI = 23, HAMP = 24, NEARM = 25, HREL = 26, HFREQ = 27, CRAT = 28, MAPAZ = 29, MAPK = 30, USEHOLE = 31, HOLE = 32, LITE = 33, MESHM = 34, DTEX = 35, USED = 36, RCTEX = 37, RATEX = 38, USER = 39, RIN = 40, ROUT = 41, FLOWA = 42, FLOWPH = 43, VINFO = 44, VTX = 45, VAMP = 46, HOT = 47, HOTK = 48, STAR = 49, SPOTS = 50, EYEL = 51, EYEK = 52, DUST = 53, GLINT = 54, SEAG = 55, SCAT = 56, SMIE = 57, REGO = 58, LODU = 59;
     /** the pictures on the GPU, the least recently used dropped past this many bytes */
     private static final long TEXTURE_BUDGET = 160L * 1024 * 1024;
 
@@ -713,6 +713,8 @@ final class GlSphere {
      * pictures or null; ds: a detail window's own heights or null. False when
      * its main picture does not load.
      */
+    /** the level of detail of the next draw (draw.rs spheres_lod: header slot 12 - 1, 0 in full); Painter sets it */
+    float lod;
     /** the rings' pictures "colour|opacity" of the next draw (44 numbers), or null; Painter sets it */
     String rings;
     private boolean ringOn;
@@ -828,6 +830,7 @@ final class GlSphere {
         GLES30.glUniform1f(L[SMIE], w124 ? p[at + 123] : 1);
         // close by, the regolith's small pits (128 numbers, painter.js)
         GLES30.glUniform1f(L[REGO], flowNx >= 128 ? p[at + 124] : 0);
+        GLES30.glUniform1f(L[LODU], lod);
         GLES30.glUniform3f(L[RGT], p[at + 3], p[at + 4], p[at + 5]);
         GLES30.glUniform3f(L[UPV], p[at + 6], p[at + 7], p[at + 8]);
         GLES30.glUniform3f(L[FWD], p[at + 9], p[at + 10], p[at + 11]);
