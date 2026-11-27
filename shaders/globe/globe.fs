@@ -4,6 +4,9 @@ uniform sampler2D tex, ltex, htex, gtex, dtex; uniform vec3 eye, rgt, upv, fwd, 
 uniform float focal, night, lit, useWin, air, lgain, useL, relief;
 // real heights (draw.rs `sphere`, 40 numbers): low, high, the bumps' amplitude, near, shading tilt, the bumps' lattice
 uniform float useH, hlo, hhi, hamp, nearM, hrel, hfreq, crat, mapAz, mapK, useHole, lite, useD; uniform vec4 hole;
+// a detail window close by: the window of one drawn after it (draw.rs `sphere` 128-131), left out here where that
+// one covers the ground opaquely (inside it and round the point under the eye, as the ball's hole)
+uniform float useCut; uniform vec4 cut;
 // RG_DEPTH (the web's windows with their own heights, drawn together): the ray's length as the depth, so the
 // nearest ground of all the windows shows (a phone's mesh has its own depth: there it is left out)
 #ifdef RG_DEPTH
@@ -413,6 +416,10 @@ void main() {
   if (terr && useHole > 0.5 && meshM < 1.5) { vec3 pw = mesh ? normalize(wpos) : normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);
     float mg = mesh ? 0.0 : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < hole.x) uw += 1.0; else if (uw > hole.z) uw -= 1.0;
     if (uw > hole.x + mg && uw < hole.z - mg && w0.y > hole.y + mg && w0.y < hole.w - mg && dot(pw, normalize(eye)) > 0.995004) discard; }
+// a window under a later one: its part left out the same way (a hair inside its edge, so no pixel falls between)
+  if (terr && useCut > 0.5 && useWin > 0.5 && meshM < 1.5) { vec3 pw = mesh ? normalize(wpos) : normalize(disc >= 0.0 ? eye + d * (-b - sqrt(disc)) : q); vec2 w0 = lonlat(pw);
+    float mg = mesh ? 0.002 * (cut.z - cut.x) : 3.0 * (0.004 + 0.5 * max(hhi - hlo, 0.0)); float uw = w0.x; if (uw < cut.x) uw += 1.0; else if (uw > cut.z) uw -= 1.0;
+    if (uw > cut.x + mg && uw < cut.z - mg && w0.y > cut.y + mg && w0.y < cut.w - mg && dot(pw, normalize(eye)) > 0.9952) discard; }
   if (mesh) th = length(wpos - eye);
 // the mesh's corners slide over the ground as the eye moves and its flat triangles miss the true ground a little:
 // seen at a slant the picture slid to and fro on rough ground ("flowed"); two steps along the ray to the true ground
@@ -430,6 +437,9 @@ void main() {
   if (!terr) th = -b - sqrt(max(disc, 0.0));
   vec3 p = normalize(eye + (eyeL + d * th));
   vec2 uvw = lonlat(p); float u = uvw.x, v = uvw.y;
+// (a ray cast here: now that it has its true point, the later window's part is left out before the shading)
+  if (terr && useCut > 0.5 && useWin > 0.5 && !mesh) { float uc = u; if (uc < cut.x) uc += 1.0; else if (uc > cut.z) uc -= 1.0;
+    float mc = 0.002 * (cut.z - cut.x); if (uc > cut.x + mc && uc < cut.z - mc && v > cut.y + mc && v < cut.w - mc && dot(p, normalize(eye)) > 0.9952) discard; }
 // the seam at longitude 180: take the derivatives of the u that does not jump there
   float u2 = fract(u + 0.5) - 0.5; vec2 du = vec2(dFdx(u), dFdy(u)); vec2 du2 = vec2(dFdx(u2), dFdy(u2));
   if (dot(du2, du2) < dot(du, du)) du = du2;
