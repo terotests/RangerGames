@@ -2287,6 +2287,48 @@ impl Scene {
                 fan(&mut tris, &project(&v), &|_| 1.0, c);
             }
         }
+        // the planets are drawn before the shapes (by the stream, without
+        // depth): their balls' fronts go into the depth buffer here as
+        // invisible faces (depth + 2: alpha 0 and black, so they add nothing),
+        // so that a shape behind a planet is hidden and one in front is not
+        {
+            for p in self.planets.iter() {
+                let c = to_view(p.pos);
+                let l = dot(c, c).sqrt();
+                if l <= p.r * 1.02 || c[2] + p.r < near {
+                    continue;
+                }
+                // the cap of the ball seen from the eye: rings round the point
+                // nearest it, out to the silhouette
+                let w = mul(c, -1.0 / l);
+                let a = norm(cross(w, if w[1].abs() < 0.9 { [0.0, 1.0, 0.0] } else { [1.0, 0.0, 0.0] }));
+                let b = cross(w, a);
+                let edge = (p.r / l).clamp(-1.0, 1.0).acos();
+                let (nr, ns) = (5usize, 28usize);
+                let at = |i: usize, j: usize| -> V3 {
+                    let th = edge * i as f64 / nr as f64;
+                    let ph = std::f64::consts::TAU * j as f64 / ns as f64;
+                    let s = add(mul(a, ph.cos()), mul(b, ph.sin()));
+                    add(c, mul(add(mul(w, th.cos()), mul(s, th.sin())), p.r))
+                };
+                if (0..ns).any(|j| at(nr, j)[2] < near) {
+                    continue;
+                }
+                let put = |tris: &mut Vec<f32>, v: V3| {
+                    let x = cx + v[0] / v[2] * focal;
+                    let y = cy - v[1] / v[2] * focal;
+                    tris.extend_from_slice(&[x as f32, y as f32, (depth(v[2]) + 2.0) as f32, 0.0, 0.0, 0.0]);
+                };
+                for i in 0..nr {
+                    for j in 0..ns {
+                        let (p00, p01, p10, p11) = (at(i, j), at(i, j + 1), at(i + 1, j), at(i + 1, j + 1));
+                        for v in [p00, p10, p11, p00, p11, p01] {
+                            put(&mut tris, v);
+                        }
+                    }
+                }
+            }
+        }
         let mut drawn = 0;
         let mut glow: Vec<(f64, Vec<V3>, V3)> = Vec::new();
         // burst sparks: added triangles, a colour a corner (no order needed)
@@ -2646,6 +2688,35 @@ mod mesh_tests {
         assert!(flat[0] == flat[1] && flat[1] == flat[2], "{:?}", flat);
         let smooth = corners(true);
         assert!(smooth[0] != smooth[1], "{:?}", smooth);
+    }
+
+    #[test]
+    fn a_planet_hides_the_shapes_behind_it_through_the_depth_buffer() {
+        // the planets are drawn before the shapes, without depth: the ball's
+        // front goes into the triangles as invisible faces (depth + 2, black)
+        // nearer than a box behind the ball, farther than one in front of it
+        let mut sc = Scene::new();
+        sc.command("camera", &rg_core::json::parse(r#"{ "x": 0, "y": 0, "z": 10, "lookAt": [0, 0, 0] }"#));
+        sc.command("planet", &rg_core::json::parse(r#"{ "id": "p", "r": 1, "x": 0, "y": 0, "z": 0 }"#));
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "far", "shape": "box", "size": [0.3, 0.3, 0.3], "z": -4 }"#));
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "near", "shape": "box", "size": [0.3, 0.3, 0.3], "z": 4 }"#));
+        sc.gl = true;
+        sc.unified = true;
+        let mut out = DrawStream::new();
+        sc.render(&mut out, 400.0, 400.0);
+        let corners: Vec<&[f32]> = sc.tris.chunks(6).collect();
+        let cap: Vec<f32> = corners.iter().filter(|c| c[2] >= 1.5 && c[3] == 0.0 && c[4] == 0.0 && c[5] == 0.0).map(|c| c[2] - 2.0).collect();
+        let solid: Vec<f32> = corners.iter().filter(|c| c[2] < 1.5).map(|c| c[2]).collect();
+        assert!(cap.len() >= 3 * 5 * 28 * 2, "{}", cap.len());
+        let cap_max = cap.iter().cloned().fold(0.0f32, f32::max);
+        let cap_min = cap.iter().cloned().fold(1.0f32, f32::min);
+        // the boxes' corners: the near one's all in front of the ball, the far one's all behind
+        let (near_max, far_min) = (solid.iter().cloned().fold(0.0f32, f32::max), solid.iter().cloned().fold(1.0f32, f32::min));
+        assert!(solid.iter().any(|d| *d < cap_min) && solid.iter().any(|d| *d > cap_max), "{} {} {} {}", near_max, far_min, cap_min, cap_max);
+        // the caps come before the shapes, so the depth test hides what is behind them
+        let first_solid = corners.iter().position(|c| c[2] < 1.5).unwrap();
+        let last_cap = corners.iter().rposition(|c| c[2] >= 1.5 && c[3] == 0.0).unwrap();
+        assert!(last_cap < first_solid);
     }
 
     #[test]
