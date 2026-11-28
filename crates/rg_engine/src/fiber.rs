@@ -1383,7 +1383,7 @@ impl World {
                 }
             }
             let mut sub = Vec::new();
-            model_items(mi, eye, it.owner, &mut sub);
+            model_items(mi, eye, f, it.owner, &mut sub);
             let (t0, p0, d0) = (tris.len(), pick.len(), drawn);
             for s in sub.iter_mut() {
                 s.order = it.order;
@@ -1536,7 +1536,7 @@ fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc
 
 /// A model's triangles in the world for a mix of clips, skinned where it has
 /// a skin; `tint` multiplies its colours.
-fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
+fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<Item>) {
     let (asset, m, tint, toon) = (&*mi.asset, &mi.m, mi.tint, mi.toon);
     let mut pose = gltf::pose(asset, &mi.mix);
     // where the clips have the planted ends (before the game's moves)
@@ -1603,6 +1603,15 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
         }
     }
     // the bones' 2D features (eyes, …): drawn in each bone's plane, in front, layer by layer
+    // (the cards of drawings with depth are ordered by where their bones are at rest,
+    // so a turned model keeps the drawing's layer order)
+    let rest_wm: Vec<M4> = if asset.nodes.iter().any(|n| !n.features.is_null()) {
+        gltf::world_matrices(asset, &asset.nodes.iter().map(|n| (n.t, n.r, n.s)).collect::<Vec<_>>())
+    } else { Vec::new() };
+    let origin = gltf::transform_point(m, [0.0; 3]);
+    // one way into the screen for every card's depth (the camera's: the depth
+    // test then sees every card's layers as parallel planes)
+    let vf = norm(cam_f);
     for (ni, node) in asset.nodes.iter().enumerate() {
         if node.features.is_null() {
             continue;
@@ -1619,7 +1628,10 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
             let yaws: Vec<f32> = feats.iter().filter(|f| !f.get("yaw").is_null()).map(|f| f.get("yaw").as_num(0.0) as f32).collect();
             if yaws.len() < 2 { None } else {
                 let o = gltf::transform_point(&full, [0.0; 3]);
-                let (te, up, fw) = (norm(sub(eye, o)), norm(gltf::transform_dir(&full, [0.0, 1.0, 0.0])), norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0])));
+                // `setBy: "model"`: by the whole model's turn, not the bone's (an arm
+                // the clips twist still shows the set the model is drawn at)
+                let by = if feats.iter().any(|f| f.get("setBy").as_str() == "model") { m } else { &full };
+                let (te, up, fw) = (norm(sub(eye, o)), norm(gltf::transform_dir(by, [0.0, 1.0, 0.0])), norm(gltf::transform_dir(by, [0.0, 0.0, 1.0])));
                 let flat = |v: V3| norm(sub(v, [up[0] * dot(v, up), up[1] * dot(v, up), up[2] * dot(v, up)]));
                 let (a, b) = (flat(te), flat(fw));
                 let yaw = dot(cross(a, b), up).atan2(dot(a, b)).to_degrees();
@@ -1683,6 +1695,10 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
             // 3D thing has them, and every feature of a head turns about the same axis)
             let piv = gltf::transform_point(&full, [0.0; 3]);
             let piv_still = gltf::transform_point(&still, [0.0; 3]);
+            let card_z = { let r = &rest_wm[ni]; let sc = gltf::transform_dir(m, [0.0, 0.0, 1.0]); r[14] * (dot(sc, sc)).sqrt() };
+            // the depth of the card into the screen: where its bone is at rest, from
+            // the model's origin, less its own step towards the camera
+            let base_d = dot(sub(origin, eye), vf) - card_z - at[2];
             let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32| -> V3 {
                 if depth {
                     let q = turn([p[0], p[1], zd]);
@@ -1690,8 +1706,19 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
                     let on_card = |mm: &M4, oo: V3| { let w = gltf::transform_dir(mm, q); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y] };
                     let a = on_card(&full, piv);
                     let a = if wt >= 1.0 { a } else { let b = on_card(&still, piv_still); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] };
-                    let zl = zl + at[2];
-                    [a[0] + to_eye[0] * zl, a[1] + to_eye[1] * zl, a[2] + to_eye[2] * zl]
+                    // towards the camera to the depth its bone has at rest (into the screen
+                    // the same way for every card), plus its layer
+                    // (along its own ray from the eye, so it stays where it is on the screen)
+                    let rel = sub(a, eye);
+                    let rn = dot(rel, vf);
+                    let target = base_d - zl;
+                    if rn > 1e-4 && target > 1e-3 {
+                        let k = target / rn;
+                        [eye[0] + rel[0] * k, eye[1] + rel[1] * k, eye[2] + rel[2] * k]
+                    } else {
+                        let zl = zl + at[2];
+                        [a[0] + to_eye[0] * zl, a[1] + to_eye[1] * zl, a[2] + to_eye[2] * zl]
+                    }
                 } else {
                     let q = turn([p[0], p[1], zl]);
                     gltf::transform_point(&full, [at[0] + q[0], at[1] + q[1], at[2] + q[2]])
