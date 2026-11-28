@@ -1267,7 +1267,7 @@ impl Renderer {
     /// own draw stream, `tris` its triangles in it) the stream is painted
     /// into `rect` through its view instead, then the panel and `over`.
     #[allow(clippy::too_many_arguments)]
-    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<[[f32; 4]; 4]>, over: &[f32], background: [f32; 4], stream: Option<EyeStream>) {
+    pub fn render_eye(&mut self, fbo: u32, rect: [i32; 4], units: (f32, f32), tris: &[f32], panel: Option<&[[f32; 6]]>, over: &[f32], background: [f32; 4], stream: Option<EyeStream>) {
         if !self.init() {
             return;
         }
@@ -1344,13 +1344,8 @@ impl Renderer {
             if self.panel_prog != 0 {
                 gl::disable(gl::DEPTH_TEST);
                 gl::depth_mask(false);
-                // two triangles, texture v = 1 at the top (a framebuffer's rows go up)
-                let uv = [[0.0f32, 1.0], [1.0, 1.0], [1.0, 0.0], [0.0, 0.0]];
-                let mut q: Vec<f32> = Vec::with_capacity(36);
-                for &k in [0usize, 1, 2, 0, 2, 3].iter() {
-                    q.extend_from_slice(&c[k]);
-                    q.extend_from_slice(&uv[k]);
-                }
+                // triangles of (x, y, z, w, u, v), v 1 at the top (a framebuffer's rows go up)
+                let q: Vec<f32> = c.iter().flat_map(|v| v.iter().copied()).collect();
                 gl::use_program(self.panel_prog);
                 gl::active_texture(gl::TEXTURE0);
                 gl::bind_texture(gl::TEXTURE_2D, tex);
@@ -1358,7 +1353,7 @@ impl Renderer {
                 gl::bind_buffer(gl::ARRAY_BUFFER, self.panel_vbo);
                 let qb = unsafe { std::slice::from_raw_parts(q.as_ptr() as *const u8, q.len() * 4) };
                 gl::buffer_data(gl::ARRAY_BUFFER, qb, gl::STREAM_DRAW);
-                gl::draw_arrays(gl::TRIANGLES, 0, 6);
+                gl::draw_arrays(gl::TRIANGLES, 0, c.len() as i32);
                 self.calls += 1;
             }
         }

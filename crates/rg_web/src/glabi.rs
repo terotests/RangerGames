@@ -168,7 +168,7 @@ pub extern "C" fn rg_xr_eye(i: i32, fbo: u32, x: i32, y: i32, w: i32, h: i32, r:
         });
         GL.with(|gl| {
             let mut gl = gl.borrow_mut();
-            gl.render_eye(fbo, [x, y, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel, &e.xr_over, [r, g, b, 1.0], stream);
+            gl.render_eye(fbo, [x, y, w, h], (uw as f32, uh as f32), &e.scene.tris, e.xr_panel.as_deref(), &e.xr_over, [r, g, b, 1.0], stream);
             gl.ok() as i32
         })
     })

@@ -390,7 +390,7 @@ pub struct Engine {
     /// the last eye drawn (`xr_eye`): the controllers' rays and cursor, and
     /// the panel's corners in clip space
     pub xr_over: Vec<f32>,
-    pub xr_panel: Option<[[f32; 4]; 4]>,
+    pub xr_panel: Option<Vec<[f32; 6]>>,
     /// VR: an eye with planets, stars or particle runs is a whole draw stream
     /// (`xr_eye` makes it): this, with its triangles in `scene.tris`, and
     /// `xr_view` = its units' width and height and where the eye's own view
