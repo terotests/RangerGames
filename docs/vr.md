@@ -61,7 +61,7 @@ a small test: balls around the player to pop with the trigger.
 The near plane is 0.05 game units. A world in kilometres at `scale: 0.001`
 cuts away everything nearer than 50 m: set `rg.three("camera", { near: 0.0001 })`
 (10 cm) while things are at arm's length, and back to 0.05 for the far views
-(depth is sorted in f32).
+(a closer near plane leaves less depth precision far away).
 
 ## How it is drawn
 
