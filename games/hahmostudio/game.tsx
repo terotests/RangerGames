@@ -73,7 +73,7 @@ let t = 0;
 // the drawn features' life (engine rig.rs and the features' depth): a head turn
 // set by hand or alive (the head looks about), the eyes' look, and the ears
 // following the head's turns on springs
-const TURNS = [0, -0.3, -0.6, 0.3];
+const TURNS = [0, -0.25, -0.6, 0.3];
 // the close-up shows the character turned as the close-up picture is (its features are drawn at that angle)
 const VIEW = 35 / 57.2958;
 let turnAt = 0;

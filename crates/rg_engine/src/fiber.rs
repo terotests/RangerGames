@@ -1627,10 +1627,18 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
         let set_yaw = {
             let yaws: Vec<f32> = feats.iter().filter(|f| !f.get("yaw").is_null()).map(|f| f.get("yaw").as_num(0.0) as f32).collect();
             if yaws.len() < 2 { None } else {
-                let o = gltf::transform_point(&full, [0.0; 3]);
                 // `setBy: "model"`: by the whole model's turn, not the bone's (an arm
-                // the clips twist still shows the set the model is drawn at)
-                let by = if feats.iter().any(|f| f.get("setBy").as_str() == "model") { m } else { &full };
+                // the clips twist still shows the set the model is drawn at); `setBy:
+                // "<bone>"`: by that bone's turn (the ears and eyes change with the head)
+                let set_by = feats.iter().map(|f| f.get("setBy").as_str()).find(|s| !s.is_empty());
+                let by_m: M4 = match set_by.as_deref() {
+                    Some("model") => *m,
+                    Some(b) => match asset.nodes.iter().position(|n| n.name == b) { Some(bi) => gltf::mat_mul(m, &wm[bi]), None => full },
+                    None => full,
+                };
+                let by = &by_m;
+                // seen from that bone's origin too (a group's bones then never disagree)
+                let o = gltf::transform_point(by, [0.0; 3]);
                 let (te, up, fw) = (norm(sub(eye, o)), norm(gltf::transform_dir(by, [0.0, 1.0, 0.0])), norm(gltf::transform_dir(by, [0.0, 0.0, 1.0])));
                 let flat = |v: V3| norm(sub(v, [up[0] * dot(v, up), up[1] * dot(v, up), up[2] * dot(v, up)]));
                 let (a, b) = (flat(te), flat(fw));
