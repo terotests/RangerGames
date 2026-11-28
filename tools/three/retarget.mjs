@@ -252,6 +252,15 @@ export function retarget(frames, bones, { fps = 30, loop = false, inPlace = true
   const catAnkle = R("foot.L")[1];
   const h0 = F[0].J.hm;
   const X = [1, 0, 0], Z = [0, 0, 1];
+  // the source's toe line slopes down when the foot stands flat; that slope
+  // is the cat's flat foot (else the toes would dig into the ground)
+  const footRest = {};
+  for (const sd of ["L", "R"]) {
+    let acc = [0, 0, 0];
+    for (const { J } of F) if (J["toe" + sd] && J["ankle" + sd][1] < ground + 0.02) acc = add(acc, norm(sub(J["toe" + sd], J["ankle" + sd])));
+    const dn = len(acc) > 0 ? -norm(acc)[1] : 0;
+    footRest[sd] = [0, -dn, Math.sqrt(Math.max(0, 1 - dn * dn))];
+  }
 
   // the clip's average neck direction in the ribcage frame (see the neck below)
   let neckMean = [0, 0, 0];
@@ -265,8 +274,11 @@ export function retarget(frames, bones, { fps = 30, loop = false, inPlace = true
   for (const n of names) out.rot[n] = [];
   for (const { J } of F) {
     const G = {};
-    const local = (n, g) => { const p = bones[B[n]][1]; const gp = G[bones[p][0]] || [0, 0, 0, 1]; G[n] = g; out.rot[n].push(qmul(qinv(gp), g)); };
-    const keep = (n) => { const p = bones[B[n]][1]; G[n] = G[bones[p][0]] || [0, 0, 0, 1]; };   // a bone that follows its parent
+    // the nearest posed ancestor's turn (a bone in between that the solver
+    // leaves alone, such as a second spine bone, follows its parent)
+    const posed = (n) => { let p = bones[B[n]][1]; while (p >= 0 && !G[bones[p][0]]) p = bones[p][1]; return p >= 0 ? G[bones[p][0]] : [0, 0, 0, 1]; };
+    const local = (n, g) => { const gp = posed(n); G[n] = g; out.rot[n].push(qmul(qinv(gp), g)); };
+    const keep = (n) => { G[n] = posed(n); };   // a bone that follows its parent
     const hipS = sub(J.hipL, J.hipR), shS = sub(J.shoulderL, J.shoulderR), up = sub(J.sm, J.hm);
     // the pelvis and the ribcage take their tilt from the hip and shoulder
     // lines (primary), their lean from the trunk (secondary): with the trunk
@@ -313,7 +325,7 @@ export function retarget(frames, bones, { fps = 30, loop = false, inPlace = true
       const gS = align(restDir("shin." + s, "foot." + s), [1, 0, 0], sub(an, kn), bendL);
       local("shin." + s, gS);
       const to = J["toe" + s];
-      if (to) local("foot." + s, align(Z, [1, 0, 0], sub(to, an), bendL)); else local("foot." + s, gS);
+      if (to) local("foot." + s, align(footRest[s], [1, 0, 0], sub(to, an), bendL)); else local("foot." + s, gS);
     }
     // the pelvis: sideways and forward from the first frame, its height from the ground, scaled
     const d = mul(sub(J.hm, h0), sc);
