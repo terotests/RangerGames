@@ -191,7 +191,13 @@ pub struct Panel {
     pub centre: V3,
     /// the game's height / width
     pub aspect: f64,
+    /// bent round the player (a slice of an upright cylinder through the
+    /// head, radius `distance`): every part of it as far away and facing them
+    pub curve: bool,
 }
+
+/// Columns the bent panel is drawn in (each a flat strip).
+const CURVE_STRIPS: usize = 24;
 
 impl Panel {
     fn axes(&self) -> (V3, V3, V3) {
@@ -210,15 +216,30 @@ impl Panel {
     }
     /// corners: top left, top right, bottom right, bottom left
     pub fn corners(&self) -> [V3; 4] {
-        let (r, u, _) = self.axes();
-        let (hw, hh) = (self.width() / 2.0, self.height() / 2.0);
-        let c = self.centre;
-        [
-            add(add(c, mul(r, -hw)), mul(u, hh)),
-            add(add(c, mul(r, hw)), mul(u, hh)),
-            add(add(c, mul(r, hw)), mul(u, -hh)),
-            add(add(c, mul(r, -hw)), mul(u, -hh)),
-        ]
+        [self.at(0.0, 0.0), self.at(1.0, 0.0), self.at(1.0, 1.0), self.at(0.0, 1.0)]
+    }
+    /// The point at (a, b) on the panel (0…1 from its top left); bent, its
+    /// arc is the panel's width
+    pub fn at(&self, a: f64, b: f64) -> V3 {
+        let (r, u, n) = self.axes();
+        let y = mul(u, (0.5 - b) * self.height());
+        if !self.curve {
+            return add(add(self.centre, mul(r, (a - 0.5) * self.width())), y);
+        }
+        let rad = self.distance.max(0.1);
+        let phi = (a - 0.5) * self.width() / rad;
+        let axis = add(self.centre, mul(n, rad));
+        add(add(axis, add(mul(n, -rad * phi.cos()), mul(r, rad * phi.sin()))), y)
+    }
+    /// The panel's right and the way to the player at (a, b) (bent: they turn with it)
+    pub fn local_axes(&self, a: f64) -> (V3, V3, V3) {
+        let (r, u, n) = self.axes();
+        if !self.curve {
+            return (r, u, n);
+        }
+        let phi = (a - 0.5) * self.width() / self.distance.max(0.1);
+        let (s, c) = phi.sin_cos();
+        (add(mul(r, c), mul(n, s)), u, sub(mul(n, c), mul(r, s)))
     }
     /// Where a ray meets the panel: (distance, u, v), u and v 0…1 from its top left.
     pub fn hit(&self, o: V3, d: V3) -> Option<(f64, f64, f64)> {
@@ -226,6 +247,32 @@ impl Panel {
             return None;
         }
         let (r, u, n) = self.axes();
+        if self.curve {
+            // the ray against the upright cylinder round the axis, from inside
+            let rad = self.distance.max(0.1);
+            let axis = add(self.centre, mul(n, rad));
+            let q = sub(o, axis);
+            let (qx, qz, dx, dz) = (q[0], q[2], d[0], d[2]);
+            let aa = dx * dx + dz * dz;
+            if aa < 1e-9 {
+                return None;
+            }
+            let bb = 2.0 * (qx * dx + qz * dz);
+            let cc = qx * qx + qz * qz - rad * rad;
+            let disc = bb * bb - 4.0 * aa * cc;
+            if disc < 0.0 {
+                return None;
+            }
+            let t = (-bb + disc.sqrt()) / (2.0 * aa);
+            if t <= 0.0 {
+                return None;
+            }
+            let p = sub(add(o, mul(d, t)), axis);
+            let phi = dot(p, r).atan2(-dot(p, n));
+            let a = phi * rad / self.width() + 0.5;
+            let b = 0.5 - dot(sub(add(o, mul(d, t)), self.centre), u) / self.height();
+            return if (0.0..=1.0).contains(&a) && (0.0..=1.0).contains(&b) { Some((t, a, b)) } else { None };
+        }
         let den = dot(d, n);
         if den > -1e-6 {
             return None;
@@ -342,7 +389,7 @@ impl Xr {
             hands: Vec::new(),
             scale: 1.0,
             rig: Rig::Yaw,
-            panel: Panel { visible: true, distance: 1.3, size: 1.0, drop: 0.1, follow: true, yaw: 0.0, centre: [0.0, -0.15, -1.4], aspect: 16.0 / 9.0 },
+            panel: Panel { visible: true, distance: 1.3, size: 1.0, drop: 0.1, follow: true, yaw: 0.0, centre: [0.0, -0.15, -1.4], aspect: 16.0 / 9.0, curve: false },
             yaw0: 0.0,
             p0: [0.0; 3],
             recentre: true,
@@ -390,6 +437,9 @@ impl Xr {
                 }
                 if let Json::Bool(b) = p.get("follow") {
                     self.panel.follow = b;
+                }
+                if let Json::Bool(b) = p.get("curve") {
+                    self.panel.curve = b;
                 }
                 let d = p.get("distance").as_num(self.panel.distance);
                 let sz = p.get("size").as_num(self.panel.size);
@@ -752,20 +802,20 @@ impl Xr {
         ])
     }
 
-    /// The panel's corners for eye `i` as clip-space points (x, y, z, w),
-    /// in the order top left, top right, bottom right, bottom left; None
-    /// when hidden or wholly behind the eye.
-    pub fn panel_clip(&self, i: usize) -> Option<[[f32; 4]; 4]> {
+    /// The panel for eye `i` as triangles of clip-space corners with the
+    /// picture's place (x, y, z, w, u, v; v 1 at the top, a framebuffer's
+    /// rows go up): two for a flat panel, a strip of columns for a bent one;
+    /// None when hidden or wholly behind the eye.
+    pub fn panel_clip(&self, i: usize) -> Option<Vec<[f32; 6]>> {
         if !self.panel.visible {
             return None;
         }
         let e = self.eye_local(i)?;
         let (w, h) = e.size();
         let (cx, cy) = e.centre();
-        let mut out = [[0.0f32; 4]; 4];
         let mut any = false;
-        for (k, c) in self.panel.corners().iter().enumerate() {
-            let d = sub(*c, e.pos);
+        let mut clip = |p: V3, a: f64, b: f64| -> [f32; 6] {
+            let d = sub(p, e.pos);
             let (x, y, z) = (dot(d, e.r), dot(d, e.u), dot(d, e.f));
             // screen units: sx = cx + x / z * K, ndc = sx / w * 2 - 1; times z
             // (homogeneous, so the GPU interpolates the picture in perspective)
@@ -773,7 +823,16 @@ impl Xr {
             if z > 0.01 {
                 any = true;
             }
-            out[k] = [hx as f32, hy as f32, 0.0, z as f32];
+            [hx as f32, hy as f32, 0.0, z as f32, a as f32, (1.0 - b) as f32]
+        };
+        let n = if self.panel.curve { CURVE_STRIPS } else { 1 };
+        let mut out = Vec::with_capacity(n * 6);
+        for k in 0..n {
+            let (a0, a1) = (k as f64 / n as f64, (k + 1) as f64 / n as f64);
+            let q = [clip(self.panel.at(a0, 0.0), a0, 0.0), clip(self.panel.at(a1, 0.0), a1, 0.0), clip(self.panel.at(a1, 1.0), a1, 1.0), clip(self.panel.at(a0, 1.0), a0, 1.0)];
+            for &m in [0usize, 1, 2, 0, 2, 3].iter() {
+                out.push(q[m]);
+            }
         }
         if any { Some(out) } else { None }
     }
@@ -824,9 +883,9 @@ impl Xr {
             let c0 = if pressed { [1.0, 0.85, 0.3] } else { [0.6, 0.85, 1.0] };
             let c1 = if hit.is_some() { c0 } else { [0.05, 0.08, 0.15] };
             quad(start, end, side, c0, c1);
-            if let Some((t, _, _)) = hit {
+            if let Some((t, ha, _)) = hit {
                 // the cursor: a small square on the panel, facing the player
-                let (r, u, n) = self.panel.axes();
+                let (r, u, n) = self.panel.local_axes(ha);
                 let p = add(add(a.p, mul(dir, t)), mul(n, 0.003));
                 let s = if pressed { 0.012 } else { 0.016 };
                 let col = if pressed { [1.0, 0.85, 0.3] } else { [1.0, 1.0, 1.0] };
@@ -1000,6 +1059,34 @@ mod tests {
         // the panel is ahead of the recentred head
         let (t, u, v) = x.panel.hit([0.0, 0.0, 0.0], [0.0, -0.1, -1.0]).unwrap();
         assert!(t > 1.0 && (u - 0.5).abs() < 0.05 && v > 0.3 && v < 0.7, "{} {} {}", t, u, v);
+    }
+
+    #[test]
+    fn a_bent_panel_keeps_every_part_as_far_away_and_facing_the_player() {
+        let mut p = Xr::new().panel;
+        p.curve = true;
+        p.distance = 0.8;
+        p.size = 1.6;
+        p.aspect = 0.5;
+        p.centre = [0.0, 0.0, -0.8];
+        // the axis is at the origin: every column 0.8 m from it, the ends too
+        for a in [0.0, 0.25, 0.5, 1.0] {
+            let q = p.at(a, 0.5);
+            assert!(((q[0] * q[0] + q[2] * q[2]).sqrt() - 0.8).abs() < 1e-9, "{} {:?}", a, q);
+            let (_, _, n) = p.local_axes(a);
+            // its way to the player points at the axis
+            assert!((n[0] + q[0] / 0.8).abs() < 1e-9 && (n[2] + q[2] / 0.8).abs() < 1e-9, "{:?} {:?}", n, q);
+        }
+        // the arc is the width (1.6 m): the right end 1 radian round
+        let r = p.at(1.0, 0.5);
+        assert!((r[0] - 0.8 * 1f64.sin()).abs() < 1e-9 && (r[2] + 0.8 * 1f64.cos()).abs() < 1e-9, "{:?}", r);
+        // a ray from the middle towards a point on it meets it there
+        for (a, b) in [(0.5, 0.5), (0.9, 0.2), (0.05, 0.8)] {
+            let q = p.at(a, b);
+            let (t, ha, hb) = p.hit([0.0, 0.0, 0.0], q).unwrap();
+            assert!((t - 1.0).abs() < 1e-9 && (ha - a).abs() < 1e-9 && (hb - b).abs() < 1e-9, "{} {} {}", t, ha, hb);
+        }
+        assert!(p.hit([0.0, 0.0, 0.0], [0.0, 0.0, 1.0]).is_none(), "behind the player: past the arc");
     }
 
     #[test]

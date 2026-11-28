@@ -113,6 +113,8 @@ A form changes only once the size has passed its limit by `lodMargin`
 (0.15 = 15 %, per object), so an object at a limit does not flick between
 two forms. `detail: "auto"` works on `sphere`, `cylinder` and `cone`.
 
+Planets are drawn before the shapes, without depth of their own; on a GL host each ball's front is also written into the depth buffer (invisible faces in the scene's triangles), so a shape behind a planet is hidden and one in front of it is not (a ring or an orbit line through a planet).
+
 Planets (`rg.three("planet", …)`) are cast a ray a pixel, so they have no
 triangles to drop. Their level instead follows their size smoothly: 0 at
 96 units of radius and over, 1 more each halving of the size. The globe

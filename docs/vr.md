@@ -40,7 +40,7 @@ Options:
 | --- | --- |
 | `scale` | game units in a metre (1: one unit is one metre) |
 | `rig` | `"yaw"` (default): the camera's heading is ahead, the floor stays level; `"full"`: its whole turn (a cockpit that rolls); `"fixed"`: the camera's place only |
-| `panel` | `false`, or `{ visible, distance (m), size (its longer side, m), drop (m below the eyes), follow (true: it comes back in front when the head turns away) }` |
+| `panel` | `false`, or `{ visible, distance (m), size (its longer side, m), drop (m below the eyes), follow (true: it comes back in front when the head turns away), curve (true: bent round the player, a slice of an upright cylinder of radius `distance`, so that its edges face them as its middle does; `size` is then the arc) }` |
 | `fov` | stereo: the field of view in degrees |
 | `ipd` | stereo: the distance between the eyes in metres (0.063) |
 | `stereo` | how far apart the eyes are against the real ones (1). 0: no depth; 1000: a world in kilometres looks like a model in metres. The head still moves `scale` units a metre |
