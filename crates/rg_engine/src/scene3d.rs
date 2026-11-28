@@ -25,6 +25,9 @@
 //!                                               // triangle (else `color`), glow: the triangles drawn
 //!                                               // unlit; smooth: true lights a corner (normals and
 //!                                               // colours averaged, GL); a ship from RangerSpaceshipBuilder
+//!                                               // src: "rocks/eros.rgm" a baked mesh file instead of
+//!                                               // verts, tris and colors (`mesh_file`; part: which of
+//!                                               // its meshes, 0; a lod entry { px, part } takes another)
 //!                             | "dust"         // as puffs with two numbers more a puff (seed, age 0…1):
 //!                                               // a few lumps turning round it and drifting apart with age
 //!                             | "puffs"        // soft round puffs facing the eye (smoke, a cloud):
@@ -225,6 +228,53 @@ fn tri_mesh(a: &Json) -> Mesh {
         m.glow.push(glow_in.binary_search(&i).is_ok());
     }
     m
+}
+
+/// The meshes of a baked mesh file (a mesh's `src`, "RGM1"): made ahead by a
+/// tool, read as they are, with no numbers through the game's script. Little
+/// endian: "RGM1", u32 the count of parts; a part: u32 corners, u32 triangles,
+/// the corners x, y, z (f32), the triangles' three corners (u16 when the part
+/// has at most 65 536 corners, else u32), a colour r, g, b (u8) a triangle.
+/// A file that ends early gives the whole parts before the end.
+fn mesh_file(b: &[u8]) -> Vec<Mesh> {
+    let mut out = Vec::new();
+    if b.len() < 8 || &b[0..4] != b"RGM1" {
+        return out;
+    }
+    let u32_at = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]) as usize;
+    let parts = u32_at(4).min(64);
+    let mut at = 8;
+    for _ in 0..parts {
+        if at + 8 > b.len() {
+            break;
+        }
+        let (nv, nt) = (u32_at(at), u32_at(at + 4));
+        at += 8;
+        let wide = nv > 65536;
+        let need = nv.saturating_mul(12).saturating_add(nt.saturating_mul(if wide { 12 } else { 6 })).saturating_add(nt.saturating_mul(3));
+        if need > b.len() - at {
+            break;
+        }
+        let verts: Vec<V3> = (0..nv).map(|i| {
+            let f = |k: usize| f32::from_le_bytes([b[at + i * 12 + k], b[at + i * 12 + k + 1], b[at + i * 12 + k + 2], b[at + i * 12 + k + 3]]) as f64;
+            [f(0), f(4), f(8)]
+        }).collect();
+        at += nv * 12;
+        let mut m = Mesh::plain(verts, Vec::with_capacity(nt));
+        let idx = at;
+        at += nt * if wide { 12 } else { 6 };
+        for t in 0..nt {
+            let c: Vec<usize> = (0..3).map(|k| if wide { u32_at(idx + (t * 3 + k) * 4) } else { u16::from_le_bytes([b[idx + (t * 3 + k) * 2], b[idx + (t * 3 + k) * 2 + 1]]) as usize }).collect();
+            if c.iter().any(|&k| k >= nv) {
+                continue;
+            }
+            m.faces.push(c);
+            m.cols.push([b[at + t * 3] as f64 / 255.0, b[at + t * 3 + 1] as f64 / 255.0, b[at + t * 3 + 2] as f64 / 255.0]);
+        }
+        at += nt * 3;
+        out.push(m);
+    }
+    out
 }
 
 fn ring(r: f64, y: f64, n: usize, phase: f64) -> Vec<V3> {
@@ -493,10 +543,11 @@ const AUTO_DETAIL: [(usize, f64); 4] = [(48, f64::MAX), (24, 160.0), (12, 60.0),
 ///   about CSS pixels); `hide: true` draws nothing (too small to see).
 ///   An entry without a shape takes the object's shape and size, so
 ///   `{ px: 30, detail: 8 }` is the same sphere with fewer segments.
+///   `{ px: 400, part: 1 }` is part 1 of the object's baked mesh file (`src`).
 /// - `detail: "auto"` on a sphere, cylinder or cone: 48, 24, 12 and 6
 ///   segments by its size.
 /// - `lodMargin` (0.15): how far past a limit before the form changes.
-fn lod_forms(o: &mut Obj, a: &Json, shape: &str, size: &[f64]) {
+fn lod_forms(o: &mut Obj, a: &Json, shape: &str, size: &[f64], parts: &mut [Option<Mesh>]) {
     let mut forms: Vec<Mesh> = Vec::new();
     let mut px: Vec<f64> = Vec::new();
     let auto = a.get("detail").as_str() == "auto" && matches!(shape, "sphere" | "cylinder" | "cone");
@@ -520,6 +571,9 @@ fn lod_forms(o: &mut Obj, a: &Json, shape: &str, size: &[f64]) {
             }
             let m = if e.get("hide").as_bool() {
                 Mesh::plain(Vec::new(), Vec::new())
+            } else if let Some(m) = (!e.get("part").is_null()).then(|| parts.get_mut(e.get("part").as_num(0.0).max(0.0) as usize).and_then(|m| m.take())).flatten() {
+                // a part of the object's baked mesh file
+                m
             } else {
                 let es = e.get("shape").as_str();
                 let (sh, sz): (String, Vec<f64>) = if es.is_empty() {
@@ -1013,6 +1067,8 @@ pub struct Scene {
     pub dir: String,
     /// the host draws liquid splats (draw kind 10; set by the engine every frame)
     pub splats_ok: bool,
+    /// the bytes of the mesh file (`src`) the next add reads (lib.rs reads them)
+    pub mesh_bytes: Option<Vec<u8>>,
     /// the bytes of the "splats" file the next add reads (lib.rs reads them)
     pub splat_bytes: Option<Vec<u8>>,
     /// the game's shaders (rg.shader): name and rg_shader key ("" when it failed)
@@ -1191,6 +1247,7 @@ impl Scene {
             dir: String::new(),
             splats_ok: false,
             splat_bytes: None,
+            mesh_bytes: None,
             shaders: Vec::new(),
             tris: Vec::new(),
             eye: None,
@@ -1341,7 +1398,15 @@ impl Scene {
                     lod_margin: a.get("lodMargin").as_num(0.15).clamp(0.0, 0.9),
                 };
                 let mut o = o;
-                lod_forms(&mut o, a, &shape, &size);
+                // a baked mesh file: the object's mesh is one of its parts
+                let mut parts: Vec<Option<Mesh>> = self.mesh_bytes.take().map(|b| mesh_file(&b)).unwrap_or_default().into_iter().map(Some).collect();
+                if shape == "mesh" && !parts.is_empty() {
+                    let k = a.get("part").as_num(0.0).max(0.0) as usize;
+                    if let Some(m) = parts.get_mut(k).and_then(|m| m.take()) {
+                        o.mesh = m;
+                    }
+                }
+                lod_forms(&mut o, a, &shape, &size, &mut parts);
                 self.objs.retain(|x| x.id != id || id.is_empty());
                 self.objs.push(o);
             }
@@ -2742,6 +2807,38 @@ mod mesh_tests {
         sc.render(&mut out, 400.0, 400.0);
         let n = out.nums.windows(9).filter(|w| w[0] == 6.0 && w[8] > 0.0 && w[8] < 1.0).count();
         assert_eq!(n, 10);
+    }
+
+    #[test]
+    fn a_mesh_comes_from_a_baked_file_with_its_coarser_parts() {
+        // two parts: a tetrahedron (4 corners, 4 triangles) and one triangle
+        let mut f: Vec<u8> = b"RGM1".to_vec();
+        f.extend_from_slice(&2u32.to_le_bytes());
+        let part = |f: &mut Vec<u8>, v: &[[f32; 3]], t: &[[u16; 3]], c: [u8; 3]| {
+            f.extend_from_slice(&(v.len() as u32).to_le_bytes());
+            f.extend_from_slice(&(t.len() as u32).to_le_bytes());
+            for p in v { for x in p { f.extend_from_slice(&x.to_le_bytes()); } }
+            for p in t { for x in p { f.extend_from_slice(&x.to_le_bytes()); } }
+            for _ in t { f.extend_from_slice(&c); }
+        };
+        part(&mut f, &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], &[[0, 2, 1], [0, 1, 3], [0, 3, 2], [1, 2, 3]], [255, 0, 0]);
+        part(&mut f, &[[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], &[[0, 1, 2]], [0, 255, 0]);
+        let ms = mesh_file(&f);
+        assert_eq!(ms.len(), 2);
+        assert_eq!((ms[0].verts.len(), ms[0].faces.len(), ms[1].faces.len()), (4, 4, 1));
+        assert_eq!(ms[0].face_paint(0, [0.5; 3], false).0, [1.0, 0.0, 0.0]);
+        // cut short: only the whole first part
+        assert_eq!(mesh_file(&f[..f.len() - 2]).len(), 1);
+        assert!(mesh_file(b"nope").is_empty());
+        // in the scene: part 0 is the object, part 1 its coarser form
+        let mut sc = Scene::new();
+        sc.mesh_bytes = Some(f);
+        sc.command("add", &rg_core::json::parse(r#"{ "id": "r", "shape": "mesh", "src": "r.rgm", "lod": [{ "px": 50, "part": 1 }] }"#));
+        let o = sc.objs.iter().find(|o| o.id == "r").unwrap();
+        assert_eq!(o.mesh.faces.len(), 4);
+        assert_eq!(o.forms.len(), 2);
+        assert_eq!(o.forms[1].faces.len(), 1);
+        assert!(sc.mesh_bytes.is_none());
     }
 
     #[test]

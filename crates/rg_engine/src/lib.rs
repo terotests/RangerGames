@@ -1249,6 +1249,12 @@ impl Engine {
                     let path = if src.starts_with('/') { src } else { vfs::join(&self.scene.dir, &src) };
                     self.scene.splat_bytes = if self.vfs.exists(&path) { Some(self.vfs.read(&path)) } else { None };
                 }
+                // a baked mesh file (a mesh's `src`), read here too
+                if cmd.name == "add" && cmd.args.get("shape").as_str() == "mesh" && !cmd.args.get("src").is_null() {
+                    let src = cmd.args.get("src").as_str();
+                    let path = if src.starts_with('/') { src } else { vfs::join(&self.scene.dir, &src) };
+                    self.scene.mesh_bytes = if self.vfs.exists(&path) { Some(self.vfs.read(&path)) } else { None };
+                }
                 self.scene.command(&cmd.name, &cmd.args);
                 continue;
             }
