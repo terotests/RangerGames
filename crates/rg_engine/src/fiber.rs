@@ -1624,6 +1624,7 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
         let feats: &[rg_core::json::Json] = match &node.features { rg_core::json::Json::Arr(v) => v, _ => &[] };
         // a bone's drawings from several angles (features with a `yaw`): the set
         // nearest the bone's turn from the camera is drawn, the others not
+        let grp: Option<usize> = feats.iter().map(|f| f.get("setBy").as_str()).find(|s| !s.is_empty() && s != "model").and_then(|b| asset.nodes.iter().position(|n| n.name == b)).filter(|&g| g != ni);
         let set_yaw = {
             let yaws: Vec<f32> = feats.iter().filter(|f| !f.get("yaw").is_null()).map(|f| f.get("yaw").as_num(0.0) as f32).collect();
             if yaws.len() < 2 { None } else {
@@ -1696,13 +1697,18 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
             // depth makes the near parts move more), and only its move across the
             // screen is kept, so the layers keep their order and nothing fades.
             // Without depth: in the bone's plane, layer over layer.
-            let cr = { let c = cross([0.0, 1.0, 0.0], to_eye); if dot(c, c) < 1e-8 { norm(gltf::transform_dir(m, [1.0, 0.0, 0.0])) } else { norm(c) } };
-            let cu = cross(to_eye, cr);
             // the turn's pivot: the bone's own axis (the card sits at.z in front of it, towards the camera)
             // (the depth is from the bone's origin: the drawing's points are where the
             // 3D thing has them, and every feature of a head turns about the same axis)
             let piv = gltf::transform_point(&full, [0.0; 3]);
             let piv_still = gltf::transform_point(&still, [0.0; 3]);
+            // a feature of a group (`setBy` a bone: the eyes and ears of a head) is
+            // flattened onto that bone's card, as the group's own drawing is: it then
+            // stays where it is on the head however the head turns
+            let (pg, pg_still) = match grp { Some(g) => { let pp = gltf::transform_point(&gltf::mat_mul(m, &wm[g]), [0.0; 3]); (pp, pp) } None => (piv, piv_still) };
+            let to_card = { let d = sub(o, piv); norm(sub(eye, [pg[0] + d[0], pg[1] + d[1], pg[2] + d[2]])) };
+            let cr = { let c = cross([0.0, 1.0, 0.0], to_card); if dot(c, c) < 1e-8 { norm(gltf::transform_dir(m, [1.0, 0.0, 0.0])) } else { norm(c) } };
+            let cu = cross(to_card, cr);
             let card_z = { let r = &rest_wm[ni]; let sc = gltf::transform_dir(m, [0.0, 0.0, 1.0]); r[14] * (dot(sc, sc)).sqrt() };
             // the depth of the card into the screen: where its bone is at rest, from
             // the model's origin, less its own step towards the camera
@@ -1711,9 +1717,9 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                 if depth {
                     let q = turn([p[0], p[1], zd]);
                     let q = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
-                    let on_card = |mm: &M4, oo: V3| { let w = gltf::transform_dir(mm, q); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y] };
-                    let a = on_card(&full, piv);
-                    let a = if wt >= 1.0 { a } else { let b = on_card(&still, piv_still); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] };
+                    let on_card = |mm: &M4, oo: V3| { let w = sub(gltf::transform_point(mm, q), oo); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y] };
+                    let a = on_card(&full, pg);
+                    let a = if wt >= 1.0 { a } else { let b = on_card(&still, pg_still); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] };
                     // towards the camera to the depth its bone has at rest (into the screen
                     // the same way for every card), plus its layer
                     // (along its own ray from the eye, so it stays where it is on the screen)

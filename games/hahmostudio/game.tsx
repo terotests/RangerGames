@@ -143,11 +143,17 @@ function tick(dt: number) {
   // the ears lag the head's turn (springs), and twitch now and then
   const vel = dt > 0 ? (yaw - lastYaw) / dt : 0;
   lastYaw = yaw;
+  // (in small steps: a slow frame would make the spring overshoot; the head's
+  // speed is capped so a jump to another turn gives a nudge, not a fling)
+  const v = Math.max(-1.5, Math.min(1.5, vel));
+  const n = Math.max(1, Math.ceil(dt / 0.008)), h = dt / n;
   for (const k of ["L", "R"]) {
     const e = (ear as any)[k];
-    const goal = -0.6 * vel + (alive && Math.sin(t * 0.9 + (k === "L" ? 0 : 2)) > 0.97 ? 0.35 : 0);
-    e[1] += ((goal - e[0]) * 60 - e[1] * 9) * dt;
-    e[0] += e[1] * dt;
+    const goal = Math.max(-0.35, Math.min(0.35, -0.6 * v)) + (alive && Math.sin(t * 0.9 + (k === "L" ? 0 : 2)) > 0.97 ? 0.35 : 0);
+    for (let i = 0; i < n; i++) {
+      e[1] += ((goal - e[0]) * 60 - e[1] * 9) * h;
+      e[0] += e[1] * h;
+    }
   }
 }
 
