@@ -1492,6 +1492,51 @@ struct FeatArt {
     /// the look: how far the iris moves (metres, x and y) and the convex
     /// shape it stays in
     gaze: Option<([f32; 2], Vec<[f32; 2]>)>,
+    /// a drawing skinned to several bones (`skin`): one continuous path (a leg's
+    /// outline from the hip to the boot) bends at the joints instead of being cut
+    skin: Option<FeatSkin>,
+}
+
+/// `skin: { bones, bind, axis, band }`: each point is moved by the bones by its
+/// weights; `bind[i]` takes a point of the drawing (the owning bone's, as bound)
+/// into bone i's own frame (2D: a, b, c, d, tx, ty: x' = a x + c y + tx,
+/// y' = b x + d y + ty); the weights come from where the point is along `axis`
+/// (the joints, in the drawing: bone i runs from axis[i] to axis[i + 1]), shared
+/// between two bones over `band` either side of a joint
+struct FeatSkin {
+    bones: Vec<String>,
+    bind: Vec<[f32; 6]>,
+    fk: Vec<Vec<Vec<f32>>>,
+    sk: Vec<Vec<Vec<f32>>>,
+}
+
+fn skin_weights(axis: &[[f32; 2]], band: f32, p: [f32; 2]) -> Vec<f32> {
+    let n = axis.len().saturating_sub(1);
+    if n == 0 { return vec![1.0]; }
+    // where along the axis (arc length) the point's nearest axis point is
+    let (mut best, mut at, mut run) = (f32::MAX, 0.0f32, 0.0f32);
+    let mut joints = Vec::with_capacity(n);
+    for i in 0..n {
+        let (a, b) = (axis[i], axis[i + 1]);
+        let d = [b[0] - a[0], b[1] - a[1]];
+        let l2 = (d[0] * d[0] + d[1] * d[1]).max(1e-12);
+        let t = (((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / l2).clamp(0.0, 1.0);
+        let q = [a[0] + d[0] * t, a[1] + d[1] * t];
+        let e = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2);
+        let l = l2.sqrt();
+        if e < best { best = e; at = run + t * l; }
+        run += l;
+        joints.push(run);
+    }
+    let sm = |x: f32| { let t = x.clamp(0.0, 1.0); t * t * (3.0 - 2.0 * t) };
+    let b = band.max(1e-6);
+    // t[j]: how far past joint j (between bone j and j + 1) the point is
+    let t: Vec<f32> = (0..n - 1).map(|j| sm((at - joints[j] + b) / (2.0 * b))).collect();
+    (0..n).map(|i| {
+        let from = if i == 0 { 1.0 } else { t[i - 1] };
+        let to = if i + 1 < n { t[i] } else { 0.0 };
+        (from - to).max(0.0)
+    }).collect()
 }
 
 thread_local! {
@@ -1529,7 +1574,20 @@ fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc
         let clip: Vec<[f32; 2]> = gj.get("clip").items().iter().map(|p| { let v = p.items(); [v.first().map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32, v.get(1).map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32] }).collect();
         Some(([rg.first().copied().unwrap_or(0.0), rg.get(1).copied().unwrap_or(0.0)], clip))
     };
-    let v = Rc::new(FeatArt { art, at, tris, rot, fz, sz, fw, sw, depth: dep.is_some(), yaw: f.get("yaw").as_num(0.0) as f32, gaze });
+    let skj = get("skin");
+    let skin = if skj.is_null() { None } else {
+        let p2 = |v: &rg_core::json::Json| { let v = v.items(); [v.first().map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32, v.get(1).map(|x| x.as_num(0.0)).unwrap_or(0.0) as f32] };
+        let bones: Vec<String> = skj.get("bones").items().iter().map(|b| b.as_str().to_string()).collect();
+        let bind: Vec<[f32; 6]> = skj.get("bind").items().iter().map(|m| { let v: Vec<f32> = m.items().iter().map(|x| x.as_num(0.0) as f32).collect(); if v.len() == 6 { [v[0], v[1], v[2], v[3], v[4], v[5]] } else { [1.0, 0.0, 0.0, 1.0, 0.0, 0.0] } }).collect();
+        let axis: Vec<[f32; 2]> = skj.get("axis").items().iter().map(p2).collect();
+        let band = skj.get("band").as_num(0.0) as f32;
+        if bones.is_empty() || bind.len() != bones.len() || axis.len() != bones.len() + 1 { None } else {
+            let fk = art.fills.iter().map(|fl| fl.pts.iter().map(|p| skin_weights(&axis, band, *p)).collect()).collect();
+            let sk = art.strokes.iter().map(|st| st.pts.iter().map(|p| skin_weights(&axis, band, *p)).collect()).collect();
+            Some(FeatSkin { bones, bind, fk, sk })
+        }
+    };
+    let v = Rc::new(FeatArt { art, at, tris, rot, fz, sz, fw, sw, depth: dep.is_some(), yaw: f.get("yaw").as_num(0.0) as f32, gaze, skin });
     FEATURE_ART.with(|c| c.borrow_mut().insert(key, v.clone()));
     Some(v)
 }
@@ -1731,13 +1789,35 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
             // the depth of the card into the screen: where its bone is at rest, from
             // the model's origin, less its own step towards the camera
             let base_d = dot(sub(origin, eye), vf) - card_z - at[2];
-            let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32| -> V3 {
+            // the skin's bones where they are now (a bone not found: the owner)
+            let sk_m: Vec<M4> = match &cached.skin { Some(sk) => sk.bones.iter().map(|b| match asset.nodes.iter().position(|n| &n.name == b) { Some(bi) => gltf::mat_mul(m, &wm[bi]), None => full }).collect(), None => Vec::new() };
+            let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32, skw: Option<&Vec<f32>>| -> V3 {
                 if depth {
-                    let q = turn([p[0], p[1], zd]);
-                    let q = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
-                    let on_card = |mm: &M4, oo: V3| { let w = sub(gltf::transform_point(mm, q), oo); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y] };
-                    let a = on_card(&full, pg);
-                    let a = if wt >= 1.0 { a } else { let b = on_card(&still, pg_still); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] };
+                    let on_card_at = |mm: &M4, oo: V3, p: [f32; 2]| {
+                        let q = turn([p[0], p[1], zd]);
+                        let q = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
+                        let w = sub(gltf::transform_point(mm, q), oo); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y]
+                    };
+                    let a = match (&cached.skin, skw) {
+                        (Some(sk), Some(ws)) => {
+                            // each bone's place for the point, by its weight
+                            let mut acc = [0.0f32; 3];
+                            let mut tot = 0.0f32;
+                            for (i, w) in ws.iter().enumerate() {
+                                if *w <= 0.0 { continue; }
+                                let b = &sk.bind[i];
+                                let pb = [b[0] * p[0] + b[2] * p[1] + b[4], b[1] * p[0] + b[3] * p[1] + b[5]];
+                                let c = on_card_at(&sk_m[i], pg, pb);
+                                acc = [acc[0] + c[0] * w, acc[1] + c[1] * w, acc[2] + c[2] * w];
+                                tot += w;
+                            }
+                            if tot > 0.0 { [acc[0] / tot, acc[1] / tot, acc[2] / tot] } else { on_card_at(&full, pg, p) }
+                        }
+                        _ => {
+                            let a = on_card_at(&full, pg, p);
+                            if wt >= 1.0 { a } else { let b = on_card_at(&still, pg_still, p); [b[0] + (a[0] - b[0]) * wt, b[1] + (a[1] - b[1]) * wt, b[2] + (a[2] - b[2]) * wt] }
+                        }
+                    };
                     // towards the camera to the depth its bone has at rest (into the screen
                     // the same way for every card), plus its layer
                     // (along its own ray from the eye, so it stays where it is on the screen)
@@ -1785,9 +1865,10 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                     let pts = match clip { Some(c) if c.len() >= 3 => crate::features::clip_convex(&pts, c), _ => pts };
                     if pts.len() < 3 { continue; }
                     let t = crate::features::triangulate(&pts).into_iter().flat_map(|t| [t[0] as u32, t[1] as u32, t[2] as u32]).collect();
-                    (pts.iter().map(|p| place(*p, zd(0), z, wt(0))).collect(), t)
+                    (pts.iter().map(|p| place(*p, zd(0), z, wt(0), None)).collect(), t)
                 } else {
-                    (fl.pts.iter().enumerate().map(|(i, p)| place(*p, zd(i), z, wt(i))).collect(), tris.clone())
+                    let fk = cached.skin.as_ref().and_then(|sk| sk.fk.get(k));
+                    (fl.pts.iter().enumerate().map(|(i, p)| place(*p, zd(i), z, wt(i), fk.and_then(|v| v.get(i)))).collect(), tris.clone())
                 };
                 let col = match tint { Some(t) => [fl.col[0] * t[0], fl.col[1] * t[1], fl.col[2] * t[2]], None => fl.col };
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![col; pos.len()], pos, emissive: [0.0; 3], tris, kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: None });
@@ -1798,9 +1879,10 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                 let zs = cached.sz.get(k);
                 let ws = cached.sw.get(k);
                 let g = moved && art.gaze_strokes.get(k).copied().unwrap_or(false);
+                let skk = cached.skin.as_ref().and_then(|sk| sk.sk.get(k));
                 let pos: Vec<V3> = st.pts.iter().enumerate().map(|(i, p)| {
                     let p = if g { [p[0] + shift[0], p[1] + shift[1]] } else { *p };
-                    place(p, zs.and_then(|v| v.get(i)).copied().unwrap_or(0.0), z, ws.and_then(|v| v.get(i)).copied().unwrap_or(1.0))
+                    place(p, zs.and_then(|v| v.get(i)).copied().unwrap_or(0.0), z, ws.and_then(|v| v.get(i)).copied().unwrap_or(1.0), skk.and_then(|v| v.get(i)))
                 }).collect();
                 if pos.len() < 2 { continue; }
                 items.push(Item { nrm: vec![fwd; pos.len()], col: vec![st.col; pos.len()], pos, emissive: [0.0; 3], tris: Vec::new(), kind: 1, double: false, flat: true, toon: None, owner, order: 0, model: None, key: 0, brush: Some(Rc::new(st.w.clone())) });
