@@ -1724,8 +1724,28 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                 }
             }
         };
-        for f in feats.iter() {
+        // a bone's drawings in several planes (features with `facing: true`, each
+        // with its own `rot`): the one whose plane faces the camera most is drawn (a
+        // foot as drawn from the front, and as seen with the toe hanging down when
+        // the leg is lifted: a flat drawing turned edge-on would be a line)
+        let set_face: Option<usize> = {
+            let te = norm(sub(eye, gltf::transform_point(&full, [0.0; 3])));
+            let mut best: Option<(usize, f32)> = None;
+            for (i, f) in feats.iter().enumerate() {
+                if f.get("facing").is_null() { continue; }
+                if let Some(y) = set_yaw { if (f.get("yaw").as_num(0.0) as f32 - y).abs() > 0.01 { continue; } }
+                let r: Vec<f32> = f.get("rot").items().iter().map(|v| v.as_num(0.0) as f32).collect();
+                let (qx, qy, qz, qw) = if r.len() == 4 { (r[0], r[1], r[2], r[3]) } else { (0.0, 0.0, 0.0, 1.0) };
+                // the drawing's normal: +z turned by rot
+                let n = [2.0 * (qx * qz + qw * qy), 2.0 * (qy * qz - qw * qx), 1.0 - 2.0 * (qx * qx + qy * qy)];
+                let d = dot(norm(gltf::transform_dir(&full, n)), te);
+                if best.map_or(true, |b| d > b.1) { best = Some((i, d)); }
+            }
+            best.map(|b| b.0)
+        };
+        for (fi, f) in feats.iter().enumerate() {
             if let Some(y) = set_yaw { if (f.get("yaw").as_num(0.0) as f32 - y).abs() > 0.01 { continue; } }
+            if let Some(b) = set_face { if !f.get("facing").is_null() && fi != b { continue; } }
             if let Some(b) = set_bend { if !f.get("bend").is_null() && (f.get("bend").as_num(0.0) as f32 - b).abs() > 0.01 { continue; } }
             let base = match feature_art(f, f) { Some(x) => x, None => continue };
             // the anchor, the bone's up and forward, and the way to the camera
@@ -1766,6 +1786,7 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                 [v[0] + qw * t[0] + (qy * t[2] - qz * t[1]), v[1] + qw * t[1] + (qz * t[0] - qx * t[2]), v[2] + qw * t[2] + (qx * t[1] - qy * t[0])]
             };
             let depth = cached.depth;
+            let facing = !f.get("facing").is_null();
             // with depth: each point where the turned 3D thing has it, then moved
             // along the way to the camera onto the plane through the anchor
             // (where it is on the screen stays), plus its layer's step towards
@@ -1796,7 +1817,8 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
             let place = |p: [f32; 2], zd: f32, zl: f32, wt: f32, skw: Option<&Vec<f32>>| -> V3 {
                 if depth {
                     let on_card_at = |mm: &M4, oo: V3, p: [f32; 2]| {
-                        let q = turn([p[0], p[1], zd]);
+                        // (a `facing` set's plane turns about the bone's origin: its depth stays the bone's)
+                        let q = if facing { let t = turn([p[0], p[1], 0.0]); [t[0], t[1], t[2] + zd] } else { turn([p[0], p[1], zd]) };
                         let q = [at[0] + q[0], at[1] + q[1], at[2] + q[2]];
                         let w = sub(gltf::transform_point(mm, q), oo); let (x, y) = (dot(w, cr), dot(w, cu)); [oo[0] + cr[0] * x + cu[0] * y, oo[1] + cr[1] * x + cu[1] * y, oo[2] + cr[2] * x + cu[2] * y]
                     };
