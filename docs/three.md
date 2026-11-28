@@ -113,6 +113,18 @@ A form changes only once the size has passed its limit by `lodMargin`
 (0.15 = 15 %, per object), so an object at a limit does not flick between
 two forms. `detail: "auto"` works on `sphere`, `cylinder` and `cone`.
 
+A big mesh need not go through the script: `src` names a baked mesh file in the
+game's folder, and a lod entry can take another of the file's meshes by `part`:
+
+```js
+rg.three("add", { id: "rock", shape: "mesh", src: "rocks/eros.rgm", smooth: true,
+  lod: [{ px: 900, part: 1 }, { px: 110, part: 2 }] });
+```
+
+The file (little endian): `RGM1`, u32 the count of meshes; each mesh: u32 corners,
+u32 triangles, the corners x, y, z (f32), the triangles' corners (u16 when the mesh
+has at most 65 536 corners, else u32), a colour r, g, b (u8) a triangle.
+
 Planets (`rg.three("planet", …)`) are cast a ray a pixel, so they have no
 triangles to drop. Their level instead follows their size smoothly: 0 at
 96 units of radius and over, 1 more each halving of the size. The globe
