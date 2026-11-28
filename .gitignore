@@ -18,3 +18,4 @@ games/_voice
 tools/luut/raw/
 /build
 /crates/rg_web_dom/target
+games/hahmostudio/models/

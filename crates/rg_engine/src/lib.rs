@@ -22,6 +22,7 @@
 
 pub mod burst;
 pub mod draw;
+pub mod features;
 pub mod fiber;
 pub mod fluid;
 pub mod globe;
@@ -29,6 +30,7 @@ pub mod gltf;
 pub mod heights;
 pub mod lod;
 pub mod motion;
+pub mod rig;
 pub mod scene3d;
 pub mod splats;
 pub mod script;

@@ -135,9 +135,9 @@ export class Mesh {
   }
 }
 
-// bones: [[name, parent index, rest position in the model], …]
+// bones: [[name, parent index, rest position in the model, extras?], …] (extras: e.g. { features: [...] }, engine features.rs)
 // clips: [[name, [[bone index, "rotation"|"translation", times, values], …]], …]
-// meshes: [{ name, mesh, unlit, double, skinned }]
+// meshes: [{ name, mesh, unlit, double, skinned, extras }]
 export function writeGlb({ meshes, bones = null, clips = [], generator = "RangerGames tools/three" }) {
   const chunks = [];
   let offset = 0;
@@ -171,7 +171,7 @@ export function writeGlb({ meshes, bones = null, clips = [], generator = "Ranger
     bones.forEach((b, i) => {
       const p = b[1] >= 0 ? bones[b[1]][2] : [0, 0, 0];
       const kids = bones.map((c, k) => (c[1] === i ? k : -1)).filter((k) => k >= 0);
-      nodes.push({ name: b[0], translation: b[2].map((x, k) => +(x - p[k]).toFixed(5)), ...(kids.length ? { children: kids } : {}) });
+      nodes.push({ name: b[0], translation: b[2].map((x, k) => +(x - p[k]).toFixed(5)), ...(kids.length ? { children: kids } : {}), ...(b[3] ? { extras: b[3] } : {}) });
     });
     rootNodes.push(0);
     const ibm = bones.flatMap((b) => [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, -b[2][0], -b[2][1], -b[2][2], 1]);
@@ -189,8 +189,9 @@ export function writeGlb({ meshes, bones = null, clips = [], generator = "Ranger
       COLOR_0: acc(g.C, "VEC3", 5126, 34962),
     };
     if (bones && m.skinned !== false) {
-      const W = [];
-      for (let i = 0; i < g.J.length / 4; i++) W.push(1, 0, 0, 0);
+      // a mesh may give its own weights (W, four a corner); otherwise one bone a corner
+      let W = g.W && g.W.length === g.J.length ? g.W : null;
+      if (!W) { W = []; for (let i = 0; i < g.J.length / 4; i++) W.push(1, 0, 0, 0); }
       attributes.JOINTS_0 = acc(g.J, "VEC4", 5123, 34962);
       attributes.WEIGHTS_0 = acc(W, "VEC4", 5126, 34962);
     }
@@ -199,6 +200,7 @@ export function writeGlb({ meshes, bones = null, clips = [], generator = "Ranger
     const mat = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [1, 1, 1, 1], metallicFactor: 0, roughnessFactor: 0.9 } };
     if (m.unlit) mat.extensions = { KHR_materials_unlit: {} };
     if (m.double) mat.doubleSided = true;
+    if (m.extras) mat.extras = m.extras;   // e.g. { toon: {...} }: the engine's per-part toon settings
     materials.push(mat);
     gMeshes.push({ name: m.name, primitives: [{ attributes, indices, material: materials.length - 1 }] });
     const node = { name: m.name, mesh: gMeshes.length - 1 };
