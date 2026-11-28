@@ -37,6 +37,7 @@ if (HAVE) for (const A of [act, act2]) for (const n of ["Nod", "Bow", "Blink"]) 
 const tr = (fi: string, en: string, es: string) => rg.t(fi, en, es);
 const POSES = [
   ["Idle", "Lepo", "Idle", "Reposo"],
+  ["Picture", "Kuvan asento", "As drawn", "Como el dibujo"],
   ["Still", "Perusasento", "Bind pose", "Pose base"],
   ["Wave", "Heilutus", "Wave", "Saludo"],
   ["Explain", "Selitys", "Explain", "Explica"],
@@ -73,12 +74,17 @@ let t = 0;
 // set by hand or alive (the head looks about), the eyes' look, and the ears
 // following the head's turns on springs
 const TURNS = [0, -0.3, -0.6, 0.3];
+// the close-up shows the character turned as the close-up picture is (its features are drawn at that angle)
+const VIEW = 35 / 57.2958;
 let turnAt = 0;
 let alive = false;
 let head = [0, 0, 0];
 let look: number[] | null = null;
 const ear = { L: [0, 0], R: [0, 0] };     // [turn, speed] each ear
 let lastYaw = 0;
+// a crouch: the hips lowered, the feet kept where the stance has them (IK)
+let crouch = false;
+let low = 0;
 
 function pose(name: string, fade = 0.35) {
   if (!HAVE) return;
@@ -113,7 +119,7 @@ if (HAVE) mixer.addEventListener("finished", (e: any) => {
   if (n === "Nod" || n === "Bow") pose("Idle", 0.4);
 });
 
-pose("Idle", 0);
+pose(act.Picture ? "Picture" : "Idle", 0);
 expression("Neutral");
 if (HAVE) { act.Tail.play(); act2.Tail.play(); }
 
@@ -133,6 +139,7 @@ function tick(dt: number) {
   head = [pitch, yaw, 0];
   // the eyes lead the head: they look where it is turning to
   look = alive ? [Math.sin(yaw * 1.6) * 1.2, 1.74 + 0.35 * Math.sin(t * 1.3), 1.0] : null;
+  low += ((crouch ? 1 : 0) - low) * Math.min(1, dt * 4);
   // the ears lag the head's turn (springs), and twitch now and then
   const vel = dt > 0 ? (yaw - lastYaw) / dt : 0;
   lastYaw = yaw;
@@ -145,7 +152,15 @@ function tick(dt: number) {
 }
 
 function bones() {
-  return { head: head, "ear.L": [0, ear.L[0], -ear.L[0] * 0.3], "ear.R": [0, -ear.R[0], ear.R[0] * 0.3] };
+  return { head: head, "ear.L": [0, ear.L[0], -ear.L[0] * 0.3], "ear.R": [0, -ear.R[0], ear.R[0] * 0.3], hips: [0.06 * low, 0, 0, 0, -0.14 * low, 0] };
+}
+
+function ik() {
+  if (low < 0.01) return null;
+  return [
+    { chain: ["thigh.L", "shin.L", "foot.L"], plant: true, pole: [0.25, 0.55, 1.0] },
+    { chain: ["thigh.R", "shin.R", "foot.R"], plant: true, pole: [-0.25, 0.55, 1.0] },
+  ];
 }
 
 const TOON = { bands: 3, outline: 2.2, outlineColor: "#1d1528", shadowColor: "#9c8cc0", rim: 0.8, rimColor: "#4e3f66" };
@@ -162,7 +177,7 @@ function world() {
         <circleGeometry args={[0.7, 40]} />
         <meshToonMaterial color="#cfc3e6" />
       </mesh>
-      {HAVE && sketchMode < 2 ? <primitive name="cat" object={cat} position={[0, 0, 0]} toon={toon ? TOON : false} bones={bones()} look={look} /> : null}
+      {HAVE && sketchMode < 2 ? <primitive name="cat" object={cat} position={[0, 0, 0]} rotation={[0, close ? VIEW : 0, 0]} toon={toon ? TOON : false} bones={bones()} look={look} ik={ik()} /> : null}
       {HAVE && sketchMode > 0 ? <primitive name="sketch" object={sketchModel} position={[0, 0, 0]} toon={false} renderOrder={sketchMode === 1 ? 1000 : 0} /> : null}
     </scene3d>
   );
@@ -183,7 +198,7 @@ function controls() {
   return (
     <div class="ui">
       <div class="side">
-        {POSES.map((p) => (
+        {POSES.filter((p) => act[p[0]]).map((p) => (
           <div class={"btn" + (body === p[0] ? " on" : "")} onClick={() => { pose(p[0]); rg.sound("click"); }}>{tr(p[1], p[2], p[3])}</div>
         ))}
       </div>
@@ -198,6 +213,7 @@ function controls() {
         <div class={"tool" + (sketchMode ? " on" : "")} onClick={() => { sketchMode = (sketchMode + 1) % 3; }}>{"📐 " + [tr("Hahmotelma", "Sketch", "Boceto"), tr("Hahmotelma päällä", "Sketch over", "Boceto encima"), tr("Vain hahmotelma", "Sketch only", "Solo boceto")][sketchMode]}</div>
         <div class={"tool" + (turnAt ? " on" : "")} onClick={() => { turnAt = (turnAt + 1) % TURNS.length; }}>{"↔ " + tr("Käännös", "Turn", "Giro") + " " + Math.round(TURNS[turnAt] * 57.3) + "°"}</div>
         <div class={"tool" + (alive ? " on" : "")} onClick={() => { alive = !alive; }}>{"✨ " + tr("Elävä", "Alive", "Viva")}</div>
+        <div class={"tool" + (crouch ? " on" : "")} onClick={() => { crouch = !crouch; }}>{"⤓ " + tr("Kyykky", "Crouch", "Agachar")}</div>
         <div class={"tool" + (toon ? " on" : "")} onClick={() => { toon = !toon; }}>{toon ? "✏️ Toon" : "💡 " + tr("Tavallinen valo", "Plain light", "Luz normal")}</div>
       </div>
     </div>

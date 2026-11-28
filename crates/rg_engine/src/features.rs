@@ -855,23 +855,31 @@ pub fn triangulate(p: &[P2]) -> Vec<[usize; 3]> {
     let mut idx: Vec<usize> = (0..p.len()).collect();
     if area(p) < 0.0 { idx.reverse(); }
     let crs = |a: P2, b: P2, c: P2| (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-    let mut out = Vec::new();
-    let mut guard = 0;
-    while idx.len() > 3 && guard < 10000 {
-        guard += 1;
-        let mut cut = false;
-        for i in 0..idx.len() {
-            let (ia, ib, ic) = (idx[(i + idx.len() - 1) % idx.len()], idx[i], idx[(i + 1) % idx.len()]);
-            let (a, b, c) = (p[ia], p[ib], p[ic]);
-            if crs(a, b, c) <= 1e-12 { continue; }
+    let mut out = Vec::with_capacity(p.len());
+    // walk round cutting ears, going on from the last cut (not from the start), so
+    // a long outline takes about n² steps; where no ear is left (a self-touching
+    // outline) the next convex corner is cut anyway, so no part of it is lost
+    let mut i = 0usize;
+    let mut miss = 0usize;
+    while idx.len() > 3 {
+        let n = idx.len();
+        let k = i % n;
+        let (ia, ib, ic) = (idx[(k + n - 1) % n], idx[k], idx[(k + 1) % n]);
+        let (a, b, c) = (p[ia], p[ib], p[ic]);
+        let convex = crs(a, b, c) > 1e-12;
+        let ear = convex && {
             let same = |q: P2| (q[0] == a[0] && q[1] == a[1]) || (q[0] == b[0] && q[1] == b[1]) || (q[0] == c[0] && q[1] == c[1]);
-            if idx.iter().any(|&j| j != ia && j != ib && j != ic && !same(p[j]) && crs(a, b, p[j]) >= 0.0 && crs(b, c, p[j]) >= 0.0 && crs(c, a, p[j]) >= 0.0) { continue; }
+            !idx.iter().any(|&j| j != ia && j != ib && j != ic && !same(p[j]) && crs(a, b, p[j]) >= 0.0 && crs(b, c, p[j]) >= 0.0 && crs(c, a, p[j]) >= 0.0)
+        };
+        if ear || (miss > n && (convex || miss > 2 * n)) {
             out.push([ia, ib, ic]);
-            idx.remove(i);
-            cut = true;
-            break;
+            idx.remove(k);
+            i = if k == 0 { 0 } else { k - 1 };
+            miss = 0;
+        } else {
+            i = k + 1;
+            miss += 1;
         }
-        if !cut { break; }
     }
     if idx.len() == 3 { out.push([idx[0], idx[1], idx[2]]); }
     out

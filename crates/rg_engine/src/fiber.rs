@@ -512,7 +512,7 @@ struct ModelInst {
     toon: Option<Toon>,
     /// what the game does on top of the clips (rig.rs): turns added to bones,
     /// two-bone IK, and the point the eyes look at (world)
-    turns: Vec<(usize, [f32; 4])>,
+    turns: Vec<(usize, [f32; 4], V3)>,
     ik: Vec<crate::rig::Ik>,
     look: Option<V3>,
 }
@@ -916,18 +916,22 @@ impl World {
                         // the game's turns, IK and look (rig.rs), by bone name
                         let bone = |n: &str| asset.nodes.iter().position(|x| x.name == n);
                         let v3 = |j: &Json| -> Option<V3> { let v = j.items(); if v.len() >= 3 { Some([v[0].as_num(0.0) as f32, v[1].as_num(0.0) as f32, v[2].as_num(0.0) as f32]) } else { None } };
-                        let turns: Vec<(usize, [f32; 4])> = prop(a, "bones").map(|b| b.members().iter().filter_map(|mb| {
+                        let turns: Vec<(usize, [f32; 4], V3)> = prop(a, "bones").map(|b| b.members().iter().filter_map(|mb| {
                             let e = v3(&mb.value)?;
-                            Some((bone(&mb.key)?, crate::rig::euler(e[0], e[1], e[2])))
+                            let v = mb.value.items();
+                            let t = if v.len() >= 6 { [v[3].as_num(0.0) as f32, v[4].as_num(0.0) as f32, v[5].as_num(0.0) as f32] } else { [0.0; 3] };
+                            Some((bone(&mb.key)?, crate::rig::euler(e[0], e[1], e[2]), t))
                         }).collect()).unwrap_or_default();
                         let ik: Vec<crate::rig::Ik> = prop(a, "ik").map(|l| l.items().iter().filter_map(|e| {
                             let ch: Vec<usize> = e.get("chain").items().iter().filter_map(|n| bone(&n.as_str())).collect();
                             if ch.len() != 3 { return None; }
-                            Some(crate::rig::Ik { chain: [ch[0], ch[1], ch[2]], target: v3(&e.get("target"))?, pole: v3(&e.get("pole")), weight: e.get("weight").as_num(1.0) as f32 })
+                            let plant = e.get("plant").as_bool();
+                            let target = match v3(&e.get("target")) { Some(t) => t, None if plant => [0.0; 3], None => return None };
+                            Some(crate::rig::Ik { chain: [ch[0], ch[1], ch[2]], target, pole: v3(&e.get("pole")), weight: e.get("weight").as_num(1.0) as f32, plant })
                         }).collect()).unwrap_or_default();
                         let look = prop(a, "look").and_then(|j| v3(j));
-                        for (i, q) in turns.iter() { i.hash(&mut hs); for v in q.iter() { v.to_bits().hash(&mut hs); } }
-                        for k in ik.iter() { k.chain.hash(&mut hs); for v in k.target.iter() { v.to_bits().hash(&mut hs); } k.weight.to_bits().hash(&mut hs); }
+                        for (i, q, t) in turns.iter() { i.hash(&mut hs); for v in q.iter().chain(t.iter()) { v.to_bits().hash(&mut hs); } }
+                        for k in ik.iter() { k.chain.hash(&mut hs); for v in k.target.iter() { v.to_bits().hash(&mut hs); } k.weight.to_bits().hash(&mut hs); k.plant.hash(&mut hs); }
                         if let Some(l) = look { for v in l.iter() { v.to_bits().hash(&mut hs); } }
                         ctx.items.push(Item { pos: Vec::new(), nrm: Vec::new(), col: Vec::new(), emissive: [0.0; 3], tris: Vec::new(), kind: 0, double: false, flat: false, toon, owner: ow, order,
                             model: Some(Rc::new(ModelInst { asset, mix, m, tint, toon, turns, ik, look })), key: hs.finish(), brush: None });
@@ -1535,9 +1539,19 @@ fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc
 fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
     let (asset, m, tint, toon) = (&*mi.asset, &mi.m, mi.tint, mi.toon);
     let mut pose = gltf::pose(asset, &mi.mix);
+    // where the clips have the planted ends (before the game's moves)
+    let planted: Vec<Option<V3>> = if mi.ik.iter().any(|k| k.plant) {
+        let w0 = gltf::world_matrices(asset, &pose);
+        mi.ik.iter().map(|k| if k.plant { let c = &w0[k.chain[2]]; Some([c[12] + k.target[0], c[13] + k.target[1], c[14] + k.target[2]]) } else { None }).collect()
+    } else { Vec::new() };
     crate::rig::add_turns(&mut pose, &mi.turns);
     let mut wm = gltf::world_matrices(asset, &pose);
-    for k in mi.ik.iter() { crate::rig::two_bone(asset, &mut pose, &mut wm, k); }
+    for (i, k) in mi.ik.iter().enumerate() {
+        match planted.get(i).copied().flatten() {
+            Some(t) => { let mut k2 = k.clone(); k2.target = t; crate::rig::two_bone(asset, &mut pose, &mut wm, &k2); }
+            None => crate::rig::two_bone(asset, &mut pose, &mut wm, k),
+        }
+    }
     // each skin's joint matrices: world(joint) * inverse bind
     let joints: Vec<Vec<M4>> = asset.skins.iter().map(|s| s.joints.iter().zip(s.ibm.iter()).map(|(&j, ibm)| gltf::mat_mul(m, &gltf::mat_mul(&wm[j], ibm))).collect()).collect();
     for (ni, node) in asset.nodes.iter().enumerate() {
@@ -1599,7 +1613,21 @@ fn model_items(mi: &ModelInst, eye: V3, owner: u32, items: &mut Vec<Item>) {
         // the features by reference (the model's own JSON: no copy a frame, and
         // a fixed place to key their cached art by)
         let feats: &[rg_core::json::Json] = match &node.features { rg_core::json::Json::Arr(v) => v, _ => &[] };
+        // a bone's drawings from several angles (features with a `yaw`): the set
+        // nearest the bone's turn from the camera is drawn, the others not
+        let set_yaw = {
+            let yaws: Vec<f32> = feats.iter().filter(|f| !f.get("yaw").is_null()).map(|f| f.get("yaw").as_num(0.0) as f32).collect();
+            if yaws.len() < 2 { None } else {
+                let o = gltf::transform_point(&full, [0.0; 3]);
+                let (te, up, fw) = (norm(sub(eye, o)), norm(gltf::transform_dir(&full, [0.0, 1.0, 0.0])), norm(gltf::transform_dir(&full, [0.0, 0.0, 1.0])));
+                let flat = |v: V3| norm(sub(v, [up[0] * dot(v, up), up[1] * dot(v, up), up[2] * dot(v, up)]));
+                let (a, b) = (flat(te), flat(fw));
+                let yaw = dot(cross(a, b), up).atan2(dot(a, b)).to_degrees();
+                yaws.iter().copied().min_by(|p, q| (p - yaw).abs().partial_cmp(&(q - yaw).abs()).unwrap_or(std::cmp::Ordering::Equal))
+            }
+        };
         for f in feats.iter() {
+            if let Some(y) = set_yaw { if (f.get("yaw").as_num(0.0) as f32 - y).abs() > 0.01 { continue; } }
             let base = match feature_art(f, f) { Some(x) => x, None => continue };
             // the anchor, the bone's up and forward, and the way to the camera
             let o = gltf::transform_point(&full, base.at);

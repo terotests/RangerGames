@@ -5,10 +5,13 @@
 //! run on the pose the clips give, so they work over any animation.
 //!
 //! A `<primitive>` takes them as props: `bones={{ "ear.L": [x, y, z] }}`
-//! (radians, XYZ order, after the clips' rotation) and
+//! (radians, XYZ order, after the clips' rotation; three more numbers move the
+//! bone, metres in its parent) and
 //! `ik={[{ chain: ["thigh.L", "shin.L", "foot.L"], target: [x, y, z], pole: [x, y, z], weight: 1 }]}`
 //! (the target and pole in the model's own space; the end bone keeps the turn
-//! it had, so a planted foot stays flat).
+//! it had, so a planted foot stays flat). With `plant: true` the target is
+//! where the clips have the end bone, moved by `target`: the feet stay put
+//! while the game lowers the hips (a crouch).
 
 use crate::gltf::{self, Asset, M4};
 
@@ -61,10 +64,11 @@ pub fn from_to(a: V3, b: V3) -> Q {
 fn pos(m: &M4) -> V3 { [m[12], m[13], m[14]] }
 fn rot(m: &M4) -> Q { gltf::decompose(m).1 }
 
-/// Turns added to bones after the clips (each bone's local rotation times its turn).
-pub fn add_turns(pose: &mut Pose, turns: &[(usize, Q)]) {
-    for &(i, q) in turns.iter() {
-        if let Some(p) = pose.get_mut(i) { p.1 = qnorm(qmul(p.1, q)); }
+/// Turns added to bones after the clips (each bone's local rotation times its
+/// turn), and moves added to their local positions (a crouch: the hips down).
+pub fn add_turns(pose: &mut Pose, turns: &[(usize, Q, V3)]) {
+    for &(i, q, t) in turns.iter() {
+        if let Some(p) = pose.get_mut(i) { p.1 = qnorm(qmul(p.1, q)); p.0 = add(p.0, t); }
     }
 }
 
@@ -74,6 +78,9 @@ pub struct Ik {
     pub target: V3,
     pub pole: Option<V3>,
     pub weight: f32,
+    /// the target is where the clips put the end bone, plus `target` (a planted
+    /// foot stays where the walk or the stance has it while the game moves the hips)
+    pub plant: bool,
 }
 
 /// Two-bone IK: the root and middle bones of the chain turn so that the end
