@@ -179,16 +179,17 @@ fn every_box_corner_in_an_eye_leads_back_to_the_box() {
 fn the_panels_clip_corners_lead_back_to_its_corners() {
     for &(y, p, r) in TURNS.iter() {
         let e = engine(false, turn(y, p, r));
-        let corners = e.xr.panel.corners();
         for i in 0..2 {
+            // triangles of (x, y, z, w, u, v): each corner where the picture's (u, 1 - v) is on the panel
             let clip = e.xr.panel_clip(i).expect("the panel in front");
+            assert_eq!(clip.len(), 6, "a flat panel: two triangles");
             let eye = e.xr.eye_local(i).unwrap();
             let (w, h) = eye.size();
             for (k, c) in clip.iter().enumerate() {
                 let (nx, ny) = (c[0] as f64 / c[3] as f64, c[1] as f64 / c[3] as f64);
                 let (sx, sy) = ((nx + 1.0) / 2.0 * w, (1.0 - ny) / 2.0 * h);
                 let (o, d) = unproject(&eye, sx, sy);
-                let miss = ray_distance(o, d, corners[k]);
+                let miss = ray_distance(o, d, e.xr.panel.at(c[4] as f64, 1.0 - c[5] as f64));
                 assert!(miss < 1e-5, "turn {:?} eye {} corner {}: {} m off", (y, p, r), i, k, miss);
             }
         }
