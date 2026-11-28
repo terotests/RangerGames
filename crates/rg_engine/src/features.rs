@@ -46,6 +46,9 @@ pub struct Art {
     /// glint): true at their index; empty when none do
     pub gaze_fills: Vec<bool>,
     pub gaze_strokes: Vec<bool>,
+    /// the skin bone each fill and stroke belongs to (`seg`; -1: by where it is)
+    pub fill_seg: Vec<i32>,
+    pub stroke_seg: Vec<i32>,
 }
 
 /// How far in front of its plane (+z, metres) each point of a drawing is, so
@@ -608,6 +611,7 @@ pub fn drawing(j: &Json) -> Art {
         let shape = if holes.is_empty() { curve } else { bridge_holes(curve, holes) };
         a.fills.push(Fill { pts: shape, col });
         a.gaze_fills.push(fl.get("gaze").as_bool());
+        a.fill_seg.push(if fl.get("seg").is_null() { -1 } else { fl.get("seg").as_num(-1.0) as i32 });
     }
     for l in j.get("strokes").items() {
         let pts = pts_of(&l, "pts", &[]);
@@ -616,6 +620,7 @@ pub fn drawing(j: &Json) -> Art {
         let col = hex(&l.get("color").as_str()).unwrap_or(ink);
         a.strokes.push(Stroke { pts, w, col });
         a.gaze_strokes.push(l.get("gaze").as_bool());
+        a.stroke_seg.push(if l.get("seg").is_null() { -1 } else { l.get("seg").as_num(-1.0) as i32 });
     }
     a
 }

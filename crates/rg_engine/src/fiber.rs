@@ -1510,7 +1510,7 @@ struct FeatSkin {
     sk: Vec<Vec<Vec<f32>>>,
 }
 
-fn skin_weights(axis: &[[f32; 2]], band: f32, p: [f32; 2]) -> Vec<f32> {
+fn skin_weights(axis: &[[f32; 2]], band: f32, p: [f32; 2], seg: i32) -> Vec<f32> {
     let n = axis.len().saturating_sub(1);
     if n == 0 { return vec![1.0]; }
     // where along the axis (arc length) the point's nearest axis point is
@@ -1524,7 +1524,9 @@ fn skin_weights(axis: &[[f32; 2]], band: f32, p: [f32; 2]) -> Vec<f32> {
         let q = [a[0] + d[0] * t, a[1] + d[1] * t];
         let e = (p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2);
         let l = l2.sqrt();
-        if e < best { best = e; at = run + t * l; }
+        // (a part of one bone, as drawn: measured along its own bone only, so a
+        // forearm folded back over the upper arm still goes with the forearm)
+        if (seg < 0 || seg as usize == i) && e < best { best = e; at = run + t * l; }
         run += l;
         joints.push(run);
     }
@@ -1582,8 +1584,8 @@ fn feature_art(f: &rg_core::json::Json, base: &rg_core::json::Json) -> Option<Rc
         let axis: Vec<[f32; 2]> = skj.get("axis").items().iter().map(p2).collect();
         let band = skj.get("band").as_num(0.0) as f32;
         if bones.is_empty() || bind.len() != bones.len() || axis.len() != bones.len() + 1 { None } else {
-            let fk = art.fills.iter().map(|fl| fl.pts.iter().map(|p| skin_weights(&axis, band, *p)).collect()).collect();
-            let sk = art.strokes.iter().map(|st| st.pts.iter().map(|p| skin_weights(&axis, band, *p)).collect()).collect();
+            let fk = art.fills.iter().enumerate().map(|(k, fl)| { let sg = art.fill_seg.get(k).copied().unwrap_or(-1); fl.pts.iter().map(|p| skin_weights(&axis, band, *p, sg)).collect() }).collect();
+            let sk = art.strokes.iter().enumerate().map(|(k, st)| { let sg = art.stroke_seg.get(k).copied().unwrap_or(-1); st.pts.iter().map(|p| skin_weights(&axis, band, *p, sg)).collect() }).collect();
             Some(FeatSkin { bones, bind, fk, sk })
         }
     };
