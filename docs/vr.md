@@ -58,6 +58,11 @@ Positions are in the game's world (the camera's place plus the head's offset
 times `scale`). `games/vrtesti` (hidden in the launcher; `?game=vrtesti`) is
 a small test: balls around the player to pop with the trigger.
 
+The near plane is 0.05 game units. A world in kilometres at `scale: 0.001`
+cuts away everything nearer than 50 m: set `rg.three("camera", { near: 0.0001 })`
+(10 cm) while things are at arm's length, and back to 0.05 for the far views
+(a closer near plane leaves less depth precision far away).
+
 ## How it is drawn
 
 `crates/rg_engine/src/xr.rs` holds the tracking (eyes, head, controllers,
