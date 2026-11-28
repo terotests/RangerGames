@@ -11,6 +11,11 @@ Sliqtly Games screenshot tool, `?nogl`). This is the same split as M-Files'
 `<sphereGeometry args={[1, 32, 16]} />` has three.js's own vertices.
 
 The older `rg.three("add", …)` commands keep working; a game may use both.
+The two are separate scenes with a camera each (set `rg.three("camera", …)`
+to the same place as the JSX camera), and the `rg.three` scene is drawn first,
+so its solid objects stay behind the JSX world's. Its see-through objects
+(`opacity` under 1: a light beam, a flame) are drawn after the JSX world and
+add their colour to it, so a beam in front of a `<primitive>` lights it.
 
 A name in the world: `rg.three("add", { id, shape: "label", text, x, y, z,
 size: 14, color, opacity, align: "center" | "left" | "right", dx, dy, weight })`

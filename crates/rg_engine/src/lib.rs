@@ -1447,14 +1447,30 @@ impl Engine {
                 let eyes = stereo || self.xr.immersive();
                 self.scene.eyes_only = eyes;
                 self.world.borrow_mut().eyes_only = eyes;
+                self.scene.split_through = !reply.get("scene3d").is_null();
                 self.scene.render(&mut self.draw, self.ui.width, self.ui.height);
                 let t0 = self.scene.tris.len();
                 self.world.borrow_mut().render(&reply.get("scene3d"), self.ui.width, self.ui.height, self.gl3d, &mut self.draw, &mut self.scene.tris);
+                // The rg.three scene's see-through faces (a light beam, a flame: depth 2…3,
+                // the last of its triangles) go after the JSX world's faces: the host adds
+                // their colour to what is drawn before them, so a beam in front of a
+                // <primitive> lights it instead of hiding it. (Not for a host that draws
+                // the two as layers of their own, by ranges of the triangles.)
+                if self.gl3d && !self.gl_all && t0 > 0 && self.scene.tris.len() > t0 {
+                    let from = self.scene.through_from().min(t0);
+                    let through: Vec<f32> = self.scene.tris.drain(from..t0).collect();
+                    self.scene.tris.extend(through);
+                }
                 if stereo {
                     self.stereo_tris();
                 }
                 if self.gl3d && self.gl_all {
                     self.draw.layer3d(t0, self.scene.tris.len());
+                    // (by layers: the scene's see-through triangles as a layer after the world's)
+                    if self.scene.split_through {
+                        let from = self.scene.through_from().min(t0);
+                        self.draw.layer3d(from, t0);
+                    }
                 }
                 self.lend_files(false);
                 self.fluid.render(&mut self.draw, self.ui.width, self.ui.height);

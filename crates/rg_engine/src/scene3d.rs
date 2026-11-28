@@ -1086,6 +1086,10 @@ pub struct Scene {
     /// VR in a headset: the frame's own picture of the scene is not drawn
     /// (each eye's is, by `render_eye`)
     pub eyes_only: bool,
+    /// A JSX world is drawn after this scene (lib.rs): a host that draws by layers gets
+    /// this scene's layer without its see-through triangles, which lib.rs puts in a
+    /// layer of their own after the world's (`through_from`: where they start in `tris`)
+    pub split_through: bool,
     /// Smooth lit meshes for per-pixel (Phong) light, only for a host that
     /// draws everything with GL (`unified`): 18 floats a corner, x, y, depth
     /// (as `tris`), the face's own colour r, g, b, the light that is the same
@@ -1252,6 +1256,7 @@ impl Scene {
             tris: Vec::new(),
             eye: None,
             eyes_only: false,
+            split_through: false,
             globe: None,
             planets: Vec::new(),
             sun: None,
@@ -1739,12 +1744,17 @@ impl Scene {
         }
     }
 
+    /// Where the see-through triangles (depth 2…3, the last ones) start in `tris`.
+    pub fn through_from(&self) -> usize {
+        (0..self.tris.len() / 18).find(|&c| self.tris[c * 18 + 2] >= 1.5).map(|c| c * 18).unwrap_or(self.tris.len())
+    }
+
     /// The scene without the labels.
     fn draw_shapes(&mut self, out: &mut DrawStream, w: f64, h: f64) {
         if self.gl && self.globe.is_none() && self.planets.is_empty() && self.stars.is_empty() {
             self.render_gl(w, h, true);
             if self.unified {
-                out.scene_layer3d(0, self.tris.len(), !self.ptris.is_empty());
+                out.scene_layer3d(0, if self.split_through { self.through_from() } else { self.tris.len() }, !self.ptris.is_empty());
             }
             self.render_splats(out, w, h);
             return;
@@ -1811,7 +1821,7 @@ impl Scene {
         if self.gl && self.unified {
             // the objects in front of the sky, the globes and the stars, depth-tested
             self.render_gl(w, h, false);
-            out.scene_layer3d(0, self.tris.len(), !self.ptris.is_empty());
+            out.scene_layer3d(0, if self.split_through { self.through_from() } else { self.tris.len() }, !self.ptris.is_empty());
             self.render_splats(out, w, h);
             return;
         }

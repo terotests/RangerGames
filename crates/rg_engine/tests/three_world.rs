@@ -314,3 +314,34 @@ fn a_drawing_fill_with_a_hole_leaves_the_hole_open() {
     let area: f32 = tris.iter().map(|t| { let (a, b, c) = (p[t[0]], p[t[1]], p[t[2]]); ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5 }).sum();
     assert!((area - 12.0).abs() < 1e-3, "area {}", area);
 }
+
+#[test]
+fn a_see_through_scene_object_is_drawn_after_the_jsx_world() {
+    // a beam (rg.three, opacity under 1) and a JSX mesh: the beam's triangles come
+    // after the mesh's, so the host adds the beam's light over the mesh
+    let mut e = engine(r##"
+        rg.three("camera", { pos: [0, 0, 5], target: [0, 0, 0], fov: 50 });
+        rg.three("add", { id: "wall", shape: "box", size: [1, 1, 1], pos: [0, 0, -3], color: "#0000ff" });
+        rg.three("add", { id: "beam", shape: "cone", size: [0.5, 2], pos: [0, 0, 1], color: "#ff0000", emissive: true, opacity: 0.3 });
+        function view() {
+          return <div class="s"><scene3d>
+            <perspectiveCamera position={[0, 0, 5]} fov={50} />
+            <mesh name="ball">
+              <sphereGeometry args={[0.5, 8, 4]} />
+              <meshBasicMaterial color="#00ff00" />
+            </mesh>
+          </scene3d></div>;
+        }
+    "##);
+    e.gl3d = true;
+    e.start("t").unwrap();
+    e.frame(16.0).unwrap();
+    let tris: Vec<&[f32]> = e.scene.tris.chunks_exact(18).collect();
+    let first = tris.iter().position(|t| t[2] >= 1.5).expect("the beam's triangles");
+    assert!(tris[first..].iter().all(|t| t[2] >= 1.5), "the see-through triangles are the last ones");
+    let green = |t: &&[f32]| t[3] < 0.1 && t[4] > 0.9 && t[5] < 0.1;
+    let ball = tris.iter().position(green).expect("the ball's triangles");
+    assert!(ball < first && green(&tris[first - 1]), "the ball is drawn just before the beam");
+    let blue = tris.iter().position(|t| t[5] > 0.5 && t[3] < 0.2 && t[4] < 0.2).expect("the wall's triangles");
+    assert!(blue < ball, "the scene's solid objects stay first");
+}
