@@ -91,6 +91,25 @@ export class Field {
     const m = Math.max(...r);
     return this._add({ kind: 1, group, c, r, x, y, z, lo: c.map((v) => v - m), hi: c.map((v) => v + m), bones: o.bones || [], cut: o.cut, name: o.name });
   }
+  // a tube through the centre line `pts` with an elliptical section that changes
+  // smoothly along it: half widths rx[i] (towards `side`) and rz[i] (across) at
+  // each point, a Catmull-Rom curve between them (no ridges where pieces meet);
+  // rounded ends. One primitive a piece; bones(i) gives piece i's bones.
+  tube(group, pts, rx, rz, o = {}) {
+    const n = pts.length;
+    const out = [];
+    for (let i = 0; i + 1 < n; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const d = sub(b, a), l = len(d) || 1e-6;
+      const [x, y, z] = axisFrame(d, o.side || [1, 0, 0]);
+      const at = (arr, k) => arr[Math.max(0, Math.min(n - 1, k))];
+      const R = [rx, rz].map((arr) => [at(arr, i - 1), arr[i], arr[i + 1], at(arr, i + 2)]);
+      const m = Math.max(...R[0], ...R[1]);
+      const lo = [0, 1, 2].map((k) => Math.min(a[k], b[k]) - m), hi = [0, 1, 2].map((k) => Math.max(a[k], b[k]) + m);
+      out.push(this._add({ kind: 3, group, a, l, x, y, z, R, lo, hi, bones: o.bones ? o.bones(i) : [], cut: o.cut, name: o.name }));
+    }
+    return out;
+  }
   // a rounded slab: the 2D outline `poly` ([u, v] points, convex or not) in the plane
   // through c spanned by u and v, `t` thick, its edges rounded by `t`/2 (ears, fins)
   slab(group, c, u, v, poly, t, o = {}) {
@@ -113,6 +132,17 @@ export class Field {
       const k0 = Math.hypot(x / p.r[0], y / p.r[1], z / p.r[2]);
       const k1 = Math.hypot(x / (p.r[0] * p.r[0]), y / (p.r[1] * p.r[1]), z / (p.r[2] * p.r[2]));
       return k1 > 1e-9 ? k0 * (k0 - 1) / k1 : -Math.min(...p.r);
+    }
+    if (p.kind === 3) {
+      const d = sub(q, p.a);
+      const px = dot(d, p.x), py = dot(d, p.y), pz = dot(d, p.z);
+      // each piece has rounded ends (an ellipsoid the size of its section), so a bend has no gap
+      const t = Math.max(0, Math.min(1, py / p.l));
+      const cr = (v) => { const [a, b, c, e] = v; const t2 = t * t, t3 = t2 * t; return Math.max(1e-4, 0.5 * (2 * b + (-a + c) * t + (2 * a - 5 * b + 4 * c - e) * t2 + (-a + 3 * b - 3 * c + e) * t3)); };
+      const rx = cr(p.R[0]), rz = cr(p.R[1]);
+      const over = py < 0 ? py : py > p.l ? py - p.l : 0;
+      const rm = Math.min(rx, rz);
+      return (Math.hypot(px / rx, over / rm, pz / rz) - 1) * rm;
     }
     // slab: distance to the 2D outline in its plane, rounded by the thickness
     const d = sub(q, p.c);
@@ -275,17 +305,24 @@ function segDist(p, a, b) {
 // falls off with the corner's distance to the bone's segment (power `pw`),
 // four strongest kept; then `relax` passes average them over the mesh.
 //   segs: { bone: [a, b] } each bone's segment in the rest pose
-export function skinWeights(field, m, boneIndex, segs, { reach = 0.025, pw = 4, relax = 2 } = {}) {
+// allow(p, bone): optional filter, e.g. to keep a left bone off the right leg
+// where two parts lie closer than `reach` (feet side by side)
+export function skinWeights(field, m, boneIndex, segs, { reach = 0.025, pw = 4, relax = 2, allow = null } = {}) {
   const n = m.P.length;
   const WS = [];
   for (let v = 0; v < n; v++) {
     const who = [];
     field.eval(m.P[v], who);
     const solid = who.filter(([p]) => p.cut === undefined && p.bones.length);
-    if (!solid.length) { WS.push(new Map([[0, 1]])); continue; }
+    if (!solid.length) {
+      // no primitive reported here (e.g. on a cut's face): the nearest bone segment
+      let bb = null, bd = Infinity;
+      for (const b in segs) { const d = segDist(m.P[v], segs[b][0], segs[b][1]); if (d < bd) { bd = d; bb = b; } }
+      WS.push(new Map([[bb != null ? boneIndex[bb] : 0, 1]])); continue;
+    }
     const dmin = Math.min(...solid.map((x) => x[1]));
     const cand = new Set();
-    for (const [p, d] of solid) if (d <= dmin + reach) for (const b of p.bones) cand.add(b);
+    for (const [p, d] of solid) if (d <= dmin + reach) for (const b of p.bones) if (!allow || allow(m.P[v], b)) cand.add(b);
     const w = new Map();
     for (const b of cand) {
       const s = segs[b];
