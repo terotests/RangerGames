@@ -1647,8 +1647,26 @@ fn model_items(mi: &ModelInst, eye: V3, cam_f: V3, owner: u32, items: &mut Vec<I
                 yaws.iter().copied().min_by(|p, q| (p - yaw).abs().partial_cmp(&(q - yaw).abs()).unwrap_or(std::cmp::Ordering::Equal))
             }
         };
+        // a bone's drawings at several bends of a joint (features with a `bend`, in
+        // degrees: a forearm drawn on the hip and one drawn hanging): the one nearest
+        // the bend of `bendBy` (default the bone itself) from its parent is drawn
+        let set_bend = {
+            let bends: Vec<f32> = feats.iter().filter(|f| !f.get("bend").is_null()).map(|f| f.get("bend").as_num(0.0) as f32).collect();
+            if bends.len() < 2 { None } else {
+                let bi = feats.iter().map(|f| f.get("bendBy").as_str()).find(|s| !s.is_empty()).and_then(|b| asset.nodes.iter().position(|n| n.name == b)).unwrap_or(ni);
+                match asset.nodes[bi].parent {
+                    Some(pi) => {
+                        let (a, b) = (norm(gltf::transform_dir(&wm[bi], [0.0, 1.0, 0.0])), norm(gltf::transform_dir(&wm[pi], [0.0, 1.0, 0.0])));
+                        let bend = dot(a, b).clamp(-1.0, 1.0).acos().to_degrees();
+                        bends.iter().copied().min_by(|p, q| (p - bend).abs().partial_cmp(&(q - bend).abs()).unwrap_or(std::cmp::Ordering::Equal))
+                    }
+                    None => None,
+                }
+            }
+        };
         for f in feats.iter() {
             if let Some(y) = set_yaw { if (f.get("yaw").as_num(0.0) as f32 - y).abs() > 0.01 { continue; } }
+            if let Some(b) = set_bend { if !f.get("bend").is_null() && (f.get("bend").as_num(0.0) as f32 - b).abs() > 0.01 { continue; } }
             let base = match feature_art(f, f) { Some(x) => x, None => continue };
             // the anchor, the bone's up and forward, and the way to the camera
             let o = gltf::transform_point(&full, base.at);
