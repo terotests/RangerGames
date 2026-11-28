@@ -12,7 +12,8 @@
 //!                                     // under water (see `Water`): light and distance take each
 //!                                     // colour away at its own rate (red first), sunlight
 //!                                     // ripples over the faces (caustics); water: false ends it
-//! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z] })
+//! rg.three("camera", { x, y, z, lookAt: [x, y, z], fov, up: [x, y, z], near })
+//!                    near: the near plane in the game's units (0.05); it stays until set again
 //! rg.three("light",  { id, type: "ambient" | "directional" | "point", color, intensity, x, y, z, range })
 //!                    type "env": a still surrounding that objects with env > 0 mirror
 //!                    (a polished hull over a moon): x, y, z the way up, color the ground
@@ -991,6 +992,8 @@ pub struct Scene {
     /// the camera's up (default world up): a ship can roll over
     up: V3,
     fov: f64,
+    /// the near plane, in the game's units (camera `near`; 0.05)
+    near: f64,
     /// polygons drawn in the last frame
     pub drawn: usize,
     /// the host draws depth-tested triangles (set by the engine every frame)
@@ -1176,6 +1179,7 @@ impl Scene {
             look: [0.0, 0.0, 0.0],
             up: [0.0, 1.0, 0.0],
             fov: 50.0,
+            near: 0.05,
             drawn: 0,
             gl: false,
             unified: false,
@@ -1267,6 +1271,8 @@ impl Scene {
                     }
                 }
                 self.fov = a.get("fov").as_num(self.fov);
+                // a world in kilometres seen from a metre away (VR at 1:1) needs it closer
+                self.near = a.get("near").as_num(self.near).clamp(1e-7, 1e6);
             }
             "light" => {
                 let id = a.get("id").as_str();
@@ -1688,7 +1694,7 @@ impl Scene {
         // the camera, or a VR eye (symmetric there: its middle is w/2, h/2)
         let (eye, r, u, f, focal, _, _) = self.view_basis(w, h);
         self.fog_eye.set(eye);
-        let near = 0.05;
+        let near = self.near;
         if !self.stars.is_empty() {
             // tiny squares, in three brightnesses, each as one path
             let mut groups: [(Vec<f32>, Vec<f32>); 3] = [(Vec::new(), Vec::new()), (Vec::new(), Vec::new()), (Vec::new(), Vec::new())];
@@ -1982,7 +1988,7 @@ impl Scene {
         }
         // the camera, or a VR eye (symmetric: its middle is w/2, h/2)
         let (cam, r, u, f, focal, _, _) = self.view_basis(w, h);
-        let near = 0.05;
+        let near = self.near;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
@@ -2211,7 +2217,7 @@ impl Scene {
                 push(&mut tris, x, y, 1.0, sky_at(x, y, c));
             }
         }
-        let near = 0.05;
+        let near = self.near;
         let to_view = |p: V3| -> V3 {
             let d = sub(p, cam);
             [dot(d, r), dot(d, u), dot(d, f)]
